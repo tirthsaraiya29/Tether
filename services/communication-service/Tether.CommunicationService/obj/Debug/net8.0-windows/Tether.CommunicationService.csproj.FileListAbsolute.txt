@@ -59,6 +59,7 @@ C:\Dev\Tether\services\communication-service\Tether.CommunicationService\obj\Deb
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\obj\Debug\net8.0-windows\Tether.CommunicationService.AssemblyInfoInputs.cache
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\obj\Debug\net8.0-windows\Tether.CommunicationService.AssemblyInfo.cs
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\obj\Debug\net8.0-windows\Tether.CommunicationService.csproj.CoreCompileInputs.cache
+C:\Dev\Tether\services\communication-service\Tether.CommunicationService\obj\Debug\net8.0-windows\Tether.CommunicationService.sourcelink.json
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\obj\Debug\net8.0-windows\Tether.C.B8458921.Up2Date
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\obj\Debug\net8.0-windows\Tether.CommunicationService.dll
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\obj\Debug\net8.0-windows\refint\Tether.CommunicationService.dll

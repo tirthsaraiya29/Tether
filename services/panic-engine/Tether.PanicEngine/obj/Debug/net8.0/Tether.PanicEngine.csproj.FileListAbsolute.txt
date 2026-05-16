@@ -10,6 +10,7 @@ C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.P
 C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.PanicEngine.AssemblyInfoInputs.cache
 C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.PanicEngine.AssemblyInfo.cs
 C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.PanicEngine.csproj.CoreCompileInputs.cache
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.PanicEngine.sourcelink.json
 C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.P.6EB58E06.Up2Date
 C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.PanicEngine.dll
 C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\refint\Tether.PanicEngine.dll

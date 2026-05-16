@@ -24,6 +24,8 @@ public class EnforcementManager
     private void OnEvent(TetherEvent evt)
     {
         _logger.Debug($"EnforcementManager received: {evt.EventType}");
+
+        // Lock immediately on TRUST_LOST or PANIC_TRIGGERED
         if (evt.EventType == TetherEventType.TRUST_LOST ||
             evt.EventType == TetherEventType.PANIC_TRIGGERED)
         {

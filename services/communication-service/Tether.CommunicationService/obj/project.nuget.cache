@@ -1,10 +1,10 @@
 {
   "version": 2,
-  "dgSpecHash": "JP4UqgdULJ4=",
+  "dgSpecHash": "mNx0JdaAPOw=",
   "success": true,
   "projectFilePath": "C:\\Dev\\Tether\\services\\communication-service\\Tether.CommunicationService\\Tether.CommunicationService.csproj",
   "expectedPackageFiles": [
-    "C:\\Users\\tirth\\.nuget\\packages\\inthehand.net.bluetooth\\4.0.2\\inthehand.net.bluetooth.4.0.2.nupkg.sha512",
+    "C:\\Users\\tirth\\.nuget\\packages\\inthehand.net.bluetooth\\4.2.4\\inthehand.net.bluetooth.4.2.4.nupkg.sha512",
     "C:\\Users\\tirth\\.nuget\\packages\\microsoft.extensions.configuration\\8.0.0\\microsoft.extensions.configuration.8.0.0.nupkg.sha512",
     "C:\\Users\\tirth\\.nuget\\packages\\microsoft.extensions.configuration.abstractions\\8.0.0\\microsoft.extensions.configuration.abstractions.8.0.0.nupkg.sha512",
     "C:\\Users\\tirth\\.nuget\\packages\\microsoft.extensions.configuration.binder\\8.0.2\\microsoft.extensions.configuration.binder.8.0.2.nupkg.sha512",
@@ -33,7 +33,6 @@
     "C:\\Users\\tirth\\.nuget\\packages\\microsoft.extensions.options\\8.0.2\\microsoft.extensions.options.8.0.2.nupkg.sha512",
     "C:\\Users\\tirth\\.nuget\\packages\\microsoft.extensions.options.configurationextensions\\8.0.0\\microsoft.extensions.options.configurationextensions.8.0.0.nupkg.sha512",
     "C:\\Users\\tirth\\.nuget\\packages\\microsoft.extensions.primitives\\8.0.0\\microsoft.extensions.primitives.8.0.0.nupkg.sha512",
-    "C:\\Users\\tirth\\.nuget\\packages\\msbuild.sdk.extras\\2.0.54\\msbuild.sdk.extras.2.0.54.nupkg.sha512",
     "C:\\Users\\tirth\\.nuget\\packages\\serilog\\4.3.1\\serilog.4.3.1.nupkg.sha512",
     "C:\\Users\\tirth\\.nuget\\packages\\serilog.sinks.console\\6.1.1\\serilog.sinks.console.6.1.1.nupkg.sha512",
     "C:\\Users\\tirth\\.nuget\\packages\\serilog.sinks.file\\7.0.0\\serilog.sinks.file.7.0.0.nupkg.sha512",

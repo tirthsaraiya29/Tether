@@ -10,6 +10,7 @@ C:\Dev\Tether\services\enforcement-engine\Tether.EnforcementEngine\obj\Debug\net
 C:\Dev\Tether\services\enforcement-engine\Tether.EnforcementEngine\obj\Debug\net8.0\Tether.EnforcementEngine.AssemblyInfoInputs.cache
 C:\Dev\Tether\services\enforcement-engine\Tether.EnforcementEngine\obj\Debug\net8.0\Tether.EnforcementEngine.AssemblyInfo.cs
 C:\Dev\Tether\services\enforcement-engine\Tether.EnforcementEngine\obj\Debug\net8.0\Tether.EnforcementEngine.csproj.CoreCompileInputs.cache
+C:\Dev\Tether\services\enforcement-engine\Tether.EnforcementEngine\obj\Debug\net8.0\Tether.EnforcementEngine.sourcelink.json
 C:\Dev\Tether\services\enforcement-engine\Tether.EnforcementEngine\obj\Debug\net8.0\Tether.E.9CDC3252.Up2Date
 C:\Dev\Tether\services\enforcement-engine\Tether.EnforcementEngine\obj\Debug\net8.0\Tether.EnforcementEngine.dll
 C:\Dev\Tether\services\enforcement-engine\Tether.EnforcementEngine\obj\Debug\net8.0\refint\Tether.EnforcementEngine.dll

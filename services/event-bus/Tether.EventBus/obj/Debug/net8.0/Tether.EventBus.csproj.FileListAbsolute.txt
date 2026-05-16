@@ -8,6 +8,7 @@ C:\Dev\Tether\services\event-bus\Tether.EventBus\obj\Debug\net8.0\Tether.EventBu
 C:\Dev\Tether\services\event-bus\Tether.EventBus\obj\Debug\net8.0\Tether.EventBus.AssemblyInfoInputs.cache
 C:\Dev\Tether\services\event-bus\Tether.EventBus\obj\Debug\net8.0\Tether.EventBus.AssemblyInfo.cs
 C:\Dev\Tether\services\event-bus\Tether.EventBus\obj\Debug\net8.0\Tether.EventBus.csproj.CoreCompileInputs.cache
+C:\Dev\Tether\services\event-bus\Tether.EventBus\obj\Debug\net8.0\Tether.EventBus.sourcelink.json
 C:\Dev\Tether\services\event-bus\Tether.EventBus\obj\Debug\net8.0\Tether.E.CA8FB793.Up2Date
 C:\Dev\Tether\services\event-bus\Tether.EventBus\obj\Debug\net8.0\Tether.EventBus.dll
 C:\Dev\Tether\services\event-bus\Tether.EventBus\obj\Debug\net8.0\refint\Tether.EventBus.dll

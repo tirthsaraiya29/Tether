@@ -21,6 +21,7 @@ C:\Dev\Tether\apps\desktop-ui\Tether.DesktopUI\obj\Debug\net8.0-windows\Tether.D
 C:\Dev\Tether\apps\desktop-ui\Tether.DesktopUI\obj\Debug\net8.0-windows\Tether.DesktopUI.AssemblyInfoInputs.cache
 C:\Dev\Tether\apps\desktop-ui\Tether.DesktopUI\obj\Debug\net8.0-windows\Tether.DesktopUI.AssemblyInfo.cs
 C:\Dev\Tether\apps\desktop-ui\Tether.DesktopUI\obj\Debug\net8.0-windows\Tether.DesktopUI.csproj.CoreCompileInputs.cache
+C:\Dev\Tether\apps\desktop-ui\Tether.DesktopUI\obj\Debug\net8.0-windows\Tether.DesktopUI.sourcelink.json
 C:\Dev\Tether\apps\desktop-ui\Tether.DesktopUI\obj\Debug\net8.0-windows\Tether.D.9CF950E6.Up2Date
 C:\Dev\Tether\apps\desktop-ui\Tether.DesktopUI\obj\Debug\net8.0-windows\Tether.DesktopUI.dll
 C:\Dev\Tether\apps\desktop-ui\Tether.DesktopUI\obj\Debug\net8.0-windows\refint\Tether.DesktopUI.dll

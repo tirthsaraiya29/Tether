@@ -8,6 +8,7 @@ C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.P
 C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.Platform.Windows.AssemblyInfoInputs.cache
 C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.Platform.Windows.AssemblyInfo.cs
 C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.Platform.Windows.csproj.CoreCompileInputs.cache
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.Platform.Windows.sourcelink.json
 C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.P.53F7E973.Up2Date
 C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.Platform.Windows.dll
 C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\refint\Tether.Platform.Windows.dll

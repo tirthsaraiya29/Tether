@@ -10,6 +10,7 @@ C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.T
 C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.TrustEngine.AssemblyInfoInputs.cache
 C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.TrustEngine.AssemblyInfo.cs
 C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.TrustEngine.csproj.CoreCompileInputs.cache
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.TrustEngine.sourcelink.json
 C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.T.BB584853.Up2Date
 C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.TrustEngine.dll
 C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\refint\Tether.TrustEngine.dll

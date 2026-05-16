@@ -2,18 +2,15 @@
   "version": 4,
   "targets": {
     "net8.0-windows": {
-      "InTheHand.Net.Bluetooth/4.0.2": {
+      "InTheHand.Net.Bluetooth/4.2.4": {
         "type": "package",
-        "dependencies": {
-          "MSBuild.Sdk.Extras": "2.0.54"
-        },
         "compile": {
-          "lib/netstandard2.0/InTheHand.Net.Bluetooth.dll": {
+          "lib/netstandard2.1/InTheHand.Net.Bluetooth.dll": {
             "related": ".xml"
           }
         },
         "runtime": {
-          "lib/netstandard2.0/InTheHand.Net.Bluetooth.dll": {
+          "lib/netstandard2.1/InTheHand.Net.Bluetooth.dll": {
             "related": ".xml"
           }
         }
@@ -615,9 +612,6 @@
           "buildTransitive/net6.0/_._": {}
         }
       },
-      "MSBuild.Sdk.Extras/2.0.54": {
-        "type": "package"
-      },
       "Serilog/4.3.1": {
         "type": "package",
         "compile": {
@@ -804,24 +798,33 @@
     }
   },
   "libraries": {
-    "InTheHand.Net.Bluetooth/4.0.2": {
-      "sha512": "24PWwBWvkQ1p9RBWWz2qi+py8DYOuTTRs2VVi5+Fw29c8EkStgRwm9fIrjCnYfOme4LOflIaBeg8MvuWsZGO1Q==",
+    "InTheHand.Net.Bluetooth/4.2.4": {
+      "sha512": "xoEylG7EfNxDEvy+I3c3XYK5ZFbExAoVQCuJYY5BdyClGsHEn1o+NMZCjh2q+yqXSabTdJbeNYAkny6Fu0XQiQ==",
       "type": "package",
-      "path": "inthehand.net.bluetooth/4.0.2",
+      "path": "inthehand.net.bluetooth/4.2.4",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
         "32feet-package-icon.png",
-        "inthehand.net.bluetooth.4.0.2.nupkg.sha512",
+        "README.md",
+        "inthehand.net.bluetooth.4.2.4.nupkg.sha512",
         "inthehand.net.bluetooth.nuspec",
-        "lib/monoandroid90/InTheHand.Net.Bluetooth.dll",
-        "lib/monoandroid90/InTheHand.Net.Bluetooth.xml",
-        "lib/net461/InTheHand.Net.Bluetooth.dll",
-        "lib/net461/InTheHand.Net.Bluetooth.xml",
+        "lib/net462/InTheHand.Net.Bluetooth.dll",
+        "lib/net462/InTheHand.Net.Bluetooth.xml",
+        "lib/net9.0-android35.0/InTheHand.Net.Bluetooth.dll",
+        "lib/net9.0-android35.0/InTheHand.Net.Bluetooth.xml",
+        "lib/net9.0-ios18.0/InTheHand.Net.Bluetooth.dll",
+        "lib/net9.0-ios18.0/InTheHand.Net.Bluetooth.xml",
+        "lib/net9.0-windows10.0.19041/InTheHand.Net.Bluetooth.dll",
+        "lib/net9.0-windows10.0.19041/InTheHand.Net.Bluetooth.xml",
+        "lib/net9.0-windows7.0/InTheHand.Net.Bluetooth.dll",
+        "lib/net9.0-windows7.0/InTheHand.Net.Bluetooth.xml",
+        "lib/net9.0/InTheHand.Net.Bluetooth.dll",
+        "lib/net9.0/InTheHand.Net.Bluetooth.xml",
         "lib/netstandard2.0/InTheHand.Net.Bluetooth.dll",
         "lib/netstandard2.0/InTheHand.Net.Bluetooth.xml",
-        "lib/xamarinios10/InTheHand.Net.Bluetooth.dll",
-        "lib/xamarinios10/InTheHand.Net.Bluetooth.xml"
+        "lib/netstandard2.1/InTheHand.Net.Bluetooth.dll",
+        "lib/netstandard2.1/InTheHand.Net.Bluetooth.xml"
       ]
     },
     "Microsoft.Extensions.Configuration/8.0.0": {
@@ -1746,70 +1749,6 @@
         "useSharedDesignerContext.txt"
       ]
     },
-    "MSBuild.Sdk.Extras/2.0.54": {
-      "sha512": "3GY1KogXV5rVbw/uKCVYTbhw5SqeIsQv6KDXmNEPgWHb9qJUMXUXHRdwHoxCWZzvxlPv6EDGEomXGCrsH8k61w==",
-      "type": "package",
-      "path": "msbuild.sdk.extras/2.0.54",
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "Build/Core.props",
-        "Build/Core.targets",
-        "Build/ExtrasShim.targets",
-        "Build/FrameworkResolvers/NETFramework.targets",
-        "Build/FrameworkResolvers/NETPortable.v4.0.targets",
-        "Build/FrameworkResolvers/NETPortable.v4.5.targets",
-        "Build/FrameworkResolvers/NETPortable.v4.6.targets",
-        "Build/FrameworkResolvers/NETPortable.v5.0.targets",
-        "Build/Inference.targets",
-        "Build/LanguageTargets/CheckMissing.targets",
-        "Build/LanguageTargets/Portable.targets",
-        "Build/LanguageTargets/Silverlight.targets",
-        "Build/LanguageTargets/Windows.targets",
-        "Build/LanguageTargets/WindowsPhone.targets",
-        "Build/LanguageTargets/Xamarin.targets",
-        "Build/Platforms.targets",
-        "Build/Platforms/NETFramework.targets",
-        "Build/Platforms/Portable.targets",
-        "Build/Platforms/Silverlight.targets",
-        "Build/Platforms/Tizen.targets",
-        "Build/Platforms/Windows.targets",
-        "Build/Platforms/WindowsPhone.targets",
-        "Build/Platforms/Xamarin.targets",
-        "Build/Platforms/Xamarin/Xamarin.Android.targets",
-        "Build/Platforms/Xamarin/Xamarin.Mac.targets",
-        "Build/Platforms/Xamarin/Xamarin.TVOS.targets",
-        "Build/Platforms/Xamarin/Xamarin.WatchOS.targets",
-        "Build/Platforms/Xamarin/Xamarin.iOS.targets",
-        "Build/RIDs.targets",
-        "Build/ReferenceAssembly.targets",
-        "Build/Workarounds.props",
-        "Build/Workarounds.targets",
-        "DefaultItems/DefaultItems.props",
-        "DefaultItems/DefaultItems.targets",
-        "DefaultItems/ImplicitPackages.targets",
-        "DefaultItems/Platforms/Common.props",
-        "DefaultItems/Platforms/Common.targets",
-        "DefaultItems/Platforms/Desktop.VisualBasic.props",
-        "DefaultItems/Platforms/Desktop.VisualBasic.targets",
-        "DefaultItems/Platforms/Desktop.props",
-        "DefaultItems/Platforms/Desktop.targets",
-        "DefaultItems/Platforms/Xaml.props",
-        "DefaultItems/Platforms/Xaml.targets",
-        "ProjectSystem/ProjectSystem.props",
-        "ProjectSystem/ProjectSystem.targets",
-        "ProjectSystem/Rules/ApplicationDefinition.xaml",
-        "ProjectSystem/Rules/CSharp.ProjectItemsSchema.xaml",
-        "ProjectSystem/Rules/Page.xaml",
-        "ProjectSystem/Rules/ProjectItemsSchema.xaml",
-        "ProjectSystem/Rules/Resource.xaml",
-        "ProjectSystem/Rules/VisualBasic.ProjectItemsSchema.xaml",
-        "Sdk/Sdk.props",
-        "Sdk/Sdk.targets",
-        "msbuild.sdk.extras.2.0.54.nupkg.sha512",
-        "msbuild.sdk.extras.nuspec"
-      ]
-    },
     "Serilog/4.3.1": {
       "sha512": "savYe7h5yRlkqBVOwP8cIRDOdqKiPmYCU4W87JH38sBmcKD5EBoXvQIw6bNEvZ/pTe1gsiye3VFCzBsoppGkXQ==",
       "type": "package",
@@ -1995,7 +1934,7 @@
   },
   "projectFileDependencyGroups": {
     "net8.0-windows": [
-      "InTheHand.Net.Bluetooth >= 4.0.2",
+      "InTheHand.Net.Bluetooth >= 4.2.4",
       "Microsoft.Extensions.Hosting >= 8.0.1",
       "Microsoft.Extensions.Hosting.WindowsServices >= 8.0.1",
       "Tether.EnforcementEngine >= 1.0.0",
@@ -2079,7 +2018,7 @@
         "dependencies": {
           "InTheHand.Net.Bluetooth": {
             "target": "Package",
-            "version": "[4.0.2, )"
+            "version": "[4.2.4, )"
           },
           "Microsoft.Extensions.Hosting": {
             "target": "Package",

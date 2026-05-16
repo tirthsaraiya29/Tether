@@ -6,6 +6,7 @@ C:\Dev\Tether\shared\Tether.Shared\obj\Debug\net8.0\Tether.Shared.GeneratedMSBui
 C:\Dev\Tether\shared\Tether.Shared\obj\Debug\net8.0\Tether.Shared.AssemblyInfoInputs.cache
 C:\Dev\Tether\shared\Tether.Shared\obj\Debug\net8.0\Tether.Shared.AssemblyInfo.cs
 C:\Dev\Tether\shared\Tether.Shared\obj\Debug\net8.0\Tether.Shared.csproj.CoreCompileInputs.cache
+C:\Dev\Tether\shared\Tether.Shared\obj\Debug\net8.0\Tether.Shared.sourcelink.json
 C:\Dev\Tether\shared\Tether.Shared\obj\Debug\net8.0\Tether.Shared.dll
 C:\Dev\Tether\shared\Tether.Shared\obj\Debug\net8.0\refint\Tether.Shared.dll
 C:\Dev\Tether\shared\Tether.Shared\obj\Debug\net8.0\Tether.Shared.pdb

@@ -73,7 +73,7 @@
           "dependencies": {
             "InTheHand.Net.Bluetooth": {
               "target": "Package",
-              "version": "[4.0.2, )"
+              "version": "[4.2.4, )"
             },
             "Microsoft.Extensions.Hosting": {
               "target": "Package",

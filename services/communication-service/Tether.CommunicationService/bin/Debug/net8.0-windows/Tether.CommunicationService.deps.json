@@ -8,7 +8,7 @@
     ".NETCoreApp,Version=v8.0": {
       "Tether.CommunicationService/1.0.0": {
         "dependencies": {
-          "InTheHand.Net.Bluetooth": "4.0.2",
+          "InTheHand.Net.Bluetooth": "4.2.4",
           "Microsoft.Extensions.Hosting": "8.0.1",
           "Microsoft.Extensions.Hosting.WindowsServices": "8.0.1",
           "Tether.EnforcementEngine": "1.0.0",
@@ -22,11 +22,11 @@
           "Tether.CommunicationService.dll": {}
         }
       },
-      "InTheHand.Net.Bluetooth/4.0.2": {
+      "InTheHand.Net.Bluetooth/4.2.4": {
         "runtime": {
-          "lib/netstandard2.0/InTheHand.Net.Bluetooth.dll": {
-            "assemblyVersion": "4.0.0.0",
-            "fileVersion": "4.0.2.122"
+          "lib/netstandard2.1/InTheHand.Net.Bluetooth.dll": {
+            "assemblyVersion": "4.2.4.0",
+            "fileVersion": "4.2.4.0"
           }
         }
       },
@@ -553,12 +553,12 @@
       "serviceable": false,
       "sha512": ""
     },
-    "InTheHand.Net.Bluetooth/4.0.2": {
+    "InTheHand.Net.Bluetooth/4.2.4": {
       "type": "package",
       "serviceable": true,
-      "sha512": "sha512-24PWwBWvkQ1p9RBWWz2qi+py8DYOuTTRs2VVi5+Fw29c8EkStgRwm9fIrjCnYfOme4LOflIaBeg8MvuWsZGO1Q==",
-      "path": "inthehand.net.bluetooth/4.0.2",
-      "hashPath": "inthehand.net.bluetooth.4.0.2.nupkg.sha512"
+      "sha512": "sha512-xoEylG7EfNxDEvy+I3c3XYK5ZFbExAoVQCuJYY5BdyClGsHEn1o+NMZCjh2q+yqXSabTdJbeNYAkny6Fu0XQiQ==",
+      "path": "inthehand.net.bluetooth/4.2.4",
+      "hashPath": "inthehand.net.bluetooth.4.2.4.nupkg.sha512"
     },
     "Microsoft.Extensions.Configuration/8.0.0": {
       "type": "package",

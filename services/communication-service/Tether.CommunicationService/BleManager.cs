@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Runtime.InteropServices;
 using InTheHand.Net.Bluetooth;
 using InTheHand.Net.Sockets;
 using Tether.EventBus;
@@ -11,10 +11,10 @@ public class BleManager : IDisposable
 {
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
-    private Thread? _discoveryThread;
+    private Thread? _monitoringThread;
     private bool _isRunning;
-
-    private readonly ConcurrentDictionary<string, BluetoothDeviceInfo> _foundDevices = new();
+    private string? _connectedPhoneAddress;
+    private DateTime _lastSeen;
 
     public BleManager(IEventBus eventBus, ITetherLogger logger)
     {
@@ -24,75 +24,87 @@ public class BleManager : IDisposable
 
     public void Start()
     {
-        try
-        {
-            using var testClient = new BluetoothClient();
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Bluetooth unavailable: {ex.Message}");
-            return;
-        }
-
-        _logger.Info("BLE manager starting with 32feet.NET");
-
+        _logger.Info("BLE proximity monitoring starting...");
         _isRunning = true;
-
-        _discoveryThread = new Thread(DiscoverDevices);
-        _discoveryThread.Start();
+        _monitoringThread = new Thread(MonitorPhone);
+        _monitoringThread.Start();
     }
 
-    private void DiscoverDevices()
+    private void MonitorPhone()
     {
         while (_isRunning)
         {
             try
             {
-                _logger.Debug("Scanning for Bluetooth devices...");
-
                 using var client = new BluetoothClient();
 
+                // Correct DiscoverDevices - no parameters or maxDevices only
                 var devices = client.DiscoverDevices();
 
-                foreach (var device in devices)
+                var phone = devices.FirstOrDefault(d => d.DeviceName != null && d.DeviceName.Contains("TetherPhone"));
+
+                if (phone != null)
                 {
-                    if (device.DeviceName?.Contains("TetherPhone") == true)
+                    var phoneAddress = phone.DeviceAddress.ToString();
+
+                    if (_connectedPhoneAddress == null)
                     {
-                        var address = device.DeviceAddress.ToString();
-
-                        if (_foundDevices.TryAdd(address, device))
+                        // Phone just connected
+                        _connectedPhoneAddress = phoneAddress;
+                        _logger.Info($"Phone connected: {phone.DeviceName}");
+                        _eventBus.Publish(new TetherEvent
                         {
-                            _logger.Info(
-                                $"Found Tether phone: {device.DeviceName} - {address}");
+                            EventType = TetherEventType.PHONE_CONNECTED,
+                            Source = "BleManager"
+                        });
+                    }
+                    _lastSeen = DateTime.Now;
 
-                            _eventBus.Publish(new TetherEvent
-                            {
-                                EventType = TetherEventType.PHONE_CONNECTED,
-                                Source = "BleManager",
-                                PayloadJson =
-                                    $"{{\"DeviceName\":\"{device.DeviceName}\",\"Address\":\"{address}\"}}"
-                            });
-                        }
+                    // Since 32feet.NET doesn't provide RSSI, we use connection status
+                    // For true proximity, we'll implement heartbeat method next
+                    _logger.Debug($"Phone in range: {phone.DeviceName}");
+
+                    // Restore trust when phone is nearby
+                    _eventBus.Publish(new TetherEvent
+                    {
+                        EventType = TetherEventType.TRUST_RESTORED,
+                        Source = "BleManager"
+                    });
+                }
+                else if (_connectedPhoneAddress != null)
+                {
+                    // Phone was connected but not found in scan
+                    if ((DateTime.Now - _lastSeen).TotalSeconds > 3)
+                    {
+                        _logger.Warning("Phone disappeared - immediate lock");
+                        _eventBus.Publish(new TetherEvent
+                        {
+                            EventType = TetherEventType.PHONE_DISCONNECTED,
+                            Source = "BleManager"
+                        });
+                        LockWorkStation();
+                        _connectedPhoneAddress = null;
                     }
                 }
 
-                Thread.Sleep(10000);
+                Thread.Sleep(2000); // Scan every 2 seconds
             }
             catch (Exception ex)
             {
-                _logger.Error($"BLE discovery error: {ex.Message}", ex);
-                Thread.Sleep(30000);
+                _logger.Error($"BLE monitoring error: {ex.Message}");
+                Thread.Sleep(5000);
             }
         }
     }
 
+    [DllImport("user32.dll")]
+    private static extern bool LockWorkStation();
+
     public void Stop()
     {
         _isRunning = false;
-
-        _discoveryThread?.Join(5000);
-
-        _logger.Info("BLE manager stopped");
+        _monitoringThread?.Join(5000);
+        _logger.Info("BLE monitoring stopped");
     }
 
     public void Dispose() => Stop();

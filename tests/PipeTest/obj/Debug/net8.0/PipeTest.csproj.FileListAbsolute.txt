@@ -7,6 +7,7 @@ C:\Dev\Tether\tests\PipeTest\obj\Debug\net8.0\PipeTest.GeneratedMSBuildEditorCon
 C:\Dev\Tether\tests\PipeTest\obj\Debug\net8.0\PipeTest.AssemblyInfoInputs.cache
 C:\Dev\Tether\tests\PipeTest\obj\Debug\net8.0\PipeTest.AssemblyInfo.cs
 C:\Dev\Tether\tests\PipeTest\obj\Debug\net8.0\PipeTest.csproj.CoreCompileInputs.cache
+C:\Dev\Tether\tests\PipeTest\obj\Debug\net8.0\PipeTest.sourcelink.json
 C:\Dev\Tether\tests\PipeTest\obj\Debug\net8.0\PipeTest.dll
 C:\Dev\Tether\tests\PipeTest\obj\Debug\net8.0\refint\PipeTest.dll
 C:\Dev\Tether\tests\PipeTest\obj\Debug\net8.0\PipeTest.pdb

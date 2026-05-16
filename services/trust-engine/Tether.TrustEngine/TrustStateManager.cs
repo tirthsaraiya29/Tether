@@ -3,28 +3,30 @@ using Tether.Shared.Constants;
 using Tether.Shared.Events;
 using Tether.Shared.Logging;
 
-namespace Tether.TrustEngine
+namespace Tether.TrustEngine;
+
+public class TrustStateManager
 {
-    public class TrustStateManager
+    private readonly IEventBus _eventBus;
+    private readonly ITetherLogger _logger;
+    private TrustState _currentState = TrustState.LIMITED;
+
+    public TrustStateManager(IEventBus eventBus, ITetherLogger logger)
     {
-        private readonly IEventBus _eventBus;
-        private readonly ITetherLogger _logger;
-        private TrustState _currentState = TrustState.LIMITED;
+        _eventBus = eventBus;
+        _logger = logger;
+        _eventBus.Subscribe(OnEvent);
+        _logger.Info("TrustStateManager initialized");
+    }
 
-        public TrustStateManager(IEventBus eventBus, ITetherLogger logger)
+    private void OnEvent(TetherEvent evt)
+    {
+        _logger.Info($"TrustStateManager received event: {evt.EventType}");
+
+        switch (evt.EventType)
         {
-            _eventBus = eventBus;
-            _logger = logger;
-            _eventBus.Subscribe(OnEvent);
-            _logger.Info("TrustStateManager initialized");
-        }
-
-        private void OnEvent(TetherEvent evt)
-        {
-            _logger.Info($"TrustStateManager received event: {evt.EventType}");
-
-            if (evt.EventType == TetherEventType.PHONE_CONNECTED)
-            {
+            case TetherEventType.PHONE_CONNECTED:
+            case TetherEventType.PHONE_UNLOCKED:
                 _currentState = TrustState.TRUSTED;
                 _eventBus.Publish(new TetherEvent
                 {
@@ -32,9 +34,9 @@ namespace Tether.TrustEngine
                     Source = "TrustStateManager"
                 });
                 _logger.Info($"Trust state changed to {_currentState}");
-            }
-            else if (evt.EventType == TetherEventType.PHONE_DISCONNECTED)
-            {
+                break;
+
+            case TetherEventType.PHONE_DISCONNECTED:
                 _currentState = TrustState.LIMITED;
                 _eventBus.Publish(new TetherEvent
                 {
@@ -42,19 +44,27 @@ namespace Tether.TrustEngine
                     Source = "TrustStateManager"
                 });
                 _logger.Info($"Trust state changed to {_currentState}");
-            }
-            else if (evt.EventType == TetherEventType.PHONE_UNLOCKED)
-            {
-                _currentState = TrustState.TRUSTED;
-                _eventBus.Publish(new TetherEvent
-                {
-                    EventType = TetherEventType.TRUST_RESTORED,
-                    Source = "TrustStateManager"
-                });
-                _logger.Info($"Trust restored (phone unlocked)");
-            }
-        }
+                break;
 
-        public TrustState GetCurrentState() => _currentState;
+            case TetherEventType.TRUST_DEGRADED:
+                if (_currentState == TrustState.TRUSTED)
+                {
+                    _currentState = TrustState.DEGRADED;
+                    _logger.Warning("Trust degraded due to proximity");
+                }
+                break;
+
+            case TetherEventType.TRUST_LOST:
+                _currentState = TrustState.LIMITED;
+                _logger.Warning("Trust lost – enforcement will lock");
+                break;
+
+            case TetherEventType.PANIC_TRIGGERED:
+                _currentState = TrustState.PANIC;
+                _logger.Warning("PANIC mode activated");
+                break;
+        }
     }
+
+    public TrustState GetCurrentState() => _currentState;
 }

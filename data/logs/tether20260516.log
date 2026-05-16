@@ -1,0 +1,55 @@
+2026-05-16 14:44:58.452 +05:30 [INF] TrustStateManager initialized
+2026-05-16 14:44:58.495 +05:30 [INF] EnforcementManager ready
+2026-05-16 14:44:58.496 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-16 14:44:58.497 +05:30 [INF] Pipe server started
+2026-05-16 14:44:58.503 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-16 14:44:58.503 +05:30 [INF] BLE manager starting with 32feet.NET
+2026-05-16 14:44:58.504 +05:30 [INF] All services initialized. Starting host...
+2026-05-16 14:44:58.514 +05:30 [INF] Tether Communication Service started successfully
+2026-05-16 14:45:16.286 +05:30 [INF] Desktop UI connected to pipe.
+2026-05-16 14:45:16.314 +05:30 [WRN] Panic mode activated!
+2026-05-16 14:45:16.315 +05:30 [WRN] Enforcing lockdown due to PANIC_TRIGGERED
+2026-05-16 14:45:16.316 +05:30 [INF] TrustStateManager received event: PANIC_TRIGGERED
+2026-05-16 14:45:16.317 +05:30 [INF] Desktop UI disconnected.
+2026-05-16 14:45:16.317 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-16 14:45:27.903 +05:30 [INF] Desktop UI connected to pipe.
+2026-05-16 14:45:27.904 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-16 14:45:27.905 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-16 14:45:27.906 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-16 14:45:27.907 +05:30 [INF] Desktop UI disconnected.
+2026-05-16 14:45:27.907 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-16 14:45:36.960 +05:30 [INF] Desktop UI connected to pipe.
+2026-05-16 14:45:36.961 +05:30 [INF] TrustStateManager received event: PHONE_DISCONNECTED
+2026-05-16 14:45:36.963 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-16 14:45:36.964 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-16 14:45:36.966 +05:30 [INF] Trust state changed to LIMITED
+2026-05-16 14:45:36.968 +05:30 [INF] Desktop UI disconnected.
+2026-05-16 14:45:36.969 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-16 14:45:54.614 +05:30 [INF] Tether Communication Service is stopping
+2026-05-16 14:45:58.569 +05:30 [INF] BLE manager stopped
+2026-05-16 14:46:03.947 +05:30 [INF] TrustStateManager initialized
+2026-05-16 14:46:03.978 +05:30 [INF] EnforcementManager ready
+2026-05-16 14:46:03.979 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-16 14:46:03.980 +05:30 [INF] Pipe server started
+2026-05-16 14:46:03.983 +05:30 [INF] BLE manager starting with 32feet.NET
+2026-05-16 14:46:03.984 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-16 14:46:03.984 +05:30 [INF] All services initialized. Starting host...
+2026-05-16 14:46:03.993 +05:30 [INF] Tether Communication Service started successfully
+2026-05-16 14:46:38.631 +05:30 [INF] Desktop UI connected to pipe.
+2026-05-16 14:46:38.658 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-16 14:46:38.658 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-16 14:46:38.659 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-16 14:46:38.660 +05:30 [INF] Desktop UI disconnected.
+2026-05-16 14:46:38.660 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-16 14:46:44.038 +05:30 [INF] Desktop UI connected to pipe.
+2026-05-16 14:46:44.039 +05:30 [WRN] Panic mode activated!
+2026-05-16 14:46:44.040 +05:30 [WRN] Enforcing lockdown due to PANIC_TRIGGERED
+2026-05-16 14:46:44.041 +05:30 [INF] TrustStateManager received event: PANIC_TRIGGERED
+2026-05-16 14:46:44.042 +05:30 [INF] Desktop UI disconnected.
+2026-05-16 14:46:44.043 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-16 15:12:00.657 +05:30 [INF] Desktop UI connected to pipe.
+2026-05-16 15:12:00.658 +05:30 [WRN] Panic mode activated!
+2026-05-16 15:12:00.659 +05:30 [WRN] Enforcing lockdown due to PANIC_TRIGGERED
+2026-05-16 15:12:00.660 +05:30 [INF] TrustStateManager received event: PANIC_TRIGGERED
+2026-05-16 15:12:00.661 +05:30 [INF] Desktop UI disconnected.
+2026-05-16 15:12:00.662 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
