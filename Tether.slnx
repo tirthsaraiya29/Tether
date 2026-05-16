@@ -1,0 +1,12 @@
+<Solution>
+  <Project Path="apps/desktop-ui/Tether.DesktopUI/Tether.DesktopUI.csproj" Id="cc11e299-7247-496c-a00c-15a071b1ad07" />
+  <Project Path="platform/windows/Tether.Platform.Windows/Tether.Platform.Windows.csproj" Id="c6d4ba83-b71e-4558-bed2-911ac9cf1cc5" />
+  <Project Path="services/communication-service/Tether.CommunicationService/Tether.CommunicationService.csproj" Id="52fd365d-08fc-4891-9b33-acae9bbff409" />
+  <Project Path="services/enforcement-engine/Tether.EnforcementEngine/Tether.EnforcementEngine.csproj" Id="776c4d29-2fc9-46b7-8c1f-60a6658611d9" />
+  <Project Path="services/event-bus/Tether.EventBus/Tether.EventBus.csproj" Id="db980167-9fe8-4743-b031-b1b43507d5d9" />
+  <Project Path="services/panic-engine/Tether.PanicEngine/Tether.PanicEngine.csproj" Id="3c7ea25d-4c69-480e-a7b9-594936bbca2e" />
+  <Project Path="services/recovery-engine/Tether.RecoveryEngine/Tether.RecoveryEngine.csproj" Id="ca2a983f-aee8-44c4-b674-e263c7bf7a05" />
+  <Project Path="services/trust-engine/Tether.TrustEngine/Tether.TrustEngine.csproj" Id="77b02dff-5d0c-4e89-b107-11237cb641b2" />
+  <Project Path="shared/Tether.Shared/Tether.Shared.csproj" Id="fa22ec12-1ea6-4d30-b4d0-373c8b9a214d" />
+  <Project Path="tests/PipeTest/PipeTest.csproj" Id="d56e1606-90b5-4a6e-8e97-fdd9970ba661" />
+</Solution>

@@ -1,0 +1,17 @@
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\bin\Debug\net8.0\Tether.PanicEngine.deps.json
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\bin\Debug\net8.0\Tether.PanicEngine.dll
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\bin\Debug\net8.0\Tether.PanicEngine.pdb
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\bin\Debug\net8.0\Tether.EventBus.dll
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\bin\Debug\net8.0\Tether.Shared.dll
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\bin\Debug\net8.0\Tether.Shared.pdb
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\bin\Debug\net8.0\Tether.EventBus.pdb
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.PanicEngine.csproj.AssemblyReference.cache
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.PanicEngine.GeneratedMSBuildEditorConfig.editorconfig
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.PanicEngine.AssemblyInfoInputs.cache
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.PanicEngine.AssemblyInfo.cs
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.PanicEngine.csproj.CoreCompileInputs.cache
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.P.6EB58E06.Up2Date
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.PanicEngine.dll
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\refint\Tether.PanicEngine.dll
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\Tether.PanicEngine.pdb
+C:\Dev\Tether\services\panic-engine\Tether.PanicEngine\obj\Debug\net8.0\ref\Tether.PanicEngine.dll

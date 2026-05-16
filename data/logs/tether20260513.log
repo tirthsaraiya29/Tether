@@ -1,0 +1,11 @@
+2026-05-13 22:27:08.019 -07:00 [INF] TrustStateManager initialized
+2026-05-13 22:27:08.054 -07:00 [INF] EnforcementManager initialized (skeleton)
+2026-05-13 22:27:08.055 -07:00 [INF] PanicManager initialized (skeleton)
+2026-05-13 22:27:08.055 -07:00 [INF] RecoveryManager initialized (skeleton)
+2026-05-13 22:27:08.056 -07:00 [INF] Pipe server started
+2026-05-13 22:27:08.056 -07:00 [INF] BLE scanner started - looking for Tether Android device
+2026-05-13 22:27:09.136 -07:00 [INF] Named pipe server waiting for connection from Desktop UI...
+2026-05-13 22:27:09.567 -07:00 [INF] BLE device watcher started
+2026-05-13 22:27:09.567 -07:00 [INF] All services initialized. Starting host...
+2026-05-13 22:27:09.583 -07:00 [INF] Tether Communication Service started successfully
+2026-05-13 22:29:08.056 -07:00 [INF] Tether Communication Service is stopping

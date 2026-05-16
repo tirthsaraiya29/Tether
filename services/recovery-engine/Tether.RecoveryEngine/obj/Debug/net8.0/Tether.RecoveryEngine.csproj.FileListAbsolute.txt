@@ -1,0 +1,17 @@
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\bin\Debug\net8.0\Tether.RecoveryEngine.deps.json
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\bin\Debug\net8.0\Tether.RecoveryEngine.dll
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\bin\Debug\net8.0\Tether.RecoveryEngine.pdb
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\bin\Debug\net8.0\Tether.EventBus.dll
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\bin\Debug\net8.0\Tether.Shared.dll
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\bin\Debug\net8.0\Tether.Shared.pdb
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\bin\Debug\net8.0\Tether.EventBus.pdb
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\obj\Debug\net8.0\Tether.RecoveryEngine.csproj.AssemblyReference.cache
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\obj\Debug\net8.0\Tether.RecoveryEngine.GeneratedMSBuildEditorConfig.editorconfig
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\obj\Debug\net8.0\Tether.RecoveryEngine.AssemblyInfoInputs.cache
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\obj\Debug\net8.0\Tether.RecoveryEngine.AssemblyInfo.cs
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\obj\Debug\net8.0\Tether.RecoveryEngine.csproj.CoreCompileInputs.cache
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\obj\Debug\net8.0\Tether.R.DB47A69D.Up2Date
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\obj\Debug\net8.0\Tether.RecoveryEngine.dll
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\obj\Debug\net8.0\refint\Tether.RecoveryEngine.dll
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\obj\Debug\net8.0\Tether.RecoveryEngine.pdb
+C:\Dev\Tether\services\recovery-engine\Tether.RecoveryEngine\obj\Debug\net8.0\ref\Tether.RecoveryEngine.dll

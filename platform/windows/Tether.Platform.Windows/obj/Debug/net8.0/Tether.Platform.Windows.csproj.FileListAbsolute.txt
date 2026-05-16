@@ -1,0 +1,15 @@
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\bin\Debug\net8.0\Tether.Platform.Windows.deps.json
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\bin\Debug\net8.0\Tether.Platform.Windows.dll
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\bin\Debug\net8.0\Tether.Platform.Windows.pdb
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\bin\Debug\net8.0\Tether.Shared.dll
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\bin\Debug\net8.0\Tether.Shared.pdb
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.Platform.Windows.csproj.AssemblyReference.cache
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.Platform.Windows.GeneratedMSBuildEditorConfig.editorconfig
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.Platform.Windows.AssemblyInfoInputs.cache
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.Platform.Windows.AssemblyInfo.cs
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.Platform.Windows.csproj.CoreCompileInputs.cache
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.P.53F7E973.Up2Date
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.Platform.Windows.dll
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\refint\Tether.Platform.Windows.dll
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\Tether.Platform.Windows.pdb
+C:\Dev\Tether\platform\windows\Tether.Platform.Windows\obj\Debug\net8.0\ref\Tether.Platform.Windows.dll

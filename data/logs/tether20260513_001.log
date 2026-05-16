@@ -1,0 +1,27 @@
+2026-05-13 22:29:08.502 -07:00 [INF] TrustStateManager initialized
+2026-05-13 22:29:08.533 -07:00 [INF] EnforcementManager initialized (skeleton)
+2026-05-13 22:29:08.534 -07:00 [INF] PanicManager initialized (skeleton)
+2026-05-13 22:29:08.534 -07:00 [INF] RecoveryManager initialized (skeleton)
+2026-05-13 22:29:08.535 -07:00 [INF] Pipe server started
+2026-05-13 22:29:08.535 -07:00 [INF] BLE scanner started - looking for Tether Android device
+2026-05-13 22:29:08.539 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-13 22:29:08.710 -07:00 [INF] BLE device watcher started
+2026-05-13 22:29:08.710 -07:00 [INF] All services initialized. Starting host...
+2026-05-13 22:29:08.723 -07:00 [INF] Tether Communication Service started successfully
+2026-05-13 22:29:13.678 -07:00 [INF] Named pipe server waiting for connection from Desktop UI...
+2026-05-13 22:29:59.651 -07:00 [INF] Tether Communication Service is stopping
+2026-05-13 23:22:12.810 -07:00 [INF] TrustStateManager initialized
+2026-05-13 23:22:12.978 -07:00 [INF] EnforcementManager initialized (skeleton)
+2026-05-13 23:22:12.979 -07:00 [INF] PanicManager initialized (skeleton)
+2026-05-13 23:22:12.979 -07:00 [INF] RecoveryManager initialized (skeleton)
+2026-05-13 23:22:12.983 -07:00 [INF] Pipe server started
+2026-05-13 23:22:12.985 -07:00 [INF] BLE scanner started - looking for Tether Android device
+2026-05-13 23:22:13.015 -07:00 [INF] Named pipe server waiting for connection from Desktop UI...
+2026-05-13 23:22:13.665 -07:00 [INF] BLE device watcher started
+2026-05-13 23:22:13.666 -07:00 [INF] All services initialized. Starting host...
+2026-05-13 23:22:13.703 -07:00 [INF] Tether Communication Service started successfully
+2026-05-13 23:39:31.231 -07:00 [INF] Tether Communication Service is stopping

@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "V3M8chI0ksw=",
+  "success": true,
+  "projectFilePath": "C:\\Dev\\Tether\\services\\panic-engine\\Tether.PanicEngine\\Tether.PanicEngine.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\tirth\\.nuget\\packages\\serilog\\4.3.1\\serilog.4.3.1.nupkg.sha512",
+    "C:\\Users\\tirth\\.nuget\\packages\\serilog.sinks.console\\6.1.1\\serilog.sinks.console.6.1.1.nupkg.sha512",
+    "C:\\Users\\tirth\\.nuget\\packages\\serilog.sinks.file\\7.0.0\\serilog.sinks.file.7.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}

@@ -1,0 +1,17 @@
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\bin\Debug\net8.0\Tether.TrustEngine.deps.json
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\bin\Debug\net8.0\Tether.TrustEngine.dll
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\bin\Debug\net8.0\Tether.TrustEngine.pdb
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\bin\Debug\net8.0\Tether.EventBus.dll
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\bin\Debug\net8.0\Tether.Shared.dll
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\bin\Debug\net8.0\Tether.Shared.pdb
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\bin\Debug\net8.0\Tether.EventBus.pdb
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.TrustEngine.csproj.AssemblyReference.cache
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.TrustEngine.GeneratedMSBuildEditorConfig.editorconfig
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.TrustEngine.AssemblyInfoInputs.cache
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.TrustEngine.AssemblyInfo.cs
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.TrustEngine.csproj.CoreCompileInputs.cache
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.T.BB584853.Up2Date
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.TrustEngine.dll
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\refint\Tether.TrustEngine.dll
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\Tether.TrustEngine.pdb
+C:\Dev\Tether\services\trust-engine\Tether.TrustEngine\obj\Debug\net8.0\ref\Tether.TrustEngine.dll

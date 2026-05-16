@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "using System.IO.Pipes;/1.0.0": {
+        "runtime": {
+          "using System.IO.Pipes;.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "using System.IO.Pipes;/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

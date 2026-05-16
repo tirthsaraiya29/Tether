@@ -1,0 +1,167 @@
+2026-05-14 01:24:09.670 -07:00 [INF] TrustStateManager initialized
+2026-05-14 01:24:09.742 -07:00 [INF] EnforcementManager ready
+2026-05-14 01:24:09.744 -07:00 [INF] RecoveryManager initialized (skeleton)
+2026-05-14 01:24:09.745 -07:00 [INF] Pipe server started
+2026-05-14 01:24:09.751 -07:00 [INF] BLE manager starting with 32feet.NET
+2026-05-14 01:24:09.752 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:24:09.752 -07:00 [INF] All services initialized. Starting host...
+2026-05-14 01:24:09.805 -07:00 [INF] Tether Communication Service started successfully
+2026-05-14 01:24:14.804 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:24:19.816 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:24:28.374 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:24:33.388 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:24:38.404 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:24:43.409 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:24:48.413 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:24:53.429 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:24:58.440 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:25:03.471 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:25:08.493 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:25:13.532 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:25:18.822 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:25:23.861 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:25:28.869 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:25:33.886 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:25:38.898 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:25:43.914 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:25:48.924 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:25:53.944 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:25:58.955 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:26:03.971 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:26:08.973 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:26:10.202 -07:00 [INF] Tether Communication Service is stopping
+2026-05-14 01:26:13.988 -07:00 [ERR] Pipe server error: All pipe instances are busy.
+System.IO.IOException: All pipe instances are busy.
+   at System.IO.Pipes.NamedPipeServerStream.Create(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode, PipeOptions options, Int32 inBufferSize, Int32 outBufferSize, PipeSecurity pipeSecurity, HandleInheritability inheritability, PipeAccessRights additionalAccessRights)
+   at System.IO.Pipes.NamedPipeServerStream..ctor(String pipeName, PipeDirection direction, Int32 maxNumberOfServerInstances, PipeTransmissionMode transmissionMode)
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 38
+2026-05-14 01:26:15.229 -07:00 [INF] BLE manager stopped
+2026-05-14 01:27:22.413 -07:00 [INF] TrustStateManager initialized
+2026-05-14 01:27:22.445 -07:00 [INF] EnforcementManager ready
+2026-05-14 01:27:22.446 -07:00 [INF] RecoveryManager initialized (skeleton)
+2026-05-14 01:27:22.448 -07:00 [INF] Pipe server started
+2026-05-14 01:27:22.461 -07:00 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-14 01:27:22.461 -07:00 [INF] BLE manager starting with 32feet.NET
+2026-05-14 01:27:22.462 -07:00 [INF] All services initialized. Starting host...
+2026-05-14 01:27:22.472 -07:00 [INF] Tether Communication Service started successfully
+2026-05-14 01:34:54.310 -07:00 [INF] TrustStateManager initialized
+2026-05-14 01:34:54.342 -07:00 [INF] EnforcementManager ready
+2026-05-14 01:34:54.343 -07:00 [INF] RecoveryManager initialized (skeleton)
+2026-05-14 01:34:54.345 -07:00 [INF] Pipe server started
+2026-05-14 01:34:54.359 -07:00 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-14 01:34:54.359 -07:00 [INF] BLE manager starting with 32feet.NET
+2026-05-14 01:34:54.361 -07:00 [INF] All services initialized. Starting host...
+2026-05-14 01:34:54.373 -07:00 [INF] Tether Communication Service started successfully
+2026-05-14 14:12:58.552 +05:30 [INF] TrustStateManager initialized
+2026-05-14 14:12:58.650 +05:30 [INF] EnforcementManager ready
+2026-05-14 14:12:58.651 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-14 14:12:58.659 +05:30 [INF] Pipe server started
+2026-05-14 14:12:58.675 +05:30 [INF] BLE manager starting with 32feet.NET
+2026-05-14 14:12:58.676 +05:30 [INF] All services initialized. Starting host...
+2026-05-14 14:12:58.684 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-14 14:12:58.718 +05:30 [INF] Tether Communication Service started successfully
+2026-05-14 15:42:22.681 +05:30 [INF] Tether Communication Service is stopping
+2026-05-14 15:42:22.945 +05:30 [INF] BLE manager stopped
+2026-05-14 15:42:22.954 +05:30 [ERR] Pipe server error: The pipe has been ended.
+System.IO.IOException: The pipe has been ended.
+   at System.IO.Pipes.PipeStream.PipeValueTaskSource.GetResult(Int16 token)
+   at System.IO.Pipes.PipeStream.PipeValueTaskSource.System.Threading.Tasks.Sources.IValueTaskSource.GetResult(Int16 token)
+   at System.Threading.Tasks.ValueTask.ValueTaskSourceAsTask.<>c.<.cctor>b__4_0(Object state)
+--- End of stack trace from previous location ---
+   at Tether.CommunicationService.PipeServer.ListenForClients() in C:\Dev\Tether\services\communication-service\Tether.CommunicationService\PipeServer.cs:line 50
