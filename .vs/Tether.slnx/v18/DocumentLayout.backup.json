@@ -7,10 +7,6 @@
       "RelativeMoniker": "D:0:0:{52FD365D-08FC-4891-9B33-ACAE9BBFF409}|services\\communication-service\\Tether.CommunicationService\\Tether.CommunicationService.csproj|solutionrelative:services\\communication-service\\tether.communicationservice\\blemanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{52FD365D-08FC-4891-9B33-ACAE9BBFF409}|services\\communication-service\\Tether.CommunicationService\\Tether.CommunicationService.csproj|c:\\dev\\tether\\services\\communication-service\\tether.communicationservice\\tether.communicationservice.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
-      "RelativeMoniker": "D:0:0:{52FD365D-08FC-4891-9B33-ACAE9BBFF409}|services\\communication-service\\Tether.CommunicationService\\Tether.CommunicationService.csproj|solutionrelative:services\\communication-service\\tether.communicationservice\\tether.communicationservice.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{FA22EC12-1EA6-4D30-B4D0-373C8B9A214D}|shared\\Tether.Shared\\Tether.Shared.csproj|c:\\dev\\tether\\shared\\tether.shared\\constants\\truststates.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{FA22EC12-1EA6-4D30-B4D0-373C8B9A214D}|shared\\Tether.Shared\\Tether.Shared.csproj|solutionrelative:shared\\tether.shared\\constants\\truststates.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
@@ -116,7 +112,7 @@
               "RelativeDocumentMoniker": "services\\communication-service\\Tether.CommunicationService\\BleManager.cs",
               "ToolTip": "C:\\Dev\\Tether\\services\\communication-service\\Tether.CommunicationService\\BleManager.cs",
               "RelativeToolTip": "services\\communication-service\\Tether.CommunicationService\\BleManager.cs",
-              "ViewState": "AgIAAGAAAAAAAAAAAAAwwH0AAAAFAAAAAAAAAA==",
+              "ViewState": "AgIAAAsAAAAAAAAAAAAAABkAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-05-16T14:25:45.726Z",
               "IsPinned": true,
@@ -124,20 +120,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
-              "Title": "Tether.CommunicationService.csproj",
-              "DocumentMoniker": "C:\\Dev\\Tether\\services\\communication-service\\Tether.CommunicationService\\Tether.CommunicationService.csproj",
-              "RelativeDocumentMoniker": "services\\communication-service\\Tether.CommunicationService\\Tether.CommunicationService.csproj",
-              "ToolTip": "C:\\Dev\\Tether\\services\\communication-service\\Tether.CommunicationService\\Tether.CommunicationService.csproj",
-              "RelativeToolTip": "services\\communication-service\\Tether.CommunicationService\\Tether.CommunicationService.csproj",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAABcAAAAKAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
-              "WhenOpened": "2026-05-16T14:37:38.731Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 3,
               "Title": "EnforcementManager.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\services\\enforcement-engine\\Tether.EnforcementEngine\\EnforcementManager.cs",
               "RelativeDocumentMoniker": "services\\enforcement-engine\\Tether.EnforcementEngine\\EnforcementManager.cs",
@@ -149,7 +132,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 1,
               "Title": "TrustStates.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\shared\\Tether.Shared\\Constants\\TrustStates.cs",
               "RelativeDocumentMoniker": "shared\\Tether.Shared\\Constants\\TrustStates.cs",
@@ -161,7 +144,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 4,
               "Title": "TetherEvent.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\shared\\Tether.Shared\\Events\\TetherEvent.cs",
               "RelativeDocumentMoniker": "shared\\Tether.Shared\\Events\\TetherEvent.cs",
@@ -173,7 +156,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 2,
               "Title": "TrustStateManager.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\services\\trust-engine\\Tether.TrustEngine\\TrustStateManager.cs",
               "RelativeDocumentMoniker": "services\\trust-engine\\Tether.TrustEngine\\TrustStateManager.cs",
@@ -185,7 +168,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 5,
               "Title": "PanicManager.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\services\\panic-engine\\Tether.PanicEngine\\PanicManager.cs",
               "RelativeDocumentMoniker": "services\\panic-engine\\Tether.PanicEngine\\PanicManager.cs",
@@ -197,7 +180,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 7,
+              "DocumentIndex": 6,
               "Title": "Program.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\tests\\PipeTest\\Program.cs",
               "RelativeDocumentMoniker": "tests\\PipeTest\\Program.cs",
@@ -209,7 +192,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 8,
+              "DocumentIndex": 7,
               "Title": "PipeClient.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\apps\\desktop-ui\\Tether.DesktopUI\\PipeClient.cs",
               "RelativeDocumentMoniker": "apps\\desktop-ui\\Tether.DesktopUI\\PipeClient.cs",
@@ -221,7 +204,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 9,
+              "DocumentIndex": 8,
               "Title": "IpcConstants.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\shared\\Tether.Shared\\Ipc\\IpcConstants.cs",
               "RelativeDocumentMoniker": "shared\\Tether.Shared\\Ipc\\IpcConstants.cs",
@@ -233,7 +216,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 11,
+              "DocumentIndex": 10,
               "Title": "MainWindow.xaml",
               "DocumentMoniker": "C:\\Dev\\Tether\\apps\\desktop-ui\\Tether.DesktopUI\\MainWindow.xaml",
               "RelativeDocumentMoniker": "apps\\desktop-ui\\Tether.DesktopUI\\MainWindow.xaml",
@@ -244,7 +227,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 10,
+              "DocumentIndex": 9,
               "Title": "MainWindow.xaml.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\apps\\desktop-ui\\Tether.DesktopUI\\MainWindow.xaml.cs",
               "RelativeDocumentMoniker": "apps\\desktop-ui\\Tether.DesktopUI\\MainWindow.xaml.cs",
@@ -256,7 +239,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 12,
+              "DocumentIndex": 11,
               "Title": "Tether.RecoveryEngine.csproj",
               "DocumentMoniker": "C:\\Dev\\Tether\\services\\recovery-engine\\Tether.RecoveryEngine\\Tether.RecoveryEngine.csproj",
               "RelativeDocumentMoniker": "services\\recovery-engine\\Tether.RecoveryEngine\\Tether.RecoveryEngine.csproj",
@@ -264,12 +247,11 @@
               "RelativeToolTip": "services\\recovery-engine\\Tether.RecoveryEngine\\Tether.RecoveryEngine.csproj",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAKAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
-              "WhenOpened": "2026-05-14T04:53:51.503Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-05-14T04:53:51.503Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 13,
+              "DocumentIndex": 12,
               "Title": "RecoveryManager.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\services\\recovery-engine\\Tether.RecoveryEngine\\RecoveryManager.cs",
               "RelativeDocumentMoniker": "services\\recovery-engine\\Tether.RecoveryEngine\\RecoveryManager.cs",
@@ -281,7 +263,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 14,
+              "DocumentIndex": 13,
               "Title": "Tether.PanicEngine.csproj",
               "DocumentMoniker": "C:\\Dev\\Tether\\services\\panic-engine\\Tether.PanicEngine\\Tether.PanicEngine.csproj",
               "RelativeDocumentMoniker": "services\\panic-engine\\Tether.PanicEngine\\Tether.PanicEngine.csproj",
@@ -289,12 +271,11 @@
               "RelativeToolTip": "services\\panic-engine\\Tether.PanicEngine\\Tether.PanicEngine.csproj",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAKAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
-              "WhenOpened": "2026-05-14T04:53:45.283Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-05-14T04:53:45.283Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 15,
+              "DocumentIndex": 14,
               "Title": "Tether.TrustEngine.csproj",
               "DocumentMoniker": "C:\\Dev\\Tether\\services\\trust-engine\\Tether.TrustEngine\\Tether.TrustEngine.csproj",
               "RelativeDocumentMoniker": "services\\trust-engine\\Tether.TrustEngine\\Tether.TrustEngine.csproj",
@@ -302,12 +283,11 @@
               "RelativeToolTip": "services\\trust-engine\\Tether.TrustEngine\\Tether.TrustEngine.csproj",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAKAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
-              "WhenOpened": "2026-05-14T04:53:22.932Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-05-14T04:53:22.932Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 17,
+              "DocumentIndex": 16,
               "Title": "Tether.Shared.csproj",
               "DocumentMoniker": "C:\\Dev\\Tether\\shared\\Tether.Shared\\Tether.Shared.csproj",
               "RelativeDocumentMoniker": "shared\\Tether.Shared\\Tether.Shared.csproj",
@@ -315,12 +295,11 @@
               "RelativeToolTip": "shared\\Tether.Shared\\Tether.Shared.csproj",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAA4AAAAKAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
-              "WhenOpened": "2026-05-14T04:52:58.373Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-05-14T04:52:58.373Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 18,
+              "DocumentIndex": 17,
               "Title": "Tether.EventBus.csproj",
               "DocumentMoniker": "C:\\Dev\\Tether\\services\\event-bus\\Tether.EventBus\\Tether.EventBus.csproj",
               "RelativeDocumentMoniker": "services\\event-bus\\Tether.EventBus\\Tether.EventBus.csproj",
@@ -328,12 +307,11 @@
               "RelativeToolTip": "services\\event-bus\\Tether.EventBus\\Tether.EventBus.csproj",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAwAAAAKAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
-              "WhenOpened": "2026-05-14T04:52:45.879Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-05-14T04:52:45.879Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 16,
+              "DocumentIndex": 15,
               "Title": "Tether.DesktopUI.csproj",
               "DocumentMoniker": "C:\\Dev\\Tether\\apps\\desktop-ui\\Tether.DesktopUI\\Tether.DesktopUI.csproj",
               "RelativeDocumentMoniker": "apps\\desktop-ui\\Tether.DesktopUI\\Tether.DesktopUI.csproj",
@@ -341,12 +319,11 @@
               "RelativeToolTip": "apps\\desktop-ui\\Tether.DesktopUI\\Tether.DesktopUI.csproj",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAABQAAAAKAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
-              "WhenOpened": "2026-05-14T04:50:36.487Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-05-14T04:50:36.487Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 19,
+              "DocumentIndex": 18,
               "Title": "SerilogTetherLogger.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\shared\\Tether.Shared\\Logging\\SerilogTetherLogger.cs",
               "RelativeDocumentMoniker": "shared\\Tether.Shared\\Logging\\SerilogTetherLogger.cs",
@@ -358,7 +335,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 20,
+              "DocumentIndex": 19,
               "Title": "InMemoryEventBus.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\services\\event-bus\\Tether.EventBus\\InMemoryEventBus.cs",
               "RelativeDocumentMoniker": "services\\event-bus\\Tether.EventBus\\InMemoryEventBus.cs",
@@ -370,7 +347,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 21,
+              "DocumentIndex": 20,
               "Title": "IEventBus.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\services\\event-bus\\Tether.EventBus\\IEventBus.cs",
               "RelativeDocumentMoniker": "services\\event-bus\\Tether.EventBus\\IEventBus.cs",
@@ -382,7 +359,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 22,
+              "DocumentIndex": 21,
               "Title": "Ilogger.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\shared\\Tether.Shared\\Logging\\Ilogger.cs",
               "RelativeDocumentMoniker": "shared\\Tether.Shared\\Logging\\Ilogger.cs",
@@ -394,7 +371,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 23,
+              "DocumentIndex": 22,
               "Title": "PhonePresence.cs",
               "DocumentMoniker": "C:\\Dev\\Tether\\shared\\Tether.Shared\\DTO\\PhonePresence.cs",
               "RelativeDocumentMoniker": "shared\\Tether.Shared\\DTO\\PhonePresence.cs",

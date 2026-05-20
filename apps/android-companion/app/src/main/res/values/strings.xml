@@ -1,3 +1,14 @@
 <resources>
     <string name="app_name">Tether</string>
+    <string name="title_tether_phone">🔒 Tether Phone</string>
+    <string name="status_starting">Starting&#8230;</string>
+    <string name="status_ble_active">Bluetooth LE Active</string>
+    <string name="btn_panic_mode">🚨 PANIC MODE</string>
+    <string name="status_initializing">Initializing&#8230;</string>
+    <string name="status_not_connected">Not connected to PC</string>
+    <string name="status_starting_ble">Starting BLE service&#8230;</string>
+    <string name="status_tether_active">✅ Tether Active\nPhone ready</string>
+    <string name="error_permissions_denied">Permissions denied - app cannot function</string>
+    <string name="toast_panic_sent">PANIC sent to Windows</string>
+    <string name="toast_permissions_required">Bluetooth permissions required for Tether to work</string>
 </resources>

@@ -16,33 +16,38 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
+import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelUuid
 import android.util.Log
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import java.util.UUID
 
 class BleGattServerService : Service() {
 
     private var bluetoothGattServer: BluetoothGattServer? = null
     private var bluetoothAdapter: BluetoothAdapter? = null
+    private var advertiser: BluetoothLeAdvertiser? = null
     private var isAdvertising = false
 
     companion object {
-        private const val SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
-        private const val PING_CHAR_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
-        private const val PONG_CHAR_UUID = "0000ffe2-0000-1000-8000-00805f9b34fb"
-        private const val CHANNEL_ID = "tether_channel"
+        private val SERVICE_UUID = UUID.fromString("0000FFE0-0000-1000-8000-00805F9B34FB")
+        private val RSSI_CHAR_UUID = UUID.fromString("0000FFE1-0000-1000-8000-00805F9B34FB")
+
+        private const val CHANNEL_ID = "tether_proximity_channel"
         private const val NOTIFICATION_ID = 1
+        private const val DEVICE_NAME = "TetherPhone"
     }
 
-    private lateinit var pingCharacteristic: BluetoothGattCharacteristic
-    private lateinit var pongCharacteristic: BluetoothGattCharacteristic
+    private lateinit var rssiCharacteristic: BluetoothGattCharacteristic
 
     override fun onCreate() {
         super.onCreate()
-        Log.d("TetherBLE", "Service creating")
+        Log.d("TetherBLE", "Service creating on Android ${Build.VERSION.SDK_INT}")
 
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         bluetoothAdapter = bluetoothManager?.adapter
@@ -65,28 +70,31 @@ class BleGattServerService : Service() {
 
         bluetoothGattServer = bluetoothManager?.openGattServer(this, gattServerCallback)
 
-        pingCharacteristic = BluetoothGattCharacteristic(
-            UUID.fromString(PING_CHAR_UUID),
-            BluetoothGattCharacteristic.PROPERTY_WRITE,
-            BluetoothGattCharacteristic.PERMISSION_WRITE
-        )
-
-        pongCharacteristic = BluetoothGattCharacteristic(
-            UUID.fromString(PONG_CHAR_UUID),
-            BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+        rssiCharacteristic = BluetoothGattCharacteristic(
+            RSSI_CHAR_UUID,
+            BluetoothGattCharacteristic.PROPERTY_READ,
             BluetoothGattCharacteristic.PERMISSION_READ
         )
 
-        val service = BluetoothGattService(UUID.fromString(SERVICE_UUID), BluetoothGattService.SERVICE_TYPE_PRIMARY)
-        service.addCharacteristic(pingCharacteristic)
-        service.addCharacteristic(pongCharacteristic)
+        val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
+        service.addCharacteristic(rssiCharacteristic)
         bluetoothGattServer?.addService(service)
 
-        Log.d("TetherBLE", "GATT server setup complete")
+        Log.d("TetherBLE", "GATT server setup complete with service: $SERVICE_UUID")
     }
 
     private fun startAdvertising() {
-        val advertiser = bluetoothAdapter?.bluetoothLeAdvertiser
+        // Check for BLUETOOTH_ADVERTISE permission (Android 12+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.BLUETOOTH_ADVERTISE)
+                != PackageManager.PERMISSION_GRANTED) {
+                Log.e("TetherBLE", "Missing BLUETOOTH_ADVERTISE permission")
+                return
+            }
+        }
+
+        advertiser = bluetoothAdapter?.bluetoothLeAdvertiser
+
         if (advertiser == null) {
             Log.e("TetherBLE", "BluetoothLE Advertiser not available")
             return
@@ -96,63 +104,157 @@ class BleGattServerService : Service() {
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
             .setConnectable(true)
+            .setTimeout(0)
             .build()
 
-        val data = AdvertiseData.Builder()
+        // Only include device name to keep packet small
+        val advertiseData = AdvertiseData.Builder()
             .setIncludeDeviceName(true)
-            .addServiceUuid(ParcelUuid(UUID.fromString(SERVICE_UUID)))
             .build()
 
-        advertiser.startAdvertising(settings, data, advertiseCallback)
-        isAdvertising = true
-        Log.d("TetherBLE", "Advertising started")
+        // Put service UUID in scan response
+        val scanResponseData = AdvertiseData.Builder()
+            .setIncludeDeviceName(false)
+            .addServiceUuid(ParcelUuid(SERVICE_UUID))
+            .build()
+
+        try {
+            advertiser?.startAdvertising(settings, advertiseData, scanResponseData, advertiseCallback)
+            isAdvertising = true
+            Log.d("TetherBLE", "✅ Advertising started with name: $DEVICE_NAME")
+        } catch (e: SecurityException) {
+            Log.e("TetherBLE", "Security exception during advertising: ${e.message}")
+            e.printStackTrace()
+        }
     }
 
     private val gattServerCallback = object : BluetoothGattServerCallback() {
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
+            // Check BLUETOOTH_CONNECT permission for device info (Android 12+)
+            val hasConnectPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                ContextCompat.checkSelfPermission(
+                    this@BleGattServerService,
+                    android.Manifest.permission.BLUETOOTH_CONNECT
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                true
+            }
+
+            val deviceInfo = if (hasConnectPermission) {
+                device.name ?: device.address
+            } else {
+                device.address
+            }
+
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
-                    Log.d("TetherBLE", "Connected: ${device.address}")
+                    Log.d("TetherBLE", "✅ PC Connected: $deviceInfo")
+                    sendConnectionBroadcast(true)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    Log.d("TetherBLE", "Disconnected: ${device.address}")
+                    Log.d("TetherBLE", "❌ PC Disconnected: $deviceInfo")
+                    sendConnectionBroadcast(false)
                 }
             }
         }
 
-        override fun onCharacteristicWriteRequest(
+        override fun onCharacteristicReadRequest(
             device: BluetoothDevice,
             requestId: Int,
-            characteristic: BluetoothGattCharacteristic,
-            preparedWrite: Boolean,
-            responseNeeded: Boolean,
             offset: Int,
-            value: ByteArray
+            characteristic: BluetoothGattCharacteristic
         ) {
-            if (characteristic.uuid == UUID.fromString(PING_CHAR_UUID)) {
-                val received = String(value)
-                Log.d("TetherBLE", "Received ping: $received")
-
-                // Send pong response
-                val pongValue = "pong".toByteArray()
-                pongCharacteristic.setValue(pongValue)
-                bluetoothGattServer?.notifyCharacteristicChanged(device, pongCharacteristic, false)
-
-                if (responseNeeded) {
-                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+            // Check BLUETOOTH_CONNECT permission for responding (Android 12+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (ContextCompat.checkSelfPermission(this@BleGattServerService, android.Manifest.permission.BLUETOOTH_CONNECT)
+                    != PackageManager.PERMISSION_GRANTED) {
+                    Log.e("TetherBLE", "Missing BLUETOOTH_CONNECT permission for read request")
+                    return
                 }
             }
+
+            if (characteristic.uuid == RSSI_CHAR_UUID) {
+                val value = byteArrayOf(0x01)
+                try {
+                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+                    Log.d("TetherBLE", "Keep-alive read request received and responded")
+                } catch (e: SecurityException) {
+                    Log.e("TetherBLE", "Security exception sending response: ${e.message}")
+                }
+            }
+        }
+
+        override fun onNotificationSent(device: BluetoothDevice, status: Int) {
+            Log.d("TetherBLE", "Notification sent, status: $status")
+        }
+
+        override fun onServiceAdded(status: Int, service: BluetoothGattService) {
+            Log.d("TetherBLE", "Service added, status: $status")
         }
     }
 
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
-            Log.d("TetherBLE", "Advertising started successfully")
+            Log.d("TetherBLE", "✅ Advertising started successfully!")
+            Log.d("TetherBLE", "  Device name: $DEVICE_NAME")
+            Log.d("TetherBLE", "  Mode: ${settingsInEffect?.mode}")
+            Log.d("TetherBLE", "  TX Power: ${settingsInEffect?.txPowerLevel}")
+            isAdvertising = true
         }
 
         override fun onStartFailure(errorCode: Int) {
-            Log.e("TetherBLE", "Advertising failed: errorCode=$errorCode")
-            isAdvertising = false
+            Log.e("TetherBLE", "❌ Advertising failed: errorCode=$errorCode")
+            when (errorCode) {
+                ADVERTISE_FAILED_DATA_TOO_LARGE -> {
+                    Log.e("TetherBLE", "  Cause: Data too large")
+                    retryAdvertisingWithoutUuid()
+                }
+                ADVERTISE_FAILED_FEATURE_UNSUPPORTED -> Log.e("TetherBLE", "  Cause: Feature unsupported")
+                ADVERTISE_FAILED_INTERNAL_ERROR -> Log.e("TetherBLE", "  Cause: Internal error")
+                ADVERTISE_FAILED_TOO_MANY_ADVERTISERS -> Log.e("TetherBLE", "  Cause: Too many advertisers")
+                ADVERTISE_FAILED_ALREADY_STARTED -> Log.e("TetherBLE", "  Cause: Already started")
+            }
+        }
+    }
+
+    private fun retryAdvertisingWithoutUuid() {
+        Log.d("TetherBLE", "Retrying advertising without UUID...")
+
+        // Check permission again
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.BLUETOOTH_ADVERTISE)
+                != PackageManager.PERMISSION_GRANTED) {
+                Log.e("TetherBLE", "Missing BLUETOOTH_ADVERTISE permission for retry")
+                return
+            }
+        }
+
+        val settings = AdvertiseSettings.Builder()
+            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+            .setConnectable(true)
+            .setTimeout(0)
+            .build()
+
+        val advertiseData = AdvertiseData.Builder()
+            .setIncludeDeviceName(true)
+            .build()
+
+        try {
+            advertiser?.startAdvertising(settings, advertiseData, advertiseCallback)
+            Log.d("TetherBLE", "Retry started with name only (no UUID)")
+        } catch (e: SecurityException) {
+            Log.e("TetherBLE", "Retry failed: ${e.message}")
+        }
+    }
+
+    private fun sendConnectionBroadcast(isConnected: Boolean) {
+        val intent = Intent("com.tether.phone.CONNECTION_STATUS")
+        intent.putExtra("connected", isConnected)
+        try {
+            sendBroadcast(intent)
+        } catch (e: SecurityException) {
+            Log.e("TetherBLE", "Failed to send broadcast: ${e.message}")
         }
     }
 
@@ -160,37 +262,57 @@ class BleGattServerService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Tether Proximity Service",
+                "Tether Proximity Security",
                 NotificationManager.IMPORTANCE_LOW
-            )
+            ).apply {
+                description = "Keeps your PC locked when phone is away"
+            }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
         }
     }
 
     private fun createNotification(): Notification {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("Tether Phone")
-                .setContentText("Proximity security active")
-                .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                .build()
         } else {
             Notification.Builder(this)
-                .setContentTitle("Tether Phone")
-                .setContentText("Proximity security active")
-                .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                .build()
         }
+
+        return builder
+            .setContentTitle("🔒 Tether Active")
+            .setContentText("Proximity security protecting your PC")
+            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setPriority(Notification.PRIORITY_LOW)
+            .build()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         if (isAdvertising) {
-            bluetoothAdapter?.bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.BLUETOOTH_ADVERTISE)
+                        == PackageManager.PERMISSION_GRANTED) {
+                        advertiser?.stopAdvertising(advertiseCallback)
+                    }
+                } else {
+                    advertiser?.stopAdvertising(advertiseCallback)
+                }
+            } catch (e: SecurityException) {
+                Log.e("TetherBLE", "Stop advertise failed: ${e.message}")
+            } catch (e: Exception) {
+                Log.e("TetherBLE", "Stop advertise error: ${e.message}")
+            }
         }
-        bluetoothGattServer?.close()
+
+        try {
+            bluetoothGattServer?.close()
+        } catch (e: Exception) {
+            Log.e("TetherBLE", "Error closing GATT server: ${e.message}")
+        }
+
         super.onDestroy()
         Log.d("TetherBLE", "Service destroyed")
     }

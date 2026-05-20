@@ -15,18 +15,22 @@ import androidx.core.content.ContextCompat
 class MainActivity : AppCompatActivity() {
     private val REQUEST_BLUETOOTH_PERMISSIONS = 1
     private lateinit var statusText: TextView
+    private lateinit var connectionStatusText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         statusText = findViewById(R.id.statusText)
+        connectionStatusText = findViewById(R.id.connectionStatusText)
         val panicButton = findViewById<Button>(R.id.panicButton)
 
         statusText.text = "Initializing..."
+        connectionStatusText.text = "Not connected to PC"
 
         panicButton.setOnClickListener {
             Toast.makeText(this, "PANIC sent to Windows", Toast.LENGTH_SHORT).show()
+            // TODO: Implement panic button functionality
         }
 
         if (checkPermissions()) {
@@ -41,7 +45,7 @@ class MainActivity : AppCompatActivity() {
             listOf(
                 Manifest.permission.BLUETOOTH_SCAN,
                 Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_ADVERTISE, // ADD THIS
+                Manifest.permission.BLUETOOTH_ADVERTISE,
                 Manifest.permission.ACCESS_FINE_LOCATION
             )
         } else {
@@ -51,7 +55,9 @@ class MainActivity : AppCompatActivity() {
                 Manifest.permission.BLUETOOTH_ADMIN
             )
         }
-        return permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
+        return permissions.all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
     }
 
     private fun requestPermissions() {
@@ -59,7 +65,7 @@ class MainActivity : AppCompatActivity() {
             arrayOf(
                 Manifest.permission.BLUETOOTH_SCAN,
                 Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_ADVERTISE, // ADD THIS
+                Manifest.permission.BLUETOOTH_ADVERTISE,
                 Manifest.permission.ACCESS_FINE_LOCATION
             )
         } else {
@@ -77,20 +83,28 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == REQUEST_BLUETOOTH_PERMISSIONS && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
             startBleService()
         } else {
-            Toast.makeText(this, "Bluetooth permissions required", Toast.LENGTH_LONG).show()
-            statusText.text = "Permissions denied"
-            finish()
+            Toast.makeText(this, "Bluetooth permissions required for Tether to work", Toast.LENGTH_LONG).show()
+            statusText.text = "Permissions denied - app cannot function"
         }
     }
 
     private fun startBleService() {
-        statusText.text = "BLE service starting..."
+        statusText.text = "Starting BLE service..."
         val serviceIntent = Intent(this, BleGattServerService::class.java)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)
         } else {
             startService(serviceIntent)
         }
-        statusText.text = "✓ Tether Active\nPhone ready"
+
+        statusText.text = "✅ Tether Active\nPhone ready"
+        statusText.setTextColor(android.graphics.Color.GREEN)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Register receiver for connection status updates
+        // Implementation for broadcast receiver would go here
     }
 }

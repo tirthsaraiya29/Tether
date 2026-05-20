@@ -242,3 +242,1600 @@ The provided device ID is not a valid BluetoothLEDevice object.
 2026-05-20 13:04:10.554 +05:30 [INF] All services initialized. Starting host...
 2026-05-20 13:04:10.568 +05:30 [INF] Tether Communication Service started successfully
 2026-05-20 13:05:03.190 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 15:13:49.528 +05:30 [INF] TrustStateManager initialized
+2026-05-20 15:13:49.561 +05:30 [INF] EnforcementManager ready
+2026-05-20 15:13:49.562 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 15:13:49.563 +05:30 [INF] Pipe server started
+2026-05-20 15:13:49.564 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 15:13:49.564 +05:30 [INF] BLE Manager starting - looking for device: 'Tirth's S25 FE'
+2026-05-20 15:13:49.877 +05:30 [INF] BLE scanning started...
+2026-05-20 15:13:49.878 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 15:13:49.889 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 15:14:09.783 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 15:14:09.794 +05:30 [INF] Stopping BLE Manager...
+2026-05-20 15:14:09.795 +05:30 [INF] RSSI and connection monitoring stopped
+2026-05-20 15:14:09.796 +05:30 [INF] BLE Manager stopped
+2026-05-20 15:14:16.679 +05:30 [INF] TrustStateManager initialized
+2026-05-20 15:14:16.709 +05:30 [INF] EnforcementManager ready
+2026-05-20 15:14:16.710 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 15:14:16.711 +05:30 [INF] Pipe server started
+2026-05-20 15:14:16.712 +05:30 [INF] BLE Manager starting - looking for device: 'Tirth's S25 FE'
+2026-05-20 15:14:16.712 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 15:14:16.851 +05:30 [INF] BLE scanning started...
+2026-05-20 15:14:16.852 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 15:14:16.863 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 15:14:46.861 +05:30 [INF] Device enumeration completed
+2026-05-20 15:19:49.979 +05:30 [INF] TrustStateManager initialized
+2026-05-20 15:19:50.084 +05:30 [INF] EnforcementManager ready
+2026-05-20 15:19:50.085 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 15:19:50.086 +05:30 [INF] Pipe server started
+2026-05-20 15:19:50.087 +05:30 [INF] BLE Manager starting - looking for device: 'Tirth's S25 FE'
+2026-05-20 15:19:50.087 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 15:19:50.219 +05:30 [INF] BLE scanning started...
+2026-05-20 15:19:50.220 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 15:19:50.222 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 15:19:50.229 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 15:19:51.037 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:19:51.038 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 15:19:51.039 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:19:51.040 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 15:19:51.041 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:19:51.041 +05:30 [INF] 🔍 DEVICE FOUND: Name='2606 LaserJet Tank', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3e:0a:f3:e2:95:a6
+2026-05-20 15:19:51.042 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:19:51.043 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 15:19:51.044 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:19:51.045 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 15:19:51.046 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:19:51.046 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 15:19:51.047 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:19:51.048 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 15:19:51.049 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:19:55.217 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 15:19:55.218 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 15:19:55.219 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 15:19:55.220 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 15:20:20.219 +05:30 [INF] Device enumeration completed - continuing to listen for new devices
+2026-05-20 15:20:31.273 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 15:20:31.274 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:20:31.275 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:20:40.217 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 15:20:45.402 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 15:20:45.404 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:20:45.404 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:20:50.223 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 15:21:05.219 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 15:21:07.174 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 15:21:07.179 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:21:07.180 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:21:15.232 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 15:21:33.303 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 15:21:33.304 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:21:33.305 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:21:39.280 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 15:21:39.287 +05:30 [INF] Stopping BLE Manager...
+2026-05-20 15:21:39.288 +05:30 [INF] RSSI and connection monitoring stopped
+2026-05-20 15:21:39.289 +05:30 [INF] BLE Manager stopped
+2026-05-20 15:22:18.048 +05:30 [INF] TrustStateManager initialized
+2026-05-20 15:22:18.078 +05:30 [INF] EnforcementManager ready
+2026-05-20 15:22:18.079 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 15:22:18.080 +05:30 [INF] Pipe server started
+2026-05-20 15:22:18.081 +05:30 [INF] BLE Manager starting - looking for device: 'Tirth's S25 FE'
+2026-05-20 15:22:18.081 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 15:22:18.210 +05:30 [INF] BLE scanning started...
+2026-05-20 15:22:18.212 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 15:22:18.214 +05:30 [INF] 🔍 DEVICE FOUND: Name='2606 LaserJet Tank', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3e:0a:f3:e2:95:a6
+2026-05-20 15:22:18.224 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 15:22:18.233 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:22:18.234 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 15:22:18.236 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:22:18.237 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 15:22:18.238 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:22:18.238 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 15:22:18.239 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:22:18.240 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 15:22:18.241 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:22:18.241 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 15:22:18.243 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:22:18.243 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 15:22:18.244 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:22:18.245 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 15:22:18.246 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:22:18.246 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 15:22:18.247 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:22:18.248 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 15:22:18.249 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:22:18.250 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 15:22:18.251 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:22:18.252 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 15:22:18.252 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:22:23.204 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 15:22:23.206 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 15:22:23.207 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 15:22:23.208 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 15:22:23.209 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 15:22:23.210 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 15:22:23.211 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 15:22:23.212 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 15:22:23.213 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 15:22:26.981 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 15:22:26.983 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:22:26.984 +05:30 [INF]   Checking address match: '4e:76:e7:06:57:6f' vs 'A0:1B:9E:B2:66:CF'
+2026-05-20 15:22:26.985 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:22:43.216 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 15:22:48.204 +05:30 [INF] Device enumeration completed - continuing to listen for new devices
+2026-05-20 15:22:57.233 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 15:22:57.235 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:22:57.236 +05:30 [INF]   Checking address match: '7a:fb:af:81:f9:2c' vs 'A0:1B:9E:B2:66:CF'
+2026-05-20 15:22:57.236 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:23:22.727 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 15:23:22.729 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:23:22.729 +05:30 [INF]   Checking address match: '6c:32:3b:83:ab:4a' vs 'A0:1B:9E:B2:66:CF'
+2026-05-20 15:23:22.730 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:23:23.204 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 15:24:13.752 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 15:24:13.754 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:24:13.755 +05:30 [INF]   Checking address match: '14:38:be:75:58:1b' vs 'A0:1B:9E:B2:66:CF'
+2026-05-20 15:24:13.756 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:24:13.884 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 15:24:13.885 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:24:13.886 +05:30 [INF]   Checking address match: '36:ed:0c:3f:71:d7' vs 'A0:1B:9E:B2:66:CF'
+2026-05-20 15:24:13.887 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:24:18.215 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 15:24:18.216 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 15:24:23.209 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 15:24:35.059 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 15:24:35.061 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:24:43.212 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 15:32:01.005 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 15:32:01.006 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:32:01.007 +05:30 [INF]   Checking address match: '3d:71:47:84:6b:49' vs 'A0:1B:9E:B2:66:CF'
+2026-05-20 15:32:01.008 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:32:08.211 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 15:32:18.726 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 15:32:18.727 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:32:18.727 +05:30 [INF]   Checking address match: '0d:76:53:3f:8a:e1' vs 'A0:1B:9E:B2:66:CF'
+2026-05-20 15:32:18.728 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:32:28.207 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 15:36:20.776 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 15:36:20.778 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:36:20.778 +05:30 [INF]   Checking address match: '53:1b:bd:a8:ff:d7' vs 'A0:1B:9E:B2:66:CF'
+2026-05-20 15:36:20.779 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:36:53.714 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 15:36:53.721 +05:30 [INF] Stopping BLE Manager...
+2026-05-20 15:36:53.723 +05:30 [INF] RSSI and connection monitoring stopped
+2026-05-20 15:36:53.724 +05:30 [INF] BLE Manager stopped
+2026-05-20 15:37:13.763 +05:30 [INF] TrustStateManager initialized
+2026-05-20 15:37:13.791 +05:30 [INF] EnforcementManager ready
+2026-05-20 15:37:13.792 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 15:37:13.794 +05:30 [INF] Pipe server started
+2026-05-20 15:37:13.795 +05:30 [INF] BLE Manager starting - looking for device: 'Tirth's S25 FE'
+2026-05-20 15:37:13.798 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 15:37:13.927 +05:30 [INF] BLE scanning started...
+2026-05-20 15:37:13.928 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 15:37:13.930 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 15:37:13.937 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 15:37:13.945 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.946 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 15:37:13.947 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.947 +05:30 [INF] 🔍 DEVICE FOUND: Name='2606 LaserJet Tank', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3e:0a:f3:e2:95:a6
+2026-05-20 15:37:13.948 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.949 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 15:37:13.949 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.952 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 15:37:13.953 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.953 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 15:37:13.954 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.955 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 15:37:13.955 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.956 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 15:37:13.957 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.957 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 15:37:13.958 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.958 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 15:37:13.959 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.959 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 15:37:13.960 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.961 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 15:37:13.961 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.962 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 15:37:13.962 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.963 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 15:37:13.964 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.964 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 15:37:13.965 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.967 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 15:37:13.968 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.969 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 15:37:13.970 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.970 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 15:37:13.971 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.971 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 15:37:13.972 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.972 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 15:37:13.973 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:13.974 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 15:37:13.974 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:37:18.922 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 15:37:18.923 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 15:37:18.924 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 15:37:18.924 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 15:37:18.925 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 15:37:18.926 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 15:37:18.926 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 15:37:18.927 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 15:37:18.928 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 15:37:18.928 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 15:37:18.929 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 15:37:18.930 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 15:37:18.930 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 15:37:18.931 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 15:37:18.931 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 15:37:18.932 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 15:37:18.933 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 15:37:43.923 +05:30 [INF] Device enumeration completed - continuing to listen for new devices
+2026-05-20 15:37:54.284 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 15:37:54.286 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:37:54.287 +05:30 [INF]   Checking address match: '41:ad:10:29:9a:99' vs 'A0:1B:9E:B2:66:CF'
+2026-05-20 15:37:54.287 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:37:58.925 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 15:42:32.222 +05:30 [INF] TrustStateManager initialized
+2026-05-20 15:42:32.255 +05:30 [INF] EnforcementManager ready
+2026-05-20 15:42:32.256 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 15:42:32.257 +05:30 [INF] Pipe server started
+2026-05-20 15:42:32.258 +05:30 [INF] BLE Manager starting - looking for device: 'Tirth's S25 FE'
+2026-05-20 15:42:32.261 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 15:42:32.570 +05:30 [INF] BLE scanning started...
+2026-05-20 15:42:32.570 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 15:42:32.579 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 15:42:32.581 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 15:42:32.607 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.608 +05:30 [INF] 🔍 DEVICE FOUND: Name='2606 LaserJet Tank', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3e:0a:f3:e2:95:a6
+2026-05-20 15:42:32.609 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.609 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 15:42:32.610 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.610 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 15:42:32.611 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.612 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 15:42:32.612 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.613 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 15:42:32.614 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.614 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 15:42:32.615 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.616 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 15:42:32.616 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.617 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 15:42:32.620 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.621 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 15:42:32.622 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.622 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 15:42:32.623 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.623 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 15:42:32.624 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.625 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 15:42:32.625 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.626 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 15:42:32.627 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.627 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 15:42:32.628 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.629 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 15:42:32.630 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.630 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 15:42:32.631 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.631 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 15:42:32.632 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.633 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 15:42:32.637 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.638 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 15:42:32.639 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.640 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 15:42:32.641 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.641 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 15:42:32.643 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:42:32.659 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2b:06:ec:87:c6:a1
+2026-05-20 15:42:32.661 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:42:32.662 +05:30 [INF]   Checking address match: '2b:06:ec:87:c6:a1' vs 'A0:1B:9E:B2:66:CF'
+2026-05-20 15:42:32.663 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:42:32.664 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:26:f5:55:c7:6a
+2026-05-20 15:42:32.666 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:42:32.667 +05:30 [INF]   Checking address match: '15:26:f5:55:c7:6a' vs 'A0:1B:9E:B2:66:CF'
+2026-05-20 15:42:32.668 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:42:37.583 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 15:42:37.584 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 15:42:37.585 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 15:42:37.586 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 15:42:37.586 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 15:42:37.587 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 15:42:37.588 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 15:42:37.588 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 15:42:37.589 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 15:42:37.589 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 15:42:37.590 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 15:42:37.590 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 15:42:37.591 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 15:42:37.591 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 15:42:37.592 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 15:42:37.593 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 15:42:37.593 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 15:42:37.594 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 15:42:37.594 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 15:42:37.595 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 15:43:02.572 +05:30 [INF] Device enumeration completed - continuing to listen for new devices
+2026-05-20 15:46:42.119 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:cc:6f:45:6d:74
+2026-05-20 15:46:42.122 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:46:42.123 +05:30 [INF]   Checking address match: '68:cc:6f:45:6d:74' vs 'A0:1B:9E:B2:66:CF'
+2026-05-20 15:46:42.123 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:46:47.582 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 15:46:57.988 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 15:46:58.075 +05:30 [INF] Stopping BLE Manager...
+2026-05-20 15:46:58.076 +05:30 [INF] RSSI and connection monitoring stopped
+2026-05-20 15:46:58.076 +05:30 [INF] BLE Manager stopped
+2026-05-20 15:47:27.156 +05:30 [INF] TrustStateManager initialized
+2026-05-20 15:47:27.187 +05:30 [INF] EnforcementManager ready
+2026-05-20 15:47:27.188 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 15:47:27.190 +05:30 [INF] Pipe server started
+2026-05-20 15:47:27.191 +05:30 [INF] BLE Manager starting - looking for device: 'Tirth's S25 FE'
+2026-05-20 15:47:27.194 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 15:47:27.448 +05:30 [INF] BLE scanning started...
+2026-05-20 15:47:27.449 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 15:47:27.458 +05:30 [INF] 🔍 DEVICE FOUND: Name='2606 LaserJet Tank', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3e:0a:f3:e2:95:a6
+2026-05-20 15:47:27.460 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 15:47:27.491 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.492 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2b:06:ec:87:c6:a1
+2026-05-20 15:47:27.493 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.494 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:cc:6f:45:6d:74
+2026-05-20 15:47:27.495 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.495 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:26:f5:55:c7:6a
+2026-05-20 15:47:27.496 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.497 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 15:47:27.497 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.498 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 15:47:27.499 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.499 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 15:47:27.500 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.500 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 15:47:27.501 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.502 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 15:47:27.502 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.503 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 15:47:27.503 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.504 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 15:47:27.505 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.505 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 15:47:27.506 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.506 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 15:47:27.507 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.511 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 15:47:27.512 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.512 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 15:47:27.513 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.513 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 15:47:27.514 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.515 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 15:47:27.515 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.516 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 15:47:27.517 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.518 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 15:47:27.518 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.519 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 15:47:27.519 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.520 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 15:47:27.521 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.521 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 15:47:27.522 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.522 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 15:47:27.526 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.527 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 15:47:27.528 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:27.529 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 15:47:27.530 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:47:32.450 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 15:47:32.451 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 15:47:32.452 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 15:47:32.452 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 15:47:32.453 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 15:47:32.454 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 15:47:32.454 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 15:47:32.455 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 15:47:32.456 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 15:47:32.456 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 15:47:32.457 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 15:47:32.457 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 15:47:32.458 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 15:47:32.458 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 15:47:32.459 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 15:47:32.460 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 15:47:32.460 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 15:47:32.461 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 15:47:32.461 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 15:47:32.462 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 15:47:32.462 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 15:47:37.153 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-04:18:da:6a:e9:cd
+2026-05-20 15:47:37.155 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:47:37.155 +05:30 [INF]   Checking address match: '04:18:da:6a:e9:cd' vs '15:26:f5:55:c7:6a'
+2026-05-20 15:47:37.156 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:47:42.456 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2b:06:ec:87:c6:a1
+2026-05-20 15:47:57.447 +05:30 [INF] Device enumeration completed - continuing to listen for new devices
+2026-05-20 15:47:58.558 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-21:37:e2:b8:c2:01
+2026-05-20 15:47:58.559 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:47:58.560 +05:30 [INF]   Checking address match: '21:37:e2:b8:c2:01' vs '15:26:f5:55:c7:6a'
+2026-05-20 15:47:58.561 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:48:07.447 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:26:f5:55:c7:6a
+2026-05-20 15:50:42.445 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:cc:6f:45:6d:74
+2026-05-20 15:51:47.466 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2c:be:eb:bf:37:a4
+2026-05-20 15:51:47.468 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:51:47.469 +05:30 [INF]   Checking address match: '2c:be:eb:bf:37:a4' vs '15:26:f5:55:c7:6a'
+2026-05-20 15:51:47.469 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:51:48.317 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:ad:91:5c:3e:00
+2026-05-20 15:51:48.319 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:51:48.320 +05:30 [INF]   Checking address match: '23:ad:91:5c:3e:00' vs '15:26:f5:55:c7:6a'
+2026-05-20 15:51:48.320 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:51:48.480 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2f:7d:45:10:d9:42
+2026-05-20 15:51:48.481 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:51:48.482 +05:30 [INF]   Checking address match: '2f:7d:45:10:d9:42' vs '15:26:f5:55:c7:6a'
+2026-05-20 15:51:48.482 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:51:52.460 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-04:18:da:6a:e9:cd
+2026-05-20 15:51:52.461 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-21:37:e2:b8:c2:01
+2026-05-20 15:51:57.459 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2c:be:eb:bf:37:a4
+2026-05-20 15:52:05.495 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5a:cf:eb:7e:3c:3f
+2026-05-20 15:52:05.496 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:52:05.497 +05:30 [INF]   Checking address match: '5a:cf:eb:7e:3c:3f' vs '15:26:f5:55:c7:6a'
+2026-05-20 15:52:05.497 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:52:12.446 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5a:cf:eb:7e:3c:3f
+2026-05-20 15:52:53.090 +05:30 [INF] TrustStateManager initialized
+2026-05-20 15:52:53.120 +05:30 [INF] EnforcementManager ready
+2026-05-20 15:52:53.121 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 15:52:53.122 +05:30 [INF] Pipe server started
+2026-05-20 15:52:53.123 +05:30 [INF] BLE Manager starting - looking for device: 'Tirth's S25 FE'
+2026-05-20 15:52:53.126 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 15:52:53.256 +05:30 [INF] BLE scanning started...
+2026-05-20 15:52:53.257 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 15:52:53.260 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2f:7d:45:10:d9:42
+2026-05-20 15:52:53.267 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 15:52:53.278 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.279 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:ad:91:5c:3e:00
+2026-05-20 15:52:53.280 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.281 +05:30 [INF] 🔍 DEVICE FOUND: Name='2606 LaserJet Tank', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3e:0a:f3:e2:95:a6
+2026-05-20 15:52:53.281 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.282 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5a:cf:eb:7e:3c:3f
+2026-05-20 15:52:53.283 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.283 +05:30 [INF] 🔍 DEVICE FOUND: Name='Watch Pro', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2c:be:eb:bf:37:a4
+2026-05-20 15:52:53.284 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.285 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-21:37:e2:b8:c2:01
+2026-05-20 15:52:53.285 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.288 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-04:18:da:6a:e9:cd
+2026-05-20 15:52:53.289 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.289 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:cc:6f:45:6d:74
+2026-05-20 15:52:53.290 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.291 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:26:f5:55:c7:6a
+2026-05-20 15:52:53.292 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.293 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2b:06:ec:87:c6:a1
+2026-05-20 15:52:53.294 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.295 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 15:52:53.295 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.296 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 15:52:53.297 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.297 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 15:52:53.298 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.298 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 15:52:53.299 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.300 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 15:52:53.300 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.301 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 15:52:53.304 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.304 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 15:52:53.305 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.306 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 15:52:53.306 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.307 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 15:52:53.308 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.308 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 15:52:53.309 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.310 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 15:52:53.310 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.311 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 15:52:53.311 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.312 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 15:52:53.313 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.313 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 15:52:53.314 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.315 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 15:52:53.315 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.316 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 15:52:53.316 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.317 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 15:52:53.320 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.321 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 15:52:53.322 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.322 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 15:52:53.323 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.324 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 15:52:53.325 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:53.325 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 15:52:53.326 +05:30 [INF]   Is Connectable: False
+2026-05-20 15:52:58.259 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 15:52:58.260 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-04:18:da:6a:e9:cd
+2026-05-20 15:52:58.261 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 15:52:58.261 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 15:52:58.262 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 15:52:58.263 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 15:52:58.264 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:26:f5:55:c7:6a
+2026-05-20 15:52:58.264 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-21:37:e2:b8:c2:01
+2026-05-20 15:52:58.265 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 15:52:58.265 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 15:52:58.266 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 15:52:58.267 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2b:06:ec:87:c6:a1
+2026-05-20 15:52:58.267 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2c:be:eb:bf:37:a4
+2026-05-20 15:52:58.268 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 15:52:58.268 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 15:52:58.269 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 15:52:58.269 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 15:52:58.270 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 15:52:58.271 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 15:52:58.271 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 15:52:58.272 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 15:52:58.272 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 15:52:58.273 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 15:52:58.273 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5a:cf:eb:7e:3c:3f
+2026-05-20 15:52:58.276 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 15:52:58.277 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:cc:6f:45:6d:74
+2026-05-20 15:52:58.278 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 15:52:58.278 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 15:53:23.259 +05:30 [INF] Device enumeration completed - continuing to listen for new devices
+2026-05-20 15:58:59.754 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-16:d8:cd:41:a0:a9
+2026-05-20 15:58:59.796 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:58:59.797 +05:30 [INF]   Checking address match: '16:d8:cd:41:a0:a9' vs '5a:cf:eb:7e:3c:3f'
+2026-05-20 15:58:59.798 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:59:00.616 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0b:43:d9:f6:83:5e
+2026-05-20 15:59:00.620 +05:30 [INF]   Is Connectable: True
+2026-05-20 15:59:00.621 +05:30 [INF]   Checking address match: '0b:43:d9:f6:83:5e' vs '5a:cf:eb:7e:3c:3f'
+2026-05-20 15:59:00.622 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 15:59:08.264 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:ad:91:5c:3e:00
+2026-05-20 15:59:08.265 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2f:7d:45:10:d9:42
+2026-05-20 16:00:48.307 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-06:ff:f5:9c:b1:61
+2026-05-20 16:00:48.309 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:00:48.310 +05:30 [INF]   Checking address match: '06:ff:f5:9c:b1:61' vs '5a:cf:eb:7e:3c:3f'
+2026-05-20 16:00:48.311 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:00:48.442 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-13:5c:bd:f7:d6:02
+2026-05-20 16:00:48.444 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:00:48.445 +05:30 [INF]   Checking address match: '13:5c:bd:f7:d6:02' vs '5a:cf:eb:7e:3c:3f'
+2026-05-20 16:00:48.445 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:00:53.262 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0b:43:d9:f6:83:5e
+2026-05-20 16:00:53.263 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-16:d8:cd:41:a0:a9
+2026-05-20 16:02:17.651 +05:30 [INF] TrustStateManager initialized
+2026-05-20 16:02:17.682 +05:30 [INF] EnforcementManager ready
+2026-05-20 16:02:17.683 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 16:02:17.684 +05:30 [INF] Pipe server started
+2026-05-20 16:02:17.685 +05:30 [INF] BLE Manager starting - looking for device: 'TetherPhonebc'
+2026-05-20 16:02:19.141 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 16:02:19.451 +05:30 [INF] BLE scanning started...
+2026-05-20 16:02:19.452 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 16:02:19.461 +05:30 [INF] 🔍 DEVICE FOUND: Name='2606 LaserJet Tank', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3e:0a:f3:e2:95:a6
+2026-05-20 16:02:19.486 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 16:02:19.489 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.490 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-06:ff:f5:9c:b1:61
+2026-05-20 16:02:19.491 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.491 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-13:5c:bd:f7:d6:02
+2026-05-20 16:02:19.492 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.492 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-16:d8:cd:41:a0:a9
+2026-05-20 16:02:19.493 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.494 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0b:43:d9:f6:83:5e
+2026-05-20 16:02:19.495 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.496 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2f:7d:45:10:d9:42
+2026-05-20 16:02:19.496 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.497 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:ad:91:5c:3e:00
+2026-05-20 16:02:19.498 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.499 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5a:cf:eb:7e:3c:3f
+2026-05-20 16:02:19.500 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.503 +05:30 [INF] 🔍 DEVICE FOUND: Name='Watch Pro', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2c:be:eb:bf:37:a4
+2026-05-20 16:02:19.504 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.505 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-21:37:e2:b8:c2:01
+2026-05-20 16:02:19.505 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.506 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-04:18:da:6a:e9:cd
+2026-05-20 16:02:19.507 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.507 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:cc:6f:45:6d:74
+2026-05-20 16:02:19.508 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.509 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:26:f5:55:c7:6a
+2026-05-20 16:02:19.509 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.510 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2b:06:ec:87:c6:a1
+2026-05-20 16:02:19.511 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.511 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 16:02:19.512 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.513 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 16:02:19.513 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.514 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 16:02:19.515 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.515 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 16:02:19.516 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.518 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 16:02:19.519 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.520 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 16:02:19.521 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.522 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 16:02:19.522 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.523 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 16:02:19.524 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.524 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 16:02:19.525 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.525 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 16:02:19.526 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.527 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 16:02:19.527 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.528 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 16:02:19.529 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.530 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 16:02:19.530 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.531 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 16:02:19.531 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.532 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 16:02:19.536 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.537 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 16:02:19.537 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.538 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 16:02:19.539 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.539 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 16:02:19.540 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.541 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 16:02:19.541 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.542 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 16:02:19.543 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:19.544 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 16:02:19.544 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:22.208 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:42:60:d9:34:c9
+2026-05-20 16:02:22.209 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:02:22.210 +05:30 [INF]   Checking address match: '52:42:60:d9:34:c9' vs '5a:cf:eb:7e:3c:3f'
+2026-05-20 16:02:22.210 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:02:24.457 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 16:02:24.458 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-04:18:da:6a:e9:cd
+2026-05-20 16:02:24.459 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 16:02:24.460 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0b:43:d9:f6:83:5e
+2026-05-20 16:02:24.460 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 16:02:24.461 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 16:02:24.461 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 16:02:24.462 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:26:f5:55:c7:6a
+2026-05-20 16:02:24.463 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-16:d8:cd:41:a0:a9
+2026-05-20 16:02:24.463 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-21:37:e2:b8:c2:01
+2026-05-20 16:02:24.464 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 16:02:24.464 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:ad:91:5c:3e:00
+2026-05-20 16:02:24.465 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 16:02:24.465 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 16:02:24.466 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2b:06:ec:87:c6:a1
+2026-05-20 16:02:24.466 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2c:be:eb:bf:37:a4
+2026-05-20 16:02:24.467 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 16:02:24.467 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2f:7d:45:10:d9:42
+2026-05-20 16:02:24.468 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 16:02:24.469 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 16:02:24.469 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 16:02:24.470 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 16:02:24.470 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 16:02:24.471 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 16:02:24.471 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 16:02:24.472 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 16:02:24.476 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 16:02:24.477 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5a:cf:eb:7e:3c:3f
+2026-05-20 16:02:24.478 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 16:02:24.478 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:cc:6f:45:6d:74
+2026-05-20 16:02:24.479 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 16:02:24.479 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 16:02:29.464 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:42:60:d9:34:c9
+2026-05-20 16:02:33.010 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 16:02:33.026 +05:30 [INF] Stopping BLE Manager...
+2026-05-20 16:02:33.027 +05:30 [INF] RSSI and connection monitoring stopped
+2026-05-20 16:02:33.028 +05:30 [INF] BLE Manager stopped
+2026-05-20 16:02:55.597 +05:30 [INF] TrustStateManager initialized
+2026-05-20 16:02:55.626 +05:30 [INF] EnforcementManager ready
+2026-05-20 16:02:55.626 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 16:02:55.628 +05:30 [INF] Pipe server started
+2026-05-20 16:02:55.629 +05:30 [INF] BLE Manager starting - looking for device: 'TetherPhone'
+2026-05-20 16:02:56.972 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 16:02:57.402 +05:30 [INF] BLE scanning started...
+2026-05-20 16:02:57.403 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 16:02:57.407 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-13:5c:bd:f7:d6:02
+2026-05-20 16:02:57.433 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 16:02:57.436 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.437 +05:30 [INF] 🔍 DEVICE FOUND: Name='2606 LaserJet Tank', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3e:0a:f3:e2:95:a6
+2026-05-20 16:02:57.438 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.438 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-06:ff:f5:9c:b1:61
+2026-05-20 16:02:57.439 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.440 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:42:60:d9:34:c9
+2026-05-20 16:02:57.440 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.441 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-16:d8:cd:41:a0:a9
+2026-05-20 16:02:57.441 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.442 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0b:43:d9:f6:83:5e
+2026-05-20 16:02:57.442 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.443 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2f:7d:45:10:d9:42
+2026-05-20 16:02:57.444 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.445 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:ad:91:5c:3e:00
+2026-05-20 16:02:57.446 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.446 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5a:cf:eb:7e:3c:3f
+2026-05-20 16:02:57.447 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.448 +05:30 [INF] 🔍 DEVICE FOUND: Name='Watch Pro', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2c:be:eb:bf:37:a4
+2026-05-20 16:02:57.452 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.452 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-21:37:e2:b8:c2:01
+2026-05-20 16:02:57.453 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.453 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-04:18:da:6a:e9:cd
+2026-05-20 16:02:57.454 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.455 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:cc:6f:45:6d:74
+2026-05-20 16:02:57.455 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.456 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:26:f5:55:c7:6a
+2026-05-20 16:02:57.457 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.457 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2b:06:ec:87:c6:a1
+2026-05-20 16:02:57.458 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.459 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 16:02:57.460 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.461 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 16:02:57.461 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.462 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 16:02:57.462 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.463 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 16:02:57.464 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.466 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 16:02:57.467 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.468 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 16:02:57.468 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.469 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 16:02:57.470 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.470 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 16:02:57.471 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.472 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 16:02:57.472 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.473 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 16:02:57.474 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.474 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 16:02:57.475 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.476 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 16:02:57.476 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.477 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 16:02:57.477 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.478 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 16:02:57.479 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.479 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 16:02:57.482 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.483 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 16:02:57.484 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.484 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 16:02:57.485 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.486 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 16:02:57.487 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.487 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 16:02:57.488 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.489 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 16:02:57.489 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:02:57.490 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 16:02:57.490 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:03:02.406 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 16:03:02.407 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-04:18:da:6a:e9:cd
+2026-05-20 16:03:02.407 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 16:03:02.408 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0b:43:d9:f6:83:5e
+2026-05-20 16:03:02.409 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 16:03:02.409 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 16:03:02.410 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 16:03:02.410 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:26:f5:55:c7:6a
+2026-05-20 16:03:02.411 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-16:d8:cd:41:a0:a9
+2026-05-20 16:03:02.412 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-21:37:e2:b8:c2:01
+2026-05-20 16:03:02.412 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 16:03:02.413 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:ad:91:5c:3e:00
+2026-05-20 16:03:02.413 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 16:03:02.414 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 16:03:02.414 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2b:06:ec:87:c6:a1
+2026-05-20 16:03:02.415 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2c:be:eb:bf:37:a4
+2026-05-20 16:03:02.415 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 16:03:02.416 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2f:7d:45:10:d9:42
+2026-05-20 16:03:02.416 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 16:03:02.417 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 16:03:02.417 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 16:03:02.418 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 16:03:02.418 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 16:03:02.419 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 16:03:02.419 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 16:03:02.420 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:42:60:d9:34:c9
+2026-05-20 16:03:02.420 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 16:03:02.424 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 16:03:02.424 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5a:cf:eb:7e:3c:3f
+2026-05-20 16:03:02.425 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 16:03:02.425 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:cc:6f:45:6d:74
+2026-05-20 16:03:02.426 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 16:03:02.426 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 16:03:23.733 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:42:60:d9:34:c9
+2026-05-20 16:03:23.735 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:03:23.735 +05:30 [INF]   Checking address match: '52:42:60:d9:34:c9' vs '5a:cf:eb:7e:3c:3f'
+2026-05-20 16:03:23.736 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:03:27.419 +05:30 [INF] Device enumeration completed - continuing to listen for new devices
+2026-05-20 16:03:32.407 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:42:60:d9:34:c9
+2026-05-20 16:03:59.629 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5b:80:0e:88:a5:32
+2026-05-20 16:03:59.631 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:03:59.631 +05:30 [INF]   Checking address match: '5b:80:0e:88:a5:32' vs '5a:cf:eb:7e:3c:3f'
+2026-05-20 16:03:59.632 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:04:07.418 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5b:80:0e:88:a5:32
+2026-05-20 16:04:47.251 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 16:04:47.261 +05:30 [INF] Stopping BLE Manager...
+2026-05-20 16:04:47.262 +05:30 [INF] RSSI and connection monitoring stopped
+2026-05-20 16:04:47.263 +05:30 [INF] BLE Manager stopped
+2026-05-20 16:05:14.095 +05:30 [INF] TrustStateManager initialized
+2026-05-20 16:05:14.126 +05:30 [INF] EnforcementManager ready
+2026-05-20 16:05:14.127 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 16:05:14.129 +05:30 [INF] Pipe server started
+2026-05-20 16:05:14.130 +05:30 [INF] BLE Manager starting - looking for device: 'TetherPhone'
+2026-05-20 16:05:15.416 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 16:05:15.812 +05:30 [INF] BLE scanning started...
+2026-05-20 16:05:15.813 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 16:05:15.819 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-06:ff:f5:9c:b1:61
+2026-05-20 16:05:15.845 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 16:05:15.848 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.849 +05:30 [INF] 🔍 DEVICE FOUND: Name='2606 LaserJet Tank', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3e:0a:f3:e2:95:a6
+2026-05-20 16:05:15.850 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.851 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-13:5c:bd:f7:d6:02
+2026-05-20 16:05:15.852 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.852 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5b:80:0e:88:a5:32
+2026-05-20 16:05:15.853 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.854 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:42:60:d9:34:c9
+2026-05-20 16:05:15.856 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.858 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-16:d8:cd:41:a0:a9
+2026-05-20 16:05:15.860 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.861 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0b:43:d9:f6:83:5e
+2026-05-20 16:05:15.862 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.863 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2f:7d:45:10:d9:42
+2026-05-20 16:05:15.864 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.865 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:ad:91:5c:3e:00
+2026-05-20 16:05:15.866 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.866 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5a:cf:eb:7e:3c:3f
+2026-05-20 16:05:15.867 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.868 +05:30 [INF] 🔍 DEVICE FOUND: Name='Watch Pro', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2c:be:eb:bf:37:a4
+2026-05-20 16:05:15.869 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.869 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-21:37:e2:b8:c2:01
+2026-05-20 16:05:15.873 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.874 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-04:18:da:6a:e9:cd
+2026-05-20 16:05:15.875 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.876 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:cc:6f:45:6d:74
+2026-05-20 16:05:15.877 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.878 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:26:f5:55:c7:6a
+2026-05-20 16:05:15.879 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.879 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2b:06:ec:87:c6:a1
+2026-05-20 16:05:15.880 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.881 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 16:05:15.882 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.883 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 16:05:15.884 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.884 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 16:05:15.887 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.888 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 16:05:15.889 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.890 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 16:05:15.891 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.892 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 16:05:15.893 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.893 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 16:05:15.894 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.895 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 16:05:15.895 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.896 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 16:05:15.897 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.898 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 16:05:15.899 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.899 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 16:05:15.900 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.903 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 16:05:15.904 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.905 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 16:05:15.906 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.907 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 16:05:15.907 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.908 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 16:05:15.909 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.909 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 16:05:15.910 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.911 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 16:05:15.912 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.912 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 16:05:15.914 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.914 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 16:05:15.915 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.916 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 16:05:15.917 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:15.920 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 16:05:15.921 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:05:20.835 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 16:05:20.836 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-04:18:da:6a:e9:cd
+2026-05-20 16:05:20.837 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 16:05:20.838 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0b:43:d9:f6:83:5e
+2026-05-20 16:05:20.838 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 16:05:20.839 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 16:05:20.840 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 16:05:20.840 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:26:f5:55:c7:6a
+2026-05-20 16:05:20.841 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-16:d8:cd:41:a0:a9
+2026-05-20 16:05:20.841 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-21:37:e2:b8:c2:01
+2026-05-20 16:05:20.842 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 16:05:20.842 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:ad:91:5c:3e:00
+2026-05-20 16:05:20.843 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 16:05:20.843 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 16:05:20.844 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2b:06:ec:87:c6:a1
+2026-05-20 16:05:20.844 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2c:be:eb:bf:37:a4
+2026-05-20 16:05:20.845 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 16:05:20.845 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2f:7d:45:10:d9:42
+2026-05-20 16:05:20.846 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 16:05:20.846 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 16:05:20.847 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 16:05:20.847 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 16:05:20.848 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 16:05:20.849 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 16:05:20.849 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 16:05:20.850 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:42:60:d9:34:c9
+2026-05-20 16:05:20.850 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 16:05:20.853 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 16:05:20.854 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5a:cf:eb:7e:3c:3f
+2026-05-20 16:05:20.854 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5b:80:0e:88:a5:32
+2026-05-20 16:05:20.855 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 16:05:20.856 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:cc:6f:45:6d:74
+2026-05-20 16:05:20.856 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 16:05:20.857 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 16:05:45.836 +05:30 [INF] Device enumeration completed - continuing to listen for new devices
+2026-05-20 16:07:11.237 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:90:ad:3e:8c:3e
+2026-05-20 16:07:11.239 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:07:11.239 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:07:20.832 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:90:ad:3e:8c:3e
+2026-05-20 16:08:00.397 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-12:3a:86:2d:47:45
+2026-05-20 16:08:00.398 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:08:00.399 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:08:05.830 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-06:ff:f5:9c:b1:61
+2026-05-20 16:09:36.984 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:6c:7e:e5:d8:39
+2026-05-20 16:09:36.986 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:09:36.987 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:09:45.833 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-13:5c:bd:f7:d6:02
+2026-05-20 16:10:54.652 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:48:22:e8:05:c4
+2026-05-20 16:10:54.654 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:10:54.655 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:10:55.194 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:1d:34:1e:55:48
+2026-05-20 16:10:55.195 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:10:55.197 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:11:00.836 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-12:3a:86:2d:47:45
+2026-05-20 16:11:00.837 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:6c:7e:e5:d8:39
+2026-05-20 16:11:18.603 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-79:68:e1:0e:14:bf
+2026-05-20 16:11:18.605 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:11:18.606 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:11:35.823 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-79:68:e1:0e:14:bf
+2026-05-20 16:13:05.840 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-79:68:e1:0e:14:bf
+2026-05-20 16:13:05.843 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:13:05.844 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:13:15.828 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-79:68:e1:0e:14:bf
+2026-05-20 16:14:07.425 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-79:68:e1:0e:14:bf
+2026-05-20 16:14:07.428 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:14:07.430 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:15:09.855 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-42:5b:2c:32:e2:d6
+2026-05-20 16:15:09.861 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:09.861 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-61:c9:6c:ba:33:e9
+2026-05-20 16:15:09.865 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:09.866 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-56:8b:83:c3:cd:c0
+2026-05-20 16:15:09.867 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:09.995 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7b:52:38:2a:39:82
+2026-05-20 16:15:09.997 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:09.998 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-65:9c:84:0c:8b:3e
+2026-05-20 16:15:09.999 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:10.000 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4d:7e:cd:f3:7a:c1
+2026-05-20 16:15:10.001 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:10.005 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:b5:4f:59:e7:48
+2026-05-20 16:15:10.008 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:10.009 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-70:42:6e:c6:42:52
+2026-05-20 16:15:10.014 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:10.017 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4f:7b:31:b8:b7:7e
+2026-05-20 16:15:10.019 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:10.162 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:b2:0e:8d:2e:8d
+2026-05-20 16:15:10.163 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:10.165 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-72:14:a6:40:90:53
+2026-05-20 16:15:10.166 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:10.173 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6f:3c:d5:c4:b3:59
+2026-05-20 16:15:10.174 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:10.718 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6f:59:06:6b:2b:65
+2026-05-20 16:15:10.721 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:10.722 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7b:15:90:f1:c1:e2
+2026-05-20 16:15:10.726 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:10.726 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:0e:ae:96:eb:10
+2026-05-20 16:15:10.727 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:10.728 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-69:72:0e:21:56:0a
+2026-05-20 16:15:10.729 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:10.863 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:4d:77:ba:db:e2
+2026-05-20 16:15:10.864 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:15:15.828 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-42:5b:2c:32:e2:d6
+2026-05-20 16:15:15.829 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4d:7e:cd:f3:7a:c1
+2026-05-20 16:15:15.830 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4f:7b:31:b8:b7:7e
+2026-05-20 16:15:15.831 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:b5:4f:59:e7:48
+2026-05-20 16:15:15.831 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:b2:0e:8d:2e:8d
+2026-05-20 16:15:15.832 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-56:8b:83:c3:cd:c0
+2026-05-20 16:15:15.832 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-61:c9:6c:ba:33:e9
+2026-05-20 16:15:15.833 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-65:9c:84:0c:8b:3e
+2026-05-20 16:15:15.834 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-69:72:0e:21:56:0a
+2026-05-20 16:15:15.834 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6f:3c:d5:c4:b3:59
+2026-05-20 16:15:15.835 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-70:42:6e:c6:42:52
+2026-05-20 16:15:15.836 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-72:14:a6:40:90:53
+2026-05-20 16:15:15.836 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7b:52:38:2a:39:82
+2026-05-20 16:15:20.834 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:0e:ae:96:eb:10
+2026-05-20 16:15:20.835 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:4d:77:ba:db:e2
+2026-05-20 16:15:20.835 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6f:59:06:6b:2b:65
+2026-05-20 16:15:20.836 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7b:15:90:f1:c1:e2
+2026-05-20 16:15:58.311 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:15:58.312 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:15:58.313 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:16:00.824 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-79:68:e1:0e:14:bf
+2026-05-20 16:16:28.831 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-34:b7:55:fc:3b:68
+2026-05-20 16:16:28.833 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:16:28.833 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:16:29.121 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-24:91:64:35:6e:71
+2026-05-20 16:16:29.123 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:16:29.124 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:16:34.626 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:0a:22:45:ac:d8
+2026-05-20 16:16:34.627 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:16:34.628 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:16:34.907 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-28:96:0f:2d:b3:60
+2026-05-20 16:16:34.911 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:16:34.911 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:16:35.825 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:48:22:e8:05:c4
+2026-05-20 16:16:35.826 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:1d:34:1e:55:48
+2026-05-20 16:16:40.833 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-24:91:64:35:6e:71
+2026-05-20 16:16:40.834 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-34:b7:55:fc:3b:68
+2026-05-20 16:16:42.124 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-19:e7:5f:72:d5:1f
+2026-05-20 16:16:42.125 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:16:42.126 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:16:42.263 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-32:e4:f1:f8:5a:fe
+2026-05-20 16:16:42.264 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:16:42.265 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:16:50.827 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:0a:22:45:ac:d8
+2026-05-20 16:16:50.828 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-28:96:0f:2d:b3:60
+2026-05-20 16:18:00.260 +05:30 [INF] 🔍 DEVICE FOUND: Name='Tirth's S25 FE', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-56:9c:18:7a:21:6f
+2026-05-20 16:18:00.262 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:18:00.262 +05:30 [INF]   Checking name match: 'Tirth's S25 FE' contains 'TetherPhone'?
+2026-05-20 16:18:00.268 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:18:07.443 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:90:ad:3e:8c:3e
+2026-05-20 16:18:07.444 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:18:07.445 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:18:15.834 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:90:ad:3e:8c:3e
+2026-05-20 16:19:10.586 +05:30 [INF] TrustStateManager initialized
+2026-05-20 16:19:10.620 +05:30 [INF] EnforcementManager ready
+2026-05-20 16:19:10.621 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 16:19:10.623 +05:30 [INF] Pipe server started
+2026-05-20 16:19:10.623 +05:30 [INF] BLE Manager starting - looking for device: 'Tirth's S25 FE'
+2026-05-20 16:19:12.237 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 16:19:12.973 +05:30 [INF] BLE scanning started...
+2026-05-20 16:19:12.974 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 16:19:12.981 +05:30 [INF] 🔍 DEVICE FOUND: Name='Tirth's S25 FE', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-56:9c:18:7a:21:6f
+2026-05-20 16:19:13.018 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 16:19:13.022 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.023 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-32:e4:f1:f8:5a:fe
+2026-05-20 16:19:13.024 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.025 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-19:e7:5f:72:d5:1f
+2026-05-20 16:19:13.026 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.027 +05:30 [INF] 🔍 DEVICE FOUND: Name='2606 LaserJet Tank', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3e:0a:f3:e2:95:a6
+2026-05-20 16:19:13.029 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.030 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:19:13.031 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.032 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:90:ad:3e:8c:3e
+2026-05-20 16:19:13.033 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.034 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-28:96:0f:2d:b3:60
+2026-05-20 16:19:13.035 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.036 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:0a:22:45:ac:d8
+2026-05-20 16:19:13.037 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.038 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-24:91:64:35:6e:71
+2026-05-20 16:19:13.043 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.045 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-34:b7:55:fc:3b:68
+2026-05-20 16:19:13.046 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.047 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:1d:34:1e:55:48
+2026-05-20 16:19:13.048 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.048 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:48:22:e8:05:c4
+2026-05-20 16:19:13.050 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.051 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-79:68:e1:0e:14:bf
+2026-05-20 16:19:13.052 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.053 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:0e:ae:96:eb:10
+2026-05-20 16:19:13.058 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.060 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:4d:77:ba:db:e2
+2026-05-20 16:19:13.061 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.062 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7b:15:90:f1:c1:e2
+2026-05-20 16:19:13.063 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.064 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6f:59:06:6b:2b:65
+2026-05-20 16:19:13.065 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.066 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-69:72:0e:21:56:0a
+2026-05-20 16:19:13.067 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.068 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-72:14:a6:40:90:53
+2026-05-20 16:19:13.069 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.069 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:b2:0e:8d:2e:8d
+2026-05-20 16:19:13.075 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.076 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-70:42:6e:c6:42:52
+2026-05-20 16:19:13.078 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.079 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:b5:4f:59:e7:48
+2026-05-20 16:19:13.080 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.081 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4d:7e:cd:f3:7a:c1
+2026-05-20 16:19:13.083 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.084 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6f:3c:d5:c4:b3:59
+2026-05-20 16:19:13.085 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.086 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4f:7b:31:b8:b7:7e
+2026-05-20 16:19:13.090 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.090 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-56:8b:83:c3:cd:c0
+2026-05-20 16:19:13.092 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.093 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-61:c9:6c:ba:33:e9
+2026-05-20 16:19:13.094 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.095 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7b:52:38:2a:39:82
+2026-05-20 16:19:13.096 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.096 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-42:5b:2c:32:e2:d6
+2026-05-20 16:19:13.097 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.098 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-65:9c:84:0c:8b:3e
+2026-05-20 16:19:13.099 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.100 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:6c:7e:e5:d8:39
+2026-05-20 16:19:13.101 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.105 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-12:3a:86:2d:47:45
+2026-05-20 16:19:13.107 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.108 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-13:5c:bd:f7:d6:02
+2026-05-20 16:19:13.110 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.111 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-06:ff:f5:9c:b1:61
+2026-05-20 16:19:13.112 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.113 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5b:80:0e:88:a5:32
+2026-05-20 16:19:13.114 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.115 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:42:60:d9:34:c9
+2026-05-20 16:19:13.116 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.120 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-16:d8:cd:41:a0:a9
+2026-05-20 16:19:13.122 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.123 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0b:43:d9:f6:83:5e
+2026-05-20 16:19:13.124 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.124 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2f:7d:45:10:d9:42
+2026-05-20 16:19:13.125 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.126 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:ad:91:5c:3e:00
+2026-05-20 16:19:13.128 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.128 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5a:cf:eb:7e:3c:3f
+2026-05-20 16:19:13.129 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.130 +05:30 [INF] 🔍 DEVICE FOUND: Name='Watch Pro', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2c:be:eb:bf:37:a4
+2026-05-20 16:19:13.131 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.132 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-21:37:e2:b8:c2:01
+2026-05-20 16:19:13.133 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.139 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-04:18:da:6a:e9:cd
+2026-05-20 16:19:13.140 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.141 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:cc:6f:45:6d:74
+2026-05-20 16:19:13.142 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.143 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:26:f5:55:c7:6a
+2026-05-20 16:19:13.145 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.145 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2b:06:ec:87:c6:a1
+2026-05-20 16:19:13.147 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.147 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 16:19:13.149 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.152 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 16:19:13.154 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.155 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 16:19:13.157 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.157 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 16:19:13.158 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.159 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 16:19:13.160 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.161 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 16:19:13.162 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.163 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 16:19:13.164 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.170 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 16:19:13.171 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.172 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 16:19:13.173 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.174 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 16:19:13.175 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.176 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 16:19:13.178 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.178 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 16:19:13.179 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.180 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 16:19:13.185 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.186 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 16:19:13.188 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.189 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 16:19:13.190 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.191 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 16:19:13.192 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.193 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 16:19:13.194 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.195 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 16:19:13.200 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.201 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 16:19:13.202 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.203 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 16:19:13.204 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:13.205 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 16:19:13.206 +05:30 [INF]   Is Connectable: False
+2026-05-20 16:19:17.987 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:a5:95:a5:a2:cc
+2026-05-20 16:19:17.988 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-04:18:da:6a:e9:cd
+2026-05-20 16:19:17.989 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-06:ff:f5:9c:b1:61
+2026-05-20 16:19:17.989 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-07:e4:aa:bc:75:ba
+2026-05-20 16:19:17.990 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0b:43:d9:f6:83:5e
+2026-05-20 16:19:17.991 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-0d:76:53:3f:8a:e1
+2026-05-20 16:19:17.991 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-10:f4:fb:5a:8a:87
+2026-05-20 16:19:17.992 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-12:3a:86:2d:47:45
+2026-05-20 16:19:17.992 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-13:5c:bd:f7:d6:02
+2026-05-20 16:19:17.993 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:0a:22:45:ac:d8
+2026-05-20 16:19:17.993 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-14:38:be:75:58:1b
+2026-05-20 16:19:17.994 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:26:f5:55:c7:6a
+2026-05-20 16:19:17.995 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-15:48:22:e8:05:c4
+2026-05-20 16:19:17.995 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-16:d8:cd:41:a0:a9
+2026-05-20 16:19:17.996 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-21:37:e2:b8:c2:01
+2026-05-20 16:19:17.996 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-22:88:8b:ea:cb:fc
+2026-05-20 16:19:17.997 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:6c:7e:e5:d8:39
+2026-05-20 16:19:17.997 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-23:ad:91:5c:3e:00
+2026-05-20 16:19:17.998 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-24:91:64:35:6e:71
+2026-05-20 16:19:17.998 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-26:61:87:a4:93:65
+2026-05-20 16:19:17.999 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-28:96:0f:2d:b3:60
+2026-05-20 16:19:17.999 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2a:a9:f2:e9:6a:1a
+2026-05-20 16:19:18.000 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2b:06:ec:87:c6:a1
+2026-05-20 16:19:18.000 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2c:be:eb:bf:37:a4
+2026-05-20 16:19:18.001 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2e:18:cc:b7:78:66
+2026-05-20 16:19:18.002 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-2f:7d:45:10:d9:42
+2026-05-20 16:19:18.005 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-34:b7:55:fc:3b:68
+2026-05-20 16:19:18.005 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-36:ed:0c:3f:71:d7
+2026-05-20 16:19:18.006 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:1d:34:1e:55:48
+2026-05-20 16:19:18.006 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-39:72:3b:02:7c:14
+2026-05-20 16:19:18.007 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:71:47:84:6b:49
+2026-05-20 16:19:18.008 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-41:ad:10:29:9a:99
+2026-05-20 16:19:18.008 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-42:5b:2c:32:e2:d6
+2026-05-20 16:19:18.009 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:24:fc:ba:c3:1b
+2026-05-20 16:19:18.009 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4d:7e:cd:f3:7a:c1
+2026-05-20 16:19:18.010 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4e:76:e7:06:57:6f
+2026-05-20 16:19:18.010 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4f:7b:31:b8:b7:7e
+2026-05-20 16:19:18.011 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:b5:4f:59:e7:48
+2026-05-20 16:19:18.011 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:d8:67:1f:8a:58
+2026-05-20 16:19:18.012 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:0e:ae:96:eb:10
+2026-05-20 16:19:18.012 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-52:42:60:d9:34:c9
+2026-05-20 16:19:18.013 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:1b:bd:a8:ff:d7
+2026-05-20 16:19:18.013 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-53:b2:0e:8d:2e:8d
+2026-05-20 16:19:18.014 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-54:9d:92:f7:f1:7c
+2026-05-20 16:19:18.014 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-56:8b:83:c3:cd:c0
+2026-05-20 16:19:18.015 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5a:cf:eb:7e:3c:3f
+2026-05-20 16:19:18.016 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5b:80:0e:88:a5:32
+2026-05-20 16:19:18.016 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-61:c9:6c:ba:33:e9
+2026-05-20 16:19:18.017 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-65:9c:84:0c:8b:3e
+2026-05-20 16:19:18.020 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-66:9f:22:72:9d:13
+2026-05-20 16:19:18.021 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:cc:6f:45:6d:74
+2026-05-20 16:19:18.021 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-69:72:0e:21:56:0a
+2026-05-20 16:19:18.022 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:32:3b:83:ab:4a
+2026-05-20 16:19:18.022 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:4d:77:ba:db:e2
+2026-05-20 16:19:18.023 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:90:ad:3e:8c:3e
+2026-05-20 16:19:18.023 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6f:3c:d5:c4:b3:59
+2026-05-20 16:19:18.024 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6f:59:06:6b:2b:65
+2026-05-20 16:19:18.024 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-70:42:6e:c6:42:52
+2026-05-20 16:19:18.025 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-72:14:a6:40:90:53
+2026-05-20 16:19:18.025 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-79:68:e1:0e:14:bf
+2026-05-20 16:19:18.026 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:fb:af:81:f9:2c
+2026-05-20 16:19:18.026 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7b:15:90:f1:c1:e2
+2026-05-20 16:19:18.027 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7b:52:38:2a:39:82
+2026-05-20 16:19:42.992 +05:30 [INF] Device enumeration completed - continuing to listen for new devices
+2026-05-20 16:19:57.991 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-56:9c:18:7a:21:6f
+2026-05-20 16:20:02.226 +05:30 [INF] 🔍 DEVICE FOUND: Name='Tirth's S25 FE', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-74:93:04:7a:77:3b
+2026-05-20 16:20:02.228 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:20:02.228 +05:30 [INF]   Checking name match: 'Tirth's S25 FE' contains 'Tirth's S25 FE'?
+2026-05-20 16:20:02.230 +05:30 [INF]   ✅ NAME MATCHED! Found target device: 'Tirth's S25 FE'
+2026-05-20 16:20:02.231 +05:30 [INF] 🎯 CONNECTING to Tirth's S25 FE...
+2026-05-20 16:20:02.237 +05:30 [INF] Connecting to device: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-74:93:04:7a:77:3b
+2026-05-20 16:20:02.357 +05:30 [INF] Device name: Tirth's S25 FE
+2026-05-20 16:20:02.361 +05:30 [INF] Device connection status: Disconnected
+2026-05-20 16:20:02.371 +05:30 [INF] Device access status: Allowed
+2026-05-20 16:20:02.371 +05:30 [INF] Discovering GATT services...
+2026-05-20 16:20:02.619 +05:30 [INF] Connection status changed: Connected
+2026-05-20 16:20:02.620 +05:30 [INF] Device reconnected!
+2026-05-20 16:20:02.622 +05:30 [INF] RSSI monitoring started
+2026-05-20 16:20:02.853 +05:30 [INF] Connection status changed: Disconnected
+2026-05-20 16:20:02.856 +05:30 [WRN] Handling disconnection...
+2026-05-20 16:20:02.857 +05:30 [INF] RSSI and connection monitoring stopped
+2026-05-20 16:20:02.860 +05:30 [INF] TrustStateManager received event: PHONE_DISCONNECTED
+2026-05-20 16:20:02.861 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-20 16:20:02.862 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-20 16:20:02.863 +05:30 [WRN] Trust lost – enforcement will lock
+2026-05-20 16:20:02.865 +05:30 [INF] Trust state changed to LIMITED
+2026-05-20 16:20:02.866 +05:30 [ERR] 🔒 Device disconnected - LOCKING WORKSTATION!
+2026-05-20 16:20:06.659 +05:30 [INF] Connection status changed: Connected
+2026-05-20 16:20:06.663 +05:30 [INF] Device reconnected!
+2026-05-20 16:20:06.667 +05:30 [INF] RSSI monitoring started
+2026-05-20 16:20:07.991 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:20:08.318 +05:30 [INF] ✅ Successfully connected! Found 10 services
+2026-05-20 16:20:08.326 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-20 16:20:08.327 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-20 16:20:08.327 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-20 16:20:08.328 +05:30 [INF] RSSI monitoring started
+2026-05-20 16:20:08.329 +05:30 [INF] Connection monitoring started
+2026-05-20 16:20:08.398 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:20:08.400 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:20:08.400 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:20:10.342 +05:30 [INF] 📊 Average RSSI: -61 dBm
+2026-05-20 16:20:12.837 +05:30 [INF] 📊 Average RSSI: -62 dBm
+2026-05-20 16:20:15.335 +05:30 [INF] 📊 Average RSSI: -60 dBm
+2026-05-20 16:20:33.003 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:21:23.083 +05:30 [INF] 📊 Average RSSI: -48 dBm
+2026-05-20 16:21:23.085 +05:30 [INF] 📊 Average RSSI: -49 dBm
+2026-05-20 16:21:23.085 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:21:23.086 +05:30 [INF] 📊 Average RSSI: -50 dBm
+2026-05-20 16:21:23.087 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:21:23.087 +05:30 [INF] 📊 Average RSSI: -46 dBm
+2026-05-20 16:21:23.088 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:21:23.089 +05:30 [INF] 📊 Average RSSI: -43 dBm
+2026-05-20 16:21:23.091 +05:30 [INF] 📊 Average RSSI: -39 dBm
+2026-05-20 16:21:23.092 +05:30 [INF] 📊 Average RSSI: -40 dBm
+2026-05-20 16:21:23.093 +05:30 [INF] 📊 Average RSSI: -46 dBm
+2026-05-20 16:21:23.093 +05:30 [INF] 📊 Average RSSI: -56 dBm
+2026-05-20 16:21:23.094 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:21:23.095 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:90:ad:3e:8c:3e
+2026-05-20 16:21:23.095 +05:30 [INF] 📊 Average RSSI: -52 dBm
+2026-05-20 16:21:23.097 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:21:23.097 +05:30 [INF] 📊 Average RSSI: -51 dBm
+2026-05-20 16:21:23.098 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:21:23.099 +05:30 [INF] 📊 Average RSSI: -52 dBm
+2026-05-20 16:21:23.101 +05:30 [INF] 📊 Average RSSI: -56 dBm
+2026-05-20 16:21:23.102 +05:30 [INF] 📊 Average RSSI: -63 dBm
+2026-05-20 16:21:23.102 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:90:ad:3e:8c:3e
+2026-05-20 16:21:23.104 +05:30 [INF] 📊 Average RSSI: -57 dBm
+2026-05-20 16:21:23.109 +05:30 [INF] 📊 Average RSSI: -58 dBm
+2026-05-20 16:21:23.111 +05:30 [INF] 📊 Average RSSI: -58 dBm
+2026-05-20 16:21:23.112 +05:30 [INF] 📊 Average RSSI: -58 dBm
+2026-05-20 16:21:23.113 +05:30 [INF] 📊 Average RSSI: -59 dBm
+2026-05-20 16:21:23.114 +05:30 [INF] 📊 Average RSSI: -59 dBm
+2026-05-20 16:21:23.115 +05:30 [INF] 📊 Average RSSI: -58 dBm
+2026-05-20 16:21:23.116 +05:30 [INF] 📊 Average RSSI: -59 dBm
+2026-05-20 16:21:23.117 +05:30 [INF] 📊 Average RSSI: -58 dBm
+2026-05-20 16:21:23.118 +05:30 [INF] 📊 Average RSSI: -59 dBm
+2026-05-20 16:21:23.119 +05:30 [INF] 📊 Average RSSI: -58 dBm
+2026-05-20 16:21:23.120 +05:30 [INF] 📊 Average RSSI: -58 dBm
+2026-05-20 16:21:25.342 +05:30 [INF] 📊 Average RSSI: -60 dBm
+2026-05-20 16:21:27.844 +05:30 [INF] 📊 Average RSSI: -60 dBm
+2026-05-20 16:21:30.335 +05:30 [INF] 📊 Average RSSI: -60 dBm
+2026-05-20 16:21:32.833 +05:30 [INF] 📊 Average RSSI: -60 dBm
+2026-05-20 16:21:35.342 +05:30 [INF] 📊 Average RSSI: -64 dBm
+2026-05-20 16:21:37.832 +05:30 [INF] 📊 Average RSSI: -61 dBm
+2026-05-20 16:21:40.338 +05:30 [INF] 📊 Average RSSI: -56 dBm
+2026-05-20 16:21:42.835 +05:30 [INF] 📊 Average RSSI: -61 dBm
+2026-05-20 16:21:45.329 +05:30 [INF] 📊 Average RSSI: -63 dBm
+2026-05-20 16:21:47.833 +05:30 [INF] 📊 Average RSSI: -60 dBm
+2026-05-20 16:21:50.335 +05:30 [INF] 📊 Average RSSI: -76 dBm
+2026-05-20 16:21:50.336 +05:30 [WRN] ⚠️ Signal weak: -76 dBm
+2026-05-20 16:21:50.338 +05:30 [INF] TrustStateManager received event: TRUST_DEGRADED
+2026-05-20 16:21:50.338 +05:30 [WRN] Trust degraded due to proximity
+2026-05-20 16:21:52.837 +05:30 [INF] 📊 Average RSSI: -85 dBm
+2026-05-20 16:21:52.838 +05:30 [WRN] ⚠️ Signal weak: -85 dBm
+2026-05-20 16:21:52.839 +05:30 [INF] TrustStateManager received event: TRUST_DEGRADED
+2026-05-20 16:21:55.342 +05:30 [INF] 📊 Average RSSI: -90 dBm
+2026-05-20 16:21:55.343 +05:30 [ERR] 🔒 SIGNAL LOST: -90 dBm <= -85. LOCKING WORKSTATION!
+2026-05-20 16:21:55.344 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-20 16:21:55.344 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-20 16:21:55.345 +05:30 [WRN] Trust lost – enforcement will lock
+2026-05-20 16:21:55.346 +05:30 [WRN] Panic mode activated!
+2026-05-20 16:21:55.346 +05:30 [WRN] Enforcing lockdown due to PANIC_TRIGGERED
+2026-05-20 16:21:55.347 +05:30 [INF] TrustStateManager received event: PANIC_TRIGGERED
+2026-05-20 16:21:55.348 +05:30 [WRN] PANIC mode activated
+2026-05-20 16:21:57.834 +05:30 [INF] 📊 Average RSSI: -83 dBm
+2026-05-20 16:22:00.341 +05:30 [INF] 📊 Average RSSI: -69 dBm
+2026-05-20 16:22:02.832 +05:30 [INF] 📊 Average RSSI: -52 dBm
+2026-05-20 16:22:02.833 +05:30 [INF] ✅ Signal restored: -52 dBm
+2026-05-20 16:22:02.834 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-20 16:22:05.332 +05:30 [INF] 📊 Average RSSI: -51 dBm
+2026-05-20 16:22:07.834 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:22:07.991 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:22:08.117 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:22:08.118 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:22:08.119 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:22:10.339 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:22:12.843 +05:30 [INF] 📊 Average RSSI: -52 dBm
+2026-05-20 16:22:15.333 +05:30 [INF] 📊 Average RSSI: -52 dBm
+2026-05-20 16:22:17.835 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:22:20.340 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:22:22.840 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:22:25.340 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:22:27.830 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:22:28.001 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:22:30.335 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:22:30.422 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:22:30.423 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:22:30.424 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:22:32.835 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:22:35.336 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:22:37.837 +05:30 [INF] 📊 Average RSSI: -55 dBm
+2026-05-20 16:22:40.336 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:22:42.836 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:22:45.340 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:22:47.841 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:22:50.343 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:22:52.830 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:22:55.334 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:22:57.836 +05:30 [INF] 📊 Average RSSI: -51 dBm
+2026-05-20 16:23:00.340 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:23:02.840 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:23:05.340 +05:30 [INF] 📊 Average RSSI: -51 dBm
+2026-05-20 16:23:07.838 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:23:10.341 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:23:12.841 +05:30 [INF] 📊 Average RSSI: -52 dBm
+2026-05-20 16:23:15.341 +05:30 [INF] 📊 Average RSSI: -50 dBm
+2026-05-20 16:23:17.844 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:23:20.338 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:23:22.831 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:23:25.341 +05:30 [INF] 📊 Average RSSI: -51 dBm
+2026-05-20 16:23:27.831 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:23:30.336 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:23:32.835 +05:30 [INF] 📊 Average RSSI: -51 dBm
+2026-05-20 16:23:35.333 +05:30 [INF] 📊 Average RSSI: -52 dBm
+2026-05-20 16:23:37.832 +05:30 [INF] 📊 Average RSSI: -52 dBm
+2026-05-20 16:23:40.336 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:23:42.840 +05:30 [INF] 📊 Average RSSI: -51 dBm
+2026-05-20 16:23:45.333 +05:30 [INF] 📊 Average RSSI: -55 dBm
+2026-05-20 16:23:47.833 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:23:50.340 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:23:52.843 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:23:55.329 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:23:57.844 +05:30 [INF] 📊 Average RSSI: -55 dBm
+2026-05-20 16:23:57.988 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:23:59.020 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:23:59.021 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:23:59.022 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:24:00.334 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:24:02.840 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:24:05.331 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:24:07.830 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:24:10.335 +05:30 [INF] 📊 Average RSSI: -51 dBm
+2026-05-20 16:24:12.843 +05:30 [INF] 📊 Average RSSI: -55 dBm
+2026-05-20 16:24:13.001 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:24:15.346 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:24:17.832 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:24:18.537 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:24:18.538 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:24:18.539 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:24:20.332 +05:30 [INF] 📊 Average RSSI: -53 dBm
+2026-05-20 16:24:22.840 +05:30 [INF] 📊 Average RSSI: -50 dBm
+2026-05-20 16:24:25.330 +05:30 [INF] 📊 Average RSSI: -55 dBm
+2026-05-20 16:24:27.831 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:24:30.344 +05:30 [INF] 📊 Average RSSI: -54 dBm
+2026-05-20 16:24:32.844 +05:30 [INF] 📊 Average RSSI: -52 dBm
+2026-05-20 16:24:35.343 +05:30 [INF] 📊 Average RSSI: -57 dBm
+2026-05-20 16:24:37.840 +05:30 [INF] 📊 Average RSSI: -50 dBm
+2026-05-20 16:24:40.342 +05:30 [INF] 📊 Average RSSI: -49 dBm
+2026-05-20 16:24:42.829 +05:30 [INF] 📊 Average RSSI: -50 dBm
+2026-05-20 16:24:45.344 +05:30 [INF] 📊 Average RSSI: -57 dBm
+2026-05-20 16:24:47.832 +05:30 [INF] 📊 Average RSSI: -55 dBm
+2026-05-20 16:24:50.343 +05:30 [INF] 📊 Average RSSI: -49 dBm
+2026-05-20 16:24:52.837 +05:30 [INF] 📊 Average RSSI: -48 dBm
+2026-05-20 16:24:55.331 +05:30 [INF] 📊 Average RSSI: -44 dBm
+2026-05-20 16:24:57.483 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3b:c1:73:fb:aa:f7
+2026-05-20 16:24:57.484 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:24:57.485 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:24:57.838 +05:30 [INF] 📊 Average RSSI: -39 dBm
+2026-05-20 16:25:00.342 +05:30 [INF] 📊 Average RSSI: -40 dBm
+2026-05-20 16:25:02.832 +05:30 [INF] 📊 Average RSSI: -57 dBm
+2026-05-20 16:25:02.991 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-32:e4:f1:f8:5a:fe
+2026-05-20 16:25:05.334 +05:30 [INF] 📊 Average RSSI: -58 dBm
+2026-05-20 16:25:05.984 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-1a:1b:d3:01:ca:d0
+2026-05-20 16:25:05.985 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:25:05.985 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:25:07.422 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-1d:c5:b2:98:bb:55
+2026-05-20 16:25:07.423 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:25:07.424 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:25:07.832 +05:30 [INF] 📊 Average RSSI: -59 dBm
+2026-05-20 16:25:10.338 +05:30 [INF] 📊 Average RSSI: -46 dBm
+2026-05-20 16:25:12.841 +05:30 [INF] 📊 Average RSSI: -45 dBm
+2026-05-20 16:25:12.998 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-19:e7:5f:72:d5:1f
+2026-05-20 16:25:12.999 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3b:c1:73:fb:aa:f7
+2026-05-20 16:25:15.336 +05:30 [INF] 📊 Average RSSI: -61 dBm
+2026-05-20 16:25:17.834 +05:30 [INF] 📊 Average RSSI: -72 dBm
+2026-05-20 16:25:20.341 +05:30 [INF] 📊 Average RSSI: -72 dBm
+2026-05-20 16:25:22.841 +05:30 [INF] 📊 Average RSSI: -75 dBm
+2026-05-20 16:25:25.333 +05:30 [INF] 📊 Average RSSI: -66 dBm
+2026-05-20 16:25:27.832 +05:30 [INF] 📊 Average RSSI: -60 dBm
+2026-05-20 16:25:30.336 +05:30 [INF] 📊 Average RSSI: -71 dBm
+2026-05-20 16:25:32.842 +05:30 [INF] 📊 Average RSSI: -77 dBm
+2026-05-20 16:25:32.843 +05:30 [WRN] ⚠️ Signal weak: -77 dBm
+2026-05-20 16:25:32.844 +05:30 [INF] TrustStateManager received event: TRUST_DEGRADED
+2026-05-20 16:25:35.332 +05:30 [INF] 📊 Average RSSI: -69 dBm
+2026-05-20 16:25:37.830 +05:30 [INF] 📊 Average RSSI: -68 dBm
+2026-05-20 16:25:40.336 +05:30 [INF] 📊 Average RSSI: -70 dBm
+2026-05-20 16:25:42.842 +05:30 [INF] 📊 Average RSSI: -70 dBm
+2026-05-20 16:25:45.331 +05:30 [INF] 📊 Average RSSI: -71 dBm
+2026-05-20 16:25:47.830 +05:30 [INF] 📊 Average RSSI: -80 dBm
+2026-05-20 16:25:47.831 +05:30 [WRN] ⚠️ Signal weak: -80 dBm
+2026-05-20 16:25:47.832 +05:30 [INF] TrustStateManager received event: TRUST_DEGRADED
+2026-05-20 16:25:50.337 +05:30 [INF] 📊 Average RSSI: -71 dBm
+2026-05-20 16:25:52.838 +05:30 [INF] 📊 Average RSSI: -75 dBm
+2026-05-20 16:25:55.333 +05:30 [INF] 📊 Average RSSI: -77 dBm
+2026-05-20 16:25:55.334 +05:30 [WRN] ⚠️ Signal weak: -77 dBm
+2026-05-20 16:25:55.334 +05:30 [INF] TrustStateManager received event: TRUST_DEGRADED
+2026-05-20 16:25:57.839 +05:30 [INF] 📊 Average RSSI: -78 dBm
+2026-05-20 16:25:57.839 +05:30 [WRN] ⚠️ Signal weak: -78 dBm
+2026-05-20 16:25:57.840 +05:30 [INF] TrustStateManager received event: TRUST_DEGRADED
+2026-05-20 16:26:00.344 +05:30 [INF] 📊 Average RSSI: -76 dBm
+2026-05-20 16:26:00.345 +05:30 [WRN] ⚠️ Signal weak: -76 dBm
+2026-05-20 16:26:00.346 +05:30 [INF] TrustStateManager received event: TRUST_DEGRADED
+2026-05-20 16:26:02.832 +05:30 [INF] 📊 Average RSSI: -81 dBm
+2026-05-20 16:26:02.832 +05:30 [WRN] ⚠️ Signal weak: -81 dBm
+2026-05-20 16:26:02.833 +05:30 [INF] TrustStateManager received event: TRUST_DEGRADED
+2026-05-20 16:26:05.342 +05:30 [INF] 📊 Average RSSI: -77 dBm
+2026-05-20 16:26:05.343 +05:30 [WRN] ⚠️ Signal weak: -77 dBm
+2026-05-20 16:26:05.343 +05:30 [INF] TrustStateManager received event: TRUST_DEGRADED
+2026-05-20 16:26:07.841 +05:30 [INF] 📊 Average RSSI: -80 dBm
+2026-05-20 16:26:07.842 +05:30 [WRN] ⚠️ Signal weak: -80 dBm
+2026-05-20 16:26:07.843 +05:30 [INF] TrustStateManager received event: TRUST_DEGRADED
+2026-05-20 16:26:10.331 +05:30 [INF] 📊 Average RSSI: -79 dBm
+2026-05-20 16:26:10.331 +05:30 [WRN] ⚠️ Signal weak: -79 dBm
+2026-05-20 16:26:10.332 +05:30 [INF] TrustStateManager received event: TRUST_DEGRADED
+2026-05-20 16:26:12.835 +05:30 [INF] 📊 Average RSSI: -76 dBm
+2026-05-20 16:26:12.835 +05:30 [WRN] ⚠️ Signal weak: -76 dBm
+2026-05-20 16:26:12.836 +05:30 [INF] TrustStateManager received event: TRUST_DEGRADED
+2026-05-20 16:26:15.340 +05:30 [INF] 📊 Average RSSI: -69 dBm
+2026-05-20 16:26:17.841 +05:30 [INF] 📊 Average RSSI: -73 dBm
+2026-05-20 16:26:20.344 +05:30 [INF] 📊 Average RSSI: -77 dBm
+2026-05-20 16:26:20.345 +05:30 [WRN] ⚠️ Signal weak: -77 dBm
+2026-05-20 16:26:20.345 +05:30 [INF] TrustStateManager received event: TRUST_DEGRADED
+2026-05-20 16:26:22.843 +05:30 [INF] 📊 Average RSSI: -94 dBm
+2026-05-20 16:26:22.844 +05:30 [ERR] 🔒 SIGNAL LOST: -94 dBm <= -85. LOCKING WORKSTATION!
+2026-05-20 16:26:22.844 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-20 16:26:22.845 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-20 16:26:22.846 +05:30 [WRN] Trust lost – enforcement will lock
+2026-05-20 16:26:22.847 +05:30 [WRN] Panic mode activated!
+2026-05-20 16:26:22.847 +05:30 [WRN] Enforcing lockdown due to PANIC_TRIGGERED
+2026-05-20 16:26:22.848 +05:30 [INF] TrustStateManager received event: PANIC_TRIGGERED
+2026-05-20 16:26:22.849 +05:30 [WRN] PANIC mode activated
+2026-05-20 16:26:25.336 +05:30 [INF] 📊 Average RSSI: -99 dBm
+2026-05-20 16:26:27.843 +05:30 [INF] 📊 Average RSSI: -85 dBm
+2026-05-20 16:26:28.001 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:26:30.337 +05:30 [INF] 📊 Average RSSI: -68 dBm
+2026-05-20 16:26:32.839 +05:30 [INF] 📊 Average RSSI: -66 dBm
+2026-05-20 16:26:35.343 +05:30 [INF] 📊 Average RSSI: -68 dBm
+2026-05-20 16:26:37.839 +05:30 [INF] 📊 Average RSSI: -66 dBm
+2026-05-20 16:26:40.337 +05:30 [INF] 📊 Average RSSI: -57 dBm
+2026-05-20 16:26:40.337 +05:30 [INF] ✅ Signal restored: -57 dBm
+2026-05-20 16:26:40.338 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-20 16:26:42.837 +05:30 [INF] 📊 Average RSSI: -56 dBm
+2026-05-20 16:26:45.337 +05:30 [INF] 📊 Average RSSI: -66 dBm
+2026-05-20 16:26:47.833 +05:30 [INF] 📊 Average RSSI: -63 dBm
+2026-05-20 16:26:50.336 +05:30 [INF] 📊 Average RSSI: -56 dBm
+2026-05-20 16:26:51.199 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6d:26:bd:da:61:84
+2026-05-20 16:26:51.200 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:26:51.200 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:26:52.837 +05:30 [INF] 📊 Average RSSI: -63 dBm
+2026-05-20 16:26:55.342 +05:30 [INF] 📊 Average RSSI: -63 dBm
+2026-05-20 16:26:57.841 +05:30 [INF] 📊 Average RSSI: -64 dBm
+2026-05-20 16:27:00.344 +05:30 [INF] 📊 Average RSSI: -63 dBm
+2026-05-20 16:27:02.836 +05:30 [INF] 📊 Average RSSI: -56 dBm
+2026-05-20 16:27:05.330 +05:30 [INF] 📊 Average RSSI: -51 dBm
+2026-05-20 16:27:07.833 +05:30 [INF] 📊 Average RSSI: -49 dBm
+2026-05-20 16:27:10.336 +05:30 [INF] 📊 Average RSSI: -44 dBm
+2026-05-20 16:27:12.840 +05:30 [INF] 📊 Average RSSI: -47 dBm
+2026-05-20 16:27:15.341 +05:30 [INF] 📊 Average RSSI: -46 dBm
+2026-05-20 16:27:17.831 +05:30 [INF] 📊 Average RSSI: -46 dBm
+2026-05-20 16:27:20.331 +05:30 [INF] 📊 Average RSSI: -43 dBm
+2026-05-20 16:27:22.832 +05:30 [INF] 📊 Average RSSI: -45 dBm
+2026-05-20 16:27:25.333 +05:30 [INF] 📊 Average RSSI: -43 dBm
+2026-05-20 16:27:27.833 +05:30 [INF] 📊 Average RSSI: -41 dBm
+2026-05-20 16:27:30.338 +05:30 [INF] 📊 Average RSSI: -43 dBm
+2026-05-20 16:27:32.841 +05:30 [INF] 📊 Average RSSI: -44 dBm
+2026-05-20 16:27:35.341 +05:30 [INF] 📊 Average RSSI: -47 dBm
+2026-05-20 16:27:37.833 +05:30 [INF] 📊 Average RSSI: -44 dBm
+2026-05-20 16:27:40.334 +05:30 [INF] 📊 Average RSSI: -48 dBm
+2026-05-20 16:27:42.833 +05:30 [INF] 📊 Average RSSI: -44 dBm
+2026-05-20 16:27:45.338 +05:30 [INF] 📊 Average RSSI: -47 dBm
+2026-05-20 16:27:47.837 +05:30 [INF] 📊 Average RSSI: -47 dBm
+2026-05-20 16:27:50.339 +05:30 [INF] 📊 Average RSSI: -43 dBm
+2026-05-20 16:27:52.211 +05:30 [INF] 🔍 DEVICE FOUND: Name='Tirth's S25 FE', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5a:c6:b9:23:33:26
+2026-05-20 16:27:52.212 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:27:52.212 +05:30 [INF]   Checking name match: 'Tirth's S25 FE' contains 'Tirth's S25 FE'?
+2026-05-20 16:27:52.213 +05:30 [INF]   ✅ NAME MATCHED! Found target device: 'Tirth's S25 FE'
+2026-05-20 16:27:52.214 +05:30 [INF] 🎯 CONNECTING to Tirth's S25 FE...
+2026-05-20 16:27:52.214 +05:30 [INF] Already connected to a device
+2026-05-20 16:27:52.839 +05:30 [INF] 📊 Average RSSI: -45 dBm
+2026-05-20 16:27:55.332 +05:30 [INF] 📊 Average RSSI: -41 dBm
+2026-05-20 16:27:57.839 +05:30 [INF] 📊 Average RSSI: -41 dBm
+2026-05-20 16:27:57.997 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-74:93:04:7a:77:3b
+2026-05-20 16:27:57.998 +05:30 [WRN] Target device removed from enumeration
+2026-05-20 16:27:57.998 +05:30 [WRN] Handling disconnection...
+2026-05-20 16:27:57.999 +05:30 [INF] RSSI and connection monitoring stopped
+2026-05-20 16:27:57.999 +05:30 [INF] TrustStateManager received event: PHONE_DISCONNECTED
+2026-05-20 16:27:58.000 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-20 16:27:58.001 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-20 16:27:58.001 +05:30 [WRN] Trust lost – enforcement will lock
+2026-05-20 16:27:58.002 +05:30 [INF] Trust state changed to LIMITED
+2026-05-20 16:27:58.003 +05:30 [ERR] 🔒 Device disconnected - LOCKING WORKSTATION!
+2026-05-20 16:27:58.003 +05:30 [INF] Attempting to reconnect (1/5)...
+2026-05-20 16:28:18.692 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-00:25:72:9d:38:27
+2026-05-20 16:28:18.693 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:28:18.693 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:28:18.975 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-3d:d8:51:2f:56:75
+2026-05-20 16:28:18.976 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:28:18.977 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:28:27.633 +05:30 [INF] 🔍 DEVICE FOUND: Name='', ID=BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5c:43:ab:50:fd:e5
+2026-05-20 16:28:27.634 +05:30 [INF]   Is Connectable: True
+2026-05-20 16:28:27.634 +05:30 [INF]   ❌ Not target device, ignoring
+2026-05-20 16:28:27.988 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-1a:1b:d3:01:ca:d0
+2026-05-20 16:28:27.989 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-1d:c5:b2:98:bb:55
+2026-05-20 16:28:32.994 +05:30 [INF] Device removed: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-5c:43:ab:50:fd:e5
+2026-05-20 16:29:14.618 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 16:29:14.629 +05:30 [INF] Stopping BLE Manager...
+2026-05-20 16:29:14.630 +05:30 [INF] RSSI and connection monitoring stopped
+2026-05-20 16:29:14.634 +05:30 [INF] BLE Manager stopped

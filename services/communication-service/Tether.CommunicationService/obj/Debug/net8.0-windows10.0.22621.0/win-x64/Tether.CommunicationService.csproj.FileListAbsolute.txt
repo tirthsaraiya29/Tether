@@ -1,10 +1,5 @@
-C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\appsettings.Development.json
-C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\appsettings.json
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Tether.CommunicationService.exe
-C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Tether.CommunicationService.deps.json
-C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Tether.CommunicationService.runtimeconfig.json
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Tether.CommunicationService.dll
-C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Tether.CommunicationService.pdb
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Microsoft.Extensions.Configuration.dll
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Microsoft.Extensions.Configuration.Abstractions.dll
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Microsoft.Extensions.Configuration.Binder.dll
@@ -30,6 +25,11 @@ C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Deb
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Microsoft.Extensions.Logging.Debug.dll
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Microsoft.Extensions.Logging.EventLog.dll
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Microsoft.Extensions.Logging.EventSource.dll
+C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\appsettings.Development.json
+C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\appsettings.json
+C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Tether.CommunicationService.deps.json
+C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Tether.CommunicationService.runtimeconfig.json
+C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Tether.CommunicationService.pdb
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Microsoft.Extensions.Options.dll
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Microsoft.Extensions.Options.ConfigurationExtensions.dll
 C:\Dev\Tether\services\communication-service\Tether.CommunicationService\bin\Debug\net8.0-windows10.0.22621.0\win-x64\Microsoft.Extensions.Primitives.dll

@@ -3,16 +3,18 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.tether.phone">
 
-    <!-- Bluetooth permissions -->
+    <!-- Permissions for Android 12+ (API 31+) -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Foreground service permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
+    <!-- Legacy permissions for older Android versions -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
 
@@ -23,6 +25,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="Tether Phone"
         android:theme="@style/Theme.AppCompat.Light"
+        android:requestLegacyExternalStorage="true"
         tools:targetApi="34">
 
         <activity android:name=".MainActivity"
@@ -35,6 +38,11 @@
 
         <service
             android:name=".BleGattServerService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <service
+            android:name=".BleServerService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
     </application>

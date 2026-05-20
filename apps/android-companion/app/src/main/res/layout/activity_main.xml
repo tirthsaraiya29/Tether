@@ -24,6 +24,7 @@
         android:layout_marginBottom="48dp" />
 
     <TextView
+        android:id="@+id/connectionStatusText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Bluetooth LE Active"
