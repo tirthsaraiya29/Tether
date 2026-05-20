@@ -1,10 +1,7 @@
 ﻿using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.WindowsRuntime;
-using System.Text;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
-using Windows.Storage.Streams;
 using Tether.EventBus;
 using Tether.Shared.Events;
 using Tether.Shared.Logging;
@@ -17,12 +14,17 @@ public class BleManager : IDisposable
     private readonly ITetherLogger _logger;
     private DeviceWatcher? _deviceWatcher;
     private BluetoothLEDevice? _device;
-    private GattCharacteristic? _pingChar;
-    private GattCharacteristic? _pongChar;
-    private Timer? _heartbeatTimer;
-    private int _missedPongs = 0;
-    private const int PING_INTERVAL_MS = 2000;
-    private const int MAX_MISSED_PONGS = 2;  // Lock after ~4 seconds without response
+    private Timer? _rssiTimer;
+    private readonly List<int> _rssiSamples = new();
+    private readonly object _lock = new();
+
+    private bool _isWorkstationLocked = false;
+
+    private const int RSSI_GOOD = -60;
+    private const int RSSI_DEGRADED = -70;
+    private const int RSSI_LOCK = -80;
+    private const int SAMPLE_INTERVAL_MS = 200;
+    private const int SAMPLES_PER_SECOND = 5;
 
     public BleManager(IEventBus eventBus, ITetherLogger logger)
     {
@@ -30,150 +32,221 @@ public class BleManager : IDisposable
         _logger = logger;
     }
 
-    public void Start()
-    {
-        _logger.Info("Starting BLE heartbeat proximity monitor...");
-        StartScanning();
-    }
+    public void Start() => StartScanning();
 
     private void StartScanning()
     {
-        string[] requestedProperties = { "System.Devices.Aep.DeviceAddress" };
+        // Use the name from your Windows Settings screenshot
+        string targetName = "Tirth's S25 FE";
+
+        // Broaden filter to find the device regardless of state
+        string aqsFilter = $"System.ItemNameDisplay:~~\"{targetName}\" OR System.Devices.Aep.ProtocolId:=\"{{bb7bb05e-5972-42b5-94fc-76eaa7084d49}}\"";
+
+        string[] requestedProperties = {
+            "System.Devices.Aep.DeviceAddress",
+            "System.Devices.Aep.SignalStrength",
+            "System.Devices.Aep.IsConnected"
+        };
+
         _deviceWatcher = DeviceInformation.CreateWatcher(
-            "(System.Devices.Aep.ProtocolId:=\"{bb7bb05e-5972-42b5-94fc-76eaa7084d49}\")",
+            aqsFilter,
             requestedProperties,
             DeviceInformationKind.AssociationEndpoint);
 
         _deviceWatcher.Added += OnDeviceAdded;
+        // CRITICAL: Handle updates for devices that are already "Known" or "Connected"
+        _deviceWatcher.Updated += OnDeviceUpdated;
+
         _deviceWatcher.Start();
-        _logger.Info("BLE scanning started");
+        _logger.Info($"BLE scanning started for {targetName}...");
     }
 
     private async void OnDeviceAdded(DeviceWatcher sender, DeviceInformation args)
     {
-        // Filter by name (case-insensitive is safer)
-        if (args.Name == null || !args.Name.Contains("TetherPhone", StringComparison.OrdinalIgnoreCase)) return;
+        // BLOCK CLASSIC IDS: They start with "Bluetooth#". We only want "BluetoothLE#"
+        if (!args.Id.Contains("BluetoothLE")) return;
 
-        _logger.Info($"Found Tether phone: {args.Name}");
+        // Check for either the phone's name or the nRF name
+        if (args.Name.Contains("Tirth") || args.Name.Contains("TetherPhone"))
+        {
+            _logger.Info($"Found valid BLE Device: {args.Name}");
+            await InitializeDevice(args.Id);
+        }
+    }
+
+    private async void OnDeviceUpdated(DeviceWatcher sender, DeviceInformationUpdate args)
+    {
+        // BLOCK CLASSIC IDS
+        if (!args.Id.Contains("BluetoothLE")) return;
+
+        if (_device == null)
+        {
+            var deviceDoc = await DeviceInformation.CreateFromIdAsync(args.Id);
+            if (deviceDoc.Name.Contains("Tirth") || deviceDoc.Name.Contains("TetherPhone"))
+            {
+                await InitializeDevice(args.Id);
+            }
+        }
+    }
+
+    private async Task InitializeDevice(string deviceId)
+    {
+        if (_device != null && _device.ConnectionStatus == BluetoothConnectionStatus.Connected) return;
+
         try
         {
-            // Use the ID directly instead of parsing the address manually
-            _device = await BluetoothLEDevice.FromIdAsync(args.Id);
+            _logger.Info($"Initializing BLE session for {deviceId}...");
+            _device = await BluetoothLEDevice.FromIdAsync(deviceId);
+
             if (_device == null) return;
 
-            _device.ConnectionStatusChanged += OnConnectionStatusChanged;
-
-            // Discover GATT service
-            var services = await _device.GetGattServicesForUuidAsync(Guid.Parse("0000ffe0-0000-1000-8000-00805f9b34fb"));
-            if (services.Status != GattCommunicationStatus.Success || services.Services.Count == 0)
+            // --- NEW: FORCED PAIRING CHECK ---
+            if (_device.DeviceInformation.Pairing.CanPair && !_device.DeviceInformation.Pairing.IsPaired)
             {
-                _logger.Error("Tether service not found on phone");
-                return;
+                _logger.Warning("Device is not paired. Requesting custom pairing...");
+                // This tells Windows to perform a "Just Works" pairing
+                var result = await _device.DeviceInformation.Pairing.Custom.PairAsync(DevicePairingKinds.ConfirmOnly);
+                _logger.Info($"Pairing result: {result.Status}");
             }
 
-            var service = services.Services[0];
-            var characteristics = await service.GetCharacteristicsAsync();
+            // --- NEW: ACCESS CONSENT ---
+            // Sometimes Windows needs a nudge to know we have permission to use the radio
+            var accessStatus = await _device.RequestAccessAsync();
+            _logger.Info($"Access status: {accessStatus}");
 
-            foreach (var c in characteristics.Characteristics)
+            // Attempt to connect by pulling services
+            _logger.Info("Negotiating LE Link...");
+            var servicesResult = await _device.GetGattServicesAsync(BluetoothCacheMode.Uncached);
+
+            if (servicesResult.Status == GattCommunicationStatus.Success)
             {
-                if (c.Uuid.ToString().ToUpper() == "0000ffe1-0000-1000-8000-00805f9b34fb")
-                    _pingChar = c;
-                else if (c.Uuid.ToString().ToUpper() == "0000ffe2-0000-1000-8000-00805f9b34fb")
-                    _pongChar = c;
-            }
+                _logger.Info("SUCCESS: GATT Services discovered. Link is LIVE.");
+                _device.ConnectionStatusChanged += OnConnectionStatusChanged;
+                _isWorkstationLocked = false;
 
-            if (_pingChar == null || _pongChar == null)
+                _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_CONNECTED, Source = "BleManager" });
+                StartRssiMonitoring();
+            }
+            else
             {
-                _logger.Error("Ping or pong characteristic missing");
-                return;
+                _logger.Warning($"Gatt Error: {servicesResult.Status}. (Check if nRF Connect Advertiser is still running)");
             }
-
-            // Subscribe to pong notifications
-            _pongChar.ValueChanged += OnPongReceived;
-            await _pongChar.WriteClientCharacteristicConfigurationDescriptorAsync(
-                GattClientCharacteristicConfigurationDescriptorValue.Notify);
-
-            _logger.Info($"Connected to {_device.Name}. Starting heartbeat.");
-            _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_CONNECTED, Source = "BleManager" });
-
-            StartHeartbeat();
         }
         catch (Exception ex)
         {
-            _logger.Error($"BLE connection error: {ex.Message}");
+            _logger.Error($"Hard Init failed: {ex.Message}");
+            _device = null;
         }
     }
 
-    private void StartHeartbeat()
+    private void StartRssiMonitoring()
     {
-        _missedPongs = 0;
-        _heartbeatTimer?.Dispose();
-        _heartbeatTimer = new Timer(async _ => await SendPing(), null, 0, PING_INTERVAL_MS);
+        lock (_lock) { _rssiSamples.Clear(); }
+        _rssiTimer?.Dispose();
+        _rssiTimer = new Timer(async _ => await SampleAndAverage(), null, 0, SAMPLE_INTERVAL_MS);
     }
 
-    private async Task SendPing()
+    private async Task SampleAndAverage()
     {
-        if (_pingChar == null || _device?.ConnectionStatus != BluetoothConnectionStatus.Connected)
+        if (_device == null)
         {
-            HandleDisconnection();
+            _logger.Warning("RSSI Check: Device is null");
+            StopRssiMonitoring();
+            return;
+        }
+
+        if (_device.ConnectionStatus != BluetoothConnectionStatus.Connected)
+        {
+            _logger.Warning($"RSSI Check: Device status is {_device.ConnectionStatus}");
+            StopRssiMonitoring();
             return;
         }
 
         try
         {
-            var pingData = Encoding.UTF8.GetBytes("ping");
-            await _pingChar.WriteValueAsync(pingData.AsBuffer());
-            _logger.Debug("Ping sent");
+            string rssiProperty = "System.Devices.Aep.SignalStrength";
 
-            // Increment missed pongs; will be reset when pong received
-            lock (this) { _missedPongs++; }
+            // Explicitly requesting the property from the AEP (Association Endpoint)
+            var deviceUpdate = await DeviceInformation.CreateFromIdAsync(
+                _device.DeviceId,
+                new[] { rssiProperty },
+                DeviceInformationKind.AssociationEndpoint);
 
-            if (_missedPongs >= MAX_MISSED_PONGS)
+            if (deviceUpdate.Properties.TryGetValue(rssiProperty, out object? rssiValue))
             {
-                _logger.Warning($"No pong after {_missedPongs} attempts – locking workstation");
-                _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
-                LockWorkStation();
-                StopHeartbeat();
+                if (rssiValue is int currentRssi)
+                {
+                    lock (_lock)
+                    {
+                        _rssiSamples.Add(currentRssi);
+                        // Log EVERY sample so we know the timer is actually working
+                        _logger.Info($"Raw RSSI Sample: {currentRssi} dBm");
+
+                        if (_rssiSamples.Count >= SAMPLES_PER_SECOND)
+                        {
+                            double avg = _rssiSamples.Average();
+                            _rssiSamples.Clear();
+                            EvaluateProximity(avg);
+                        }
+                    }
+                }
+                else
+                {
+                    _logger.Warning($"RSSI Property found but was unexpected type: {rssiValue?.GetType().Name}");
+                }
+            }
+            else
+            {
+                // This is the most common failure point
+                _logger.Debug("RSSI property not available in this cycle.");
             }
         }
-        catch (Exception ex) { _logger.Error($"Ping failed: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            _logger.Error($"RSSI Loop Error: {ex.Message}");
+        }
     }
 
-    private void OnPongReceived(GattCharacteristic sender, GattValueChangedEventArgs args)
+    private void EvaluateProximity(double avg)
     {
-        var reader = DataReader.FromBuffer(args.CharacteristicValue);
-        byte[] data = new byte[reader.UnconsumedBufferLength];
-        reader.ReadBytes(data);
-        string response = Encoding.UTF8.GetString(data);
-        if (response == "pong")
+        // Always show the average in the console
+        _logger.Info($">>> Average RSSI (1s): {avg:F0} dBm <<<");
+
+        if (avg <= RSSI_LOCK && !_isWorkstationLocked)
         {
-            lock (this) { _missedPongs = 0; }
-            _logger.Debug("Pong received – phone in range");
-            // Optionally publish TRUST_RESTORED if previously degraded
+            _isWorkstationLocked = true;
+            _logger.Warning($"RSSI CRITICAL: {avg:F0} <= {RSSI_LOCK}. LOCKING.");
+            _eventBus.Publish(new TetherEvent
+            {
+                EventType = TetherEventType.TRUST_LOST,
+                Source = "BleManager",
+                PayloadJson = $"{{\"RSSI\":{avg:F0}}}"
+            });
+            LockWorkStation();
+        }
+        else if (avg >= RSSI_GOOD && _isWorkstationLocked)
+        {
+            _isWorkstationLocked = false;
+            _logger.Info($"RSSI RECOVERED: {avg:F0} >= {RSSI_GOOD}. UNLOCKING STATE.");
             _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
         }
     }
 
     private void OnConnectionStatusChanged(BluetoothLEDevice sender, object args)
     {
-        if (sender.ConnectionStatus != BluetoothConnectionStatus.Connected)
+        if (sender.ConnectionStatus != BluetoothConnectionStatus.Connected && !_isWorkstationLocked)
         {
-            HandleDisconnection();
+            _isWorkstationLocked = true;
+            _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_DISCONNECTED, Source = "BleManager" });
+            LockWorkStation();
+            StopRssiMonitoring();
         }
     }
 
-    private void HandleDisconnection()
+    private void StopRssiMonitoring()
     {
-        _logger.Warning("Phone disconnected – immediate lock");
-        _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_DISCONNECTED, Source = "BleManager" });
-        LockWorkStation();
-        StopHeartbeat();
-    }
-
-    private void StopHeartbeat()
-    {
-        _heartbeatTimer?.Dispose();
-        _heartbeatTimer = null;
+        _rssiTimer?.Dispose();
+        _rssiTimer = null;
     }
 
     [DllImport("user32.dll")]
@@ -182,9 +255,8 @@ public class BleManager : IDisposable
     public void Stop()
     {
         _deviceWatcher?.Stop();
-        _heartbeatTimer?.Dispose();
+        _rssiTimer?.Dispose();
         _device?.Dispose();
-        _logger.Info("BLE manager stopped");
     }
 
     public void Dispose() => Stop();

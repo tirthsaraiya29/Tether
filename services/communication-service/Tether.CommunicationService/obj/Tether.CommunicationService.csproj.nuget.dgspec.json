@@ -84,10 +84,6 @@
               "target": "Package",
               "version": "[8.0.27, )",
               "autoReferenced": true
-            },
-            "Microsoft.Windows.CsWinRT": {
-              "target": "Package",
-              "version": "[2.0.4, )"
             }
           },
           "imports": [

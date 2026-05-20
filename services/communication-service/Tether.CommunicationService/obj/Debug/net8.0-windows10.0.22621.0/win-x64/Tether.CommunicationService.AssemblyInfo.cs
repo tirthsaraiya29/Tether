@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Tether.CommunicationService")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b9d7037b902cb418b104b8c7a45cf2d4983aefef")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+73a476f2b41023fc71fb4258d33fc48f50033511")]
 [assembly: System.Reflection.AssemblyProductAttribute("Tether.CommunicationService")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Tether.CommunicationService")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

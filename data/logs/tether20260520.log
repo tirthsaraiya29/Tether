@@ -20,3 +20,225 @@
 2026-05-20 11:45:51.974 +05:30 [WRN] PANIC mode activated
 2026-05-20 11:45:51.975 +05:30 [INF] Desktop UI disconnected.
 2026-05-20 11:45:51.976 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:11:07.853 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:11:07.886 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:11:07.887 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:11:07.888 +05:30 [INF] Pipe server started
+2026-05-20 12:11:07.889 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:11:09.625 +05:30 [INF] BLE scanning started
+2026-05-20 12:11:09.627 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:11:09.658 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:11:17.718 +05:30 [INF] Desktop UI connected to pipe.
+2026-05-20 12:11:17.793 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-20 12:11:17.794 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-20 12:11:17.796 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-20 12:11:17.797 +05:30 [INF] Desktop UI disconnected.
+2026-05-20 12:11:17.798 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:13:28.590 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 12:13:40.775 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:13:40.804 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:13:40.806 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:13:40.807 +05:30 [INF] Pipe server started
+2026-05-20 12:13:40.808 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:13:40.944 +05:30 [INF] BLE scanning started
+2026-05-20 12:13:40.945 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:13:40.956 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:14:36.789 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 12:14:43.869 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:14:43.898 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:14:43.899 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:14:43.900 +05:30 [INF] Pipe server started
+2026-05-20 12:14:43.901 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:14:44.027 +05:30 [INF] BLE scanning started
+2026-05-20 12:14:44.028 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:14:44.038 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:25:58.338 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 12:26:04.855 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:26:04.886 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:26:04.887 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:26:04.888 +05:30 [INF] Pipe server started
+2026-05-20 12:26:04.889 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:26:05.016 +05:30 [INF] BLE scanning started
+2026-05-20 12:26:05.017 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:26:05.027 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:30:34.633 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 12:30:48.464 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:30:48.496 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:30:48.497 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:30:48.497 +05:30 [INF] Pipe server started
+2026-05-20 12:30:48.498 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:30:48.628 +05:30 [INF] BLE scanning started
+2026-05-20 12:30:48.630 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:30:48.639 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:32:00.284 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 12:32:09.016 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:32:09.049 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:32:09.050 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:32:09.051 +05:30 [INF] Pipe server started
+2026-05-20 12:32:09.052 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:32:09.179 +05:30 [INF] BLE scanning started
+2026-05-20 12:32:09.180 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:32:09.189 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:42:58.773 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 12:43:05.410 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:43:05.439 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:43:05.440 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:43:05.441 +05:30 [INF] Pipe server started
+2026-05-20 12:43:05.442 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:43:05.574 +05:30 [INF] BLE scanning started
+2026-05-20 12:43:05.576 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:43:05.587 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:44:43.350 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 12:44:51.834 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:44:51.863 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:44:51.864 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:44:51.864 +05:30 [INF] Pipe server started
+2026-05-20 12:44:51.865 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:44:52.005 +05:30 [INF] BLE scanning started for Tirth's S25 FE...
+2026-05-20 12:44:52.006 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:44:52.010 +05:30 [INF] Found Target Device: Tirth's S25 FE
+2026-05-20 12:44:52.022 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:44:52.039 +05:30 [INF] Found Target Device: Tirth's S25 FE
+2026-05-20 12:44:52.064 +05:30 [ERR] Initialization error: The parameter is incorrect.
+
+The provided device ID is not a valid BluetoothLEDevice object.
+2026-05-20 12:44:52.079 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-20 12:44:52.079 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-20 12:44:52.081 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-20 12:44:52.084 +05:30 [WRN] RSSI Check: Device status is Disconnected
+2026-05-20 12:45:42.063 +05:30 [INF] Desktop UI connected to pipe.
+2026-05-20 12:45:42.093 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-20 12:45:42.094 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-20 12:45:42.095 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-20 12:45:42.096 +05:30 [INF] Desktop UI disconnected.
+2026-05-20 12:45:42.097 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:45:48.166 +05:30 [INF] Desktop UI connected to pipe.
+2026-05-20 12:45:48.168 +05:30 [INF] TrustStateManager received event: PHONE_DISCONNECTED
+2026-05-20 12:45:48.170 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-20 12:45:48.171 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-20 12:45:48.172 +05:30 [WRN] Trust lost – enforcement will lock
+2026-05-20 12:45:48.173 +05:30 [INF] Trust state changed to LIMITED
+2026-05-20 12:45:48.174 +05:30 [INF] Desktop UI disconnected.
+2026-05-20 12:45:48.175 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:46:00.920 +05:30 [INF] Found Target Device: Tirth's S25 FE
+2026-05-20 12:46:00.947 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-20 12:46:00.948 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-20 12:46:00.950 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-20 12:46:00.951 +05:30 [WRN] RSSI Check: Device status is Disconnected
+2026-05-20 12:46:08.751 +05:30 [INF] Found Target Device: Tirth's S25 FE
+2026-05-20 12:46:08.777 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-20 12:46:08.777 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-20 12:46:08.778 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-20 12:46:08.779 +05:30 [WRN] RSSI Check: Device status is Disconnected
+2026-05-20 12:46:23.778 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 12:46:33.307 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:46:33.337 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:46:33.339 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:46:33.340 +05:30 [INF] Pipe server started
+2026-05-20 12:46:33.341 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:46:33.472 +05:30 [INF] BLE scanning started for Tirth's S25 FE...
+2026-05-20 12:46:33.473 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:46:33.478 +05:30 [INF] Found Target Device: Tirth's S25 FE
+2026-05-20 12:46:33.497 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:46:33.514 +05:30 [ERR] Initialization error: The parameter is incorrect.
+
+The provided device ID is not a valid BluetoothLEDevice object.
+2026-05-20 12:46:33.516 +05:30 [INF] Found Target Device: Tirth's S25 FE
+2026-05-20 12:46:33.527 +05:30 [INF] Found Target Device: Tirth's S25 FE
+2026-05-20 12:46:33.554 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-20 12:46:33.555 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-20 12:46:33.557 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-20 12:46:33.561 +05:30 [WRN] RSSI Check: Device status is Disconnected
+2026-05-20 12:46:33.562 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-20 12:46:33.563 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-20 12:46:33.564 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-20 12:46:33.564 +05:30 [WRN] RSSI Check: Device status is Disconnected
+2026-05-20 12:47:23.378 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 12:49:39.096 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:49:39.126 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:49:39.127 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:49:39.128 +05:30 [INF] Pipe server started
+2026-05-20 12:49:39.128 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:49:40.752 +05:30 [INF] BLE scanning started for Tirth's S25 FE...
+2026-05-20 12:49:40.753 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:49:40.756 +05:30 [INF] Found Target Device: Tirth's S25 FE
+2026-05-20 12:49:40.760 +05:30 [INF] Attempting to initialize BLE link for: Bluetooth#Bluetooth0c:9a:3c:45:78:05-a0:1b:9e:b2:66:cf
+2026-05-20 12:49:40.811 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:49:40.819 +05:30 [ERR] Initialization error: The parameter is incorrect.
+
+The provided device ID is not a valid BluetoothLEDevice object.
+2026-05-20 12:49:40.820 +05:30 [INF] Found Target Device: Tirth's S25 FE
+2026-05-20 12:49:40.821 +05:30 [INF] Attempting to initialize BLE link for: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-78:f7:27:7a:fd:cb
+2026-05-20 12:49:40.827 +05:30 [INF] Found Target Device: Tirth's S25 FE
+2026-05-20 12:49:40.828 +05:30 [INF] Attempting to initialize BLE link for: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-a0:1b:9e:b2:66:cf
+2026-05-20 12:49:48.526 +05:30 [WRN] Device found but status is Disconnected. Ensure nRF Connect is Connectable.
+2026-05-20 12:49:56.215 +05:30 [WRN] Device found but status is Disconnected. Ensure nRF Connect is Connectable.
+2026-05-20 12:52:14.732 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 12:52:54.927 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:52:54.956 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:52:54.957 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:52:54.958 +05:30 [INF] Pipe server started
+2026-05-20 12:52:54.959 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:52:56.581 +05:30 [INF] BLE scanning started for Tirth's S25 FE...
+2026-05-20 12:52:56.582 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:52:56.586 +05:30 [INF] Found valid BLE Device: Tirth's S25 FE
+2026-05-20 12:52:56.590 +05:30 [INF] Attempting to initialize BLE link for: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-a0:1b:9e:b2:66:cf
+2026-05-20 12:52:56.643 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:53:04.357 +05:30 [WRN] Device found but status is Disconnected. Ensure nRF Connect is Connectable.
+2026-05-20 12:55:07.226 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 12:55:21.095 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:55:21.124 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:55:21.125 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:55:21.126 +05:30 [INF] Pipe server started
+2026-05-20 12:55:21.127 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:55:22.759 +05:30 [INF] BLE scanning started for Tirth's S25 FE...
+2026-05-20 12:55:22.761 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:55:22.765 +05:30 [INF] Found valid BLE Device: Tirth's S25 FE
+2026-05-20 12:55:22.773 +05:30 [INF] Initializing BLE session...
+2026-05-20 12:55:22.822 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:55:30.521 +05:30 [WRN] Device found but still Disconnected. Try tapping the phone screen to wake it up.
+2026-05-20 12:57:11.185 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 12:58:57.535 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:58:57.565 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:58:57.566 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:58:57.567 +05:30 [INF] Pipe server started
+2026-05-20 12:58:57.571 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:58:57.718 +05:30 [INF] BLE scanning started for Tirth's S25 FE...
+2026-05-20 12:58:57.719 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:58:57.722 +05:30 [INF] Found valid BLE Device: Tirth's S25 FE
+2026-05-20 12:58:57.725 +05:30 [INF] Initializing BLE session...
+2026-05-20 12:58:57.742 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:59:05.462 +05:30 [WRN] Device found but still Disconnected. Try tapping the phone screen to wake it up.
+2026-05-20 12:59:39.273 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 12:59:41.795 +05:30 [INF] TrustStateManager initialized
+2026-05-20 12:59:41.825 +05:30 [INF] EnforcementManager ready
+2026-05-20 12:59:41.826 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 12:59:41.827 +05:30 [INF] Pipe server started
+2026-05-20 12:59:41.832 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 12:59:41.966 +05:30 [INF] BLE scanning started for Tirth's S25 FE...
+2026-05-20 12:59:41.968 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 12:59:41.971 +05:30 [INF] Found valid BLE Device: Tirth's S25 FE
+2026-05-20 12:59:41.974 +05:30 [INF] Initializing BLE session...
+2026-05-20 12:59:41.995 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 12:59:49.713 +05:30 [WRN] Device found but still Disconnected. Try tapping the phone screen to wake it up.
+2026-05-20 12:59:53.573 +05:30 [INF] Found valid BLE Device: Tirth's S25 FE
+2026-05-20 13:00:13.985 +05:30 [INF] Found valid BLE Device: Tirth's S25 FE
+2026-05-20 13:01:08.654 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 13:03:03.623 +05:30 [INF] TrustStateManager initialized
+2026-05-20 13:03:03.654 +05:30 [INF] EnforcementManager ready
+2026-05-20 13:03:03.655 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 13:03:03.656 +05:30 [INF] Pipe server started
+2026-05-20 13:03:03.946 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 13:03:04.153 +05:30 [INF] BLE scanning started for Tirth's S25 FE...
+2026-05-20 13:03:04.154 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 13:03:04.169 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 13:04:07.322 +05:30 [INF] Tether Communication Service is stopping
+2026-05-20 13:04:10.390 +05:30 [INF] TrustStateManager initialized
+2026-05-20 13:04:10.420 +05:30 [INF] EnforcementManager ready
+2026-05-20 13:04:10.421 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 13:04:10.422 +05:30 [INF] Pipe server started
+2026-05-20 13:04:10.426 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 13:04:10.552 +05:30 [INF] BLE scanning started for Tirth's S25 FE...
+2026-05-20 13:04:10.554 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 13:04:10.568 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 13:05:03.190 +05:30 [INF] Tether Communication Service is stopping
