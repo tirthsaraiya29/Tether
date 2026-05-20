@@ -22,16 +22,16 @@
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
         "originalTargetFrameworks": [
-          "net8.0-windows"
+          "net8.0-windows10.0.22621.0"
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
-          "net8.0-windows": {
-            "framework": "net8.0-windows7.0",
-            "targetAlias": "net8.0-windows",
+          "net8.0-windows10.0.22621.0": {
+            "framework": "net8.0-windows10.0.22621",
+            "targetAlias": "net8.0-windows10.0.22621.0",
             "projectReferences": {
               "C:\\Dev\\Tether\\services\\enforcement-engine\\Tether.EnforcementEngine\\Tether.EnforcementEngine.csproj": {
                 "projectPath": "C:\\Dev\\Tether\\services\\enforcement-engine\\Tether.EnforcementEngine\\Tether.EnforcementEngine.csproj"
@@ -67,14 +67,10 @@
         "SdkAnalysisLevel": "10.0.300"
       },
       "frameworks": {
-        "net8.0-windows": {
-          "framework": "net8.0-windows7.0",
-          "targetAlias": "net8.0-windows",
+        "net8.0-windows10.0.22621.0": {
+          "framework": "net8.0-windows10.0.22621",
+          "targetAlias": "net8.0-windows10.0.22621.0",
           "dependencies": {
-            "InTheHand.Net.Bluetooth": {
-              "target": "Package",
-              "version": "[4.2.4, )"
-            },
             "Microsoft.Extensions.Hosting": {
               "target": "Package",
               "version": "[8.0.1, )"
@@ -82,6 +78,16 @@
             "Microsoft.Extensions.Hosting.WindowsServices": {
               "target": "Package",
               "version": "[8.0.1, )"
+            },
+            "Microsoft.NET.ILLink.Tasks": {
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[8.0.27, )",
+              "autoReferenced": true
+            },
+            "Microsoft.Windows.CsWinRT": {
+              "target": "Package",
+              "version": "[2.0.4, )"
             }
           },
           "imports": [
@@ -95,12 +101,38 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
+          "downloadDependencies": [
+            {
+              "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
+              "version": "[8.0.27, 8.0.27]"
+            },
+            {
+              "name": "Microsoft.NETCore.App.Runtime.win-x64",
+              "version": "[8.0.27, 8.0.27]"
+            },
+            {
+              "name": "Microsoft.Windows.SDK.NET.Ref",
+              "version": "[10.0.22621.57, 10.0.22621.57]"
+            },
+            {
+              "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
+              "version": "[8.0.27, 8.0.27]"
+            }
+          ],
           "frameworkReferences": {
             "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            },
+            "Microsoft.Windows.SDK.NET.Ref.Windows": {
               "privateAssets": "all"
             }
           },
           "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.300/PortableRuntimeIdentifierGraph.json"
+        }
+      },
+      "runtimes": {
+        "win-x64": {
+          "#import": []
         }
       }
     },

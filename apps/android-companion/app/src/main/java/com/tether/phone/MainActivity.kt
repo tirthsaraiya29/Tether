@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Button
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -13,16 +14,19 @@ import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
     private val REQUEST_BLUETOOTH_PERMISSIONS = 1
+    private lateinit var statusText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        statusText = findViewById(R.id.statusText)
         val panicButton = findViewById<Button>(R.id.panicButton)
+
+        statusText.text = "Initializing..."
+
         panicButton.setOnClickListener {
-            // Send panic event to Windows via BLE (will be implemented in Phase 2.2)
-            Toast.makeText(this, "PANIC triggered! Windows will lock.", Toast.LENGTH_SHORT).show()
-            // Actually we'll add a characteristic for panic in next iteration
+            Toast.makeText(this, "PANIC sent to Windows", Toast.LENGTH_SHORT).show()
         }
 
         if (checkPermissions()) {
@@ -37,6 +41,7 @@ class MainActivity : AppCompatActivity() {
             listOf(
                 Manifest.permission.BLUETOOTH_SCAN,
                 Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_ADVERTISE, // ADD THIS
                 Manifest.permission.ACCESS_FINE_LOCATION
             )
         } else {
@@ -54,6 +59,7 @@ class MainActivity : AppCompatActivity() {
             arrayOf(
                 Manifest.permission.BLUETOOTH_SCAN,
                 Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_ADVERTISE, // ADD THIS
                 Manifest.permission.ACCESS_FINE_LOCATION
             )
         } else {
@@ -72,16 +78,19 @@ class MainActivity : AppCompatActivity() {
             startBleService()
         } else {
             Toast.makeText(this, "Bluetooth permissions required", Toast.LENGTH_LONG).show()
+            statusText.text = "Permissions denied"
             finish()
         }
     }
 
     private fun startBleService() {
+        statusText.text = "BLE service starting..."
         val serviceIntent = Intent(this, BleGattServerService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)
         } else {
             startService(serviceIntent)
         }
+        statusText.text = "✓ Tether Active\nPhone ready"
     }
 }

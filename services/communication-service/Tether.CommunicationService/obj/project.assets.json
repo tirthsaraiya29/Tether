@@ -1,20 +1,7 @@
 {
   "version": 4,
   "targets": {
-    "net8.0-windows": {
-      "InTheHand.Net.Bluetooth/4.2.4": {
-        "type": "package",
-        "compile": {
-          "lib/netstandard2.1/InTheHand.Net.Bluetooth.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "lib/netstandard2.1/InTheHand.Net.Bluetooth.dll": {
-            "related": ".xml"
-          }
-        }
-      },
+    "net8.0-windows10.0.22621.0": {
       "Microsoft.Extensions.Configuration/8.0.0": {
         "type": "package",
         "dependencies": {
@@ -612,6 +599,27 @@
           "buildTransitive/net6.0/_._": {}
         }
       },
+      "Microsoft.NET.ILLink.Tasks/8.0.27": {
+        "type": "package",
+        "build": {
+          "build/Microsoft.NET.ILLink.Tasks.props": {}
+        }
+      },
+      "Microsoft.Windows.CsWinRT/2.0.4": {
+        "type": "package",
+        "compile": {
+          "lib/net6.0/WinRT.Host.Shim.dll": {},
+          "lib/net6.0/WinRT.Runtime.dll": {}
+        },
+        "runtime": {
+          "lib/net6.0/WinRT.Host.Shim.dll": {},
+          "lib/net6.0/WinRT.Runtime.dll": {}
+        },
+        "build": {
+          "build/Microsoft.Windows.CsWinRT.props": {},
+          "build/Microsoft.Windows.CsWinRT.targets": {}
+        }
+      },
       "Serilog/4.3.1": {
         "type": "package",
         "compile": {
@@ -795,38 +803,797 @@
           "bin/placeholder/Tether.TrustEngine.dll": {}
         }
       }
+    },
+    "net8.0-windows10.0.22621.0/win-x64": {
+      "Microsoft.Extensions.Configuration/8.0.0": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration.Abstractions": "8.0.0",
+          "Microsoft.Extensions.Primitives": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Configuration.Abstractions/8.0.0": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Primitives": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.Abstractions.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.Abstractions.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Configuration.Binder/8.0.2": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration.Abstractions": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.Binder.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.Binder.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/netstandard2.0/Microsoft.Extensions.Configuration.Binder.targets": {}
+        }
+      },
+      "Microsoft.Extensions.Configuration.CommandLine/8.0.0": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration": "8.0.0",
+          "Microsoft.Extensions.Configuration.Abstractions": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.CommandLine.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.CommandLine.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Configuration.EnvironmentVariables/8.0.0": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration": "8.0.0",
+          "Microsoft.Extensions.Configuration.Abstractions": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.EnvironmentVariables.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.EnvironmentVariables.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Configuration.FileExtensions/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration": "8.0.0",
+          "Microsoft.Extensions.Configuration.Abstractions": "8.0.0",
+          "Microsoft.Extensions.FileProviders.Abstractions": "8.0.0",
+          "Microsoft.Extensions.FileProviders.Physical": "8.0.0",
+          "Microsoft.Extensions.Primitives": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.FileExtensions.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.FileExtensions.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Configuration.Json/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration": "8.0.0",
+          "Microsoft.Extensions.Configuration.Abstractions": "8.0.0",
+          "Microsoft.Extensions.Configuration.FileExtensions": "8.0.1",
+          "Microsoft.Extensions.FileProviders.Abstractions": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.Json.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.Json.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Configuration.UserSecrets/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration.Abstractions": "8.0.0",
+          "Microsoft.Extensions.Configuration.Json": "8.0.1",
+          "Microsoft.Extensions.FileProviders.Abstractions": "8.0.0",
+          "Microsoft.Extensions.FileProviders.Physical": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.UserSecrets.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Configuration.UserSecrets.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/Microsoft.Extensions.Configuration.UserSecrets.props": {},
+          "buildTransitive/net6.0/Microsoft.Extensions.Configuration.UserSecrets.targets": {}
+        }
+      },
+      "Microsoft.Extensions.DependencyInjection/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.2"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.DependencyInjection.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.DependencyInjection.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.DependencyInjection.Abstractions/8.0.2": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Diagnostics/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration": "8.0.0",
+          "Microsoft.Extensions.Diagnostics.Abstractions": "8.0.1",
+          "Microsoft.Extensions.Options.ConfigurationExtensions": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Diagnostics.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Diagnostics.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Diagnostics.Abstractions/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Options": "8.0.2"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Diagnostics.Abstractions.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Diagnostics.Abstractions.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.FileProviders.Abstractions/8.0.0": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Primitives": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.FileProviders.Abstractions.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.FileProviders.Abstractions.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.FileProviders.Physical/8.0.0": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.FileProviders.Abstractions": "8.0.0",
+          "Microsoft.Extensions.FileSystemGlobbing": "8.0.0",
+          "Microsoft.Extensions.Primitives": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.FileProviders.Physical.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.FileProviders.Physical.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.FileSystemGlobbing/8.0.0": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.FileSystemGlobbing.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.FileSystemGlobbing.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Hosting/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration": "8.0.0",
+          "Microsoft.Extensions.Configuration.Abstractions": "8.0.0",
+          "Microsoft.Extensions.Configuration.Binder": "8.0.2",
+          "Microsoft.Extensions.Configuration.CommandLine": "8.0.0",
+          "Microsoft.Extensions.Configuration.EnvironmentVariables": "8.0.0",
+          "Microsoft.Extensions.Configuration.FileExtensions": "8.0.1",
+          "Microsoft.Extensions.Configuration.Json": "8.0.1",
+          "Microsoft.Extensions.Configuration.UserSecrets": "8.0.1",
+          "Microsoft.Extensions.DependencyInjection": "8.0.1",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Diagnostics": "8.0.1",
+          "Microsoft.Extensions.FileProviders.Abstractions": "8.0.0",
+          "Microsoft.Extensions.FileProviders.Physical": "8.0.0",
+          "Microsoft.Extensions.Hosting.Abstractions": "8.0.1",
+          "Microsoft.Extensions.Logging": "8.0.1",
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Logging.Configuration": "8.0.1",
+          "Microsoft.Extensions.Logging.Console": "8.0.1",
+          "Microsoft.Extensions.Logging.Debug": "8.0.1",
+          "Microsoft.Extensions.Logging.EventLog": "8.0.1",
+          "Microsoft.Extensions.Logging.EventSource": "8.0.1",
+          "Microsoft.Extensions.Options": "8.0.2"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Hosting.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Hosting.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Hosting.Abstractions/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration.Abstractions": "8.0.0",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Diagnostics.Abstractions": "8.0.1",
+          "Microsoft.Extensions.FileProviders.Abstractions": "8.0.0",
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.2"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Hosting.Abstractions.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Hosting.Abstractions.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Hosting.WindowsServices/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Hosting": "8.0.1",
+          "Microsoft.Extensions.Logging.EventLog": "8.0.1",
+          "System.ServiceProcess.ServiceController": "8.0.1"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Hosting.WindowsServices.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Hosting.WindowsServices.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Logging/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection": "8.0.1",
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Options": "8.0.2"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Logging.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Logging.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Logging.Abstractions/8.0.2": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.2"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Logging.Abstractions.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Logging.Abstractions.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/Microsoft.Extensions.Logging.Abstractions.targets": {}
+        }
+      },
+      "Microsoft.Extensions.Logging.Configuration/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration": "8.0.0",
+          "Microsoft.Extensions.Configuration.Abstractions": "8.0.0",
+          "Microsoft.Extensions.Configuration.Binder": "8.0.2",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Logging": "8.0.1",
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Options": "8.0.2",
+          "Microsoft.Extensions.Options.ConfigurationExtensions": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Logging.Configuration.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Logging.Configuration.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Logging.Console/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Logging": "8.0.1",
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Logging.Configuration": "8.0.1",
+          "Microsoft.Extensions.Options": "8.0.2"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Logging.Console.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Logging.Console.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Logging.Debug/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Logging": "8.0.1",
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.2"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Logging.Debug.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Logging.Debug.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Logging.EventLog/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Logging": "8.0.1",
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Options": "8.0.2",
+          "System.Diagnostics.EventLog": "8.0.1"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Logging.EventLog.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Logging.EventLog.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Logging.EventSource/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Logging": "8.0.1",
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.2",
+          "Microsoft.Extensions.Options": "8.0.2",
+          "Microsoft.Extensions.Primitives": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Logging.EventSource.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Logging.EventSource.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Options/8.0.2": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.0",
+          "Microsoft.Extensions.Primitives": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Options.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Options.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/Microsoft.Extensions.Options.targets": {}
+        }
+      },
+      "Microsoft.Extensions.Options.ConfigurationExtensions/8.0.0": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration.Abstractions": "8.0.0",
+          "Microsoft.Extensions.Configuration.Binder": "8.0.0",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.0",
+          "Microsoft.Extensions.Options": "8.0.0",
+          "Microsoft.Extensions.Primitives": "8.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Options.ConfigurationExtensions.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Options.ConfigurationExtensions.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.Extensions.Primitives/8.0.0": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0/Microsoft.Extensions.Primitives.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Primitives.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Microsoft.NET.ILLink.Tasks/8.0.27": {
+        "type": "package",
+        "build": {
+          "build/Microsoft.NET.ILLink.Tasks.props": {}
+        }
+      },
+      "Microsoft.Windows.CsWinRT/2.0.4": {
+        "type": "package",
+        "compile": {
+          "lib/net6.0/WinRT.Host.Shim.dll": {},
+          "lib/net6.0/WinRT.Runtime.dll": {}
+        },
+        "runtime": {
+          "lib/net6.0/WinRT.Host.Shim.dll": {},
+          "lib/net6.0/WinRT.Runtime.dll": {}
+        },
+        "build": {
+          "build/Microsoft.Windows.CsWinRT.props": {},
+          "build/Microsoft.Windows.CsWinRT.targets": {}
+        }
+      },
+      "Serilog/4.3.1": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0/Serilog.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Serilog.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/Serilog.targets": {}
+        }
+      },
+      "Serilog.Sinks.Console/6.1.1": {
+        "type": "package",
+        "dependencies": {
+          "Serilog": "4.0.0"
+        },
+        "compile": {
+          "lib/net8.0/Serilog.Sinks.Console.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Serilog.Sinks.Console.dll": {
+            "related": ".xml"
+          }
+        }
+      },
+      "Serilog.Sinks.File/7.0.0": {
+        "type": "package",
+        "dependencies": {
+          "Serilog": "4.2.0"
+        },
+        "compile": {
+          "lib/net8.0/Serilog.Sinks.File.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/Serilog.Sinks.File.dll": {
+            "related": ".xml"
+          }
+        }
+      },
+      "System.Diagnostics.EventLog/8.0.1": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0/System.Diagnostics.EventLog.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "runtimes/win/lib/net8.0/System.Diagnostics.EventLog.Messages.dll": {},
+          "runtimes/win/lib/net8.0/System.Diagnostics.EventLog.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "System.ServiceProcess.ServiceController/8.0.1": {
+        "type": "package",
+        "dependencies": {
+          "System.Diagnostics.EventLog": "8.0.1"
+        },
+        "compile": {
+          "lib/net8.0/System.ServiceProcess.ServiceController.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "runtimes/win/lib/net8.0/System.ServiceProcess.ServiceController.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
+      "Tether.EnforcementEngine/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "Tether.EventBus": "1.0.0",
+          "Tether.Shared": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/Tether.EnforcementEngine.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Tether.EnforcementEngine.dll": {}
+        }
+      },
+      "Tether.EventBus/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "Tether.Shared": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/Tether.EventBus.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Tether.EventBus.dll": {}
+        }
+      },
+      "Tether.PanicEngine/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "Tether.EventBus": "1.0.0",
+          "Tether.Shared": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/Tether.PanicEngine.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Tether.PanicEngine.dll": {}
+        }
+      },
+      "Tether.RecoveryEngine/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "Tether.EventBus": "1.0.0",
+          "Tether.Shared": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/Tether.RecoveryEngine.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Tether.RecoveryEngine.dll": {}
+        }
+      },
+      "Tether.Shared/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "Serilog": "4.3.1",
+          "Serilog.Sinks.Console": "6.1.1",
+          "Serilog.Sinks.File": "7.0.0"
+        },
+        "compile": {
+          "bin/placeholder/Tether.Shared.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Tether.Shared.dll": {}
+        }
+      },
+      "Tether.TrustEngine/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "Tether.EventBus": "1.0.0",
+          "Tether.Shared": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/Tether.TrustEngine.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Tether.TrustEngine.dll": {}
+        }
+      }
     }
   },
   "libraries": {
-    "InTheHand.Net.Bluetooth/4.2.4": {
-      "sha512": "xoEylG7EfNxDEvy+I3c3XYK5ZFbExAoVQCuJYY5BdyClGsHEn1o+NMZCjh2q+yqXSabTdJbeNYAkny6Fu0XQiQ==",
-      "type": "package",
-      "path": "inthehand.net.bluetooth/4.2.4",
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "32feet-package-icon.png",
-        "README.md",
-        "inthehand.net.bluetooth.4.2.4.nupkg.sha512",
-        "inthehand.net.bluetooth.nuspec",
-        "lib/net462/InTheHand.Net.Bluetooth.dll",
-        "lib/net462/InTheHand.Net.Bluetooth.xml",
-        "lib/net9.0-android35.0/InTheHand.Net.Bluetooth.dll",
-        "lib/net9.0-android35.0/InTheHand.Net.Bluetooth.xml",
-        "lib/net9.0-ios18.0/InTheHand.Net.Bluetooth.dll",
-        "lib/net9.0-ios18.0/InTheHand.Net.Bluetooth.xml",
-        "lib/net9.0-windows10.0.19041/InTheHand.Net.Bluetooth.dll",
-        "lib/net9.0-windows10.0.19041/InTheHand.Net.Bluetooth.xml",
-        "lib/net9.0-windows7.0/InTheHand.Net.Bluetooth.dll",
-        "lib/net9.0-windows7.0/InTheHand.Net.Bluetooth.xml",
-        "lib/net9.0/InTheHand.Net.Bluetooth.dll",
-        "lib/net9.0/InTheHand.Net.Bluetooth.xml",
-        "lib/netstandard2.0/InTheHand.Net.Bluetooth.dll",
-        "lib/netstandard2.0/InTheHand.Net.Bluetooth.xml",
-        "lib/netstandard2.1/InTheHand.Net.Bluetooth.dll",
-        "lib/netstandard2.1/InTheHand.Net.Bluetooth.xml"
-      ]
-    },
     "Microsoft.Extensions.Configuration/8.0.0": {
       "sha512": "0J/9YNXTMWSZP2p2+nvl8p71zpSwokZXZuJW+VjdErkegAnFdO1XlqtA62SJtgVYHdKu3uPxJHcMR/r35HwFBA==",
       "type": "package",
@@ -1749,6 +2516,229 @@
         "useSharedDesignerContext.txt"
       ]
     },
+    "Microsoft.NET.ILLink.Tasks/8.0.27": {
+      "sha512": "rQi9TxifHRnXP7lVRZH05DxD2/XGbJp12q0ozcbrlBlBnyyzssFTH/2vLhtKWUp2CT1qVscTrcYTFiwTyKPKRg==",
+      "type": "package",
+      "path": "microsoft.net.illink.tasks/8.0.27",
+      "hasTools": true,
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "Icon.png",
+        "LICENSE.TXT",
+        "Sdk/Sdk.props",
+        "THIRD-PARTY-NOTICES.TXT",
+        "analyzers/dotnet/cs/ILLink.CodeFixProvider.dll",
+        "analyzers/dotnet/cs/ILLink.RoslynAnalyzer.dll",
+        "build/Microsoft.NET.ILLink.Analyzers.props",
+        "build/Microsoft.NET.ILLink.Tasks.props",
+        "build/Microsoft.NET.ILLink.targets",
+        "microsoft.net.illink.tasks.8.0.27.nupkg.sha512",
+        "microsoft.net.illink.tasks.nuspec",
+        "tools/net472/ILLink.Tasks.dll",
+        "tools/net472/ILLink.Tasks.dll.config",
+        "tools/net472/Mono.Cecil.Mdb.dll",
+        "tools/net472/Mono.Cecil.Pdb.dll",
+        "tools/net472/Mono.Cecil.Rocks.dll",
+        "tools/net472/Mono.Cecil.dll",
+        "tools/net472/Sdk/Sdk.props",
+        "tools/net472/System.Buffers.dll",
+        "tools/net472/System.Collections.Immutable.dll",
+        "tools/net472/System.Memory.dll",
+        "tools/net472/System.Numerics.Vectors.dll",
+        "tools/net472/System.Reflection.Metadata.dll",
+        "tools/net472/System.Runtime.CompilerServices.Unsafe.dll",
+        "tools/net472/build/Microsoft.NET.ILLink.Analyzers.props",
+        "tools/net472/build/Microsoft.NET.ILLink.Tasks.props",
+        "tools/net472/build/Microsoft.NET.ILLink.targets",
+        "tools/net8.0/ILLink.Tasks.deps.json",
+        "tools/net8.0/ILLink.Tasks.dll",
+        "tools/net8.0/Mono.Cecil.Mdb.dll",
+        "tools/net8.0/Mono.Cecil.Pdb.dll",
+        "tools/net8.0/Mono.Cecil.Rocks.dll",
+        "tools/net8.0/Mono.Cecil.dll",
+        "tools/net8.0/Sdk/Sdk.props",
+        "tools/net8.0/build/Microsoft.NET.ILLink.Analyzers.props",
+        "tools/net8.0/build/Microsoft.NET.ILLink.Tasks.props",
+        "tools/net8.0/build/Microsoft.NET.ILLink.targets",
+        "tools/net8.0/illink.deps.json",
+        "tools/net8.0/illink.dll",
+        "tools/net8.0/illink.runtimeconfig.json",
+        "useSharedDesignerContext.txt"
+      ]
+    },
+    "Microsoft.Windows.CsWinRT/2.0.4": {
+      "sha512": "ULRbWAcqUG2jLZRGpMGOOL1SokFDcWlTLCjKUXVzQSnh/TR+7vsvet+eICRT0JIN4W2XRkJOBhxjFUEmlmN3rA==",
+      "type": "package",
+      "path": "microsoft.windows.cswinrt/2.0.4",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "LICENSE",
+        "NOTICE.txt",
+        "analyzers/dotnet/cs/WinRT.SourceGenerator.dll",
+        "analyzers/dotnet/cs/de-DE/CsWinRTDiagnosticStrings.resx",
+        "analyzers/dotnet/cs/es-ES/CsWinRTDiagnosticStrings.resx",
+        "analyzers/dotnet/cs/fr-FR/CsWinRTDiagnosticStrings.resx",
+        "analyzers/dotnet/cs/it-IT/CsWinRTDiagnosticStrings.resx",
+        "analyzers/dotnet/cs/ja-JP/CsWinRTDiagnosticStrings.resx",
+        "analyzers/dotnet/cs/ko-KR/CsWinRTDiagnosticStrings.resx",
+        "analyzers/dotnet/cs/pt-BR/CsWinRTDiagnosticStrings.resx",
+        "analyzers/dotnet/cs/ru-RU/CsWinRTDiagnosticStrings.resx",
+        "analyzers/dotnet/cs/zh-CN/CsWinRTDiagnosticStrings.resx",
+        "analyzers/dotnet/cs/zh-TW/CsWinRTDiagnosticStrings.resx",
+        "build/Microsoft.Windows.CsWinRT.Authoring.Transitive.targets",
+        "build/Microsoft.Windows.CsWinRT.Authoring.targets",
+        "build/Microsoft.Windows.CsWinRT.Embedded.targets",
+        "build/Microsoft.Windows.CsWinRT.IIDOptimizer.targets",
+        "build/Microsoft.Windows.CsWinRT.props",
+        "build/Microsoft.Windows.CsWinRT.targets",
+        "build/tools/IIDOptimizer/IIDOptimizer.deps.json",
+        "build/tools/IIDOptimizer/IIDOptimizer.dll",
+        "build/tools/IIDOptimizer/IIDOptimizer.exe",
+        "build/tools/IIDOptimizer/IIDOptimizer.runtimeconfig.json",
+        "build/tools/IIDOptimizer/Mono.Cecil.Mdb.dll",
+        "build/tools/IIDOptimizer/Mono.Cecil.Pdb.dll",
+        "build/tools/IIDOptimizer/Mono.Cecil.Rocks.dll",
+        "build/tools/IIDOptimizer/Mono.Cecil.dll",
+        "build/tools/IIDOptimizer/System.CommandLine.dll",
+        "cswinrt.exe",
+        "embedded/any/AgileReference.cs",
+        "embedded/any/Attributes.cs",
+        "embedded/any/CastExtensions.cs",
+        "embedded/any/ComWrappersSupport.cs",
+        "embedded/any/Context.cs",
+        "embedded/any/DataErrorsChangedEventArgs.cs",
+        "embedded/any/DerivedComposed.cs",
+        "embedded/any/EventHandler.cs",
+        "embedded/any/EventRegistrationToken.cs",
+        "embedded/any/ExceptionErrorInfo.cs",
+        "embedded/any/ExceptionHelpers.cs",
+        "embedded/any/FundamentalMarshalers.cs",
+        "embedded/any/Geometry.cs",
+        "embedded/any/GuidGenerator.cs",
+        "embedded/any/IActivationFactory.cs",
+        "embedded/any/IContextCallback.cs",
+        "embedded/any/IInspectable.cs",
+        "embedded/any/IMarshal.cs",
+        "embedded/any/IReferenceTracker.cs",
+        "embedded/any/IStringable.cs",
+        "embedded/any/IUnknownVftbl.cs",
+        "embedded/any/KeyValuePair.cs",
+        "embedded/any/Marshalers.cs",
+        "embedded/any/Module.cs",
+        "embedded/any/MonoSupport.cs",
+        "embedded/any/NotifyCollectionChangedAction.cs",
+        "embedded/any/NotifyCollectionChangedEventArgs.cs",
+        "embedded/any/NotifyCollectionChangedEventHandler.cs",
+        "embedded/any/Nullable.cs",
+        "embedded/any/Numerics.cs",
+        "embedded/any/ObjectReference.cs",
+        "embedded/any/Projections.cs",
+        "embedded/any/PropertyChangedEventArgs.cs",
+        "embedded/any/PropertyChangedEventHandler.cs",
+        "embedded/any/StandardDelegates.cs",
+        "embedded/any/SystemTypes.cs",
+        "embedded/any/Type.cs",
+        "embedded/any/TypeExtensions.cs",
+        "embedded/any/TypeNameSupport.cs",
+        "embedded/any/Uri.cs",
+        "embedded/any/WinRTRuntimeErrorStrings.Designer.cs",
+        "embedded/net6.0/Bindable.net5.cs",
+        "embedded/net6.0/CollectionHybrid.net5.cs",
+        "embedded/net6.0/ComWrappersSupport.net5.cs",
+        "embedded/net6.0/IAgileReference.net5.cs",
+        "embedded/net6.0/ICommand.net5.cs",
+        "embedded/net6.0/ICustomPropertyProvider.net5.cs",
+        "embedded/net6.0/IDictionary.net5.cs",
+        "embedded/net6.0/IDisposable.net5.cs",
+        "embedded/net6.0/IEnumerable.net5.cs",
+        "embedded/net6.0/IInspectable.net5.cs",
+        "embedded/net6.0/IList.net5.cs",
+        "embedded/net6.0/INotifyCollectionChanged.net5.cs",
+        "embedded/net6.0/INotifyDataErrorInfo.net5.cs",
+        "embedded/net6.0/INotifyPropertyChanged.net5.cs",
+        "embedded/net6.0/IPropertyValue.net5.cs",
+        "embedded/net6.0/IReadOnlyDictionary.net5.cs",
+        "embedded/net6.0/IReadOnlyList.net5.cs",
+        "embedded/net6.0/IReferenceArray.net5.cs",
+        "embedded/net6.0/IServiceProvider.net5.cs",
+        "embedded/net6.0/IWeakReferenceSource.net5.cs",
+        "embedded/net6.0/IWinRTObject.net5.cs",
+        "embedded/net6.0/SingleInterfaceOptimizedObject.net5.cs",
+        "embedded/netstandard2.0/Bindable.netstandard2.0.cs",
+        "embedded/netstandard2.0/ComWrappersSupport.netstandard2.0.cs",
+        "embedded/netstandard2.0/IAgileReference.netstandard2.0.cs",
+        "embedded/netstandard2.0/ICommand.netstandard2.0.cs",
+        "embedded/netstandard2.0/ICustomPropertyProvider.netstandard2.0.cs",
+        "embedded/netstandard2.0/IDictionary.netstandard2.0.cs",
+        "embedded/netstandard2.0/IDisposable.netstandard2.0.cs",
+        "embedded/netstandard2.0/IEnumerable.netstandard2.0.cs",
+        "embedded/netstandard2.0/IList.netstandard2.0.cs",
+        "embedded/netstandard2.0/INotifyCollectionChanged.netstandard2.0.cs",
+        "embedded/netstandard2.0/INotifyDataErrorInfo.netstandard2.0.cs",
+        "embedded/netstandard2.0/INotifyPropertyChanged.netstandard2.0.cs",
+        "embedded/netstandard2.0/IPropertyValue.netstandard2.0.cs",
+        "embedded/netstandard2.0/IReadOnlyDictionary.netstandard2.0.cs",
+        "embedded/netstandard2.0/IReadOnlyList.netstandard2.0.cs",
+        "embedded/netstandard2.0/IReferenceArray.netstandard2.0.cs",
+        "embedded/netstandard2.0/IServiceProvider.netstandard2.0.cs",
+        "embedded/netstandard2.0/IWeakReferenceSource.netstandard2.0.cs",
+        "embedded/netstandard2.0/WeakReference.netstandard2.0.cs",
+        "hosting/arm64/native/WinRT.Host.dll",
+        "hosting/arm64/native/de-DE/WinRT.Host.dll.mui",
+        "hosting/arm64/native/en-US/WinRT.Host.dll.mui",
+        "hosting/arm64/native/es-ES/WinRT.Host.dll.mui",
+        "hosting/arm64/native/fr-FR/WinRT.Host.dll.mui",
+        "hosting/arm64/native/it-IT/WinRT.Host.dll.mui",
+        "hosting/arm64/native/ja-JP/WinRT.Host.dll.mui",
+        "hosting/arm64/native/ko-KR/WinRT.Host.dll.mui",
+        "hosting/arm64/native/pt-BR/WinRT.Host.dll.mui",
+        "hosting/arm64/native/ru-RU/WinRT.Host.dll.mui",
+        "hosting/arm64/native/zh-CN/WinRT.Host.dll.mui",
+        "hosting/arm64/native/zh-TW/WinRT.Host.dll.mui",
+        "hosting/x64/native/WinRT.Host.dll",
+        "hosting/x64/native/de-DE/WinRT.Host.dll.mui",
+        "hosting/x64/native/en-US/WinRT.Host.dll.mui",
+        "hosting/x64/native/es-ES/WinRT.Host.dll.mui",
+        "hosting/x64/native/fr-FR/WinRT.Host.dll.mui",
+        "hosting/x64/native/it-IT/WinRT.Host.dll.mui",
+        "hosting/x64/native/ja-JP/WinRT.Host.dll.mui",
+        "hosting/x64/native/ko-KR/WinRT.Host.dll.mui",
+        "hosting/x64/native/pt-BR/WinRT.Host.dll.mui",
+        "hosting/x64/native/ru-RU/WinRT.Host.dll.mui",
+        "hosting/x64/native/zh-CN/WinRT.Host.dll.mui",
+        "hosting/x64/native/zh-TW/WinRT.Host.dll.mui",
+        "hosting/x86/native/WinRT.Host.dll",
+        "hosting/x86/native/de-DE/WinRT.Host.dll.mui",
+        "hosting/x86/native/en-US/WinRT.Host.dll.mui",
+        "hosting/x86/native/es-ES/WinRT.Host.dll.mui",
+        "hosting/x86/native/fr-FR/WinRT.Host.dll.mui",
+        "hosting/x86/native/it-IT/WinRT.Host.dll.mui",
+        "hosting/x86/native/ja-JP/WinRT.Host.dll.mui",
+        "hosting/x86/native/ko-KR/WinRT.Host.dll.mui",
+        "hosting/x86/native/pt-BR/WinRT.Host.dll.mui",
+        "hosting/x86/native/ru-RU/WinRT.Host.dll.mui",
+        "hosting/x86/native/zh-CN/WinRT.Host.dll.mui",
+        "hosting/x86/native/zh-TW/WinRT.Host.dll.mui",
+        "lib/net6.0/WinRT.Host.Shim.dll",
+        "lib/net6.0/WinRT.Runtime.dll",
+        "lib/net6.0/de-DE/WinRTRuntimeErrorStrings.resx",
+        "lib/net6.0/es-ES/WinRTRuntimeErrorStrings.resx",
+        "lib/net6.0/fr-FR/WinRTRuntimeErrorStrings.resx",
+        "lib/net6.0/it-IT/WinRTRuntimeErrorStrings.resx",
+        "lib/net6.0/ja-JP/WinRTRuntimeErrorStrings.resx",
+        "lib/net6.0/ko-KR/WinRTRuntimeErrorStrings.resx",
+        "lib/net6.0/pt-BR/WinRTRuntimeErrorStrings.resx",
+        "lib/net6.0/ru-RU/WinRTRuntimeErrorStrings.resx",
+        "lib/net6.0/zh-CN/WinRTRuntimeErrorStrings.resx",
+        "lib/net6.0/zh-TW/WinRTRuntimeErrorStrings.resx",
+        "metadata/WinRT.Interop.winmd",
+        "microsoft.windows.cswinrt.2.0.4.nupkg.sha512",
+        "microsoft.windows.cswinrt.nuspec",
+        "readme.txt"
+      ]
+    },
     "Serilog/4.3.1": {
       "sha512": "savYe7h5yRlkqBVOwP8cIRDOdqKiPmYCU4W87JH38sBmcKD5EBoXvQIw6bNEvZ/pTe1gsiye3VFCzBsoppGkXQ==",
       "type": "package",
@@ -1933,10 +2923,11 @@
     }
   },
   "projectFileDependencyGroups": {
-    "net8.0-windows": [
-      "InTheHand.Net.Bluetooth >= 4.2.4",
+    "net8.0-windows10.0.22621.0": [
       "Microsoft.Extensions.Hosting >= 8.0.1",
       "Microsoft.Extensions.Hosting.WindowsServices >= 8.0.1",
+      "Microsoft.NET.ILLink.Tasks >= 8.0.27",
+      "Microsoft.Windows.CsWinRT >= 2.0.4",
       "Tether.EnforcementEngine >= 1.0.0",
       "Tether.EventBus >= 1.0.0",
       "Tether.PanicEngine >= 1.0.0",
@@ -1967,16 +2958,16 @@
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
-        "net8.0-windows"
+        "net8.0-windows10.0.22621.0"
       ],
       "sources": {
         "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
-        "net8.0-windows": {
-          "framework": "net8.0-windows7.0",
-          "targetAlias": "net8.0-windows",
+        "net8.0-windows10.0.22621.0": {
+          "framework": "net8.0-windows10.0.22621",
+          "targetAlias": "net8.0-windows10.0.22621.0",
           "projectReferences": {
             "C:\\Dev\\Tether\\services\\enforcement-engine\\Tether.EnforcementEngine\\Tether.EnforcementEngine.csproj": {
               "projectPath": "C:\\Dev\\Tether\\services\\enforcement-engine\\Tether.EnforcementEngine\\Tether.EnforcementEngine.csproj"
@@ -2012,14 +3003,10 @@
       "SdkAnalysisLevel": "10.0.300"
     },
     "frameworks": {
-      "net8.0-windows": {
-        "framework": "net8.0-windows7.0",
-        "targetAlias": "net8.0-windows",
+      "net8.0-windows10.0.22621.0": {
+        "framework": "net8.0-windows10.0.22621",
+        "targetAlias": "net8.0-windows10.0.22621.0",
         "dependencies": {
-          "InTheHand.Net.Bluetooth": {
-            "target": "Package",
-            "version": "[4.2.4, )"
-          },
           "Microsoft.Extensions.Hosting": {
             "target": "Package",
             "version": "[8.0.1, )"
@@ -2027,6 +3014,16 @@
           "Microsoft.Extensions.Hosting.WindowsServices": {
             "target": "Package",
             "version": "[8.0.1, )"
+          },
+          "Microsoft.NET.ILLink.Tasks": {
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[8.0.27, )",
+            "autoReferenced": true
+          },
+          "Microsoft.Windows.CsWinRT": {
+            "target": "Package",
+            "version": "[2.0.4, )"
           }
         },
         "imports": [
@@ -2040,12 +3037,38 @@
         ],
         "assetTargetFallback": true,
         "warn": true,
+        "downloadDependencies": [
+          {
+            "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
+            "version": "[8.0.27, 8.0.27]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Runtime.win-x64",
+            "version": "[8.0.27, 8.0.27]"
+          },
+          {
+            "name": "Microsoft.Windows.SDK.NET.Ref",
+            "version": "[10.0.22621.57, 10.0.22621.57]"
+          },
+          {
+            "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
+            "version": "[8.0.27, 8.0.27]"
+          }
+        ],
         "frameworkReferences": {
           "Microsoft.NETCore.App": {
+            "privateAssets": "all"
+          },
+          "Microsoft.Windows.SDK.NET.Ref.Windows": {
             "privateAssets": "all"
           }
         },
         "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.300/PortableRuntimeIdentifierGraph.json"
+      }
+    },
+    "runtimes": {
+      "win-x64": {
+        "#import": []
       }
     }
   }

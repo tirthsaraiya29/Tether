@@ -9,26 +9,34 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Tether Phone"
-        android:textSize="24sp"
+        android:text="🔒 Tether Phone"
+        android:textSize="28sp"
         android:textStyle="bold"
-        android:layout_marginBottom="32dp" />
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Starting..."
+        android:textSize="16sp"
+        android:textColor="@android:color/holo_green_dark"
+        android:layout_marginBottom="48dp" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="BLE GATT Server Active"
-        android:textColor="@android:color/holo_green_dark"
-        android:layout_marginBottom="48dp" />
+        android:text="Bluetooth LE Active"
+        android:textSize="14sp"
+        android:layout_marginBottom="32dp" />
 
     <Button
         android:id="@+id/panicButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="PANIC MODE"
+        android:layout_width="200dp"
+        android:layout_height="60dp"
+        android:text="🚨 PANIC MODE"
         android:backgroundTint="@android:color/holo_red_dark"
         android:textColor="@android:color/white"
-        android:textSize="18sp"
-        android:padding="16dp" />
+        android:textSize="18sp" />
 
 </LinearLayout>

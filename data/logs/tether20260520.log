@@ -1,0 +1,22 @@
+2026-05-20 11:45:35.972 +05:30 [INF] TrustStateManager initialized
+2026-05-20 11:45:36.006 +05:30 [INF] EnforcementManager ready
+2026-05-20 11:45:36.008 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-20 11:45:36.009 +05:30 [INF] Pipe server started
+2026-05-20 11:45:36.010 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 11:45:36.011 +05:30 [INF] Starting BLE heartbeat proximity monitor...
+2026-05-20 11:45:37.944 +05:30 [INF] BLE scanning started
+2026-05-20 11:45:37.945 +05:30 [INF] All services initialized. Starting host...
+2026-05-20 11:45:37.976 +05:30 [INF] Tether Communication Service started successfully
+2026-05-20 11:45:48.865 +05:30 [INF] Desktop UI connected to pipe.
+2026-05-20 11:45:48.942 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-20 11:45:48.943 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-20 11:45:48.944 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-20 11:45:48.945 +05:30 [INF] Desktop UI disconnected.
+2026-05-20 11:45:48.947 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-20 11:45:51.968 +05:30 [INF] Desktop UI connected to pipe.
+2026-05-20 11:45:51.970 +05:30 [WRN] Panic mode activated!
+2026-05-20 11:45:51.971 +05:30 [WRN] Enforcing lockdown due to PANIC_TRIGGERED
+2026-05-20 11:45:51.973 +05:30 [INF] TrustStateManager received event: PANIC_TRIGGERED
+2026-05-20 11:45:51.974 +05:30 [WRN] PANIC mode activated
+2026-05-20 11:45:51.975 +05:30 [INF] Desktop UI disconnected.
+2026-05-20 11:45:51.976 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...

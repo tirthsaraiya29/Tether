@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Tether.TrustEngine")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+91e603efaf345a8c314ffe5b3550c71bc2806b19")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b9d7037b902cb418b104b8c7a45cf2d4983aefef")]
 [assembly: System.Reflection.AssemblyProductAttribute("Tether.TrustEngine")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Tether.TrustEngine")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
