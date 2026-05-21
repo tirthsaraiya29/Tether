@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Tether.RecoveryEngine")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+def17d4fa6bcb4bc5887468d9c6e5daeb834f13d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+286c7a39168606278ba77923aba4362edf334d26")]
 [assembly: System.Reflection.AssemblyProductAttribute("Tether.RecoveryEngine")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Tether.RecoveryEngine")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
