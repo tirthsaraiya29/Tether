@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Tether.Shared")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+acd0c114d34cd1bf8d50e29e890872cb7f986b72")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b0308b8b2c4e37913f4652c5fe012f868fae27ec")]
 [assembly: System.Reflection.AssemblyProductAttribute("Tether.Shared")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Tether.Shared")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -39,9 +39,13 @@ public class BleManager : IDisposable
         _logger = logger;
     }
 
-    public void Start()
+    public async void Start()
     {
         _logger.Info($"BLE Manager starting - target: '{TARGET_DEVICE_NAME}'");
+
+        // Add 'await' here and ensure the method is 'async'
+        await UnpairTargetDeviceAsync();
+
         StartScanning();
     }
 
@@ -170,6 +174,34 @@ public class BleManager : IDisposable
         finally
         {
             lock (_lock) { _currentConnectingId = null; }
+        }
+    }
+
+    private async Task UnpairTargetDeviceAsync()
+    {
+        _logger.Info("Cleaning up existing Windows Bluetooth pairings for a fresh start...");
+        try
+        {
+            // Get the selector for the specific device name
+            string aqs = BluetoothLEDevice.GetDeviceSelectorFromDeviceName(TARGET_DEVICE_NAME);
+
+            // Find all paired devices matching that name
+            var devices = await DeviceInformation.FindAllAsync(aqs);
+
+            foreach (var device in devices)
+            {
+                if (device.Pairing.IsPaired)
+                {
+                    _logger.Warning($"Found existing pairing for {device.Name}. Unpairing internally...");
+                    // This forces Windows to drop the stale GATT cache
+                    var result = await device.Pairing.UnpairAsync();
+                    _logger.Info($"Unpairing status: {result.Status}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Debug($"Unpairing step skipped: {ex.Message}");
         }
     }
 

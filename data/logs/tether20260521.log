@@ -2113,3 +2113,222 @@
 2026-05-21 21:23:58.160 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
 2026-05-21 21:23:58.161 +05:30 [INF] Trust state changed to TRUSTED
 2026-05-21 21:24:09.343 +05:30 [INF] Tether Communication Service is stopping
+2026-05-21 21:25:41.520 +05:30 [INF] TrustStateManager initialized
+2026-05-21 21:25:41.558 +05:30 [INF] EnforcementManager ready
+2026-05-21 21:25:41.559 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-21 21:25:41.560 +05:30 [INF] Pipe server started
+2026-05-21 21:25:41.561 +05:30 [INF] BLE Manager starting - target: 'Tirth's S25 FE'
+2026-05-21 21:25:41.563 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-21 21:25:41.693 +05:30 [INF] BLE scanner active and watching for advertisements...
+2026-05-21 21:25:41.694 +05:30 [INF] All services initialized. Starting host...
+2026-05-21 21:25:41.696 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: ec:87)
+2026-05-21 21:25:41.699 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-68:ac:6b:64:ec:87
+2026-05-21 21:25:41.705 +05:30 [INF] Tether Communication Service started successfully
+2026-05-21 21:25:46.738 +05:30 [WRN] Target device disappeared from BLE scanner.
+2026-05-21 21:25:46.743 +05:30 [WRN] Connection aborted cleanly (device rotated MAC or went out of range).
+2026-05-21 21:25:55.559 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: 34:e7)
+2026-05-21 21:25:55.560 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-44:91:a5:2d:34:e7
+2026-05-21 21:25:57.679 +05:30 [INF] ✅ Connected. Discovering characteristics...
+2026-05-21 21:25:58.232 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-21 21:25:58.233 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-21 21:25:58.234 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-21 21:26:11.719 +05:30 [INF] Initial BLE scan complete.
+2026-05-21 21:26:19.723 +05:30 [WRN] Physical connection lost reported by OS.
+2026-05-21 21:26:19.725 +05:30 [INF] TrustStateManager received event: PHONE_DISCONNECTED
+2026-05-21 21:26:19.726 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-21 21:26:19.728 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-21 21:26:19.729 +05:30 [WRN] Trust lost – enforcement will lock
+2026-05-21 21:26:19.730 +05:30 [INF] Trust state changed to LIMITED
+2026-05-21 21:26:19.731 +05:30 [ERR] 🔒 LOCKING: Device disconnected.
+2026-05-21 21:26:43.926 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: 7a:24)
+2026-05-21 21:26:43.927 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-77:8f:bf:e0:7a:24
+2026-05-21 21:26:46.111 +05:30 [INF] ✅ Connected. Discovering characteristics...
+2026-05-21 21:26:46.545 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-21 21:26:46.546 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-21 21:26:46.547 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-21 21:27:44.560 +05:30 [ERR] 🔒 Signal lost: -78 dBm. Locking.
+2026-05-21 21:27:44.561 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-21 21:27:44.562 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-21 21:27:44.562 +05:30 [WRN] Trust lost – enforcement will lock
+2026-05-21 21:28:07.048 +05:30 [INF] ✅ Welcome back: -50 dBm
+2026-05-21 21:28:07.048 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-21 21:28:37.049 +05:30 [ERR] 🔒 Signal lost: -77 dBm. Locking.
+2026-05-21 21:28:37.051 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-21 21:28:37.051 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-21 21:28:37.052 +05:30 [WRN] Trust lost – enforcement will lock
+2026-05-21 21:29:39.555 +05:30 [INF] ✅ Welcome back: -48 dBm
+2026-05-21 21:29:43.714 +05:30 [WRN] Physical connection lost reported by OS.
+2026-05-21 21:29:51.782 +05:30 [WRN] Target device disappeared from BLE scanner.
+2026-05-21 21:30:17.307 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-21 21:30:17.307 +05:30 [INF] TrustStateManager received event: PHONE_DISCONNECTED
+2026-05-21 21:30:17.309 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-21 21:30:17.310 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-21 21:30:17.310 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: d1:1c)
+2026-05-21 21:30:17.311 +05:30 [WRN] Trust lost – enforcement will lock
+2026-05-21 21:30:17.311 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-56:85:03:25:d1:1c
+2026-05-21 21:30:17.313 +05:30 [INF] Trust state changed to LIMITED
+2026-05-21 21:30:17.313 +05:30 [ERR] 🔒 LOCKING: Device disconnected.
+2026-05-21 21:30:19.495 +05:30 [INF] ✅ Connected. Discovering characteristics...
+2026-05-21 21:30:20.087 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-21 21:30:20.087 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-21 21:30:20.088 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-21 21:30:49.601 +05:30 [ERR] 🔒 Signal lost: -77 dBm. Locking.
+2026-05-21 21:30:49.601 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-21 21:30:49.602 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-21 21:30:49.603 +05:30 [WRN] Trust lost – enforcement will lock
+2026-05-21 21:31:09.601 +05:30 [INF] ✅ Welcome back: -50 dBm
+2026-05-21 21:31:09.602 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-21 21:35:03.126 +05:30 [INF] Tether Communication Service is stopping
+2026-05-21 21:35:38.553 +05:30 [INF] TrustStateManager initialized
+2026-05-21 21:35:38.592 +05:30 [INF] EnforcementManager ready
+2026-05-21 21:35:38.593 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-21 21:35:38.594 +05:30 [INF] Pipe server started
+2026-05-21 21:35:38.595 +05:30 [INF] BLE Manager starting - target: 'Tirth's S25 FE'
+2026-05-21 21:35:38.598 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-21 21:35:38.725 +05:30 [INF] BLE scanner active and watching for advertisements...
+2026-05-21 21:35:38.726 +05:30 [INF] All services initialized. Starting host...
+2026-05-21 21:35:38.729 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: 1c:fd)
+2026-05-21 21:35:38.732 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-49:53:b5:14:1c:fd
+2026-05-21 21:35:38.738 +05:30 [INF] Tether Communication Service started successfully
+2026-05-21 21:35:46.480 +05:30 [ERR] GATT discovery failed: Unreachable
+2026-05-21 21:36:08.763 +05:30 [INF] Initial BLE scan complete.
+2026-05-21 21:36:30.507 +05:30 [INF] Tether Communication Service is stopping
+2026-05-21 21:36:33.084 +05:30 [INF] TrustStateManager initialized
+2026-05-21 21:36:33.122 +05:30 [INF] EnforcementManager ready
+2026-05-21 21:36:33.123 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-21 21:36:33.125 +05:30 [INF] Pipe server started
+2026-05-21 21:36:33.126 +05:30 [INF] BLE Manager starting - target: 'Tirth's S25 FE'
+2026-05-21 21:36:33.128 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-21 21:36:33.257 +05:30 [INF] BLE scanner active and watching for advertisements...
+2026-05-21 21:36:33.258 +05:30 [INF] All services initialized. Starting host...
+2026-05-21 21:36:33.260 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: 1c:fd)
+2026-05-21 21:36:33.263 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-49:53:b5:14:1c:fd
+2026-05-21 21:36:33.269 +05:30 [INF] Tether Communication Service started successfully
+2026-05-21 21:36:33.686 +05:30 [WRN] Physical connection lost reported by OS.
+2026-05-21 21:36:33.691 +05:30 [WRN] Connection aborted cleanly (device rotated MAC or went out of range).
+2026-05-21 21:36:34.762 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: 26:e5)
+2026-05-21 21:36:34.763 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-6c:0f:cb:14:26:e5
+2026-05-21 21:36:35.490 +05:30 [WRN] Physical connection lost reported by OS.
+2026-05-21 21:36:35.494 +05:30 [WRN] Connection aborted cleanly (device rotated MAC or went out of range).
+2026-05-21 21:36:39.476 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: c0:bb)
+2026-05-21 21:36:39.478 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:a1:16:ba:c0:bb
+2026-05-21 21:36:41.613 +05:30 [INF] ✅ Connected. Discovering characteristics...
+2026-05-21 21:36:42.151 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-21 21:36:42.152 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-21 21:36:42.153 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-21 21:37:03.296 +05:30 [WRN] Target device disappeared from BLE scanner.
+2026-05-21 21:37:03.297 +05:30 [INF] TrustStateManager received event: PHONE_DISCONNECTED
+2026-05-21 21:37:03.298 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-21 21:37:03.299 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-21 21:37:03.299 +05:30 [WRN] Trust lost – enforcement will lock
+2026-05-21 21:37:03.300 +05:30 [INF] Trust state changed to LIMITED
+2026-05-21 21:37:03.301 +05:30 [ERR] 🔒 LOCKING: Device disconnected.
+2026-05-21 21:37:03.303 +05:30 [INF] Initial BLE scan complete.
+2026-05-21 21:37:06.327 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: c0:bb)
+2026-05-21 21:37:06.330 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-4b:a1:16:ba:c0:bb
+2026-05-21 21:37:13.296 +05:30 [WRN] Target device disappeared from BLE scanner.
+2026-05-21 21:37:13.298 +05:30 [WRN] Connection aborted cleanly (device rotated MAC or went out of range).
+2026-05-21 21:38:01.109 +05:30 [INF] Tether Communication Service is stopping
+2026-05-21 21:38:02.552 +05:30 [INF] TrustStateManager initialized
+2026-05-21 21:38:02.591 +05:30 [INF] EnforcementManager ready
+2026-05-21 21:38:02.592 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-21 21:38:02.593 +05:30 [INF] Pipe server started
+2026-05-21 21:38:02.595 +05:30 [INF] BLE Manager starting - target: 'Tirth's S25 FE'
+2026-05-21 21:38:02.597 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-21 21:38:02.725 +05:30 [INF] BLE scanner active and watching for advertisements...
+2026-05-21 21:38:02.726 +05:30 [INF] All services initialized. Starting host...
+2026-05-21 21:38:02.728 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: dc:06)
+2026-05-21 21:38:02.731 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-69:bd:cf:fb:dc:06
+2026-05-21 21:38:02.737 +05:30 [INF] Tether Communication Service started successfully
+2026-05-21 21:38:05.165 +05:30 [INF] ✅ Connected. Discovering characteristics...
+2026-05-21 21:38:05.807 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-21 21:38:05.808 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-21 21:38:05.809 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-21 21:38:32.767 +05:30 [INF] Initial BLE scan complete.
+2026-05-21 21:43:06.733 +05:30 [INF] Tether Communication Service is stopping
+2026-05-21 21:45:27.690 +05:30 [INF] TrustStateManager initialized
+2026-05-21 21:45:27.728 +05:30 [INF] EnforcementManager ready
+2026-05-21 21:45:27.729 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-21 21:45:27.730 +05:30 [INF] Pipe server started
+2026-05-21 21:45:27.732 +05:30 [INF] BLE Manager starting - target: 'Tirth's S25 FE'
+2026-05-21 21:45:28.901 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-21 21:45:29.024 +05:30 [INF] Cleaning up existing Windows Bluetooth pairings for a fresh start...
+2026-05-21 21:45:29.277 +05:30 [INF] All services initialized. Starting host...
+2026-05-21 21:45:29.307 +05:30 [INF] Tether Communication Service started successfully
+2026-05-21 21:45:59.165 +05:30 [INF] BLE scanner active and watching for advertisements...
+2026-05-21 21:45:59.168 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: ff:8d)
+2026-05-21 21:46:34.359 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-77:61:09:1b:ff:8d
+2026-05-21 21:46:34.374 +05:30 [WRN] Target device disappeared from BLE scanner.
+2026-05-21 21:46:34.376 +05:30 [INF] Initial BLE scan complete.
+2026-05-21 21:46:40.399 +05:30 [INF] Tether Communication Service is stopping
+2026-05-21 21:46:40.411 +05:30 [WRN] Connection aborted cleanly (device rotated MAC or went out of range).
+2026-05-21 21:46:53.536 +05:30 [INF] TrustStateManager initialized
+2026-05-21 21:46:53.576 +05:30 [INF] EnforcementManager ready
+2026-05-21 21:46:53.576 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-21 21:46:53.578 +05:30 [INF] Pipe server started
+2026-05-21 21:46:53.579 +05:30 [INF] BLE Manager starting - target: 'Tirth's S25 FE'
+2026-05-21 21:46:53.582 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-21 21:46:53.645 +05:30 [INF] Cleaning up existing Windows Bluetooth pairings for a fresh start...
+2026-05-21 21:46:53.704 +05:30 [INF] All services initialized. Starting host...
+2026-05-21 21:46:53.713 +05:30 [INF] Tether Communication Service started successfully
+2026-05-21 21:47:23.727 +05:30 [INF] BLE scanner active and watching for advertisements...
+2026-05-21 21:47:23.729 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: bb:74)
+2026-05-21 21:47:23.733 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:a6:03:79:bb:74
+2026-05-21 21:47:26.014 +05:30 [INF] ✅ Connected. Discovering characteristics...
+2026-05-21 21:47:26.759 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-21 21:47:26.760 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-21 21:47:26.761 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-21 21:47:41.981 +05:30 [INF] Initial BLE scan complete.
+2026-05-21 21:47:41.987 +05:30 [WRN] Target device disappeared from BLE scanner.
+2026-05-21 21:47:41.993 +05:30 [INF] TrustStateManager received event: PHONE_DISCONNECTED
+2026-05-21 21:47:41.995 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-21 21:47:41.998 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-21 21:47:41.999 +05:30 [WRN] Trust lost – enforcement will lock
+2026-05-21 21:47:42.001 +05:30 [INF] Trust state changed to LIMITED
+2026-05-21 21:47:42.003 +05:30 [ERR] 🔒 LOCKING: Device disconnected.
+2026-05-21 21:47:42.003 +05:30 [WRN] Physical connection lost reported by OS.
+2026-05-21 21:47:52.173 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: bb:74)
+2026-05-21 21:47:52.183 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-7a:a6:03:79:bb:74
+2026-05-21 21:47:57.350 +05:30 [WRN] Target device disappeared from BLE scanner.
+2026-05-21 21:47:57.353 +05:30 [WRN] Connection aborted cleanly (device rotated MAC or went out of range).
+2026-05-21 21:48:18.552 +05:30 [INF] Tether Communication Service is stopping
+2026-05-21 21:48:24.199 +05:30 [INF] TrustStateManager initialized
+2026-05-21 21:48:24.253 +05:30 [INF] EnforcementManager ready
+2026-05-21 21:48:24.254 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-21 21:48:24.255 +05:30 [INF] Pipe server started
+2026-05-21 21:48:24.256 +05:30 [INF] BLE Manager starting - target: 'Tirth's S25 FE'
+2026-05-21 21:48:24.260 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-21 21:48:24.339 +05:30 [INF] Cleaning up existing Windows Bluetooth pairings for a fresh start...
+2026-05-21 21:48:24.411 +05:30 [INF] All services initialized. Starting host...
+2026-05-21 21:48:24.423 +05:30 [INF] Tether Communication Service started successfully
+2026-05-21 21:48:51.901 +05:30 [INF] Tether Communication Service is stopping
+2026-05-21 21:48:54.094 +05:30 [INF] TrustStateManager initialized
+2026-05-21 21:48:54.138 +05:30 [INF] EnforcementManager ready
+2026-05-21 21:48:54.139 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-21 21:48:54.141 +05:30 [INF] Pipe server started
+2026-05-21 21:48:54.142 +05:30 [INF] BLE Manager starting - target: 'Tirth's S25 FE'
+2026-05-21 21:48:54.144 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-21 21:48:54.213 +05:30 [INF] Cleaning up existing Windows Bluetooth pairings for a fresh start...
+2026-05-21 21:48:54.269 +05:30 [INF] All services initialized. Starting host...
+2026-05-21 21:48:54.279 +05:30 [INF] Tether Communication Service started successfully
+2026-05-21 21:49:24.298 +05:30 [INF] BLE scanner active and watching for advertisements...
+2026-05-21 21:49:24.301 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: 76:90)
+2026-05-21 21:49:24.304 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-51:07:5e:36:76:90
+2026-05-21 21:49:24.376 +05:30 [INF] Tether Communication Service is stopping
+2026-05-21 21:49:24.386 +05:30 [WRN] Connection aborted cleanly (device rotated MAC or went out of range).
+2026-05-21 21:49:28.383 +05:30 [INF] TrustStateManager initialized
+2026-05-21 21:49:28.423 +05:30 [INF] EnforcementManager ready
+2026-05-21 21:49:28.423 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-21 21:49:28.425 +05:30 [INF] Pipe server started
+2026-05-21 21:49:28.426 +05:30 [INF] BLE Manager starting - target: 'Tirth's S25 FE'
+2026-05-21 21:49:28.429 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-21 21:49:28.493 +05:30 [INF] Cleaning up existing Windows Bluetooth pairings for a fresh start...
+2026-05-21 21:49:28.546 +05:30 [INF] All services initialized. Starting host...
+2026-05-21 21:49:28.556 +05:30 [INF] Tether Communication Service started successfully
+2026-05-21 21:49:58.566 +05:30 [INF] BLE scanner active and watching for advertisements...
+2026-05-21 21:49:58.569 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: 66:5a)
+2026-05-21 21:49:58.572 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-64:6f:93:c7:66:5a
+2026-05-21 21:50:00.755 +05:30 [INF] ✅ Connected. Discovering characteristics...
+2026-05-21 21:50:01.621 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-21 21:50:01.622 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-21 21:50:01.623 +05:30 [INF] Trust state changed to TRUSTED
