@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Tether.Platform.Windows")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+286c7a39168606278ba77923aba4362edf334d26")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+acd0c114d34cd1bf8d50e29e890872cb7f986b72")]
 [assembly: System.Reflection.AssemblyProductAttribute("Tether.Platform.Windows")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Tether.Platform.Windows")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
