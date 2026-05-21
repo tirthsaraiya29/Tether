@@ -1,13 +1,19 @@
 package com.tether.phone
 
 import android.Manifest
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -16,6 +22,36 @@ class MainActivity : AppCompatActivity() {
     private val REQUEST_BLUETOOTH_PERMISSIONS = 1
     private lateinit var statusText: TextView
     private lateinit var connectionStatusText: TextView
+    private lateinit var panicButton: Button
+
+    private val bluetoothStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
+                when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                    BluetoothAdapter.STATE_OFF -> {
+                        statusText.text = "Bluetooth Disabled"
+                        statusText.setTextColor(android.graphics.Color.RED)
+                        connectionStatusText.text = "Waiting for Bluetooth to turn on..."
+                        stopService(Intent(this@MainActivity, BleGattServerService::class.java))
+                    }
+                    BluetoothAdapter.STATE_ON -> {
+                        if (checkPermissions()) {
+                            startBleService()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private val enableBluetoothLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            startBleService()
+        } else {
+            statusText.text = "Bluetooth required"
+            statusText.setTextColor(android.graphics.Color.RED)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -23,21 +59,30 @@ class MainActivity : AppCompatActivity() {
 
         statusText = findViewById(R.id.statusText)
         connectionStatusText = findViewById(R.id.connectionStatusText)
-        val panicButton = findViewById<Button>(R.id.panicButton)
+        panicButton = findViewById(R.id.panicButton)
 
         statusText.text = "Initializing..."
-        connectionStatusText.text = "Not connected to PC"
+        connectionStatusText.text = "Not connected"
 
         panicButton.setOnClickListener {
-            Toast.makeText(this, "PANIC sent to Windows", Toast.LENGTH_SHORT).show()
-            // TODO: Implement panic button functionality
+            Toast.makeText(this, "🚨 Panic Sent! Locking PC...", Toast.LENGTH_SHORT).show()
+            val serviceIntent = Intent(this, BleGattServerService::class.java)
+            serviceIntent.action = "PANIC"
+            startService(serviceIntent)
         }
 
+        registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+
         if (checkPermissions()) {
-            startBleService()
+            checkAndEnableBluetooth()
         } else {
             requestPermissions()
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(bluetoothStateReceiver)
     }
 
     private fun checkPermissions(): Boolean {
@@ -55,9 +100,7 @@ class MainActivity : AppCompatActivity() {
                 Manifest.permission.BLUETOOTH_ADMIN
             )
         }
-        return permissions.all {
-            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-        }
+        return permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
 
     private fun requestPermissions() {
@@ -78,33 +121,35 @@ class MainActivity : AppCompatActivity() {
         ActivityCompat.requestPermissions(this, permissions, REQUEST_BLUETOOTH_PERMISSIONS)
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_BLUETOOTH_PERMISSIONS && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+            checkAndEnableBluetooth()
+        } else {
+            Toast.makeText(this, "Permissions required for background locking", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun checkAndEnableBluetooth() {
+        val bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        if (bluetoothAdapter.isEnabled) {
             startBleService()
         } else {
-            Toast.makeText(this, "Bluetooth permissions required for Tether to work", Toast.LENGTH_LONG).show()
-            statusText.text = "Permissions denied - app cannot function"
+            val enableIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+            enableBluetoothLauncher.launch(enableIntent)
         }
     }
 
     private fun startBleService() {
         statusText.text = "Starting BLE service..."
         val serviceIntent = Intent(this, BleGattServerService::class.java)
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)
         } else {
             startService(serviceIntent)
         }
-
         statusText.text = "✅ Tether Active\nPhone ready"
-        statusText.setTextColor(android.graphics.Color.GREEN)
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // Register receiver for connection status updates
-        // Implementation for broadcast receiver would go here
+        statusText.setTextColor(android.graphics.Color.parseColor("#006400")) // Dark green
+        connectionStatusText.text = "Advertising in background"
     }
 }

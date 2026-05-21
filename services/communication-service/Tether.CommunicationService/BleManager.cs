@@ -2,6 +2,7 @@
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
+using Windows.Storage.Streams;
 using Tether.EventBus;
 using Tether.Shared.Events;
 using Tether.Shared.Logging;
@@ -20,9 +21,8 @@ public class BleManager : IDisposable
     private readonly object _lock = new();
     private bool _isWorkstationLocked = false;
     private bool _isConnected = false;
+    private bool _isConnecting = false;
     private string? _connectedDeviceId;
-    private int _reconnectAttempts = 0;
-    private const int MAX_RECONNECT_ATTEMPTS = 5;
 
     private const int RSSI_GOOD = -50;
     private const int RSSI_WARNING = -65;
@@ -32,8 +32,8 @@ public class BleManager : IDisposable
     private const int SAMPLES_PER_AVERAGE = 5;
     private const int CONNECTION_CHECK_INTERVAL_MS = 10000;
 
-    // CHANGE THIS to match what you see in the logs!
     private const string TARGET_DEVICE_NAME = "Tirth's S25 FE";
+    private readonly Guid PANIC_CHAR_UUID = new Guid("0000FFE2-0000-1000-8000-00805F9B34FB");
 
     public BleManager(IEventBus eventBus, ITetherLogger logger)
     {
@@ -75,36 +75,31 @@ public class BleManager : IDisposable
 
     private void OnDeviceAdded(DeviceWatcher sender, DeviceInformation args)
     {
-        // LOG EVERY DEVICE FOUND - CRITICAL FOR DEBUGGING
         _logger.Info($"🔍 DEVICE FOUND: Name='{args.Name}', ID={args.Id}");
 
-        // Log all properties for debugging
-        foreach (var prop in args.Properties)
+        // If we are already pinned to a specific device, ignore everything else
+        if (_connectedDeviceId != null && args.Id != _connectedDeviceId)
         {
-            _logger.Debug($"  Property: {prop.Key} = {prop.Value}");
+            return;
         }
 
-        // Check if connectable
         bool isConnectable = false;
         if (args.Properties.TryGetValue("System.Devices.Aep.Bluetooth.Le.IsConnectable", out object? connectableValue))
         {
             isConnectable = connectableValue as bool? ?? false;
-            _logger.Info($"  Is Connectable: {isConnectable}");
         }
 
-        if (!isConnectable)
-        {
-            _logger.Debug($"  Skipping {args.Name} - not connectable");
-            return;
-        }
+        if (!isConnectable) return;
 
-        // Try to match by name
         bool isTargetDevice = false;
 
-        if (!string.IsNullOrEmpty(args.Name))
+        // Either match by pinned ID, or initial name scan
+        if (_connectedDeviceId != null && args.Id == _connectedDeviceId)
         {
-            _logger.Info($"  Checking name match: '{args.Name}' contains '{TARGET_DEVICE_NAME}'?");
-
+            isTargetDevice = true;
+        }
+        else if (string.IsNullOrEmpty(_connectedDeviceId) && !string.IsNullOrEmpty(args.Name))
+        {
             if (args.Name.Contains(TARGET_DEVICE_NAME, StringComparison.OrdinalIgnoreCase))
             {
                 isTargetDevice = true;
@@ -117,40 +112,21 @@ public class BleManager : IDisposable
             _logger.Info($"🎯 CONNECTING to {args.Name}...");
             ConnectToDevice(args.Id);
         }
-        else
-        {
-            _logger.Info($"  ❌ Not target device, ignoring");
-        }
     }
 
     private void OnDeviceUpdated(DeviceWatcher sender, DeviceInformationUpdate args)
     {
-        _logger.Debug($"Device updated: {args.Id}");
-
-        if (_device != null && _device.DeviceId == args.Id)
-            return;
+        if (_device != null && _device.DeviceId == args.Id) return;
 
         if (_connectedDeviceId != null && args.Id == _connectedDeviceId)
         {
-            _logger.Info($"Device {_connectedDeviceId} updated, attempting connection...");
-            // We need to get the full DeviceInformation to check the name
-            _ = Task.Run(async () =>
-            {
-                var deviceInfo = await DeviceInformation.CreateFromIdAsync(args.Id);
-                if (deviceInfo != null && !string.IsNullOrEmpty(deviceInfo.Name))
-                {
-                    if (deviceInfo.Name.Contains(TARGET_DEVICE_NAME, StringComparison.OrdinalIgnoreCase))
-                    {
-                        ConnectToDevice(args.Id);
-                    }
-                }
-            });
+            _logger.Info($"Pinned device {_connectedDeviceId} updated, attempting connection...");
+            ConnectToDevice(args.Id);
         }
     }
 
     private void OnDeviceRemoved(DeviceWatcher sender, DeviceInformationUpdate args)
     {
-        _logger.Info($"Device removed: {args.Id}");
         if (_device != null && _device.DeviceId == args.Id)
         {
             _logger.Warning($"Target device removed from enumeration");
@@ -161,16 +137,13 @@ public class BleManager : IDisposable
     private void OnEnumerationCompleted(DeviceWatcher sender, object args)
     {
         _logger.Info("Device enumeration completed - continuing to listen for new devices");
-        // Keep the watcher running - it will still fire Added events for new devices
     }
 
     private async void ConnectToDevice(string deviceId)
     {
-        if (_device != null && _device.ConnectionStatus == BluetoothConnectionStatus.Connected)
-        {
-            _logger.Info("Already connected to a device");
-            return;
-        }
+        if (_isConnected || _isConnecting) return;
+
+        _isConnecting = true;
 
         try
         {
@@ -187,34 +160,36 @@ public class BleManager : IDisposable
                 return;
             }
 
-            _logger.Info($"Device name: {_device.Name}");
-            _logger.Info($"Device connection status: {_device.ConnectionStatus}");
-
             _device.ConnectionStatusChanged += OnConnectionStatusChanged;
 
             var accessStatus = await _device.RequestAccessAsync();
-            _logger.Info($"Device access status: {accessStatus}");
-
             if (accessStatus != DeviceAccessStatus.Allowed)
             {
                 _logger.Error($"Access to device not allowed: {accessStatus}");
                 return;
             }
 
-            _logger.Info("Discovering GATT services...");
             var servicesResult = await _device.GetGattServicesAsync(BluetoothCacheMode.Uncached);
 
             if (servicesResult.Status == GattCommunicationStatus.Success)
             {
-                _logger.Info($"✅ Successfully connected! Found {servicesResult.Services.Count} services");
-                foreach (var service in servicesResult.Services)
-                {
-                    _logger.Debug($"  Service: {service.Uuid}");
-                }
+                _logger.Info($"✅ Successfully connected!");
 
                 _isConnected = true;
-                _connectedDeviceId = deviceId;
-                _reconnectAttempts = 0;
+                _connectedDeviceId = deviceId; // Pin the device
+
+                // Setup Panic Subscription
+                foreach (var service in servicesResult.Services)
+                {
+                    var charResult = await service.GetCharacteristicsForUuidAsync(PANIC_CHAR_UUID);
+                    if (charResult.Status == GattCommunicationStatus.Success && charResult.Characteristics.Count > 0)
+                    {
+                        var panicChar = charResult.Characteristics[0];
+                        panicChar.ValueChanged += PanicChar_ValueChanged;
+                        await panicChar.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                        _logger.Info("Subscribed to Panic Characteristic Notifications");
+                    }
+                }
 
                 _eventBus.Publish(new TetherEvent
                 {
@@ -229,40 +204,50 @@ public class BleManager : IDisposable
             else
             {
                 _logger.Error($"Failed to discover GATT services: {servicesResult.Status}");
-                _logger.Error($"  This usually means the device is not advertising as connectable");
-                _logger.Error($"  Make sure nRF Connect has 'Connectable' checkbox ENABLED");
                 HandleDisconnection();
             }
         }
         catch (Exception ex)
         {
             _logger.Error($"Connection error: {ex.Message}");
-            _logger.Error($"Stack trace: {ex.StackTrace}");
             HandleDisconnection();
+        }
+        finally
+        {
+            _isConnecting = false;
+        }
+    }
+
+    private void PanicChar_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
+    {
+        var reader = DataReader.FromBuffer(args.CharacteristicValue);
+        byte[] data = new byte[reader.UnconsumedBufferLength];
+        reader.ReadBytes(data);
+
+        if (data.Length > 0 && data[0] == 0x01)
+        {
+            _logger.Error("🚨 PANIC TRIGGERED BY PHONE!");
+            _eventBus.Publish(new TetherEvent
+            {
+                EventType = TetherEventType.PANIC_TRIGGERED,
+                Source = "BleManager"
+            });
+            LockWorkStation();
         }
     }
 
     private void StartRssiMonitoring()
     {
-        lock (_lock)
-        {
-            _rssiSamples.Clear();
-        }
-
+        lock (_lock) { _rssiSamples.Clear(); }
         _rssiTimer?.Dispose();
         _rssiTimer = new Timer(async _ => await SampleRssi(), null, 0, SAMPLE_INTERVAL_MS);
-        _logger.Info("RSSI monitoring started");
     }
 
     private async Task SampleRssi()
     {
         if (_device == null || _device.ConnectionStatus != BluetoothConnectionStatus.Connected)
         {
-            if (_isConnected)
-            {
-                _logger.Warning("Device disconnected during RSSI sampling");
-                HandleDisconnection();
-            }
+            if (_isConnected) HandleDisconnection();
             return;
         }
 
@@ -280,21 +265,13 @@ public class BleManager : IDisposable
                 lock (_lock)
                 {
                     _rssiSamples.Add(currentRssi);
-                    _logger.Debug($"RSSI sample: {currentRssi} dBm");
-
                     if (_rssiSamples.Count >= SAMPLES_PER_AVERAGE)
                     {
                         double avgRssi = _rssiSamples.Average();
                         _rssiSamples.Clear();
-
-                        _logger.Info($"📊 Average RSSI: {avgRssi:F0} dBm");
                         EvaluateProximity(avgRssi);
                     }
                 }
-            }
-            else
-            {
-                _logger.Debug("RSSI property not available in this sample");
             }
         }
         catch (Exception ex)
@@ -309,49 +286,24 @@ public class BleManager : IDisposable
         {
             if (avgRssi >= RSSI_GOOD)
             {
-                _logger.Info($"✅ Signal restored: {avgRssi:F0} dBm");
                 _isWorkstationLocked = false;
-                _eventBus.Publish(new TetherEvent
-                {
-                    EventType = TetherEventType.TRUST_RESTORED,
-                    Source = "BleManager",
-                    PayloadJson = $"{{\"RSSI\":{avgRssi:F0}}}"
-                });
+                _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager", PayloadJson = $"{{\"RSSI\":{avgRssi:F0}}}" });
             }
             return;
         }
 
         if (avgRssi <= RSSI_WARNING && avgRssi > RSSI_LOCK)
         {
-            _logger.Warning($"⚠️ Signal weak: {avgRssi:F0} dBm");
-            _eventBus.Publish(new TetherEvent
-            {
-                EventType = TetherEventType.TRUST_DEGRADED,
-                Source = "BleManager",
-                PayloadJson = $"{{\"RSSI\":{avgRssi:F0}}}"
-            });
+            _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_DEGRADED, Source = "BleManager", PayloadJson = $"{{\"RSSI\":{avgRssi:F0}}}" });
         }
 
         if (avgRssi <= RSSI_LOCK)
         {
             _logger.Error($"🔒 SIGNAL LOST: {avgRssi:F0} dBm <= {RSSI_LOCK}. LOCKING WORKSTATION!");
-
             _isWorkstationLocked = true;
 
-            _eventBus.Publish(new TetherEvent
-            {
-                EventType = TetherEventType.TRUST_LOST,
-                Source = "BleManager",
-                PayloadJson = $"{{\"RSSI\":{avgRssi:F0}}}"
-            });
-
-            _eventBus.Publish(new TetherEvent
-            {
-                EventType = TetherEventType.PANIC_TRIGGERED,
-                Source = "BleManager",
-                PayloadJson = $"{{\"Reason\":\"RSSI threshold exceeded\",\"RSSI\":{avgRssi:F0}}}"
-            });
-
+            // Notice PANIC is removed from here. Only TRUST_LOST happens.
+            _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager", PayloadJson = $"{{\"RSSI\":{avgRssi:F0}}}" });
             LockWorkStation();
         }
     }
@@ -360,108 +312,55 @@ public class BleManager : IDisposable
     {
         _connectionMonitorTimer?.Dispose();
         _connectionMonitorTimer = new Timer(async _ => await CheckConnection(), null, CONNECTION_CHECK_INTERVAL_MS, CONNECTION_CHECK_INTERVAL_MS);
-        _logger.Info("Connection monitoring started");
     }
 
     private async Task CheckConnection()
     {
-        if (_device == null)
+        if (_device == null || _device.ConnectionStatus != BluetoothConnectionStatus.Connected)
         {
-            if (_isConnected)
-            {
-                _logger.Warning("Device is null but marked as connected");
-                HandleDisconnection();
-            }
-            return;
-        }
-
-        if (_device.ConnectionStatus != BluetoothConnectionStatus.Connected)
-        {
-            _logger.Warning($"Device connection lost (status: {_device.ConnectionStatus})");
-            HandleDisconnection();
-            return;
-        }
-
-        try
-        {
-            var deviceInfo = await DeviceInformation.CreateFromIdAsync(
-                _device.DeviceId,
-                new[] { "System.Devices.Aep.SignalStrength" },
-                DeviceInformationKind.AssociationEndpoint);
-
-            if (deviceInfo.Properties.TryGetValue("System.Devices.Aep.SignalStrength", out object? rssiValue))
-            {
-                _logger.Debug($"Connection check passed, RSSI: {Convert.ToInt32(rssiValue)} dBm");
-            }
-            else
-            {
-                _logger.Debug("Connection check: RSSI property not available");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.Warning($"Connection check error: {ex.Message}");
+            if (_isConnected) HandleDisconnection();
         }
     }
 
     private void OnConnectionStatusChanged(BluetoothLEDevice sender, object args)
     {
-        _logger.Info($"Connection status changed: {sender.ConnectionStatus}");
-
         if (sender.ConnectionStatus != BluetoothConnectionStatus.Connected && _isConnected)
         {
             HandleDisconnection();
-        }
-        else if (sender.ConnectionStatus == BluetoothConnectionStatus.Connected && !_isConnected)
-        {
-            _logger.Info("Device reconnected!");
-            _isConnected = true;
-            _reconnectAttempts = 0;
-            StartRssiMonitoring();
         }
     }
 
     private void HandleDisconnection()
     {
-        if (!_isConnected)
-            return;
+        if (!_isConnected) return;
 
         _logger.Warning("Handling disconnection...");
         _isConnected = false;
-        _isWorkstationLocked = false;
+        _isWorkstationLocked = false; // Reset for when it reconnects
 
         StopRssiMonitoring();
 
-        _eventBus.Publish(new TetherEvent
-        {
-            EventType = TetherEventType.PHONE_DISCONNECTED,
-            Source = "BleManager"
-        });
+        _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_DISCONNECTED, Source = "BleManager" });
 
         _logger.Error("🔒 Device disconnected - LOCKING WORKSTATION!");
         LockWorkStation();
 
-        if (_reconnectAttempts < MAX_RECONNECT_ATTEMPTS && _connectedDeviceId != null)
+        // INFINITE RECONNECT TO PINNED DEVICE
+        if (_connectedDeviceId != null)
         {
-            _reconnectAttempts++;
-            _logger.Info($"Attempting to reconnect ({_reconnectAttempts}/{MAX_RECONNECT_ATTEMPTS})...");
-
-            Task.Delay(5000).ContinueWith(_ =>
-            {
-                if (_connectedDeviceId != null && (_device == null || _device.ConnectionStatus != BluetoothConnectionStatus.Connected))
-                {
-                    ConnectToDevice(_connectedDeviceId);
-                }
-            });
+            _logger.Info($"Pinned to {_connectedDeviceId}. Entering infinite reconnect loop...");
+            Task.Run(ReconnectLoopAsync);
         }
-        else if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS)
+    }
+
+    private async Task ReconnectLoopAsync()
+    {
+        while (!_isConnected && _connectedDeviceId != null)
         {
-            _logger.Error("Max reconnection attempts reached. Will continue scanning for device.");
-            _connectedDeviceId = null;
-            _reconnectAttempts = 0;
-            if (_deviceWatcher?.Status != DeviceWatcherStatus.Started)
+            await Task.Delay(3000); // Poll every 3 seconds
+            if (!_isConnected && _connectedDeviceId != null && !_isConnecting)
             {
-                StartScanning();
+                ConnectToDevice(_connectedDeviceId);
             }
         }
     }
@@ -472,7 +371,6 @@ public class BleManager : IDisposable
         _rssiTimer = null;
         _connectionMonitorTimer?.Dispose();
         _connectionMonitorTimer = null;
-        _logger.Info("RSSI and connection monitoring stopped");
     }
 
     [DllImport("user32.dll")]
@@ -480,7 +378,6 @@ public class BleManager : IDisposable
 
     public void Stop()
     {
-        _logger.Info("Stopping BLE Manager...");
         if (_deviceWatcher != null)
         {
             _deviceWatcher.Stop();
@@ -494,11 +391,8 @@ public class BleManager : IDisposable
             _device = null;
         }
         _isConnected = false;
-        _logger.Info("BLE Manager stopped");
+        _connectedDeviceId = null; // Clear pinning on intentional stop
     }
 
-    public void Dispose()
-    {
-        Stop();
-    }
+    public void Dispose() => Stop();
 }
