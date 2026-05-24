@@ -44,6 +44,9 @@ class BleGattServerService : Service() {
         private val PANIC_CHAR_UUID = UUID.fromString("0000FFE2-0000-1000-8000-00805F9B34FB")
         private const val CHANNEL_ID = "tether_proximity_channel"
         private const val NOTIFICATION_ID = 1
+
+        private const val MANUFACTURER_ID = 0xFFFF
+        private const val DEVICE_ID = 0x01
     }
 
     private lateinit var panicCharacteristic: BluetoothGattCharacteristic
@@ -54,7 +57,7 @@ class BleGattServerService : Service() {
         bluetoothAdapter = bluetoothManager?.adapter
 
         if (bluetoothAdapter == null || !bluetoothAdapter!!.isEnabled) {
-            Log.e("TetherBLE", "Bluetooth disabled – shutting down service gracefully")
+            Log.e("TetherBLE", "Bluetooth disabled – shutting down")
             stopSelf()
             return
         }
@@ -62,36 +65,37 @@ class BleGattServerService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
         setupGattServer()
-        startAdvertising()
+        startAdvertising() // Start with default idle state
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            "PANIC" -> updateAdvertisement(trustState = 0x02)
+            "LOCK_NOW" -> updateAdvertisement(trustState = 0x01)
+        }
+        return START_STICKY
     }
 
     private fun setupGattServer() {
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
-
         try {
             bluetoothGattServer = bluetoothManager?.openGattServer(this, gattServerCallback)
-
-            val rssiChar = BluetoothGattCharacteristic(
-                RSSI_CHAR_UUID,
-                BluetoothGattCharacteristic.PROPERTY_READ,
-                BluetoothGattCharacteristic.PERMISSION_READ
-            )
-            panicCharacteristic = BluetoothGattCharacteristic(
-                PANIC_CHAR_UUID,
-                BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-                BluetoothGattCharacteristic.PERMISSION_READ
-            )
+            val rssiChar = BluetoothGattCharacteristic(RSSI_CHAR_UUID, BluetoothGattCharacteristic.PROPERTY_READ, BluetoothGattCharacteristic.PERMISSION_READ)
+            panicCharacteristic = BluetoothGattCharacteristic(PANIC_CHAR_UUID, BluetoothGattCharacteristic.PROPERTY_NOTIFY, BluetoothGattCharacteristic.PERMISSION_READ)
             val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
             service.addCharacteristic(rssiChar)
             service.addCharacteristic(panicCharacteristic)
-
             bluetoothGattServer?.addService(service)
         } catch (e: SecurityException) {
-            Log.e("TetherBLE", "SecurityException setting up GATT server: ${e.message}")
+            Log.e("TetherBLE", "GATT Setup failed: ${e.message}")
         }
     }
 
     private fun startAdvertising() {
+        updateAdvertisement(trustState = 0x00) // Default "Idle/Safe" state
+    }
+
+    private fun updateAdvertisement(trustState: Byte) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
             return
@@ -99,140 +103,69 @@ class BleGattServerService : Service() {
 
         advertiser = bluetoothAdapter?.bluetoothLeAdvertiser ?: return
 
-        // Always ensure previous broadcast is stopped to prevent ADVERTISE_FAILED_ALREADY_STARTED (Error 3)
+        // Stop previous broadcast before starting a new one with updated data
         stopAdvertising()
+
+        // Construct 5-byte payload: [DeviceID, TrustState, HMAC1, HMAC2, HMAC3]
+        val manufacturerData = ByteArray(5)
+        manufacturerData[0] = DEVICE_ID.toByte()
+        manufacturerData[1] = trustState
+        // Placeholder for future HMAC implementation
+        manufacturerData[2] = 0xAA.toByte()
+        manufacturerData[3] = 0xBB.toByte()
+        manufacturerData[4] = 0xCC.toByte()
 
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
             .setConnectable(true)
-            .setTimeout(0) // 0 = Infinite advertising
             .build()
 
         val advertiseData = AdvertiseData.Builder()
-            .setIncludeDeviceName(true)
+            .setIncludeDeviceName(false) // Disabled to ensure enough room for ManufacturerData
+            .addManufacturerData(MANUFACTURER_ID, manufacturerData)
             .build()
 
+        // Include UUID in scan response so laptop can filter by Service UUID first
         val scanResponse = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
 
         try {
             advertiser?.startAdvertising(settings, advertiseData, scanResponse, advertiseCallback)
-        } catch (e: SecurityException) {
-            Log.e("TetherBLE", "Advertising security exception: ${e.message}")
+            Log.d("TetherBLE", "📡 ADV Update | State: $trustState | Data: ${manufacturerData.joinToString("") { "%02x".format(it) }}")
         } catch (e: Exception) {
-            Log.e("TetherBLE", "Advertising general exception: ${e.message}")
+            Log.e("TetherBLE", "Advertising failed: ${e.message}")
         }
     }
 
     private fun stopAdvertising() {
-        if (isAdvertising) {
-            try {
-                advertiser?.stopAdvertising(advertiseCallback)
-            } catch (e: SecurityException) {
-                Log.e("TetherBLE", "Stop advertising security exception: ${e.message}")
-            }
-            isAdvertising = false
-        }
+        try {
+            advertiser?.stopAdvertising(advertiseCallback)
+        } catch (e: Exception) { /* Ignore */ }
+        isAdvertising = false
     }
 
     private val gattServerCallback = object : BluetoothGattServerCallback() {
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
-            when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> {
-                    connectedDevice = device
-                    Log.d("TetherBLE", "✅ PC Connected: ${device.address}")
-                }
-                BluetoothProfile.STATE_DISCONNECTED -> {
-                    connectedDevice = null
-                    Log.d("TetherBLE", "❌ PC Disconnected. Restarting beacon in 1s...")
-
-                    // Delay restarts to let the Bluetooth hardware fully clear the connection handle
-                    mainHandler.postDelayed({
-                        startAdvertising()
-                    }, 1000)
-                }
-            }
-        }
-
-        override fun onCharacteristicReadRequest(
-            device: BluetoothDevice,
-            requestId: Int,
-            offset: Int,
-            characteristic: BluetoothGattCharacteristic
-        ) {
-            // Fulfill dummy read requests to prevent Windows COMExceptions/Timeouts
-            if (characteristic.uuid == RSSI_CHAR_UUID) {
-                try {
-                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, byteArrayOf(0x01))
-                } catch (e: SecurityException) {
-                    Log.e("TetherBLE", "Failed to send read response: ${e.message}")
-                }
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                connectedDevice = device
+                Log.d("TetherBLE", "✅ PC Connected via GATT")
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                connectedDevice = null
+                mainHandler.postDelayed({ updateAdvertisement(0x00) }, 1000)
             }
         }
     }
 
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
-            Log.d("TetherBLE", "📡 Advertising beacon active successfully.")
             isAdvertising = true
         }
-
         override fun onStartFailure(errorCode: Int) {
-            Log.e("TetherBLE", "⚠️ Advertising failed with error code: $errorCode")
+            Log.e("TetherBLE", "Adv Failure: $errorCode")
             isAdvertising = false
-
-            if (errorCode == ADVERTISE_FAILED_ALREADY_STARTED) {
-                Log.d("TetherBLE", "Already advertising. Resetting...")
-                stopAdvertising()
-            } else if (errorCode == ADVERTISE_FAILED_DATA_TOO_LARGE) {
-                Log.d("TetherBLE", "Data too large. Retrying without UUID...")
-                retryAdvertisingWithoutUuid()
-                return
-            }
-
-            // Fallback cooldown retry for hardware busy errors (Error 2, 4, 5)
-            mainHandler.postDelayed({
-                Log.d("TetherBLE", "Retrying advertising after cooldown...")
-                startAdvertising()
-            }, 3000)
         }
-    }
-
-    private fun retryAdvertisingWithoutUuid() {
-        val settings = AdvertiseSettings.Builder()
-            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-            .setConnectable(true)
-            .build()
-
-        val data = AdvertiseData.Builder().setIncludeDeviceName(true).build()
-
-        try {
-            advertiser?.startAdvertising(settings, data, advertiseCallback)
-        } catch (e: SecurityException) {
-            Log.e("TetherBLE", "Fallback advertising failed: ${e.message}")
-        }
-    }
-
-    private fun sendPanicNotification() {
-        connectedDevice?.let { device ->
-            try {
-                panicCharacteristic.value = byteArrayOf(0x01)
-                bluetoothGattServer?.notifyCharacteristicChanged(device, panicCharacteristic, false)
-                Log.d("TetherBLE", "Panic signal transmitted.")
-            } catch (e: SecurityException) {
-                Log.e("TetherBLE", "Failed to transmit panic: ${e.message}")
-            }
-        } ?: Log.w("TetherBLE", "Cannot send panic: No PC connected.")
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "PANIC") {
-            sendPanicNotification()
-        }
-        return START_STICKY
     }
 
     private fun createNotificationChannel() {
@@ -244,7 +177,7 @@ class BleGattServerService : Service() {
 
     private fun createNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
         .setContentTitle("🔒 Tether Active")
-        .setContentText("Proximity security active")
+        .setContentText("Broadcasting security state")
         .setSmallIcon(android.R.drawable.ic_lock_lock)
         .build()
 
@@ -252,15 +185,7 @@ class BleGattServerService : Service() {
 
     override fun onDestroy() {
         stopAdvertising()
-
-        try {
-            // Force cleanup to ensure GATT table clears up for the next session
-            bluetoothGattServer?.clearServices()
-            bluetoothGattServer?.close()
-        } catch (e: SecurityException) {
-            Log.e("TetherBLE", "Cleanup security exception: ${e.message}")
-        }
-
+        bluetoothGattServer?.close()
         super.onDestroy()
     }
 }

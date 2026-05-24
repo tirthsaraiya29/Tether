@@ -23,6 +23,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var connectionStatusText: TextView
     private lateinit var panicButton: Button
+    private lateinit var lockNowButton: Button
 
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -60,15 +61,19 @@ class MainActivity : AppCompatActivity() {
         statusText = findViewById(R.id.statusText)
         connectionStatusText = findViewById(R.id.connectionStatusText)
         panicButton = findViewById(R.id.panicButton)
+        lockNowButton = findViewById(R.id.lockNowButton)
 
         statusText.text = "Initializing..."
         connectionStatusText.text = "Not connected"
 
+        // Panic Button Action
         panicButton.setOnClickListener {
-            Toast.makeText(this, "🚨 Panic Sent! Locking PC...", Toast.LENGTH_SHORT).show()
-            val serviceIntent = Intent(this, BleGattServerService::class.java)
-            serviceIntent.action = "PANIC"
-            startService(serviceIntent)
+            triggerBleAction("PANIC", "🚨 Panic Sent! Locking PC...")
+        }
+
+        // Manual Lock Button Action
+        lockNowButton.setOnClickListener {
+            triggerBleAction("LOCK_NOW", "🔒 Manual Lock Sent!")
         }
 
         registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
@@ -80,9 +85,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun triggerBleAction(action: String, toastMessage: String) {
+        Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
+        val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
+            this.action = action
+        }
+        startService(serviceIntent)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
-        unregisterReceiver(bluetoothStateReceiver)
+        try {
+            unregisterReceiver(bluetoothStateReceiver)
+        } catch (e: Exception) {
+            // Receiver might not be registered
+        }
     }
 
     private fun checkPermissions(): Boolean {
@@ -149,7 +166,7 @@ class MainActivity : AppCompatActivity() {
             startService(serviceIntent)
         }
         statusText.text = "✅ Tether Active\nPhone ready"
-        statusText.setTextColor(android.graphics.Color.parseColor("#006400")) // Dark green
+        statusText.setTextColor(android.graphics.Color.parseColor("#006400"))
         connectionStatusText.text = "Advertising in background"
     }
 }
