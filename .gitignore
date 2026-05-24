@@ -1,18 +1,21 @@
-# Android / Gradle
+# Android
 .gradle/
 build/
 */build/
+local.properties
+*.apk
+*.aab
 
 # IntelliJ / Android Studio
 .idea/
 *.iml
 
-# Local config
-local.properties
+# .NET
+bin/
+obj/
 
-# APKs
-*.apk
-*.aab
+# Visual Studio
+.vs/
 
 # Logs
 *.log
@@ -21,16 +24,10 @@ local.properties
 .DS_Store
 Thumbs.db
 
-# Kotlin/Java compiled files
-*.class
-
 # Generated
 captures/
 .externalNativeBuild/
 .cxx/
-
-# VS
-.vs/
 
 # Bundles
 *.bundle
