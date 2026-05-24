@@ -1,5 +1,0 @@
-C:\Dev\Tether\services\communication-service\Tether.CommunicationService\obj\Debug\net8.0\Tether.CommunicationService.csproj.AssemblyReference.cache
-C:\Dev\Tether\services\communication-service\Tether.CommunicationService\obj\Debug\net8.0\Tether.CommunicationService.GeneratedMSBuildEditorConfig.editorconfig
-C:\Dev\Tether\services\communication-service\Tether.CommunicationService\obj\Debug\net8.0\Tether.CommunicationService.AssemblyInfoInputs.cache
-C:\Dev\Tether\services\communication-service\Tether.CommunicationService\obj\Debug\net8.0\Tether.CommunicationService.AssemblyInfo.cs
-C:\Dev\Tether\services\communication-service\Tether.CommunicationService\obj\Debug\net8.0\Tether.CommunicationService.csproj.CoreCompileInputs.cache
