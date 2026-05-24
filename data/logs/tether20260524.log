@@ -1,0 +1,56 @@
+2026-05-24 18:11:14.318 +05:30 [INF] TrustStateManager initialized
+2026-05-24 18:11:14.414 +05:30 [INF] EnforcementManager ready
+2026-05-24 18:11:14.415 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-24 18:11:14.419 +05:30 [INF] Pipe server started
+2026-05-24 18:11:14.422 +05:30 [INF] BLE Manager starting - target: 'Tirth's S25 FE'
+2026-05-24 18:11:18.349 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-24 18:11:18.688 +05:30 [INF] Cleaning up existing Windows Bluetooth pairings for a fresh start...
+2026-05-24 18:11:19.983 +05:30 [INF] All services initialized. Starting host...
+2026-05-24 18:11:20.152 +05:30 [INF] Tether Communication Service started successfully
+2026-05-24 18:11:49.228 +05:30 [INF] BLE scanner active and watching for advertisements...
+2026-05-24 18:11:49.237 +05:30 [INF] 🎯 TARGET FOUND: Tirth's S25 FE (ID suffix: 1e:9f)
+2026-05-24 18:11:49.244 +05:30 [INF] Attempting connection to: BluetoothLE#BluetoothLE0c:9a:3c:45:78:05-57:81:fe:75:1e:9f
+2026-05-24 18:11:51.404 +05:30 [INF] ✅ Connected. Discovering characteristics...
+2026-05-24 18:11:51.982 +05:30 [INF] Command write pipeline established.
+2026-05-24 18:11:51.985 +05:30 [INF] TrustStateManager received event: PHONE_CONNECTED
+2026-05-24 18:11:51.986 +05:30 [INF] TrustStateManager received event: TRUST_RESTORED
+2026-05-24 18:11:51.987 +05:30 [INF] Trust state changed to TRUSTED
+2026-05-24 18:12:19.240 +05:30 [INF] Initial BLE scan complete.
+2026-05-24 18:13:08.991 +05:30 [ERR] 🔒 Signal lost: -76 dBm. Locking.
+2026-05-24 18:13:08.993 +05:30 [WRN] Enforcing lockdown due to TRUST_LOST
+2026-05-24 18:13:08.994 +05:30 [INF] TrustStateManager received event: TRUST_LOST
+2026-05-24 18:13:08.995 +05:30 [WRN] Trust lost – enforcement will lock
+2026-05-24 18:16:04.938 +05:30 [INF] Tether Communication Service is stopping
+2026-05-24 18:17:16.711 +05:30 [INF] TrustStateManager initialized
+2026-05-24 18:17:16.750 +05:30 [INF] EnforcementManager ready
+2026-05-24 18:17:16.751 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-24 18:17:16.753 +05:30 [INF] Pipe server started
+2026-05-24 18:17:16.754 +05:30 [INF] Starting BLE Proximity Manager...
+2026-05-24 18:17:18.203 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-24 18:17:18.793 +05:30 [INF] All services initialized. Starting host...
+2026-05-24 18:17:18.828 +05:30 [INF] Tether Communication Service started successfully
+2026-05-24 18:18:18.724 +05:30 [INF] Connecting to Tirth's S25 FE...
+2026-05-24 18:18:22.436 +05:30 [ERR] Connection failed: 
+2026-05-24 18:18:30.089 +05:30 [INF] Tether Communication Service is stopping
+2026-05-24 18:18:36.344 +05:30 [INF] TrustStateManager initialized
+2026-05-24 18:18:36.377 +05:30 [INF] EnforcementManager ready
+2026-05-24 18:18:36.378 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-24 18:18:36.379 +05:30 [INF] Pipe server started
+2026-05-24 18:18:36.380 +05:30 [INF] Starting BLE Proximity Manager...
+2026-05-24 18:18:36.383 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-24 18:18:36.500 +05:30 [INF] All services initialized. Starting host...
+2026-05-24 18:18:36.509 +05:30 [INF] Tether Communication Service started successfully
+2026-05-24 18:19:36.525 +05:30 [INF] Connecting to Tirth's S25 FE...
+2026-05-24 18:19:39.093 +05:30 [ERR] Connection failed: 
+2026-05-24 18:20:47.638 +05:30 [INF] Tether Communication Service is stopping
+2026-05-24 18:21:00.032 +05:30 [INF] TrustStateManager initialized
+2026-05-24 18:21:00.067 +05:30 [INF] EnforcementManager ready
+2026-05-24 18:21:00.068 +05:30 [INF] RecoveryManager initialized (skeleton)
+2026-05-24 18:21:00.071 +05:30 [INF] Pipe server started
+2026-05-24 18:21:00.072 +05:30 [INF] Starting BLE Proximity Manager...
+2026-05-24 18:21:01.273 +05:30 [INF] Named pipe server waiting for connection on TetherPipe...
+2026-05-24 18:21:01.624 +05:30 [INF] All services initialized. Starting host...
+2026-05-24 18:21:01.653 +05:30 [INF] Tether Communication Service started successfully
+2026-05-24 18:22:01.536 +05:30 [INF] Connecting to Tirth's S25 FE...
+2026-05-24 18:22:04.778 +05:30 [ERR] Connection failed: COMException | HResult: 0x80650003 | Message: 
+2026-05-24 18:22:45.568 +05:30 [INF] Tether Communication Service is stopping
