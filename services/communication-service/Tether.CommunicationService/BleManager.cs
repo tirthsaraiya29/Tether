@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using Windows.Devices.Bluetooth;
+using Windows.Devices.Bluetooth.Advertisement; // Added for the Broadcast Watcher
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
 using Windows.Storage.Streams;
@@ -14,10 +15,12 @@ public class BleManager : IDisposable
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
     private DeviceWatcher? _deviceWatcher;
+    private BluetoothLEAdvertisementWatcher? _advWatcher; // Added: New Broadcast Sniffer
     private BluetoothLEDevice? _device;
     private Timer? _rssiTimer;
     private readonly List<int> _rssiSamples = new();
     private readonly object _lock = new();
+    private byte _lastTrustState = 0x00;
 
     private bool _isWorkstationLocked = false;
     private bool _isConnected = false;
@@ -33,6 +36,13 @@ public class BleManager : IDisposable
     private const string TARGET_DEVICE_NAME = "Tirth's S25 FE";
     private readonly Guid PANIC_CHAR_UUID = new Guid("0000FFE2-0000-1000-8000-00805F9B34FB");
 
+    // Added: Broadcast Protocol Constants
+    private const ushort TARGET_MANUFACTURER_ID = 0xFFFF;
+    private const byte DEVICE_ID = 0x01;
+    private const byte STATE_IDLE = 0x00;
+    private const byte STATE_MANUAL_LOCK = 0x01;
+    private const byte STATE_PANIC = 0x02;
+
     public BleManager(IEventBus eventBus, ITetherLogger logger)
     {
         _eventBus = eventBus;
@@ -46,9 +56,75 @@ public class BleManager : IDisposable
         // Add 'await' here and ensure the method is 'async'
         await UnpairTargetDeviceAsync();
 
-        StartScanning();
+        StartScanning(); // Keeps existing GATT scanning
+        StartAdvertisementWatcher(); // Starts the parallel broadcast sniffer
     }
 
+    // --- ADDED: NEW BROADCAST SNIFFER LOGIC ---
+    private void StartAdvertisementWatcher()
+    {
+        _advWatcher = new BluetoothLEAdvertisementWatcher
+        {
+            ScanningMode = BluetoothLEScanningMode.Active
+        };
+
+        _advWatcher.Received += OnAdvertisementReceived;
+        _advWatcher.Start();
+        _logger.Info("📡 BLE Advertisement sniffer active for instant commands...");
+    }
+
+    private void OnAdvertisementReceived(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
+    {
+        foreach (var manufacturerData in args.Advertisement.ManufacturerData)
+        {
+            if (manufacturerData.CompanyId == TARGET_MANUFACTURER_ID)
+            {
+                ParseTetherPayload(manufacturerData.Data, args.RawSignalStrengthInDBm);
+            }
+        }
+    }
+
+    private void ParseTetherPayload(IBuffer dataBuffer, short rssi)
+    {
+        var reader = DataReader.FromBuffer(dataBuffer);
+        byte[] payload = new byte[reader.UnconsumedBufferLength];
+        reader.ReadBytes(payload);
+
+        if (payload.Length >= 2 && payload[0] == DEVICE_ID)
+        {
+            byte trustState = payload[1];
+
+            EvaluateProximity((double)rssi);
+
+            if (trustState == _lastTrustState) return;
+            _lastTrustState = trustState;
+
+            if (trustState == STATE_MANUAL_LOCK)
+            {
+                TriggerInstantLock("🔒 Manual Lock via Broadcast");
+            }
+            else if (trustState == STATE_PANIC)
+            {
+                TriggerInstantLock("🚨 PANIC via Broadcast");
+                _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PANIC_TRIGGERED, Source = "BleManager" });
+            }
+        }
+    }
+
+    private void TriggerInstantLock(string logMessage)
+    {
+        if (!_isWorkstationLocked)
+        {
+            _logger.Error(logMessage);
+            _isWorkstationLocked = true;
+            _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
+            LockWorkStation();
+        }
+    }
+    // --- END NEW BROADCAST LOGIC ---
+
+
+    // --- EXISTING GATT & PAIRING LOGIC (UNTTOUCHED) ---
     private void StartScanning()
     {
         // Filter for Bluetooth LE Protocol
@@ -70,7 +146,7 @@ public class BleManager : IDisposable
         _deviceWatcher.EnumerationCompleted += (s, e) => _logger.Info("Initial BLE scan complete.");
 
         _deviceWatcher.Start();
-        _logger.Info("BLE scanner active and watching for advertisements...");
+        _logger.Info("BLE scanner active and watching for GATT connections...");
     }
 
     private void OnDeviceDiscovered(DeviceWatcher sender, DeviceInformation args)
@@ -256,7 +332,7 @@ public class BleManager : IDisposable
         var reader = DataReader.FromBuffer(args.CharacteristicValue);
         if (reader.UnconsumedBufferLength > 0 && reader.ReadByte() == 0x01)
         {
-            _logger.Error("🚨 PANIC RECEIVED FROM PHONE!");
+            _logger.Error("🚨 PANIC RECEIVED FROM PHONE (VIA GATT)!");
             _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PANIC_TRIGGERED, Source = "BleManager" });
             LockWorkStation();
         }
@@ -317,6 +393,7 @@ public class BleManager : IDisposable
 
     public void Stop()
     {
+        _advWatcher?.Stop(); // Added cleanup for the sniffer
         _deviceWatcher?.Stop();
         CleanupDevice();
     }
