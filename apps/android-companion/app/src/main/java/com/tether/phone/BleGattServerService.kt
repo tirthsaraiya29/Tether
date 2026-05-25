@@ -122,7 +122,7 @@ class BleGattServerService : Service() {
             .build()
 
         val advertiseData = AdvertiseData.Builder()
-            .setIncludeDeviceName(false) // Disabled to ensure enough room for ManufacturerData
+            .setIncludeDeviceName(true) // Disabled to ensure enough room for ManufacturerData
             .addManufacturerData(MANUFACTURER_ID, manufacturerData)
             .build()
 
@@ -133,9 +133,8 @@ class BleGattServerService : Service() {
 
         try {
             advertiser?.startAdvertising(settings, advertiseData, scanResponse, advertiseCallback)
-            Log.d("TetherBLE", "📡 ADV Update | State: $trustState | Data: ${manufacturerData.joinToString("") { "%02x".format(it) }}")
         } catch (e: Exception) {
-            Log.e("TetherBLE", "Advertising failed: ${e.message}")
+            Log.e("TetherBLE", "Adv failed: ${e.message}")
         }
     }
 
