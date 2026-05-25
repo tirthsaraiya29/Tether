@@ -78,19 +78,6 @@ The system creates a secure trust relationship between a Windows machine and an 
 
 ---
 
-# Repository Structure
-
-```text
-Tether/
-├── Windows/
-├── Android/
-├── Shared/
-├── Docs/
-└── Tools/
-```
-
----
-
 # Development Goals
 
 Tether prioritizes:
@@ -119,12 +106,6 @@ The project intentionally avoids unnecessary complexity during early development
 # Security Notice
 
 Tether is currently under active development and should not yet be relied upon for production-critical security environments.
-
----
-
-# Contributing
-
-Currently maintained as a personal research and development project.
 
 ---
 
