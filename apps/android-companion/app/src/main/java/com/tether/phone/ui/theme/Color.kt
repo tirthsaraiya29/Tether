@@ -2,10 +2,17 @@ package com.tether.phone.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
+// Dark Backgrounds
+val SpaceDark = Color(0xFF08080C)
+val SurfaceDark = Color(0xFF13131A)
+val SurfaceLight = Color(0xFF1A1A24)
 
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+// Futuristic Accents
+val NeonCyan = Color(0xFF00F0FF)
+val NeonRed = Color(0xFFFF2A2A)
+val NeonGreen = Color(0xFF00FF88)
+
+// Text Colors
+val TextPrimary = Color(0xFFFFFFFF)
+val TextSecondary = Color(0xFF888899)
+val TextMuted = Color(0xFF444455)

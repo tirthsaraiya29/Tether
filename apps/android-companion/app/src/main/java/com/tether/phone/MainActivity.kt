@@ -10,29 +10,44 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.widget.Button
-import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.tether.phone.ui.theme.*
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : ComponentActivity() {
     private val REQUEST_BLUETOOTH_PERMISSIONS = 1
-    private lateinit var statusText: TextView
-    private lateinit var connectionStatusText: TextView
-    private lateinit var panicButton: Button
-    private lateinit var lockNowButton: Button
+
+    // Reactive UI States linking your backend to the Compose frontend
+    private var uiStatusText = mutableStateOf("Initializing...")
+    private var uiStatusColor = mutableStateOf(TextSecondary)
+    private var uiConnectionStatusText = mutableStateOf("Not connected")
 
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
                 when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
                     BluetoothAdapter.STATE_OFF -> {
-                        statusText.text = "Bluetooth Disabled"
-                        statusText.setTextColor(android.graphics.Color.RED)
-                        connectionStatusText.text = "Waiting for Bluetooth to turn on..."
+                        uiStatusText.value = "Bluetooth Disabled"
+                        uiStatusColor.value = NeonRed
+                        uiConnectionStatusText.value = "Waiting for Bluetooth to turn on..."
                         stopService(Intent(this@MainActivity, BleGattServerService::class.java))
                     }
                     BluetoothAdapter.STATE_ON -> {
@@ -49,31 +64,25 @@ class MainActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK) {
             startBleService()
         } else {
-            statusText.text = "Bluetooth required"
-            statusText.setTextColor(android.graphics.Color.RED)
+            uiStatusText.value = "Bluetooth required"
+            uiStatusColor.value = NeonRed
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
-        statusText = findViewById(R.id.statusText)
-        connectionStatusText = findViewById(R.id.connectionStatusText)
-        panicButton = findViewById(R.id.panicButton)
-        lockNowButton = findViewById(R.id.lockNowButton)
-
-        statusText.text = "Initializing..."
-        connectionStatusText.text = "Not connected"
-
-        // Panic Button Action
-        panicButton.setOnClickListener {
-            triggerBleAction("PANIC", "🚨 Panic Sent! Locking PC...")
-        }
-
-        // Manual Lock Button Action
-        lockNowButton.setOnClickListener {
-            triggerBleAction("LOCK_NOW", "🔒 Manual Lock Sent!")
+        // Render the new Futuristic UI
+        setContent {
+            TetherTheme {
+                TetherAppScreen(
+                    statusText = uiStatusText.value,
+                    statusColor = uiStatusColor.value,
+                    connectionStatus = uiConnectionStatusText.value,
+                    onLockClick = { triggerBleAction("LOCK_NOW", "🔒 Manual Lock Sent!") },
+                    onPanicClick = { triggerBleAction("PANIC", "🚨 Panic Sent! Locking PC...") }
+                )
+            }
         }
 
         registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
@@ -158,15 +167,107 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startBleService() {
-        statusText.text = "Starting BLE service..."
+        uiStatusText.value = "Starting BLE service..."
         val serviceIntent = Intent(this, BleGattServerService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)
         } else {
             startService(serviceIntent)
         }
-        statusText.text = "✅ Tether Active\nPhone ready"
-        statusText.setTextColor(android.graphics.Color.parseColor("#006400"))
-        connectionStatusText.text = "Advertising in background"
+        uiStatusText.value = "TETHER ACTIVE\nSYSTEM SECURE"
+        uiStatusColor.value = NeonGreen
+        uiConnectionStatusText.value = "Advertising securely in background"
+    }
+}
+
+// --- COMPOSE UI COMPONENTS ---
+
+@Composable
+fun TetherAppScreen(
+    statusText: String,
+    statusColor: Color,
+    connectionStatus: String,
+    onLockClick: () -> Unit,
+    onPanicClick: () -> Unit
+) {
+    val bgBrush = Brush.verticalGradient(
+        colors = listOf(SurfaceDark, SpaceDark)
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgBrush)
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "TETHER",
+            fontSize = 42.sp,
+            fontWeight = FontWeight.Black,
+            color = TextPrimary,
+            letterSpacing = 12.sp,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+
+        Text(
+            text = connectionStatus.uppercase(),
+            fontSize = 12.sp,
+            color = TextSecondary,
+            letterSpacing = 2.sp,
+            modifier = Modifier.padding(bottom = 64.dp)
+        )
+
+        Text(
+            text = statusText,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = statusColor,
+            textAlign = TextAlign.Center,
+            letterSpacing = 1.5.sp,
+            modifier = Modifier.padding(bottom = 80.dp)
+        )
+
+        FuturisticButton(
+            text = "MANUAL LOCK",
+            glowColor = NeonCyan,
+            onClick = onLockClick
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        FuturisticButton(
+            text = "PANIC OVERRIDE",
+            glowColor = NeonRed,
+            onClick = onPanicClick
+        )
+    }
+}
+
+@Composable
+fun FuturisticButton(text: String, glowColor: Color, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = SurfaceLight,
+            contentColor = glowColor
+        ),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .fillMaxWidth(0.9f)
+            .height(64.dp)
+            .border(
+                width = 1.dp,
+                color = glowColor.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(8.dp)
+            )
+    ) {
+        Text(
+            text = text,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 3.sp
+        )
     }
 }
