@@ -14,16 +14,23 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -33,9 +40,8 @@ import androidx.core.content.ContextCompat
 import com.tether.phone.ui.theme.*
 
 class MainActivity : ComponentActivity() {
-    private val REQUEST_BLUETOOTH_PERMISSIONS = 1
+    private val requestBluetoothPermissionsCode = 1
 
-    // Reactive UI States linking your backend to the Compose frontend
     private var uiStatusText = mutableStateOf("Initializing...")
     private var uiStatusColor = mutableStateOf(TextSecondary)
     private var uiConnectionStatusText = mutableStateOf("Not connected")
@@ -45,15 +51,13 @@ class MainActivity : ComponentActivity() {
             if (intent.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
                 when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
                     BluetoothAdapter.STATE_OFF -> {
-                        uiStatusText.value = "Bluetooth Disabled"
+                        uiStatusText.value = "BLUETOOTH OFFLINE"
                         uiStatusColor.value = NeonRed
-                        uiConnectionStatusText.value = "Waiting for Bluetooth to turn on..."
+                        uiConnectionStatusText.value = "Hardware link severed"
                         stopService(Intent(this@MainActivity, BleGattServerService::class.java))
                     }
                     BluetoothAdapter.STATE_ON -> {
-                        if (checkPermissions()) {
-                            startBleService()
-                        }
+                        if (checkPermissions()) startBleService()
                     }
                 }
             }
@@ -61,10 +65,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private val enableBluetoothLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == RESULT_OK) {
-            startBleService()
-        } else {
-            uiStatusText.value = "Bluetooth required"
+        if (result.resultCode == RESULT_OK) startBleService()
+        else {
+            uiStatusText.value = "ACCESS DENIED"
             uiStatusColor.value = NeonRed
         }
     }
@@ -72,7 +75,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Render the new Futuristic UI
         setContent {
             TetherTheme {
                 TetherAppScreen(
@@ -87,11 +89,8 @@ class MainActivity : ComponentActivity() {
 
         registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
 
-        if (checkPermissions()) {
-            checkAndEnableBluetooth()
-        } else {
-            requestPermissions()
-        }
+        if (checkPermissions()) checkAndEnableBluetooth()
+        else requestPermissions()
     }
 
     private fun triggerBleAction(action: String, toastMessage: String) {
@@ -104,83 +103,53 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        try {
-            unregisterReceiver(bluetoothStateReceiver)
-        } catch (e: Exception) {
-            // Receiver might not be registered
-        }
+        try { unregisterReceiver(bluetoothStateReceiver) } catch (_: Exception) {}
     }
 
     private fun checkPermissions(): Boolean {
         val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            listOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            )
+            listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.ACCESS_FINE_LOCATION)
         } else {
-            listOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.BLUETOOTH,
-                Manifest.permission.BLUETOOTH_ADMIN
-            )
+            listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.BLUETOOTH, Manifest.permission.BLUETOOTH_ADMIN)
         }
         return permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
 
     private fun requestPermissions() {
         val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            arrayOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            )
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.ACCESS_FINE_LOCATION)
         } else {
-            arrayOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.BLUETOOTH,
-                Manifest.permission.BLUETOOTH_ADMIN
-            )
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.BLUETOOTH, Manifest.permission.BLUETOOTH_ADMIN)
         }
-        ActivityCompat.requestPermissions(this, permissions, REQUEST_BLUETOOTH_PERMISSIONS)
+        ActivityCompat.requestPermissions(this, permissions, requestBluetoothPermissionsCode)
     }
 
+    @Deprecated("Deprecated in Java")
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_BLUETOOTH_PERMISSIONS && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+        if (requestCode == requestBluetoothPermissionsCode && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
             checkAndEnableBluetooth()
-        } else {
-            Toast.makeText(this, "Permissions required for background locking", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun checkAndEnableBluetooth() {
         val bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
-        if (bluetoothAdapter.isEnabled) {
-            startBleService()
-        } else {
-            val enableIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-            enableBluetoothLauncher.launch(enableIntent)
-        }
+        if (bluetoothAdapter.isEnabled) startBleService()
+        else enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
     }
 
     private fun startBleService() {
-        uiStatusText.value = "Starting BLE service..."
         val serviceIntent = Intent(this, BleGattServerService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent)
+        else startService(serviceIntent)
+
         uiStatusText.value = "TETHER ACTIVE\nSYSTEM SECURE"
         uiStatusColor.value = NeonGreen
-        uiConnectionStatusText.value = "Advertising securely in background"
+        uiConnectionStatusText.value = "Secure Broadcast Active"
     }
 }
 
-// --- COMPOSE UI COMPONENTS ---
+// --- HIGH PERFORMANCE GPU COMPONENTS ---
 
 @Composable
 fun TetherAppScreen(
@@ -190,58 +159,120 @@ fun TetherAppScreen(
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit
 ) {
-    val bgBrush = Brush.verticalGradient(
-        colors = listOf(SurfaceDark, SpaceDark)
+    val infiniteTransition = rememberInfiniteTransition(label = "GPU_Stress")
+
+    val scanLineY by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ), label = "ScanLine"
     )
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(bgBrush)
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .background(SpaceDark)
+            .drawBehind {
+                val gridSize = 50.dp.toPx()
+                val gridColor = Color(0xFF151520)
+
+                // Grid Rendering
+                for (x in 0..size.width.toInt() step gridSize.toInt()) {
+                    drawLine(gridColor, Offset(x.toFloat(), 0f), Offset(x.toFloat(), size.height), 0.5f)
+                }
+                for (y in 0..size.height.toInt() step gridSize.toInt()) {
+                    drawLine(gridColor, Offset(0f, y.toFloat()), Offset(size.width, y.toFloat()), 0.5f)
+                }
+
+                // Fragment-style glow
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0.0f to Color.Transparent,
+                        (scanLineY - 0.1f).coerceAtLeast(0f) to Color.Transparent,
+                        scanLineY to NeonCyan.copy(alpha = 0.1f),
+                        (scanLineY + 0.1f).coerceAtMost(1f) to Color.Transparent,
+                        1.0f to Color.Transparent
+                    )
+                )
+
+                drawLine(
+                    color = NeonCyan.copy(alpha = 0.3f),
+                    start = Offset(0f, size.height * scanLineY),
+                    end = Offset(size.width, size.height * scanLineY),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
     ) {
-        Text(
-            text = "TETHER",
-            fontSize = 42.sp,
-            fontWeight = FontWeight.Black,
-            color = TextPrimary,
-            letterSpacing = 12.sp,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
+        Column(
+            modifier = Modifier.fillMaxSize().padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "TETHER",
+                fontSize = 12.sp,
+                color = NeonCyan,
+                letterSpacing = 6.sp,
+                modifier = Modifier.padding(top = 24.dp)
+            )
 
-        Text(
-            text = connectionStatus.uppercase(),
-            fontSize = 12.sp,
-            color = TextSecondary,
-            letterSpacing = 2.sp,
-            modifier = Modifier.padding(bottom = 64.dp)
-        )
+            Box(contentAlignment = Alignment.Center) {
+                val rotation by infiniteTransition.animateFloat(
+                    initialValue = 0f,
+                    targetValue = 360f,
+                    animationSpec = infiniteRepeatable(tween(8000, easing = LinearEasing)),
+                    label = "Rotation"
+                )
 
-        Text(
-            text = statusText,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = statusColor,
-            textAlign = TextAlign.Center,
-            letterSpacing = 1.5.sp,
-            modifier = Modifier.padding(bottom = 80.dp)
-        )
+                Canvas(modifier = Modifier.size(260.dp)) {
+                    drawArc(
+                        color = statusColor.copy(alpha = 0.05f),
+                        startAngle = 0f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        style = Stroke(width = 20.dp.toPx())
+                    )
+                    drawArc(
+                        brush = Brush.sweepGradient(
+                            0f to Color.Transparent,
+                            0.5f to statusColor,
+                            1f to Color.Transparent
+                        ),
+                        startAngle = rotation,
+                        sweepAngle = 120f,
+                        useCenter = false,
+                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                    )
+                }
 
-        FuturisticButton(
-            text = "MANUAL LOCK",
-            glowColor = NeonCyan,
-            onClick = onLockClick
-        )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontWeight = FontWeight.Black,
+                            textAlign = TextAlign.Center,
+                            color = statusColor
+                        )
+                    )
+                    Text(
+                        text = connectionStatus,
+                        fontSize = 10.sp,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        FuturisticButton(
-            text = "PANIC OVERRIDE",
-            glowColor = NeonRed,
-            onClick = onPanicClick
-        )
+            Column(
+                modifier = Modifier.padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                FuturisticButton("INITIATE_LOCK", NeonCyan, onLockClick)
+                FuturisticButton("FORCE_TERMINATE", NeonRed, onPanicClick)
+            }
+        }
     }
 }
 
@@ -249,25 +280,21 @@ fun TetherAppScreen(
 fun FuturisticButton(text: String, glowColor: Color, onClick: () -> Unit) {
     Button(
         onClick = onClick,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = SurfaceLight,
-            contentColor = glowColor
-        ),
-        shape = RoundedCornerShape(8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+        contentPadding = PaddingValues(),
+        shape = RoundedCornerShape(2.dp),
         modifier = Modifier
-            .fillMaxWidth(0.9f)
-            .height(64.dp)
-            .border(
-                width = 1.dp,
-                color = glowColor.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(8.dp)
-            )
+            .fillMaxWidth()
+            .height(50.dp)
+            .border(0.5.dp, glowColor.copy(alpha = 0.4f), RoundedCornerShape(2.dp))
     ) {
-        Text(
-            text = text,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 3.sp
-        )
+        Box(
+            modifier = Modifier.fillMaxSize().background(
+                Brush.verticalGradient(listOf(glowColor.copy(alpha = 0.1f), Color.Transparent))
+            ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text = text, color = glowColor, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
+        }
     }
 }
