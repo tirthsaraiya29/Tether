@@ -5,14 +5,20 @@ build/
 local.properties
 *.apk
 *.aab
+*.jks
+*.keystore
+*.p12
 
 # IntelliJ / Android Studio
 .idea/
 *.iml
+.kotlin/
 
 # .NET
 bin/
 obj/
+*.user
+*.suo
 
 # Visual Studio
 .vs/
@@ -31,3 +37,34 @@ captures/
 
 # Bundles
 *.bundle
+
+*.rc
+release/
+
+# C++ / Visual Studio C++ Artifacts
+x64/
+x86/
+[Dd]ebug/
+[Rr]elease/
+ipch/
+Generated Files/
+SampleV2.*/
+*.obj
+*.pdb
+*.idb
+*.ilk
+*.exp
+*.lib
+*.res
+*.iobj
+*.ipdb
+*.tlog
+*.db
+*.VC.db
+*.tmp
+*.bak
+
+# Local Data & Misc
+data/logs/
+data/secure-storage/
+*.docx
