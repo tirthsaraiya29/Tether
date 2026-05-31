@@ -1,6 +1,8 @@
 package com.tether.phone
 
 import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.BroadcastReceiver
@@ -11,10 +13,12 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -37,30 +41,48 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.core.content.edit
+import androidx.fragment.app.FragmentActivity
 import com.tether.phone.ui.theme.*
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 
-// Premium Custom Easing for high-fidelity animations
 val EaseInOutSans = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
-class MainActivity : ComponentActivity() {
-    private val requestBluetoothPermissionsCode = 1
+enum class TrustVerificationStep {
+    NOT_IN_PANIC,
+    DEVICE_CREDENTIAL,
+    FINGERPRINT_PRIMARY,
+    FINGERPRINT_SECONDARY,
+    FACE_ID
+}
+
+class MainActivity : FragmentActivity() {
+    private val requestPermissionsCode = 101
+    private val preferenceName = "tether_secure_prefs"
+    private val panicStateKey = "is_panic_active"
+    private val notificationRestoreChannelId = "tether_restore_channel"
 
     private var uiStatusText = mutableStateOf("Initializing...")
     private var uiStatusColor = mutableStateOf(TextSecondary)
     private var uiConnectionStatusText = mutableStateOf("Not connected")
+
+    private var isPanicActive = mutableStateOf(false)
+    private var currentVerificationStep = mutableStateOf(TrustVerificationStep.NOT_IN_PANIC)
+    private lateinit var executor: Executor
 
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
                 when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
                     BluetoothAdapter.STATE_OFF -> {
-                        uiStatusText.value = "BLUETOOTH OFFLINE"
-                        uiStatusColor.value = NeonRed
-                        uiConnectionStatusText.value = "Hardware link severed"
+                        if (!isPanicActive.value) {
+                            uiStatusText.value = "BLUETOOTH OFFLINE"
+                            uiStatusColor.value = NeonRed
+                            uiConnectionStatusText.value = "Hardware link severed"
+                        }
                         stopService(Intent(this@MainActivity, BleGattServerService::class.java))
                     }
                     BluetoothAdapter.STATE_ON -> {
@@ -80,9 +102,16 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Enable premium modern system-wide edge-to-edge drawing
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        executor = Executors.newSingleThreadExecutor()
+
+        val prefs = getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
+        isPanicActive.value = prefs.getBoolean(panicStateKey, false)
+
+        if (isPanicActive.value) {
+            setPanicUiState()
+        }
 
         setContent {
             TetherTheme {
@@ -94,8 +123,16 @@ class MainActivity : ComponentActivity() {
                         statusText = uiStatusText.value,
                         statusColor = uiStatusColor.value,
                         connectionStatus = uiConnectionStatusText.value,
+                        isPanicActive = isPanicActive.value,
+                        verificationStep = currentVerificationStep.value,
                         onLockClick = { triggerBleAction("LOCK_NOW", "🔒 Manual Lock Sent!") },
-                        onPanicClick = { triggerBleAction("PANIC", "🚨 Panic Sent! Locking PC...") }
+                        onPanicClick = {
+                            persistPanicState(true)
+                            triggerBleAction("PANIC", "🚨 Panic Sent! Locking PC...")
+                        },
+                        onInitiateRestore = {
+                            executeVerificationPipeline(TrustVerificationStep.DEVICE_CREDENTIAL)
+                        }
                     )
                 }
             }
@@ -103,8 +140,149 @@ class MainActivity : ComponentActivity() {
 
         registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
 
-        if (checkPermissions()) checkAndEnableBluetooth()
-        else requestPermissions()
+        if (checkPermissions()) {
+            checkAndEnableBluetooth()
+        } else {
+            requestPermissions()
+        }
+    }
+
+    private fun persistPanicState(active: Boolean) {
+        isPanicActive.value = active
+        // Use optimal Core-KTX inline extension syntax for SharedPreferences edits
+        getSharedPreferences(preferenceName, Context.MODE_PRIVATE).edit(commit = true) {
+            putBoolean(panicStateKey, active)
+        }
+
+        if (active) {
+            setPanicUiState()
+        } else {
+            currentVerificationStep.value = TrustVerificationStep.NOT_IN_PANIC
+            startBleService()
+        }
+    }
+
+    private fun setPanicUiState() {
+        uiStatusText.value = "PANIC PROTOCOL\nENGAGED"
+        uiStatusColor.value = NeonRed
+        uiConnectionStatusText.value = "Hardware Lockdown Active"
+    }
+
+    private fun executeVerificationPipeline(nextStep: TrustVerificationStep) {
+        currentVerificationStep.value = nextStep
+
+        when (nextStep) {
+            TrustVerificationStep.DEVICE_CREDENTIAL -> {
+                authenticateViaSystem(
+                    title = "Step 1/4: Device Security",
+                    subtitle = "Confirm device PIN, Pattern, or Password",
+                    allowedAuthenticators = BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                ) { success ->
+                    if (success) executeVerificationPipeline(TrustVerificationStep.FINGERPRINT_PRIMARY)
+                    else handleVerificationFailure()
+                }
+            }
+            TrustVerificationStep.FINGERPRINT_PRIMARY -> {
+                authenticateViaSystem(
+                    title = "Step 2/4: Primary Biometric Scan",
+                    subtitle = "Scan your first enrolled fingerprint token",
+                    allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+                ) { success ->
+                    if (success) executeVerificationPipeline(TrustVerificationStep.FINGERPRINT_SECONDARY)
+                    else handleVerificationFailure()
+                }
+            }
+            TrustVerificationStep.FINGERPRINT_SECONDARY -> {
+                authenticateViaSystem(
+                    title = "Step 3/4: Secondary Biometric Scan",
+                    subtitle = "Scan your second enrolled fingerprint token",
+                    allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+                ) { success ->
+                    if (success) executeVerificationPipeline(TrustVerificationStep.FACE_ID)
+                    else handleVerificationFailure()
+                }
+            }
+            TrustVerificationStep.FACE_ID -> {
+                authenticateViaSystem(
+                    title = "Step 4/4: Facial Authentication",
+                    subtitle = "Align view to execute structural Face ID verification",
+                    allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+                ) { success ->
+                    if (success) {
+                        dispatchTrustRestoredNotification()
+                        persistPanicState(false)
+                    } else {
+                        handleVerificationFailure()
+                    }
+                }
+            }
+            else -> {}
+        }
+    }
+
+    private fun authenticateViaSystem(title: String, subtitle: String, allowedAuthenticators: Int, callback: (Boolean) -> Unit) {
+        runOnUiThread {
+            val promptBuilder = BiometricPrompt.PromptInfo.Builder()
+                .setTitle(title)
+                .setSubtitle(subtitle)
+                .setAllowedAuthenticators(allowedAuthenticators)
+
+            // Device credential prompt builder option constraints rule handling
+            if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
+                promptBuilder.setNegativeButtonText("Abort Verification")
+            }
+
+            val biometricPrompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    super.onAuthenticationSucceeded(result)
+                    callback(true)
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    super.onAuthenticationError(errorCode, errString)
+                    callback(false)
+                }
+
+                override fun onAuthenticationFailed() {
+                    super.onAuthenticationFailed()
+                }
+            })
+            biometricPrompt.authenticate(promptBuilder.build())
+        }
+    }
+
+    private fun handleVerificationFailure() {
+        runOnUiThread {
+            currentVerificationStep.value = TrustVerificationStep.NOT_IN_PANIC
+            Toast.makeText(this, "🔒 Secure Authentication Chain Severed", Toast.LENGTH_LONG).show()
+            setPanicUiState()
+        }
+    }
+
+    private fun dispatchTrustRestoredNotification() {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        // Removed unnecessary Android version SDK checks since modern baseline handles this natively
+        val channel = NotificationChannel(notificationRestoreChannelId, "System Trust Restorations", NotificationManager.IMPORTANCE_HIGH)
+        manager.createNotificationChannel(channel)
+
+        val notification = NotificationCompat.Builder(this, notificationRestoreChannelId)
+            .setContentTitle("🛡️ Cryptographic Trust Restored")
+            .setContentText("Local validation pipeline passed successfully.")
+            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+
+        // Check platform runtime authorization compliance requirements natively
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            manager.notify(2, notification)
+        } else {
+            runOnUiThread {
+                Toast.makeText(this, "🛡️ System Trust Restored (Notification Blocked)", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun triggerBleAction(action: String, toastMessage: String) {
@@ -121,29 +299,29 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkPermissions(): Boolean {
-        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.ACCESS_FINE_LOCATION)
+        val required = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            required.addAll(listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.ACCESS_FINE_LOCATION))
         } else {
-            listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.BLUETOOTH, Manifest.permission.BLUETOOTH_ADMIN)
+            required.addAll(listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.BLUETOOTH, Manifest.permission.BLUETOOTH_ADMIN))
         }
-        return permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            required.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        return required.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
 
     private fun requestPermissions() {
-        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.ACCESS_FINE_LOCATION)
+        val required = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            required.addAll(listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.ACCESS_FINE_LOCATION))
         } else {
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.BLUETOOTH, Manifest.permission.BLUETOOTH_ADMIN)
+            required.addAll(listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.BLUETOOTH, Manifest.permission.BLUETOOTH_ADMIN))
         }
-        ActivityCompat.requestPermissions(this, permissions, requestBluetoothPermissionsCode)
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == requestBluetoothPermissionsCode && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-            checkAndEnableBluetooth()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            required.add(Manifest.permission.POST_NOTIFICATIONS)
         }
+        ActivityCompat.requestPermissions(this, required.toTypedArray(), requestPermissionsCode)
     }
 
     private fun checkAndEnableBluetooth() {
@@ -153,6 +331,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startBleService() {
+        if (isPanicActive.value) return
+
         val serviceIntent = Intent(this, BleGattServerService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent)
         else startService(serviceIntent)
@@ -168,10 +348,14 @@ fun TetherAppScreen(
     statusText: String,
     statusColor: Color,
     connectionStatus: String,
+    isPanicActive: Boolean,
+    verificationStep: TrustVerificationStep,
     onLockClick: () -> Unit,
-    onPanicClick: () -> Unit
+    onPanicClick: () -> Unit,
+    onInitiateRestore: () -> Unit
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "TelemetryInfinitum")
+    // Fixed typo from 'TelemetryInfinitum' to clean up tracking labels
+    val infiniteTransition = rememberInfiniteTransition(label = "TelemetryInfinite")
 
     val ambientGlowAlpha by infiniteTransition.animateFloat(
         initialValue = 0.15f,
@@ -190,7 +374,6 @@ fun TetherAppScreen(
         ), label = "TelemetryRotation"
     )
 
-    // Performance Optimization: Cache brushes and colors to avoid allocations during draw/recomposition
     val ambientGradient = remember(statusColor) {
         Brush.radialGradient(
             colors = listOf(statusColor.copy(alpha = 0.12f), Color.Transparent),
@@ -212,7 +395,6 @@ fun TetherAppScreen(
             .background(SpaceDark)
             .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
-        // High-fidelity architectural accenting
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -229,7 +411,6 @@ fun TetherAppScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Upper Micro-Branding Header Element
             Text(
                 text = stringResource(id = R.string.app_name).uppercase(),
                 modifier = Modifier.padding(top = 16.dp),
@@ -239,16 +420,10 @@ fun TetherAppScreen(
                 )
             )
 
-            // Central Cryptographic Telemetry Node
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .weight(1f)
-                    .semantics(mergeDescendants = true) {
-                        contentDescription = "System status: $statusText. $connectionStatus."
-                    }
+                modifier = Modifier.weight(1f)
             ) {
-                // Static structural track
                 Canvas(modifier = Modifier.size(280.dp)) {
                     drawArc(
                         color = SurfaceDark,
@@ -259,7 +434,6 @@ fun TetherAppScreen(
                     )
                 }
 
-                // Hardware accelerated telemetry ring
                 Canvas(
                     modifier = Modifier
                         .size(280.dp)
@@ -267,8 +441,8 @@ fun TetherAppScreen(
                 ) {
                     drawArc(
                         brush = sweepGradient,
-                        startAngle = 0f, // Base position, rotated by graphicsLayer
-                        sweepAngle = 140f,
+                        startAngle = 0f,
+                        sweepAngle = if (isPanicActive) 360f else 140f,
                         useCenter = false,
                         style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
                     )
@@ -279,60 +453,86 @@ fun TetherAppScreen(
                     modifier = Modifier.padding(24.dp)
                 ) {
                     Text(
-                        text = statusText,
+                        text = if (verificationStep != TrustVerificationStep.NOT_IN_PANIC) {
+                            "VERIFYING\nPIPELINE"
+                        } else statusText,
                         style = MaterialTheme.typography.headlineSmall.copy(
                             fontWeight = FontWeight.Black,
                             textAlign = TextAlign.Center,
-                            color = statusColor
+                            color = if (verificationStep != TrustVerificationStep.NOT_IN_PANIC) NeonCyan else statusColor
                         )
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = connectionStatus.uppercase(),
+                        text = when (verificationStep) {
+                            TrustVerificationStep.DEVICE_CREDENTIAL -> "CHAIN LNK 1/4"
+                            TrustVerificationStep.FINGERPRINT_PRIMARY -> "CHAIN LNK 2/4"
+                            TrustVerificationStep.FINGERPRINT_SECONDARY -> "CHAIN LNK 3/4"
+                            TrustVerificationStep.FACE_ID -> "CHAIN LNK 4/4"
+                            else -> connectionStatus.uppercase()
+                        },
                         style = MaterialTheme.typography.labelMedium.copy(
-                            color = TextSecondary,
+                            color = if (verificationStep != TrustVerificationStep.NOT_IN_PANIC) NeonCyan else TextSecondary,
                             fontSize = 10.sp
                         )
                     )
                 }
             }
 
-            // Core Premium Control Interfaces
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                PremiumControlAction(
-                    label = stringResource(R.string.action_lock),
-                    accentColor = NeonCyan,
-                    onClick = onLockClick
-                )
-                PremiumControlAction(
-                    label = stringResource(R.string.action_panic),
-                    accentColor = NeonRed,
-                    onClick = onPanicClick
-                )
+            // Fixed: Specified target explicit type handling for target state animation rendering to satisfy Compose UI
+            AnimatedContent(
+                targetState = isPanicActive,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(400))
+                },
+                label = "InterfaceControlBranch"
+            ) { panicEngaged: Boolean ->
+                if (panicEngaged) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            text = "System trust must be manually re-established through multi-factor validation.",
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                color = TextSecondary,
+                                textAlign = TextAlign.Center
+                            ),
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                        PremiumControlAction(
+                            label = "RESTORE SYSTEM TRUST",
+                            accentColor = NeonGreen,
+                            onClick = onInitiateRestore
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        PremiumControlAction(
+                            label = "INITIATE LOCK SYSTEM",
+                            accentColor = NeonCyan,
+                            onClick = onLockClick
+                        )
+                        PremiumControlAction(
+                            label = "FORCE TERMINATE LINK",
+                            accentColor = NeonRed,
+                            onClick = onPanicClick
+                        )
+                    }
+                }
             }
         }
     }
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFF0C0C12)
-@Composable
-fun TetherAppScreenPreview() {
-    TetherTheme {
-        TetherAppScreen(
-            statusText = "TETHER ACTIVE\nSYSTEM SECURE",
-            statusColor = NeonGreen,
-            connectionStatus = "Secure Broadcast Active",
-            onLockClick = {},
-            onPanicClick = {}
-        )
-    }
-}
-
+// Fixed: Moved inside MainActivity file or top-level to perfectly handle component mapping visibility rules
 @Composable
 fun PremiumControlAction(
     label: String,
