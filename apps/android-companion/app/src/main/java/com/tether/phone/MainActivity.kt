@@ -13,31 +13,38 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.tooling.preview.Preview
 import com.tether.phone.ui.theme.*
+
+// Premium Custom Easing for high-fidelity animations
+val EaseInOutSans = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
 class MainActivity : ComponentActivity() {
     private val requestBluetoothPermissionsCode = 1
@@ -73,17 +80,24 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Enable premium modern system-wide edge-to-edge drawing
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
         setContent {
             TetherTheme {
-                TetherAppScreen(
-                    statusText = uiStatusText.value,
-                    statusColor = uiStatusColor.value,
-                    connectionStatus = uiConnectionStatusText.value,
-                    onLockClick = { triggerBleAction("LOCK_NOW", "🔒 Manual Lock Sent!") },
-                    onPanicClick = { triggerBleAction("PANIC", "🚨 Panic Sent! Locking PC...") }
-                )
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    TetherAppScreen(
+                        statusText = uiStatusText.value,
+                        statusColor = uiStatusColor.value,
+                        connectionStatus = uiConnectionStatusText.value,
+                        onLockClick = { triggerBleAction("LOCK_NOW", "🔒 Manual Lock Sent!") },
+                        onPanicClick = { triggerBleAction("PANIC", "🚨 Panic Sent! Locking PC...") }
+                    )
+                }
             }
         }
 
@@ -149,8 +163,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// --- HIGH PERFORMANCE GPU COMPONENTS ---
-
 @Composable
 fun TetherAppScreen(
     statusText: String,
@@ -159,95 +171,113 @@ fun TetherAppScreen(
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "GPU_Stress")
+    val infiniteTransition = rememberInfiniteTransition(label = "TelemetryInfinitum")
 
-    val scanLineY by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
+    val ambientGlowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.15f,
+        targetValue = 0.35f,
         animationSpec = infiniteRepeatable(
-            animation = tween(3000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ), label = "ScanLine"
+            animation = tween(2500, easing = EaseInOutSans),
+            repeatMode = RepeatMode.Reverse
+        ), label = "AmbientGlow"
     )
+
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(12000, easing = LinearEasing)
+        ), label = "TelemetryRotation"
+    )
+
+    // Performance Optimization: Cache brushes and colors to avoid allocations during draw/recomposition
+    val ambientGradient = remember(statusColor) {
+        Brush.radialGradient(
+            colors = listOf(statusColor.copy(alpha = 0.12f), Color.Transparent),
+            center = Offset.Unspecified
+        )
+    }
+
+    val sweepGradient = remember(statusColor) {
+        Brush.sweepGradient(
+            0f to Color.Transparent,
+            0.5f to statusColor,
+            1f to Color.Transparent
+        )
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(SpaceDark)
-            .drawBehind {
-                val gridSize = 50.dp.toPx()
-                val gridColor = Color(0xFF151520)
-
-                // Grid Rendering
-                for (x in 0..size.width.toInt() step gridSize.toInt()) {
-                    drawLine(gridColor, Offset(x.toFloat(), 0f), Offset(x.toFloat(), size.height), 0.5f)
-                }
-                for (y in 0..size.height.toInt() step gridSize.toInt()) {
-                    drawLine(gridColor, Offset(0f, y.toFloat()), Offset(size.width, y.toFloat()), 0.5f)
-                }
-
-                // Fragment-style glow
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        0.0f to Color.Transparent,
-                        (scanLineY - 0.1f).coerceAtLeast(0f) to Color.Transparent,
-                        scanLineY to NeonCyan.copy(alpha = 0.1f),
-                        (scanLineY + 0.1f).coerceAtMost(1f) to Color.Transparent,
-                        1.0f to Color.Transparent
-                    )
-                )
-
-                drawLine(
-                    color = NeonCyan.copy(alpha = 0.3f),
-                    start = Offset(0f, size.height * scanLineY),
-                    end = Offset(size.width, size.height * scanLineY),
-                    strokeWidth = 1.dp.toPx()
-                )
-            }
+            .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
+        // High-fidelity architectural accenting
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.5f)
+                .align(Alignment.TopCenter)
+                .graphicsLayer { alpha = ambientGlowAlpha }
+                .background(ambientGradient)
+        )
+
         Column(
-            modifier = Modifier.fillMaxSize().padding(32.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
+            // Upper Micro-Branding Header Element
             Text(
-                text = "TETHER",
-                fontSize = 12.sp,
-                color = NeonCyan,
-                letterSpacing = 6.sp,
-                modifier = Modifier.padding(top = 24.dp)
+                text = stringResource(id = R.string.app_name).uppercase(),
+                modifier = Modifier.padding(top = 16.dp),
+                style = MaterialTheme.typography.labelMedium.copy(
+                    color = NeonCyan,
+                    fontWeight = FontWeight.Bold
+                )
             )
 
-            Box(contentAlignment = Alignment.Center) {
-                val rotation by infiniteTransition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = 360f,
-                    animationSpec = infiniteRepeatable(tween(8000, easing = LinearEasing)),
-                    label = "Rotation"
-                )
-
-                Canvas(modifier = Modifier.size(260.dp)) {
+            // Central Cryptographic Telemetry Node
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = "System status: $statusText. $connectionStatus."
+                    }
+            ) {
+                // Static structural track
+                Canvas(modifier = Modifier.size(280.dp)) {
                     drawArc(
-                        color = statusColor.copy(alpha = 0.05f),
+                        color = SurfaceDark,
                         startAngle = 0f,
                         sweepAngle = 360f,
                         useCenter = false,
-                        style = Stroke(width = 20.dp.toPx())
-                    )
-                    drawArc(
-                        brush = Brush.sweepGradient(
-                            0f to Color.Transparent,
-                            0.5f to statusColor,
-                            1f to Color.Transparent
-                        ),
-                        startAngle = rotation,
-                        sweepAngle = 120f,
-                        useCenter = false,
-                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                        style = Stroke(width = 8.dp.toPx())
                     )
                 }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // Hardware accelerated telemetry ring
+                Canvas(
+                    modifier = Modifier
+                        .size(280.dp)
+                        .graphicsLayer { rotationZ = rotation }
+                ) {
+                    drawArc(
+                        brush = sweepGradient,
+                        startAngle = 0f, // Base position, rotated by graphicsLayer
+                        sweepAngle = 140f,
+                        useCenter = false,
+                        style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
+                    )
+                }
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(24.dp)
+                ) {
                     Text(
                         text = statusText,
                         style = MaterialTheme.typography.headlineSmall.copy(
@@ -256,45 +286,88 @@ fun TetherAppScreen(
                             color = statusColor
                         )
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = connectionStatus,
-                        fontSize = 10.sp,
-                        color = TextSecondary,
-                        modifier = Modifier.padding(top = 4.dp)
+                        text = connectionStatus.uppercase(),
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = TextSecondary,
+                            fontSize = 10.sp
+                        )
                     )
                 }
             }
 
+            // Core Premium Control Interfaces
             Column(
-                modifier = Modifier.padding(bottom = 32.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                FuturisticButton("INITIATE_LOCK", NeonCyan, onLockClick)
-                FuturisticButton("FORCE_TERMINATE", NeonRed, onPanicClick)
+                PremiumControlAction(
+                    label = stringResource(R.string.action_lock),
+                    accentColor = NeonCyan,
+                    onClick = onLockClick
+                )
+                PremiumControlAction(
+                    label = stringResource(R.string.action_panic),
+                    accentColor = NeonRed,
+                    onClick = onPanicClick
+                )
             }
         }
     }
 }
 
+@Preview(showBackground = true, backgroundColor = 0xFF0C0C12)
 @Composable
-fun FuturisticButton(text: String, glowColor: Color, onClick: () -> Unit) {
+fun TetherAppScreenPreview() {
+    TetherTheme {
+        TetherAppScreen(
+            statusText = "TETHER ACTIVE\nSYSTEM SECURE",
+            statusColor = NeonGreen,
+            connectionStatus = "Secure Broadcast Active",
+            onLockClick = {},
+            onPanicClick = {}
+        )
+    }
+}
+
+@Composable
+fun PremiumControlAction(
+    label: String,
+    accentColor: Color,
+    onClick: () -> Unit
+) {
+    val gradientBrush = remember(accentColor) {
+        Brush.verticalGradient(
+            listOf(accentColor.copy(alpha = 0.06f), Color.Transparent)
+        )
+    }
+
     Button(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
         contentPadding = PaddingValues(),
-        shape = RoundedCornerShape(2.dp),
+        shape = RoundedCornerShape(4.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(50.dp)
-            .border(0.5.dp, glowColor.copy(alpha = 0.4f), RoundedCornerShape(2.dp))
+            .height(56.dp)
+            .border(1.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
     ) {
         Box(
-            modifier = Modifier.fillMaxSize().background(
-                Brush.verticalGradient(listOf(glowColor.copy(alpha = 0.1f), Color.Transparent))
-            ),
+            modifier = Modifier
+                .fillMaxSize()
+                .background(gradientBrush),
             contentAlignment = Alignment.Center
         ) {
-            Text(text = text, color = glowColor, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    color = accentColor,
+                    fontWeight = FontWeight.Bold
+                )
+            )
         }
     }
 }

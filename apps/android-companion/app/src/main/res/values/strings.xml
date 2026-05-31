@@ -11,4 +11,6 @@
     <string name="error_permissions_denied">Permissions denied - app cannot function</string>
     <string name="toast_panic_sent">PANIC sent to Windows</string>
     <string name="toast_permissions_required">Bluetooth permissions required for Tether to work</string>
+    <string name="action_lock">INITIATE LOCK SYSTEM</string>
+    <string name="action_panic">FORCE TERMINATE LINK</string>
 </resources>
