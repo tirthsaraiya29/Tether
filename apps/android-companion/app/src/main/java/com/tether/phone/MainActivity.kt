@@ -54,9 +54,7 @@ val EaseInOutSans = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 enum class TrustVerificationStep {
     NOT_IN_PANIC,
     DEVICE_CREDENTIAL,
-    FINGERPRINT_PRIMARY,
-    FINGERPRINT_SECONDARY,
-    FACE_ID
+    BIOMETRIC_FINGERPRINT
 }
 
 class MainActivity : FragmentActivity() {
@@ -132,6 +130,9 @@ class MainActivity : FragmentActivity() {
                         },
                         onInitiateRestore = {
                             executeVerificationPipeline(TrustVerificationStep.DEVICE_CREDENTIAL)
+                        },
+                        onTriggerStepVerification = { step ->
+                            triggerSystemBiometricPrompt(step)
                         }
                     )
                 }
@@ -149,7 +150,6 @@ class MainActivity : FragmentActivity() {
 
     private fun persistPanicState(active: Boolean) {
         isPanicActive.value = active
-        // Use optimal Core-KTX inline extension syntax for SharedPreferences edits
         getSharedPreferences(preferenceName, Context.MODE_PRIVATE).edit(commit = true) {
             putBoolean(panicStateKey, active)
         }
@@ -171,41 +171,28 @@ class MainActivity : FragmentActivity() {
     private fun executeVerificationPipeline(nextStep: TrustVerificationStep) {
         currentVerificationStep.value = nextStep
 
-        when (nextStep) {
+        // Immediate system request for master passcode step execution
+        if (nextStep == TrustVerificationStep.DEVICE_CREDENTIAL) {
+            triggerSystemBiometricPrompt(nextStep)
+        }
+    }
+
+    private fun triggerSystemBiometricPrompt(step: TrustVerificationStep) {
+        when (step) {
             TrustVerificationStep.DEVICE_CREDENTIAL -> {
                 authenticateViaSystem(
-                    title = "Step 1/4: Device Security",
-                    subtitle = "Confirm device PIN, Pattern, or Password",
+                    title = "Tier 1/2: Device Security",
+                    subtitle = "Confirm master PIN, Pattern, or Password",
                     allowedAuthenticators = BiometricManager.Authenticators.DEVICE_CREDENTIAL
                 ) { success ->
-                    if (success) executeVerificationPipeline(TrustVerificationStep.FINGERPRINT_PRIMARY)
+                    if (success) executeVerificationPipeline(TrustVerificationStep.BIOMETRIC_FINGERPRINT)
                     else handleVerificationFailure()
                 }
             }
-            TrustVerificationStep.FINGERPRINT_PRIMARY -> {
+            TrustVerificationStep.BIOMETRIC_FINGERPRINT -> {
                 authenticateViaSystem(
-                    title = "Step 2/4: Primary Biometric Scan",
-                    subtitle = "Scan your first enrolled fingerprint token",
-                    allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
-                ) { success ->
-                    if (success) executeVerificationPipeline(TrustVerificationStep.FINGERPRINT_SECONDARY)
-                    else handleVerificationFailure()
-                }
-            }
-            TrustVerificationStep.FINGERPRINT_SECONDARY -> {
-                authenticateViaSystem(
-                    title = "Step 3/4: Secondary Biometric Scan",
-                    subtitle = "Scan your second enrolled fingerprint token",
-                    allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
-                ) { success ->
-                    if (success) executeVerificationPipeline(TrustVerificationStep.FACE_ID)
-                    else handleVerificationFailure()
-                }
-            }
-            TrustVerificationStep.FACE_ID -> {
-                authenticateViaSystem(
-                    title = "Step 4/4: Facial Authentication",
-                    subtitle = "Align view to execute structural Face ID verification",
+                    title = "Tier 2/2: Biometric Authentication",
+                    subtitle = "Scan your registered security fingerprint token",
                     allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
                 ) { success ->
                     if (success) {
@@ -227,7 +214,6 @@ class MainActivity : FragmentActivity() {
                 .setSubtitle(subtitle)
                 .setAllowedAuthenticators(allowedAuthenticators)
 
-            // Device credential prompt builder option constraints rule handling
             if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
                 promptBuilder.setNegativeButtonText("Abort Verification")
             }
@@ -261,8 +247,6 @@ class MainActivity : FragmentActivity() {
 
     private fun dispatchTrustRestoredNotification() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-        // Removed unnecessary Android version SDK checks since modern baseline handles this natively
         val channel = NotificationChannel(notificationRestoreChannelId, "System Trust Restorations", NotificationManager.IMPORTANCE_HIGH)
         manager.createNotificationChannel(channel)
 
@@ -274,7 +258,6 @@ class MainActivity : FragmentActivity() {
             .setAutoCancel(true)
             .build()
 
-        // Check platform runtime authorization compliance requirements natively
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
             manager.notify(2, notification)
@@ -352,9 +335,9 @@ fun TetherAppScreen(
     verificationStep: TrustVerificationStep,
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
-    onInitiateRestore: () -> Unit
+    onInitiateRestore: () -> Unit,
+    onTriggerStepVerification: (TrustVerificationStep) -> Unit
 ) {
-    // Fixed typo from 'TelemetryInfinitum' to clean up tracking labels
     val infiniteTransition = rememberInfiniteTransition(label = "TelemetryInfinite")
 
     val ambientGlowAlpha by infiniteTransition.animateFloat(
@@ -420,6 +403,7 @@ fun TetherAppScreen(
                 )
             )
 
+            // Central Telemetry Tracking Enclosure
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier.weight(1f)
@@ -453,9 +437,11 @@ fun TetherAppScreen(
                     modifier = Modifier.padding(24.dp)
                 ) {
                     Text(
-                        text = if (verificationStep != TrustVerificationStep.NOT_IN_PANIC) {
-                            "VERIFYING\nPIPELINE"
-                        } else statusText,
+                        text = when (verificationStep) {
+                            TrustVerificationStep.DEVICE_CREDENTIAL -> "VERIFYING\nMASTER CODE"
+                            TrustVerificationStep.BIOMETRIC_FINGERPRINT -> "BIOMETRIC\nIDENTITY MATCH"
+                            else -> statusText
+                        },
                         style = MaterialTheme.typography.headlineSmall.copy(
                             fontWeight = FontWeight.Black,
                             textAlign = TextAlign.Center,
@@ -465,10 +451,8 @@ fun TetherAppScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = when (verificationStep) {
-                            TrustVerificationStep.DEVICE_CREDENTIAL -> "CHAIN LNK 1/4"
-                            TrustVerificationStep.FINGERPRINT_PRIMARY -> "CHAIN LNK 2/4"
-                            TrustVerificationStep.FINGERPRINT_SECONDARY -> "CHAIN LNK 3/4"
-                            TrustVerificationStep.FACE_ID -> "CHAIN LNK 4/4"
+                            TrustVerificationStep.DEVICE_CREDENTIAL -> "TIER 1 OF 2"
+                            TrustVerificationStep.BIOMETRIC_FINGERPRINT -> "TIER 2 OF 2"
                             else -> connectionStatus.uppercase()
                         },
                         style = MaterialTheme.typography.labelMedium.copy(
@@ -479,52 +463,67 @@ fun TetherAppScreen(
                 }
             }
 
-            // Fixed: Specified target explicit type handling for target state animation rendering to satisfy Compose UI
+            // High-fidelity Adaptive Control Panel
             AnimatedContent(
-                targetState = isPanicActive,
+                targetState = verificationStep,
                 transitionSpec = {
-                    fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(400))
+                    fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300))
                 },
-                label = "InterfaceControlBranch"
-            ) { panicEngaged: Boolean ->
-                if (panicEngaged) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = "System trust must be manually re-established through multi-factor validation.",
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                color = TextSecondary,
-                                textAlign = TextAlign.Center
-                            ),
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                        PremiumControlAction(
-                            label = "RESTORE SYSTEM TRUST",
-                            accentColor = NeonGreen,
-                            onClick = onInitiateRestore
-                        )
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        PremiumControlAction(
-                            label = "INITIATE LOCK SYSTEM",
-                            accentColor = NeonCyan,
-                            onClick = onLockClick
-                        )
-                        PremiumControlAction(
-                            label = "FORCE TERMINATE LINK",
-                            accentColor = NeonRed,
-                            onClick = onPanicClick
-                        )
+                label = "DynamicActionSuite"
+            ) { step ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    when (step) {
+                        TrustVerificationStep.NOT_IN_PANIC -> {
+                            if (isPanicActive) {
+                                Text(
+                                    text = "System trust compromised. Device validation required.",
+                                    style = MaterialTheme.typography.bodyLarge.copy(color = TextSecondary, textAlign = TextAlign.Center),
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                                PremiumControlAction(
+                                    label = "RESTORE SYSTEM TRUST",
+                                    accentColor = NeonGreen,
+                                    onClick = onInitiateRestore
+                                )
+                            } else {
+                                PremiumControlAction(
+                                    label = "INITIATE LOCK SYSTEM",
+                                    accentColor = NeonCyan,
+                                    onClick = onLockClick
+                                )
+                                PremiumControlAction(
+                                    label = "FORCE TERMINATE LINK",
+                                    accentColor = NeonRed,
+                                    onClick = onPanicClick
+                                )
+                            }
+                        }
+
+                        TrustVerificationStep.DEVICE_CREDENTIAL -> {
+                            Text(
+                                text = "Processing secure environment overlay...",
+                                style = MaterialTheme.typography.bodyLarge.copy(color = TextSecondary, textAlign = TextAlign.Center),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        TrustVerificationStep.BIOMETRIC_FINGERPRINT -> {
+                            Text(
+                                text = "Scan registered fingerprint hardware node to finish authentication.",
+                                style = MaterialTheme.typography.bodyLarge.copy(color = NeonCyan, textAlign = TextAlign.Center),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            PremiumControlAction(
+                                label = "VERIFY BIOMETRIC TOKEN",
+                                accentColor = NeonCyan,
+                                onClick = { onTriggerStepVerification(TrustVerificationStep.BIOMETRIC_FINGERPRINT) }
+                            )
+                        }
                     }
                 }
             }
@@ -532,7 +531,6 @@ fun TetherAppScreen(
     }
 }
 
-// Fixed: Moved inside MainActivity file or top-level to perfectly handle component mapping visibility rules
 @Composable
 fun PremiumControlAction(
     label: String,
