@@ -16,24 +16,9 @@
 #include "CSampleCredential.h"
 #include "guid.h"
 
-static BOOL IsBypassEnabled()
-{
-    HKEY hKey;
-    DWORD dwVal = 0;
-    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, L"Software\\MyCredentialProvider", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
-    {
-        DWORD dwSize = sizeof(DWORD);
-        RegQueryValueEx(hKey, L"Bypass", nullptr, nullptr, (LPBYTE)&dwVal, &dwSize);
-        RegCloseKey(hKey);
-    }
-    return (dwVal == 1);
-}
-
-CSampleProvider::CSampleProvider() :
+CSampleProvider::CSampleProvider():
     _cRef(1),
     _pCredential(nullptr),
-    _cpus(CPUS_INVALID),                        // Add this
-    _fRecreateEnumeratedCredentials(false),
     _pCredProviderUserArray(nullptr)
 {
     DllAddRef();
@@ -170,28 +155,22 @@ HRESULT CSampleProvider::GetFieldDescriptorAt(
 // GetSerialization on the credential you've specified as the default and will submit
 // that credential for authentication without showing any further UI.
 HRESULT CSampleProvider::GetCredentialCount(
-    _Out_ DWORD* pdwCount,
-    _Out_ DWORD* pdwDefault,
-    _Out_ BOOL* pbAutoLogonWithDefault)
+    _Out_ DWORD *pdwCount,
+    _Out_ DWORD *pdwDefault,
+    _Out_ BOOL *pbAutoLogonWithDefault)
 {
     *pdwDefault = CREDENTIAL_PROVIDER_NO_DEFAULT;
     *pbAutoLogonWithDefault = FALSE;
 
-    // ***** SAFETY BYPASS: Registry Killswitch *****
-    if (IsBypassEnabled())
-    {
-        *pdwCount = 0;          // Show no tiles → provider is disabled
-        return S_OK;
-    }
-
-    // Original logic continues here
     if (_fRecreateEnumeratedCredentials)
     {
         _fRecreateEnumeratedCredentials = false;
         _ReleaseEnumeratedCredentials();
         _CreateEnumeratedCredentials();
     }
+
     *pdwCount = 1;
+
     return S_OK;
 }
 
