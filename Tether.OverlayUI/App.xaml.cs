@@ -1,4 +1,5 @@
 ﻿using System;
+using System.ComponentModel;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
@@ -11,30 +12,30 @@ namespace Tether.OverlayUI
 {
     public partial class App : Application
     {
-        private bool _isListening = true;
-        private OverlayWindow? _activeOverlay = null;
+        private bool _isListening = true; 
+        private OverlayWindow? _activeOverlay = null; 
 
         protected override void OnStartup(StartupEventArgs e)
         {
-            base.OnStartup(e);
+            base.OnStartup(e); 
 
             // Fire up background server thread to track communication metrics asynchronously
-            StartServiceListener();
+            StartServiceListener(); 
         }
 
         private async void StartServiceListener()
         {
-            await Task.Run(async () =>
+             await Task.Run(async () => 
             {
-                while (_isListening)
+                 while (_isListening) 
                 {
                     try
                     {
-                        using var server = new NamedPipeServerStream(
-                            IpcConstants.UiPipeName,
+                         using var server = new NamedPipeServerStream( 
+                            IpcConstants.UiPipeName, 
                             PipeDirection.In,
                             1,
-                            PipeTransmissionMode.Message,
+                            PipeTransmissionMode.Message, 
                             PipeOptions.Asynchronous);
 
                         await server.WaitForConnectionAsync();
@@ -46,14 +47,14 @@ namespace Tether.OverlayUI
                         var json = Encoding.UTF8.GetString(buffer, 0, read);
                         var evt = JsonSerializer.Deserialize<TetherEvent>(json);
 
-                        if (evt != null)
+                         if (evt != null)
                         {
                             Dispatcher.Invoke(() => HandleIncomingEvent(evt));
                         }
                     }
                     catch
                     {
-                        await Task.Delay(250);
+                        await Task.Delay(250); 
                     }
                 }
             });
@@ -62,45 +63,50 @@ namespace Tether.OverlayUI
         private void HandleIncomingEvent(TetherEvent evt)
         {
             // Automatically capture window instance on initialization path
-            if (_activeOverlay == null)
+             if (_activeOverlay == null) // [cite: 1091]
             {
                 _activeOverlay = MainWindow as OverlayWindow;
             }
 
             if (_activeOverlay == null) return;
 
-            switch (evt.EventType)
+             switch (evt.EventType)
             {
                 case TetherEventType.TRUST_DEGRADED:
-                    if (evt.PayloadJson != null)
+                 if (evt.PayloadJson != null) 
+                {
+                    try
                     {
-                        try
+                        var data = JsonSerializer.Deserialize<JsonElement>(evt.PayloadJson);
+                         if (data.TryGetProperty("Rssi", out var rssiProp)) 
                         {
-                            var data = JsonSerializer.Deserialize<JsonElement>(evt.PayloadJson);
-                            if (data.TryGetProperty("Rssi", out var rssiProp))
-                            {
-                                double currentRssi = rssiProp.GetDouble();
-                                _activeOverlay.UpdateBlurFromRssi(currentRssi);
-                            }
+                            double currentRssi = rssiProp.GetDouble();
+                            _activeOverlay.UpdateBlurFromRssi(currentRssi);
                         }
-                        catch { }
                     }
+                    catch { }
+                }
+                break;
+
+                case TetherEventType.OVERLAY_ENABLED: 
+                    _activeOverlay.UpdateBlurFromRssi(-75);
                     break;
 
-                case TetherEventType.OVERLAY_ENABLED:
-                    _activeOverlay.UpdateBlurFromRssi(-75); // Immediate maximum boundary blur lock
-                    break;
+                    case TetherEventType.OVERLAY_DISABLED:
+                        _activeOverlay.UpdateBlurFromRssi(-60); // Clear blur 
 
-                case TetherEventType.OVERLAY_DISABLED:
-                    _activeOverlay.UpdateBlurFromRssi(-60); // Clear blur
-                    break;
-            }
-        }
+                        _activeOverlay.Closing -= _activeOverlay.OnWindowClosing;
+                        _activeOverlay.Close();
+
+                        Application.Current.Shutdown();
+                        break;
+                    }
+                }
 
         protected override void OnExit(ExitEventArgs e)
         {
-            _isListening = false;
-            base.OnExit(e);
+            _isListening = false; 
+            base.OnExit(e); 
         }
     }
 }
