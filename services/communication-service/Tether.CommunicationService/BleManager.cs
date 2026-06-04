@@ -38,8 +38,8 @@ public class BleManager : IDisposable
     private string? _currentConnectingId;
 
     // Configuration Thresholds
-    private const int RSSI_GOOD = -50;
-    private const int RSSI_LOCK = -75;
+    private const int RSSI_GOOD = -55;
+    private const int RSSI_LOCK = -80;
     private const int SAMPLE_INTERVAL_MS = 500;
     private const int SAMPLES_PER_AVERAGE = 5;
 

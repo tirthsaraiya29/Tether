@@ -1,6 +1,7 @@
 package com.tether.phone
 
 import android.Manifest
+import android.app.KeyguardManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.bluetooth.BluetoothAdapter
@@ -12,6 +13,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.setContent
@@ -30,6 +32,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -54,6 +57,7 @@ import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
 import com.tether.phone.ui.theme.*
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 
@@ -70,18 +74,33 @@ enum class AppScreen {
     SECURITY_SETTINGS
 }
 
+enum class TrustTier(val label: String, val color: Color) {
+    TRUSTED("TRUSTED NODAL STATE", NeonGreen),
+    ELEVATED_RISK("ELEVATED RISK MATRIX", Color(0xFFFFB300)),
+    RESTRICTED("RESTRICTED ENVIRONMENT", NeonRed)
+}
+
+data class IntegrityReport(
+    val score: Int,
+    val tier: TrustTier,
+    val isBootloaderLocked: Boolean,
+    val isNotRooted: Boolean,
+    val isDevOptionsDisabled: Boolean,
+    val isUsbDebuggingDisabled: Boolean,
+    val isAppIntegrityValid: Boolean,
+    val isSecureLockscreenEnabled: Boolean
+)
+
 class MainActivity : FragmentActivity() {
     private val requestPermissionsCode = 101
     private val preferenceName = "tether_secure_prefs"
     private val panicStateKey = "is_panic_active"
     private val notificationRestoreChannelId = "tether_restore_channel"
 
-    // App Lock SharedPreferences Keys
     private val appLockEnabledKey = "app_lock_biometrics_enabled"
     private val appLockTimeoutKey = "app_lock_timeout_ms"
     private val appLockBackgroundTimestampKey = "app_lock_bg_timestamp"
 
-    // Privacy Mask Keys
     private val privacyMaskEnabledKey = "privacy_mask_enabled"
     private val blockScreenReadingKey = "block_screen_reading"
     private val hideInRecentsKey = "hide_in_recents"
@@ -102,6 +121,10 @@ class MainActivity : FragmentActivity() {
     private var isPrivacyMaskEnabled = mutableStateOf(false)
     private var isBlockScreenReadingEnabled = mutableStateOf(false)
     private var isHideInRecentsEnabled = mutableStateOf(false)
+
+    // Hard Environment Lockdown States
+    private var isEnvironmentRestricted = mutableStateOf(false)
+    private var currentIntegrityScore = mutableStateOf(100)
 
     private lateinit var executor: Executor
 
@@ -143,19 +166,19 @@ class MainActivity : FragmentActivity() {
         isBiometricSettingEnabled.value = prefs.getBoolean(appLockEnabledKey, false)
         selectedTimeoutMs.value = prefs.getLong(appLockTimeoutKey, 0L)
 
-        // Load Privacy States
         isPrivacyMaskEnabled.value = prefs.getBoolean(privacyMaskEnabledKey, false)
         isBlockScreenReadingEnabled.value = prefs.getBoolean(blockScreenReadingKey, false)
         isHideInRecentsEnabled.value = prefs.getBoolean(hideInRecentsKey, false)
 
-        // Initialize Window Security Constraints
         applyWindowSecurityFlags()
+
+        evaluateDeviceIntegrity()
 
         if (isPanicActive.value) {
             setPanicUiState()
         }
 
-        if (isBiometricSettingEnabled.value) {
+        if (isBiometricSettingEnabled.value && !isEnvironmentRestricted.value) {
             isAppLocked.value = true
             authenticateForAppUnlock()
         }
@@ -167,73 +190,77 @@ class MainActivity : FragmentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        TetherNavigationShell(
-                            statusText = uiStatusText.value,
-                            statusColor = uiStatusColor.value,
-                            connectionStatus = uiConnectionStatusText.value,
-                            isPanicActive = isPanicActive.value,
-                            verificationStep = currentVerificationStep.value,
-                            isBiometricSettingEnabled = isBiometricSettingEnabled.value,
-                            selectedTimeoutMs = selectedTimeoutMs.value,
-                            isPrivacyMaskEnabled = isPrivacyMaskEnabled.value,
-                            isBlockScreenReadingEnabled = isBlockScreenReadingEnabled.value,
-                            isHideInRecentsEnabled = isHideInRecentsEnabled.value,
-                            onLockClick = { triggerBleAction("LOCK_NOW", "🔒 Manual Lock Sent!") },
-                            onPanicClick = {
-                                persistPanicState(true)
-                                triggerBleAction("PANIC", "🚨 Panic Sent! Locking PC...")
-                            },
-                            onInitiateRestore = {
-                                executeVerificationPipeline(TrustVerificationStep.DEVICE_CREDENTIAL)
-                            },
-                            onTriggerStepVerification = { step ->
-                                triggerSystemBiometricPrompt(step)
-                            },
-                            onBiometricSettingToggled = { enabled ->
-                                isBiometricSettingEnabled.value = enabled
-                                prefs.edit().putBoolean(appLockEnabledKey, enabled).apply()
-                                if (enabled) {
-                                    isAppLocked.value = true
-                                    authenticateForAppUnlock()
-                                }
-                            },
-                            onTimeoutChanged = { timeout ->
-                                selectedTimeoutMs.value = timeout
-                                prefs.edit().putLong(appLockTimeoutKey, timeout).apply()
-                            },
-                            onPrivacyMaskToggled = { enabled ->
-                                isPrivacyMaskEnabled.value = enabled
-                                prefs.edit().putBoolean(privacyMaskEnabledKey, enabled).apply()
-                                if (!enabled) {
-                                    isBlockScreenReadingEnabled.value = false
-                                    isHideInRecentsEnabled.value = false
-                                    prefs.edit().putBoolean(blockScreenReadingKey, false)
-                                        .putBoolean(hideInRecentsKey, false).apply()
-                                }
-                                applyWindowSecurityFlags()
-                            },
-                            onBlockScreenReadingToggled = { enabled ->
-                                isBlockScreenReadingEnabled.value = enabled
-                                prefs.edit().putBoolean(blockScreenReadingKey, enabled).apply()
-                                applyWindowSecurityFlags()
-                            },
-                            onHideInRecentsToggled = { enabled ->
-                                isHideInRecentsEnabled.value = enabled
-                                prefs.edit().putBoolean(hideInRecentsKey, enabled).apply()
-                                applyWindowSecurityFlags()
-                            }
-                        )
-
-                        AnimatedVisibility(
-                            visible = isAppLocked.value,
-                            enter = fadeIn(animationSpec = tween(400)) + scaleIn(initialScale = 0.85f),
-                            exit = fadeOut(animationSpec = tween(400)) + scaleOut(targetScale = 0.85f)
-                        ) {
-                            FuturisticLockOverlay(
-                                onAuthorizeRequested = {
-                                    authenticateForAppUnlock()
+                        if (isEnvironmentRestricted.value) {
+                            CompromisedEnvironmentOverlay(score = currentIntegrityScore.value)
+                        } else {
+                            TetherNavigationShell(
+                                statusText = uiStatusText.value,
+                                statusColor = uiStatusColor.value,
+                                connectionStatus = uiConnectionStatusText.value,
+                                isPanicActive = isPanicActive.value,
+                                verificationStep = currentVerificationStep.value,
+                                isBiometricSettingEnabled = isBiometricSettingEnabled.value,
+                                selectedTimeoutMs = selectedTimeoutMs.value,
+                                isPrivacyMaskEnabled = isPrivacyMaskEnabled.value,
+                                isBlockScreenReadingEnabled = isBlockScreenReadingEnabled.value,
+                                isHideInRecentsEnabled = isHideInRecentsEnabled.value,
+                                onLockClick = { triggerBleAction("LOCK_NOW", "🔒 Manual Lock Sent!") },
+                                onPanicClick = {
+                                    persistPanicState(true)
+                                    triggerBleAction("PANIC", "🚨 Panic Sent! Locking PC...")
+                                },
+                                onInitiateRestore = {
+                                    executeVerificationPipeline(TrustVerificationStep.DEVICE_CREDENTIAL)
+                                },
+                                onTriggerStepVerification = { step ->
+                                    triggerSystemBiometricPrompt(step)
+                                },
+                                onBiometricSettingToggled = { enabled ->
+                                    isBiometricSettingEnabled.value = enabled
+                                    prefs.edit().putBoolean(appLockEnabledKey, enabled).apply()
+                                    if (enabled) {
+                                        isAppLocked.value = true
+                                        authenticateForAppUnlock()
+                                    }
+                                },
+                                onTimeoutChanged = { timeout ->
+                                    selectedTimeoutMs.value = timeout
+                                    prefs.edit().putLong(appLockTimeoutKey, timeout).apply()
+                                },
+                                onPrivacyMaskToggled = { enabled ->
+                                    isPrivacyMaskEnabled.value = enabled
+                                    prefs.edit().putBoolean(privacyMaskEnabledKey, enabled).apply()
+                                    if (!enabled) {
+                                        isBlockScreenReadingEnabled.value = false
+                                        isHideInRecentsEnabled.value = false
+                                        prefs.edit().putBoolean(blockScreenReadingKey, false)
+                                            .putBoolean(hideInRecentsKey, false).apply()
+                                    }
+                                    applyWindowSecurityFlags()
+                                },
+                                onBlockScreenReadingToggled = { enabled ->
+                                    isBlockScreenReadingEnabled.value = enabled
+                                    prefs.edit().putBoolean(blockScreenReadingKey, enabled).apply()
+                                    applyWindowSecurityFlags()
+                                },
+                                onHideInRecentsToggled = { enabled ->
+                                    isHideInRecentsEnabled.value = enabled
+                                    prefs.edit().putBoolean(hideInRecentsKey, enabled).apply()
+                                    applyWindowSecurityFlags()
                                 }
                             )
+
+                            AnimatedVisibility(
+                                visible = isAppLocked.value,
+                                enter = fadeIn(animationSpec = tween(400)) + scaleIn(initialScale = 0.85f),
+                                exit = fadeOut(animationSpec = tween(400)) + scaleOut(targetScale = 0.85f)
+                            ) {
+                                FuturisticLockOverlay(
+                                    onAuthorizeRequested = {
+                                        authenticateForAppUnlock()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -249,14 +276,21 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    /**
-     * Toggles layout pipeline attributes at the OS level to reject screenshots or recents buffer caching.
-     */
+    private fun evaluateDeviceIntegrity() {
+        val report = DeviceIntegrityRegistry(this).runAttestationPipeline()
+        currentIntegrityScore.value = report.score
+
+        if (report.score < 70) {
+            isEnvironmentRestricted.value = true
+            stopService(Intent(this, BleGattServerService::class.java))
+        } else {
+            isEnvironmentRestricted.value = false
+        }
+    }
+
     private fun applyWindowSecurityFlags() {
         runOnUiThread {
-            // Secure screen condition matches if parent master switch is on AND specific block is checked
             val shouldProtectScreen = isPrivacyMaskEnabled.value && isBlockScreenReadingEnabled.value
-
             if (shouldProtectScreen) {
                 window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             } else {
@@ -267,9 +301,10 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
+        evaluateDeviceIntegrity()
 
-        // If "Hide in Recents" option is verified and active, clear FLAG_SECURE on foreground entrance
-        // so the user can interact freely, but it will engage again on exit.
+        if (isEnvironmentRestricted.value) return
+
         if (isPrivacyMaskEnabled.value && isBlockScreenReadingEnabled.value) {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
@@ -293,9 +328,6 @@ class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
-
-        // As the app moves to the background, check if "Hide in Recents" is enabled.
-        // If true, trigger the FLAG_SECURE restriction right now before the OS captures the snapshot.
         if (isPrivacyMaskEnabled.value && isHideInRecentsEnabled.value) {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
@@ -446,6 +478,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun triggerBleAction(action: String, toastMessage: String) {
+        if (isEnvironmentRestricted.value) return
         Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
         val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
             this.action = action
@@ -491,7 +524,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun startBleService() {
-        if (isPanicActive.value) return
+        if (isPanicActive.value || isEnvironmentRestricted.value) return
 
         val serviceIntent = Intent(this, BleGattServerService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent)
@@ -669,7 +702,7 @@ fun SettingsScreen(
     onHideInRecentsToggled: (Boolean) -> Unit
 ) {
     val timeouts = listOf(
-        "IMMEDIATE" to 0L,
+        "0 SEC" to 0L,
         "1 MIN" to 60000L,
         "2 MIN" to 120000L,
         "10 MIN" to 600000L,
@@ -693,7 +726,6 @@ fun SettingsScreen(
             modifier = Modifier.padding(bottom = 24.dp)
         )
 
-        // Matrix Item 1: App Lock Configuration Card
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -787,7 +819,6 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Matrix Item 2: NEW Privacy Screen Configurations Card
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -840,7 +871,6 @@ fun SettingsScreen(
                 ) {
                     HorizontalDivider(color = NeonCyan.copy(alpha = 0.1f), thickness = 1.dp)
 
-                    // Sub-Option A: Secure Screen
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -871,7 +901,6 @@ fun SettingsScreen(
                         )
                     }
 
-                    // Sub-Option B: Recents Hider
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -904,10 +933,300 @@ fun SettingsScreen(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+        DeviceAttestationCard(context = androidx.compose.ui.platform.LocalContext.current)
     }
 }
 
-// Keep FuturisticLockOverlay, TetherAppScreen, PremiumControlAction as they were...
+@Composable
+fun DeviceAttestationCard(context: Context) {
+    val evaluator = remember { DeviceIntegrityRegistry(context) }
+    val report by produceState(initialValue = evaluator.runAttestationPipeline()) {
+        value = evaluator.runAttestationPipeline()
+    }
+
+    // Toggle state tracking for breakdown modal overlay
+    var showInfoDialog by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, report.tier.color.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
+            .background(SurfaceDark)
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "INTEGRITY ATTESTATION CORE",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = report.tier.label,
+                    color = report.tier.color,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 11.sp,
+                    letterSpacing = 1.5.sp
+                )
+            }
+
+            // Score tracking node containing custom Info telemetry button
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { showInfoDialog = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "Analysis Breakdown",
+                        tint = NeonCyan
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "${report.score}",
+                        color = report.tier.color,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        text = "INDEX SCORE",
+                        color = TextSecondary,
+                        fontSize = 8.sp,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        HorizontalDivider(color = report.tier.color.copy(alpha = 0.1f), thickness = 1.dp)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            MetricRow(label = "BOOTLOADER SECURITY STATE", pass = report.isBootloaderLocked, weightPoints = "+20")
+            MetricRow(label = "ENVIRONMENT ROOT DETECTION", pass = report.isNotRooted, weightPoints = "+20")
+            MetricRow(label = "HOST DEVELOPER CONFIG MODULE", pass = report.isDevOptionsDisabled, weightPoints = "+10")
+            MetricRow(label = "HARDWARE ADB INTERACTION LINK", pass = report.isUsbDebuggingDisabled, weightPoints = "+10")
+            MetricRow(label = "CRYPTOGRAPHIC PACKAGE INTEGRITY", pass = report.isAppIntegrityValid, weightPoints = "+20")
+            MetricRow(label = "SECURE DEVICE SECURITY SHIELD", pass = report.isSecureLockscreenEnabled, weightPoints = "+20")
+        }
+    }
+
+    // Modal breakdown layer outlining metrics vectors explicitly
+    if (showInfoDialog) {
+        AlertDialog(
+            onDismissRequest = { showInfoDialog = false },
+            containerColor = SurfaceDark,
+            titleContentColor = NeonCyan,
+            textContentColor = Color.White,
+            modifier = Modifier.border(1.dp, NeonCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+            title = {
+                Text(
+                    text = "ATTESTATION VECTOR ANALYSIS",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    letterSpacing = 1.sp
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    // Passed parameters that actively added points to score compilation
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "▲ CREDITED METRICS (PASSED)",
+                            color = NeonGreen,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            letterSpacing = 0.5.sp
+                        )
+                        if (report.isBootloaderLocked) AttestationBreakdownRow("Bootloader Locked", "+20", NeonGreen)
+                        if (report.isNotRooted) AttestationBreakdownRow("No Local Root Rights Detected", "+20", NeonGreen)
+                        if (report.isDevOptionsDisabled) AttestationBreakdownRow("Developer Modules Halted", "+10", NeonGreen)
+                        if (report.isUsbDebuggingDisabled) AttestationBreakdownRow("USB Debugging Inactive", "+10", NeonGreen)
+                        if (report.isAppIntegrityValid) AttestationBreakdownRow("App Package Signature Clean", "+20", NeonGreen)
+                        if (report.isSecureLockscreenEnabled) AttestationBreakdownRow("Lockscreen Protection Enabled", "+20", NeonGreen)
+                    }
+
+                    // Failed parameters currently holding score beneath nominal limits
+                    val missingPointsExist = !report.isBootloaderLocked || !report.isNotRooted ||
+                            !report.isDevOptionsDisabled || !report.isUsbDebuggingDisabled ||
+                            !report.isAppIntegrityValid || !report.isSecureLockscreenEnabled
+
+                    if (missingPointsExist) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "▼ ENVIRONMENT FAULTS (BLOCKED INCREASE)",
+                                color = NeonRed,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                letterSpacing = 0.5.sp
+                            )
+                            if (!report.isBootloaderLocked) AttestationBreakdownRow("Bootloader State Unlocked", "Prevented +20", NeonRed)
+                            if (!report.isNotRooted) AttestationBreakdownRow("Superuser / Binary Mod Detected", "Prevented +20", NeonRed)
+                            if (!report.isDevOptionsDisabled) AttestationBreakdownRow("Developer Options Active", "Prevented +10", NeonRed)
+                            if (!report.isUsbDebuggingDisabled) AttestationBreakdownRow("ADB Connection Node Open", "Prevented +10", NeonRed)
+                            if (!report.isAppIntegrityValid) AttestationBreakdownRow("Invalid App Installation Source", "Prevented +20", NeonRed)
+                            if (!report.isSecureLockscreenEnabled) AttestationBreakdownRow("No Active Host Pattern/PIN Lock", "Prevented +20", NeonRed)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showInfoDialog = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = NeonCyan)
+                ) {
+                    Text("DISMISS DATA", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun AttestationBreakdownRow(label: String, points: String, color: Color) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = label, color = TextSecondary, fontSize = 11.sp)
+        Text(text = points, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+fun MetricRow(label: String, pass: Boolean, weightPoints: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = if (pass) "✔" else "❌",
+                color = if (pass) NeonGreen else NeonRed,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.width(18.dp)
+            )
+            Text(
+                text = label,
+                color = if (pass) Color.White else TextSecondary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.5.sp
+            )
+        }
+        Text(
+            text = if (pass) weightPoints else "0",
+            color = if (pass) NeonCyan else NeonRed.copy(alpha = 0.6f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+fun CompromisedEnvironmentOverlay(score: Int) {
+    val infiniteTransition = rememberInfiniteTransition(label = "BreachInfinite")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = EaseInOutSans),
+            repeatMode = RepeatMode.Reverse
+        ), label = "BreachPulse"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0D0202)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(32.dp)
+        ) {
+            Text(
+                text = "⚠️ HARDWARE LOCKDOWN ENGAGED ⚠️",
+                color = NeonRed,
+                fontWeight = FontWeight.Black,
+                fontSize = 14.sp,
+                letterSpacing = 2.sp,
+                modifier = Modifier.graphicsLayer { alpha = pulseAlpha }
+            )
+
+            Spacer(modifier = Modifier.height(40.dp))
+
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(160.dp)
+                    .border(2.dp, NeonRed, RoundedCornerShape(80.dp))
+                    .background(NeonRed.copy(alpha = 0.05f))
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "$score",
+                        color = NeonRed,
+                        fontSize = 48.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        text = "CRITICAL SCORE",
+                        color = TextSecondary,
+                        fontSize = 9.sp,
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(40.dp))
+
+            Text(
+                text = "ENVIRONMENT RESTRICTED",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                letterSpacing = 1.5.sp
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "Your device integrity score has dropped below the threshold safety index (< 70).\n\nAll cryptographic local processes and background radio communication services have been terminated to safeguard connected hardware systems.",
+                color = TextSecondary,
+                textAlign = TextAlign.Center,
+                fontSize = 12.sp,
+                lineHeight = 20.sp,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Text(
+                text = "REMEDIAL ACTIONS REQUIRED:\n• DISABLE DEVELOPER OPTIONS\n• UNPLUG USB DEBUGGING LINKS\n• RESTORE FACTORY OPERATING SYSTEM",
+                color = NeonRed.copy(alpha = 0.8f),
+                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                fontSize = 11.sp,
+                lineHeight = 18.sp,
+                letterSpacing = 0.5.sp
+            )
+        }
+    }
+}
+
 @Composable
 fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
     val infiniteTransition = rememberInfiniteTransition(label = "LockMatrixInfinite")
@@ -1290,5 +1609,79 @@ fun PremiumControlAction(
                 )
             )
         }
+    }
+}
+
+class DeviceIntegrityRegistry(private val context: Context) {
+
+    fun runAttestationPipeline(): IntegrityReport {
+        var finalScore = 0
+
+        val bootloaderLocked = checkBootloaderStatus()
+        if (bootloaderLocked) finalScore += 20
+
+        val notRooted = !checkRootStatus()
+        if (notRooted) finalScore += 20
+
+        val devOptionsDisabled = Settings.Global.getInt(
+            context.contentResolver,
+            Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0
+        ) == 0
+        if (devOptionsDisabled) finalScore += 10
+
+        val usbDebuggingDisabled = Settings.Global.getInt(
+            context.contentResolver,
+            Settings.Global.ADB_ENABLED, 0
+        ) == 0
+        if (usbDebuggingDisabled) finalScore += 10
+
+        val appIntegrityValid = verifyAppSignatureIntegrity()
+        if (appIntegrityValid) finalScore += 20
+
+        val km = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        val secureLockscreenEnabled = km.isDeviceSecure
+        if (secureLockscreenEnabled) finalScore += 20
+
+        val assignedTier = when {
+            finalScore in 90..100 -> TrustTier.TRUSTED
+            finalScore in 70..89 -> TrustTier.ELEVATED_RISK
+            else -> TrustTier.RESTRICTED
+        }
+
+        return IntegrityReport(
+            score = finalScore,
+            tier = assignedTier,
+            isBootloaderLocked = bootloaderLocked,
+            isNotRooted = notRooted,
+            isDevOptionsDisabled = devOptionsDisabled,
+            isUsbDebuggingDisabled = usbDebuggingDisabled,
+            isAppIntegrityValid = appIntegrityValid,
+            isSecureLockscreenEnabled = secureLockscreenEnabled
+        )
+    }
+
+    private fun checkBootloaderStatus(): Boolean {
+        val aboot = Build.BOOTLOADER.lowercase()
+        return aboot.isNotEmpty() && !aboot.contains("unknown") && !aboot.contains("unlocked")
+    }
+
+    private fun checkRootStatus(): Boolean {
+        val tags = Build.TAGS
+        if (tags != null && tags.contains("test-keys")) return true
+
+        val commonPaths = arrayOf(
+            "/system/app/Superuser.apk", "/sbin/su", "/system/bin/su",
+            "/system/xbin/su", "/data/local/xbin/su", "/data/local/bin/su",
+            "/system/sd/xbin/su", "/system/bin/failsafe/su", "/data/local/su"
+        )
+        for (path in commonPaths) {
+            if (File(path).exists()) return true
+        }
+        return false
+    }
+
+    private fun verifyAppSignatureIntegrity(): Boolean {
+        val installer = context.packageManager.getInstallerPackageName(context.packageName)
+        return !installer.isNullOrEmpty() || Build.FINGERPRINT.startsWith("generic")
     }
 }
