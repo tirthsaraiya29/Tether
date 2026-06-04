@@ -369,11 +369,13 @@ public class BleManager : IDisposable
 
     private void EvaluateProximity(double avgRssi)
     {
+        _ = SendUiEventAsync (new TetherEvent { EventType = TetherEventType.TRUST_DEGRADED, Source = "BleManager", PayloadJson = $"{{\"Rssi\":{avgRssi}}}"});
         if (_isWorkstationLocked && avgRssi >= RSSI_GOOD)
         {
             _logger.Info($"✅ Welcome back: {avgRssi:F0} dBm");
             _isWorkstationLocked = false;
             _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
+            _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager" });
             return;
         }
 
@@ -382,7 +384,7 @@ public class BleManager : IDisposable
             _logger.Error($"🔒 Signal lost: {avgRssi:F0} dBm. Locking.");
             _isWorkstationLocked = true;
             _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
-            LockWorkStation();
+            _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
         }
     }
 
@@ -399,4 +401,19 @@ public class BleManager : IDisposable
     }
 
     public void Dispose() => Stop();
+    private async Task SendUiEventAsync (TetherEvent evt)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(evt);
+            var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+            using var client = new System.IO.Pipes.NamedPipeClientStream(".", Tether.Shared.IPC.IpcConstants.UiPipeName, System.IO.Pipes.PipeDirection.Out);
+            await client.ConnectAsync(200);
+            await client.WriteAsync(bytes, 0, bytes.Length);
+            await client.FlushAsync();
+
+        }
+        catch
+        { }
+    }
 }

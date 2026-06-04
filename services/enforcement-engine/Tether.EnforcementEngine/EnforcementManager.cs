@@ -29,8 +29,8 @@ public class EnforcementManager
         if (evt.EventType == TetherEventType.TRUST_LOST ||
             evt.EventType == TetherEventType.PANIC_TRIGGERED)
         {
-            _logger.Warning($"Enforcing lockdown due to {evt.EventType}");
-            LockWorkStation();
+            // _logger.Warning($"Enforcing lockdown due to {evt.EventType}");
+            // LockWorkStation();
         }
     }
 }
