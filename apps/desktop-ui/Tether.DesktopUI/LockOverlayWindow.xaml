@@ -1,0 +1,61 @@
+﻿<Window x:Class="Tether.DesktopUI.LockOverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Workstation Locked" 
+        WindowState="Maximized" 
+        WindowStyle="None" 
+        ResizeMode="NoResize" 
+        Topmost="True" 
+        AllowsTransparency="True" 
+        Background="#01000000"
+        ShowInTaskbar="False">
+
+    <Grid x:Name="MainGrid">
+        <Grid.Effect>
+            <BlurEffect x:Name="GlassBlur" Radius="0" KernelType="Box"/>
+        </Grid.Effect>
+
+        <Border Width="340" 
+                Height="220" 
+                Background="#000000" 
+                CornerRadius="24" 
+                BorderBrush="#222222" 
+                BorderThickness="1.5"
+                HorizontalAlignment="Center" 
+                VerticalAlignment="Center">
+
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <TextBlock Text="🔒 Workstation Restricted" 
+                           Foreground="#FFFFFF" 
+                           FontSize="20" 
+                           FontWeight="SemiBold" 
+                           HorizontalAlignment="Center" 
+                           Margin="0,0,0,8"/>
+
+                <TextBlock Text="Proximity hardware missing or tracking signal degraded." 
+                           Foreground="#888888" 
+                           FontSize="12" 
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           Width="260"
+                           Margin="0,0,0,24"/>
+
+                <Button Content="Unlock" 
+                        Width="180" 
+                        Height="44" 
+                        Click="Unlock_Click" 
+                        Background="#FFFFFF" 
+                        Foreground="#000000" 
+                        FontWeight="Bold"
+                        FontSize="14"
+                        Cursor="Hand">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="12"/>
+                        </Style>
+                    </Button.Resources>
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
