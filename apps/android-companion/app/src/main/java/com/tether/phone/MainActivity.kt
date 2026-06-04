@@ -12,6 +12,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -23,8 +24,14 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -46,6 +53,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
 import com.tether.phone.ui.theme.*
+import kotlinx.coroutines.launch
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 
@@ -57,11 +65,26 @@ enum class TrustVerificationStep {
     BIOMETRIC_FINGERPRINT
 }
 
+enum class AppScreen {
+    TELEMETRY_DASHBOARD,
+    SECURITY_SETTINGS
+}
+
 class MainActivity : FragmentActivity() {
     private val requestPermissionsCode = 101
     private val preferenceName = "tether_secure_prefs"
     private val panicStateKey = "is_panic_active"
     private val notificationRestoreChannelId = "tether_restore_channel"
+
+    // App Lock SharedPreferences Keys
+    private val appLockEnabledKey = "app_lock_biometrics_enabled"
+    private val appLockTimeoutKey = "app_lock_timeout_ms"
+    private val appLockBackgroundTimestampKey = "app_lock_bg_timestamp"
+
+    // Privacy Mask Keys
+    private val privacyMaskEnabledKey = "privacy_mask_enabled"
+    private val blockScreenReadingKey = "block_screen_reading"
+    private val hideInRecentsKey = "hide_in_recents"
 
     private var uiStatusText = mutableStateOf("Initializing...")
     private var uiStatusColor = mutableStateOf(TextSecondary)
@@ -69,6 +92,17 @@ class MainActivity : FragmentActivity() {
 
     private var isPanicActive = mutableStateOf(false)
     private var currentVerificationStep = mutableStateOf(TrustVerificationStep.NOT_IN_PANIC)
+
+    // Core App Lock States
+    private var isAppLocked = mutableStateOf(false)
+    private var isBiometricSettingEnabled = mutableStateOf(false)
+    private var selectedTimeoutMs = mutableStateOf(0L)
+
+    // Privacy Overlay States
+    private var isPrivacyMaskEnabled = mutableStateOf(false)
+    private var isBlockScreenReadingEnabled = mutableStateOf(false)
+    private var isHideInRecentsEnabled = mutableStateOf(false)
+
     private lateinit var executor: Executor
 
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
@@ -106,9 +140,24 @@ class MainActivity : FragmentActivity() {
 
         val prefs = getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
         isPanicActive.value = prefs.getBoolean(panicStateKey, false)
+        isBiometricSettingEnabled.value = prefs.getBoolean(appLockEnabledKey, false)
+        selectedTimeoutMs.value = prefs.getLong(appLockTimeoutKey, 0L)
+
+        // Load Privacy States
+        isPrivacyMaskEnabled.value = prefs.getBoolean(privacyMaskEnabledKey, false)
+        isBlockScreenReadingEnabled.value = prefs.getBoolean(blockScreenReadingKey, false)
+        isHideInRecentsEnabled.value = prefs.getBoolean(hideInRecentsKey, false)
+
+        // Initialize Window Security Constraints
+        applyWindowSecurityFlags()
 
         if (isPanicActive.value) {
             setPanicUiState()
+        }
+
+        if (isBiometricSettingEnabled.value) {
+            isAppLocked.value = true
+            authenticateForAppUnlock()
         }
 
         setContent {
@@ -117,24 +166,76 @@ class MainActivity : FragmentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    TetherAppScreen(
-                        statusText = uiStatusText.value,
-                        statusColor = uiStatusColor.value,
-                        connectionStatus = uiConnectionStatusText.value,
-                        isPanicActive = isPanicActive.value,
-                        verificationStep = currentVerificationStep.value,
-                        onLockClick = { triggerBleAction("LOCK_NOW", "🔒 Manual Lock Sent!") },
-                        onPanicClick = {
-                            persistPanicState(true)
-                            triggerBleAction("PANIC", "🚨 Panic Sent! Locking PC...")
-                        },
-                        onInitiateRestore = {
-                            executeVerificationPipeline(TrustVerificationStep.DEVICE_CREDENTIAL)
-                        },
-                        onTriggerStepVerification = { step ->
-                            triggerSystemBiometricPrompt(step)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        TetherNavigationShell(
+                            statusText = uiStatusText.value,
+                            statusColor = uiStatusColor.value,
+                            connectionStatus = uiConnectionStatusText.value,
+                            isPanicActive = isPanicActive.value,
+                            verificationStep = currentVerificationStep.value,
+                            isBiometricSettingEnabled = isBiometricSettingEnabled.value,
+                            selectedTimeoutMs = selectedTimeoutMs.value,
+                            isPrivacyMaskEnabled = isPrivacyMaskEnabled.value,
+                            isBlockScreenReadingEnabled = isBlockScreenReadingEnabled.value,
+                            isHideInRecentsEnabled = isHideInRecentsEnabled.value,
+                            onLockClick = { triggerBleAction("LOCK_NOW", "🔒 Manual Lock Sent!") },
+                            onPanicClick = {
+                                persistPanicState(true)
+                                triggerBleAction("PANIC", "🚨 Panic Sent! Locking PC...")
+                            },
+                            onInitiateRestore = {
+                                executeVerificationPipeline(TrustVerificationStep.DEVICE_CREDENTIAL)
+                            },
+                            onTriggerStepVerification = { step ->
+                                triggerSystemBiometricPrompt(step)
+                            },
+                            onBiometricSettingToggled = { enabled ->
+                                isBiometricSettingEnabled.value = enabled
+                                prefs.edit().putBoolean(appLockEnabledKey, enabled).apply()
+                                if (enabled) {
+                                    isAppLocked.value = true
+                                    authenticateForAppUnlock()
+                                }
+                            },
+                            onTimeoutChanged = { timeout ->
+                                selectedTimeoutMs.value = timeout
+                                prefs.edit().putLong(appLockTimeoutKey, timeout).apply()
+                            },
+                            onPrivacyMaskToggled = { enabled ->
+                                isPrivacyMaskEnabled.value = enabled
+                                prefs.edit().putBoolean(privacyMaskEnabledKey, enabled).apply()
+                                if (!enabled) {
+                                    isBlockScreenReadingEnabled.value = false
+                                    isHideInRecentsEnabled.value = false
+                                    prefs.edit().putBoolean(blockScreenReadingKey, false)
+                                        .putBoolean(hideInRecentsKey, false).apply()
+                                }
+                                applyWindowSecurityFlags()
+                            },
+                            onBlockScreenReadingToggled = { enabled ->
+                                isBlockScreenReadingEnabled.value = enabled
+                                prefs.edit().putBoolean(blockScreenReadingKey, enabled).apply()
+                                applyWindowSecurityFlags()
+                            },
+                            onHideInRecentsToggled = { enabled ->
+                                isHideInRecentsEnabled.value = enabled
+                                prefs.edit().putBoolean(hideInRecentsKey, enabled).apply()
+                                applyWindowSecurityFlags()
+                            }
+                        )
+
+                        AnimatedVisibility(
+                            visible = isAppLocked.value,
+                            enter = fadeIn(animationSpec = tween(400)) + scaleIn(initialScale = 0.85f),
+                            exit = fadeOut(animationSpec = tween(400)) + scaleOut(targetScale = 0.85f)
+                        ) {
+                            FuturisticLockOverlay(
+                                onAuthorizeRequested = {
+                                    authenticateForAppUnlock()
+                                }
+                            )
                         }
-                    )
+                    }
                 }
             }
         }
@@ -145,6 +246,83 @@ class MainActivity : FragmentActivity() {
             checkAndEnableBluetooth()
         } else {
             requestPermissions()
+        }
+    }
+
+    /**
+     * Toggles layout pipeline attributes at the OS level to reject screenshots or recents buffer caching.
+     */
+    private fun applyWindowSecurityFlags() {
+        runOnUiThread {
+            // Secure screen condition matches if parent master switch is on AND specific block is checked
+            val shouldProtectScreen = isPrivacyMaskEnabled.value && isBlockScreenReadingEnabled.value
+
+            if (shouldProtectScreen) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+
+        // If "Hide in Recents" option is verified and active, clear FLAG_SECURE on foreground entrance
+        // so the user can interact freely, but it will engage again on exit.
+        if (isPrivacyMaskEnabled.value && isBlockScreenReadingEnabled.value) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+
+        if (isBiometricSettingEnabled.value && !isAppLocked.value) {
+            val prefs = getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
+            val leftBackgroundAt = prefs.getLong(appLockBackgroundTimestampKey, 0L)
+
+            if (selectedTimeoutMs.value == 0L) {
+                isAppLocked.value = true
+                authenticateForAppUnlock()
+            } else if (leftBackgroundAt != 0L) {
+                val elapsed = System.currentTimeMillis() - leftBackgroundAt
+                if (elapsed >= selectedTimeoutMs.value) {
+                    isAppLocked.value = true
+                    authenticateForAppUnlock()
+                }
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+
+        // As the app moves to the background, check if "Hide in Recents" is enabled.
+        // If true, trigger the FLAG_SECURE restriction right now before the OS captures the snapshot.
+        if (isPrivacyMaskEnabled.value && isHideInRecentsEnabled.value) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+
+        if (isBiometricSettingEnabled.value) {
+            val prefs = getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
+            prefs.edit().putLong(appLockBackgroundTimestampKey, System.currentTimeMillis()).apply()
+        }
+    }
+
+    private fun authenticateForAppUnlock() {
+        authenticateViaSystem(
+            title = "🌌 Cybernetic Decryption",
+            subtitle = "Verify master biological sequence",
+            allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+        ) { success ->
+            if (success) {
+                runOnUiThread {
+                    isAppLocked.value = false
+                    getSharedPreferences(preferenceName, Context.MODE_PRIVATE).edit()
+                        .putLong(appLockBackgroundTimestampKey, 0L).apply()
+                }
+            } else {
+                runOnUiThread {
+                    Toast.makeText(this, "🔴 Access Unauthorized", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
@@ -171,7 +349,6 @@ class MainActivity : FragmentActivity() {
     private fun executeVerificationPipeline(nextStep: TrustVerificationStep) {
         currentVerificationStep.value = nextStep
 
-        // Immediate system request for master passcode step execution
         if (nextStep == TrustVerificationStep.DEVICE_CREDENTIAL) {
             triggerSystemBiometricPrompt(nextStep)
         }
@@ -215,7 +392,7 @@ class MainActivity : FragmentActivity() {
                 .setAllowedAuthenticators(allowedAuthenticators)
 
             if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
-                promptBuilder.setNegativeButtonText("Abort Verification")
+                promptBuilder.setNegativeButtonText("Abort")
             }
 
             val biometricPrompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
@@ -326,6 +503,555 @@ class MainActivity : FragmentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TetherNavigationShell(
+    statusText: String,
+    statusColor: Color,
+    connectionStatus: String,
+    isPanicActive: Boolean,
+    verificationStep: TrustVerificationStep,
+    isBiometricSettingEnabled: Boolean,
+    selectedTimeoutMs: Long,
+    isPrivacyMaskEnabled: Boolean,
+    isBlockScreenReadingEnabled: Boolean,
+    isHideInRecentsEnabled: Boolean,
+    onLockClick: () -> Unit,
+    onPanicClick: () -> Unit,
+    onInitiateRestore: () -> Unit,
+    onTriggerStepVerification: (TrustVerificationStep) -> Unit,
+    onBiometricSettingToggled: (Boolean) -> Unit,
+    onTimeoutChanged: (Long) -> Unit,
+    onPrivacyMaskToggled: (Boolean) -> Unit,
+    onBlockScreenReadingToggled: (Boolean) -> Unit,
+    onHideInRecentsToggled: (Boolean) -> Unit
+) {
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+    var currentScreen by remember { mutableStateOf(AppScreen.TELEMETRY_DASHBOARD) }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = SpaceDark,
+                drawerContentColor = TextSecondary,
+                modifier = Modifier
+                    .width(300.dp)
+                    .fillMaxHeight()
+                    .border(
+                        width = 1.dp,
+                        brush = Brush.verticalGradient(listOf(NeonCyan, Color.Transparent)),
+                        shape = RoundedCornerShape(0.dp)
+                    )
+            ) {
+                Spacer(modifier = Modifier.height(32.dp))
+                Text(
+                    text = "CORE NAV SYSTEM",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NeonCyan,
+                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.sp
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("TELEMETRY MAIN", fontWeight = FontWeight.Bold, letterSpacing = 1.sp) },
+                    selected = currentScreen == AppScreen.TELEMETRY_DASHBOARD,
+                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        selectedContainerColor = NeonCyan.copy(alpha = 0.1f),
+                        unselectedContainerColor = Color.Transparent,
+                        selectedIconColor = NeonCyan,
+                        unselectedIconColor = TextSecondary,
+                        selectedTextColor = NeonCyan,
+                        unselectedTextColor = TextSecondary
+                    ),
+                    shape = RoundedCornerShape(0.dp),
+                    onClick = {
+                        currentScreen = AppScreen.TELEMETRY_DASHBOARD
+                        scope.launch { drawerState.close() }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("SECURITY SETTINGS", fontWeight = FontWeight.Bold, letterSpacing = 1.sp) },
+                    selected = currentScreen == AppScreen.SECURITY_SETTINGS,
+                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        selectedContainerColor = NeonCyan.copy(alpha = 0.1f),
+                        unselectedContainerColor = Color.Transparent,
+                        selectedIconColor = NeonCyan,
+                        unselectedIconColor = TextSecondary,
+                        selectedTextColor = NeonCyan,
+                        unselectedTextColor = TextSecondary
+                    ),
+                    shape = RoundedCornerShape(0.dp),
+                    onClick = {
+                        currentScreen = AppScreen.SECURITY_SETTINGS
+                        scope.launch { drawerState.close() }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+            }
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {},
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = "Menu Open",
+                                tint = NeonCyan
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = SpaceDark)
+                )
+            },
+            containerColor = SpaceDark
+        ) { paddingValues ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                when (currentScreen) {
+                    AppScreen.TELEMETRY_DASHBOARD -> {
+                        TetherAppScreen(
+                            statusText = statusText,
+                            statusColor = statusColor,
+                            connectionStatus = connectionStatus,
+                            isPanicActive = isPanicActive,
+                            verificationStep = verificationStep,
+                            onLockClick = onLockClick,
+                            onPanicClick = onPanicClick,
+                            onInitiateRestore = onInitiateRestore,
+                            onTriggerStepVerification = onTriggerStepVerification
+                        )
+                    }
+                    AppScreen.SECURITY_SETTINGS -> {
+                        SettingsScreen(
+                            isBiometricEnabled = isBiometricSettingEnabled,
+                            selectedTimeoutMs = selectedTimeoutMs,
+                            isPrivacyMaskEnabled = isPrivacyMaskEnabled,
+                            isBlockScreenReadingEnabled = isBlockScreenReadingEnabled,
+                            isHideInRecentsEnabled = isHideInRecentsEnabled,
+                            onBiometricToggled = onBiometricSettingToggled,
+                            onTimeoutSelected = onTimeoutChanged,
+                            onPrivacyMaskToggled = onPrivacyMaskToggled,
+                            onBlockScreenReadingToggled = onBlockScreenReadingToggled,
+                            onHideInRecentsToggled = onHideInRecentsToggled
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SettingsScreen(
+    isBiometricEnabled: Boolean,
+    selectedTimeoutMs: Long,
+    isPrivacyMaskEnabled: Boolean,
+    isBlockScreenReadingEnabled: Boolean,
+    isHideInRecentsEnabled: Boolean,
+    onBiometricToggled: (Boolean) -> Unit,
+    onTimeoutSelected: (Long) -> Unit,
+    onPrivacyMaskToggled: (Boolean) -> Unit,
+    onBlockScreenReadingToggled: (Boolean) -> Unit,
+    onHideInRecentsToggled: (Boolean) -> Unit
+) {
+    val timeouts = listOf(
+        "IMMEDIATE" to 0L,
+        "1 MIN" to 60000L,
+        "2 MIN" to 120000L,
+        "10 MIN" to 600000L,
+        "1 HR" to 3600000L
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(SpaceDark)
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Top
+    ) {
+        Text(
+            text = "SYSTEM CONFIGURATION",
+            style = MaterialTheme.typography.titleMedium.copy(
+                color = NeonCyan,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.5.sp
+            ),
+            modifier = Modifier.padding(bottom = 24.dp)
+        )
+
+        // Matrix Item 1: App Lock Configuration Card
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, NeonCyan.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                .background(SurfaceDark)
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "BIOMETRIC APP GATEWAY",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Enforce localized biological pattern identification check on app relaunch configurations.",
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp
+                    )
+                }
+                Switch(
+                    checked = isBiometricEnabled,
+                    onCheckedChange = onBiometricToggled,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = SpaceDark,
+                        checkedTrackColor = NeonCyan,
+                        uncheckedThumbColor = TextSecondary,
+                        uncheckedTrackColor = SurfaceDark
+                    )
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isBiometricEnabled,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp)
+                ) {
+                    Text(
+                        text = "LOCK AFTER CONTINUOUS INACTIVITY?",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = NeonCyan,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        timeouts.forEach { (label, value) ->
+                            val isSelected = selectedTimeoutMs == value
+                            Box(
+                                modifier = Modifier
+                                    .height(46.dp)
+                                    .weight(if (label == "IMMEDIATE" || label == "10 MIN") 1.2f else 1f)
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (isSelected) NeonCyan else NeonCyan.copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    )
+                                    .background(if (isSelected) NeonCyan.copy(alpha = 0.12f) else SpaceDark)
+                                    .clickable { onTimeoutSelected(value) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) NeonCyan else TextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Matrix Item 2: NEW Privacy Screen Configurations Card
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, NeonCyan.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                .background(SurfaceDark)
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "UI HARDENING OVERLAY",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Protect the user interface from being captured by software readers or cached on device buffers.",
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp
+                    )
+                }
+                Switch(
+                    checked = isPrivacyMaskEnabled,
+                    onCheckedChange = onPrivacyMaskToggled,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = SpaceDark,
+                        checkedTrackColor = NeonCyan,
+                        uncheckedThumbColor = TextSecondary,
+                        uncheckedTrackColor = SurfaceDark
+                    )
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isPrivacyMaskEnabled,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    HorizontalDivider(color = NeonCyan.copy(alpha = 0.1f), thickness = 1.dp)
+
+                    // Sub-Option A: Secure Screen
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "SECURE DISPLAY SHIELD",
+                                color = if (isBlockScreenReadingEnabled) NeonCyan else Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = "Block all forms of active background screen recording, screen scraping, and screenshots.",
+                                color = TextSecondary,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp
+                            )
+                        }
+                        Checkbox(
+                            checked = isBlockScreenReadingEnabled,
+                            onCheckedChange = onBlockScreenReadingToggled,
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = NeonCyan,
+                                uncheckedColor = TextSecondary,
+                                checkmarkColor = SpaceDark
+                            )
+                        )
+                    }
+
+                    // Sub-Option B: Recents Hider
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "RECENTS BUFFER BLANKING",
+                                color = if (isHideInRecentsEnabled) NeonCyan else Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = "Mask active app view state layers inside the system overview switcher panel.",
+                                color = TextSecondary,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp
+                            )
+                        }
+                        Checkbox(
+                            checked = isHideInRecentsEnabled,
+                            onCheckedChange = onHideInRecentsToggled,
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = NeonCyan,
+                                uncheckedColor = TextSecondary,
+                                checkmarkColor = SpaceDark
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Keep FuturisticLockOverlay, TetherAppScreen, PremiumControlAction as they were...
+@Composable
+fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
+    val infiniteTransition = rememberInfiniteTransition(label = "LockMatrixInfinite")
+
+    val scanLineProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ), label = "ScanlineMovement"
+    )
+
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = EaseInOutSans),
+            repeatMode = RepeatMode.Reverse
+        ), label = "MatrixPulse"
+    )
+
+    val matrixRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(16000, easing = LinearEasing)
+        ), label = "NodeRotation"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(SpaceDark.copy(alpha = 0.98f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onAuthorizeRequested() },
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val width = size.width
+            val height = size.height
+            val yPos = height * scanLineProgress
+            drawLine(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(Color.Transparent, NeonCyan, Color.Transparent)
+                ),
+                start = Offset(0f, yPos),
+                end = Offset(width, yPos),
+                strokeWidth = 3.dp.toPx()
+            )
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(32.dp)
+        ) {
+            Text(
+                text = "SECURITY OVERLAY ACTIVE",
+                color = NeonRed,
+                fontWeight = FontWeight.Black,
+                fontSize = 11.sp,
+                letterSpacing = 3.sp,
+                modifier = Modifier.graphicsLayer { alpha = pulseAlpha }
+            )
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(220.dp)
+                    .border(1.dp, NeonCyan.copy(alpha = 0.2f), RoundedCornerShape(110.dp))
+                    .clickable { onAuthorizeRequested() }
+            ) {
+                Canvas(
+                    modifier = Modifier
+                        .size(190.dp)
+                        .graphicsLayer { rotationZ = matrixRotation }
+                ) {
+                    drawArc(
+                        brush = Brush.sweepGradient(
+                            colors = listOf(Color.Transparent, NeonCyan, Color.Transparent, NeonCyan)
+                        ),
+                        startAngle = 0f,
+                        sweepAngle = 270f,
+                        useCenter = false,
+                        style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                    )
+                }
+
+                Canvas(modifier = Modifier.size(150.dp)) {
+                    drawCircle(
+                        color = NeonCyan.copy(alpha = pulseAlpha * 0.2f),
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                }
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "🧬",
+                        fontSize = 42.sp,
+                        modifier = Modifier.graphicsLayer { alpha = pulseAlpha }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "TOUCH TO SCAN",
+                        color = NeonCyan,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.5.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            Text(
+                text = "SYSTEM ACCESS INTERCEPTED\nBIOLOGICAL MATRIX MATCH REQUIRED",
+                textAlign = TextAlign.Center,
+                color = TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                lineHeight = 18.sp,
+                letterSpacing = 0.5.sp
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "DECRYPT ENGINE v4.0.26",
+                color = NeonCyan.copy(alpha = 0.4f),
+                fontSize = 9.sp,
+                letterSpacing = 1.sp
+            )
+        }
+    }
+}
+
 @Composable
 fun TetherAppScreen(
     statusText: String,
@@ -376,7 +1102,6 @@ fun TetherAppScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(SpaceDark)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
         Box(
             modifier = Modifier
@@ -403,7 +1128,6 @@ fun TetherAppScreen(
                 )
             )
 
-            // Central Telemetry Tracking Enclosure
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier.weight(1f)
@@ -463,7 +1187,6 @@ fun TetherAppScreen(
                 }
             }
 
-            // High-fidelity Adaptive Control Panel
             AnimatedContent(
                 targetState = verificationStep,
                 transitionSpec = {
