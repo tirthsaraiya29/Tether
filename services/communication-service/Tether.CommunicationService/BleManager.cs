@@ -1,12 +1,23 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.ComponentModel;
+using System.Diagnostics;
+using System.Numerics;
+using System.Reflection.Metadata;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Timers;
+using Tether.EventBus;
+using Tether.Shared.Events;
+using Tether.Shared.Logging;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement; // Added for the Broadcast Watcher
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
+using Windows.Graphics;
 using Windows.Storage.Streams;
-using Tether.EventBus;
-using Tether.Shared.Events;
-using Tether.Shared.Logging;
+using Windows.System;
+using Windows.UI.Composition;
+using static System.Net.Mime.MediaTypeNames;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Tether.CommunicationService;
 
@@ -17,7 +28,7 @@ public class BleManager : IDisposable
     private DeviceWatcher? _deviceWatcher;
     private BluetoothLEAdvertisementWatcher? _advWatcher; // Added: New Broadcast Sniffer
     private BluetoothLEDevice? _device;
-    private Timer? _rssiTimer;
+    private System.Threading.Timer? _rssiTimer;
     private readonly List<int> _rssiSamples = new();
     private readonly object _lock = new();
     private byte _lastTrustState = 0x00;
@@ -47,6 +58,16 @@ public class BleManager : IDisposable
     {
         _eventBus = eventBus;
         _logger = logger;
+
+        _eventBus.Subscribe(evt => {
+            if (evt.EventType == TetherEventType.PHONE_UNLOCKED || evt.EventType == TetherEventType.TRUST_RESTORED)
+            {
+                lock (_lock)
+                {
+                    _isWorkstationLocked = false;
+                }
+            }
+        });
     }
 
     public async void Start()
@@ -118,7 +139,9 @@ public class BleManager : IDisposable
             _logger.Error(logMessage);
             _isWorkstationLocked = true;
             _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
-            LockWorkStation();
+
+            // FIXED: Stream instant full lock command to the OverlayUI application
+            _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
         }
     }
     // --- END NEW BROADCAST LOGIC ---
@@ -306,14 +329,13 @@ public class BleManager : IDisposable
             CleanupDevice();
             return;
         }
-
         _isConnected = false;
         StopRssiMonitoring();
-
         _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_DISCONNECTED, Source = "BleManager" });
         _logger.Error("🔒 LOCKING: Device disconnected.");
-        LockWorkStation();
 
+        // FIXED: Replaced native LockWorkStation() with Overlay UI activation event
+        _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
         CleanupDevice();
     }
 
@@ -334,14 +356,16 @@ public class BleManager : IDisposable
         {
             _logger.Error("🚨 PANIC RECEIVED FROM PHONE (VIA GATT)!");
             _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PANIC_TRIGGERED, Source = "BleManager" });
-            LockWorkStation();
+
+            // FIXED: Alert your overlay screen rather than dropping the desktop session
+            _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
         }
     }
 
     private void StartRssiMonitoring()
     {
         _rssiTimer?.Dispose();
-        _rssiTimer = new Timer(async _ => await SampleRssi(), null, 0, SAMPLE_INTERVAL_MS);
+        _rssiTimer = new System.Threading.Timer(async _ => await SampleRssi(), null, 0, SAMPLE_INTERVAL_MS);
     }
 
     private async Task SampleRssi()
@@ -401,19 +425,72 @@ public class BleManager : IDisposable
     }
 
     public void Dispose() => Stop();
-    private async Task SendUiEventAsync (TetherEvent evt)
+
+    private void EnsureOverlayProcessRunning(TetherEvent evt)
     {
+        // Only spin up the interface if a lock is commanded or if proximity crosses the fade boundary
+        bool shouldLaunch = evt.EventType == TetherEventType.OVERLAY_ENABLED;
+
+        if (evt.EventType == TetherEventType.TRUST_DEGRADED && evt.PayloadJson != null)
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(evt.PayloadJson);
+                if (doc.RootElement.TryGetProperty("Rssi", out var rssiProp) && rssiProp.GetDouble() < -68)
+                {
+                    shouldLaunch = true;
+                }
+            }
+            catch { /* Payload parse fallback */ }
+        }
+
+        if (!shouldLaunch) return;
+
+        // Check if the Overlay UI process space is already active on the machine
+        var processes = System.Diagnostics.Process.GetProcessesByName("Tether.OverlayUI");
+        if (processes.Length > 0) return;
+
+        try
+        {
+            // FIXED: Using your exact compiled executable path for guaranteed execution
+            string exactPath = @"C:\Dev\Tether\Tether.OverlayUI\bin\Debug\net8.0-windows\Tether.OverlayUI.exe";
+
+            if (System.IO.File.Exists(exactPath))
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = exactPath,
+                    UseShellExecute = true
+                });
+                _logger.Info($"🚀 Tether.OverlayUI wasn't running. Launched process at: {exactPath}");
+            }
+            else
+            {
+                _logger.Error($"❌ Could not find Overlay UI executable at the expected location: {exactPath}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to spin up Overlay UI process framework: {ex.Message}");
+        }
+    }
+
+    private async Task SendUiEventAsync(TetherEvent evt)
+    {
+        EnsureOverlayProcessRunning(evt);
+
         try
         {
             var json = System.Text.Json.JsonSerializer.Serialize(evt);
             var bytes = System.Text.Encoding.UTF8.GetBytes(json);
             using var client = new System.IO.Pipes.NamedPipeClientStream(".", Tether.Shared.IPC.IpcConstants.UiPipeName, System.IO.Pipes.PipeDirection.Out);
-            await client.ConnectAsync(200);
-            await client.WriteAsync(bytes, 0, bytes.Length);
+            await client.ConnectAsync(200); // 200ms connection verification window [cite: 738]
+            await client.WriteAsync(bytes, 0, bytes.Length); 
             await client.FlushAsync();
-
-        }
+            }
         catch
-        { }
+        {
+            // Fails silently if the pipe server is booting up or cycling states
+        }
     }
 }
