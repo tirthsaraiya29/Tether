@@ -10,12 +10,6 @@ The system creates a secure trust relationship between a Windows machine and an 
 
 # Features
 
-## Adaptive Authentication
-- Dynamic trust validation
-- Session trust monitoring
-- Secure authentication workflows
-- Context-aware security responses
-
 ## Android Trust Anchor
 - Secure device pairing
 - Phone-based trust validation
@@ -97,9 +91,7 @@ The project intentionally avoids unnecessary complexity during early development
 - Secure offline recovery
 - Multi-device recovery
 - Tamper detection
-- Adaptive trust scoring
 - Advanced panic escalation
-- Trusted session persistence
 
 ---
 
