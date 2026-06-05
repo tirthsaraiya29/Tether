@@ -72,6 +72,7 @@ class BleGattServerService : Service() {
         when (intent?.action) {
             "PANIC" -> updateAdvertisement(trustState = 0x02)
             "LOCK_NOW" -> updateAdvertisement(trustState = 0x01)
+            "UNLOCK" -> updateAdvertisement(trustState = 0x03)
         }
         return START_STICKY
     }

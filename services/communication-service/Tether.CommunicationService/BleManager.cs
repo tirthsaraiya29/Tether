@@ -129,6 +129,10 @@ public class BleManager : IDisposable
                 TriggerInstantLock("🚨 PANIC via Broadcast");
                 _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PANIC_TRIGGERED, Source = "BleManager" });
             }
+            else if (trustState == 0x03)
+            {
+                _logger.Info("🔓 Unlock packet command received from phone. Handled dynamically via logger.");
+            }
         }
     }
 
@@ -484,7 +488,7 @@ public class BleManager : IDisposable
             var json = System.Text.Json.JsonSerializer.Serialize(evt);
             var bytes = System.Text.Encoding.UTF8.GetBytes(json);
             using var client = new System.IO.Pipes.NamedPipeClientStream(".", Tether.Shared.IPC.IpcConstants.UiPipeName, System.IO.Pipes.PipeDirection.Out);
-            await client.ConnectAsync(200); // 200ms connection verification window [cite: 738]
+            await client.ConnectAsync(200); 
             await client.WriteAsync(bytes, 0, bytes.Length); 
             await client.FlushAsync();
             }
