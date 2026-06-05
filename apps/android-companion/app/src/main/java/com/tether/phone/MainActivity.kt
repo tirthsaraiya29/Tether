@@ -204,6 +204,7 @@ class MainActivity : FragmentActivity() {
                                 isPrivacyMaskEnabled = isPrivacyMaskEnabled.value,
                                 isBlockScreenReadingEnabled = isBlockScreenReadingEnabled.value,
                                 isHideInRecentsEnabled = isHideInRecentsEnabled.value,
+                                onUnlockClick = { triggerBleAction("UNLOCK", "🔓 Unlock Command Sent!") },
                                 onLockClick = { triggerBleAction("LOCK_NOW", "🔒 Manual Lock Sent!") },
                                 onPanicClick = {
                                     persistPanicState(true)
@@ -549,6 +550,7 @@ fun TetherNavigationShell(
     isPrivacyMaskEnabled: Boolean,
     isBlockScreenReadingEnabled: Boolean,
     isHideInRecentsEnabled: Boolean,
+    onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
     onInitiateRestore: () -> Unit,
@@ -661,6 +663,7 @@ fun TetherNavigationShell(
                             connectionStatus = connectionStatus,
                             isPanicActive = isPanicActive,
                             verificationStep = verificationStep,
+                            onUnlockClick = onUnlockClick,
                             onLockClick = onLockClick,
                             onPanicClick = onPanicClick,
                             onInitiateRestore = onInitiateRestore,
@@ -1378,6 +1381,7 @@ fun TetherAppScreen(
     connectionStatus: String,
     isPanicActive: Boolean,
     verificationStep: TrustVerificationStep,
+    onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
     onInitiateRestore: () -> Unit,
@@ -1533,6 +1537,11 @@ fun TetherAppScreen(
                                     onClick = onInitiateRestore
                                 )
                             } else {
+                                PremiumControlAction(
+                                    label = "INITIATE UNLOCK SYSTEM",
+                                    accentColor = NeonGreen,
+                                    onClick = onUnlockClick
+                                )
                                 PremiumControlAction(
                                     label = "INITIATE LOCK SYSTEM",
                                     accentColor = NeonCyan,
