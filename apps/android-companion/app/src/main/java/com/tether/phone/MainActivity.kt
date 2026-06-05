@@ -1014,12 +1014,12 @@ fun DeviceAttestationCard(context: Context) {
         Spacer(modifier = Modifier.height(16.dp))
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            MetricRow(label = "BOOTLOADER SECURITY STATE", pass = report.isBootloaderLocked, weightPoints = "+20")
-            MetricRow(label = "ENVIRONMENT ROOT DETECTION", pass = report.isNotRooted, weightPoints = "+20")
+            MetricRow(label = "BOOTLOADER SECURITY STATE", pass = report.isBootloaderLocked, weightPoints = "+35")
+            MetricRow(label = "ENVIRONMENT ROOT DETECTION", pass = report.isNotRooted, weightPoints = "+35")
             MetricRow(label = "HOST DEVELOPER CONFIG MODULE", pass = report.isDevOptionsDisabled, weightPoints = "+10")
             MetricRow(label = "HARDWARE ADB INTERACTION LINK", pass = report.isUsbDebuggingDisabled, weightPoints = "+10")
-            MetricRow(label = "CRYPTOGRAPHIC PACKAGE INTEGRITY", pass = report.isAppIntegrityValid, weightPoints = "+20")
-            MetricRow(label = "SECURE DEVICE SECURITY SHIELD", pass = report.isSecureLockscreenEnabled, weightPoints = "+20")
+            MetricRow(label = "CRYPTOGRAPHIC PACKAGE INTEGRITY", pass = report.isAppIntegrityValid, weightPoints = "+10")
+            MetricRow(label = "SECURE DEVICE SECURITY SHIELD", pass = report.isSecureLockscreenEnabled, weightPoints = "+10")
         }
     }
 
@@ -1050,12 +1050,12 @@ fun DeviceAttestationCard(context: Context) {
                             fontSize = 11.sp,
                             letterSpacing = 0.5.sp
                         )
-                        if (report.isBootloaderLocked) AttestationBreakdownRow("Bootloader Locked", "+20", NeonGreen)
-                        if (report.isNotRooted) AttestationBreakdownRow("No Local Root Rights Detected", "+20", NeonGreen)
+                        if (report.isBootloaderLocked) AttestationBreakdownRow("Bootloader Locked", "+35", NeonGreen)
+                        if (report.isNotRooted) AttestationBreakdownRow("No Local Root Rights Detected", "+35", NeonGreen)
                         if (report.isDevOptionsDisabled) AttestationBreakdownRow("Developer Modules Halted", "+10", NeonGreen)
                         if (report.isUsbDebuggingDisabled) AttestationBreakdownRow("USB Debugging Inactive", "+10", NeonGreen)
-                        if (report.isAppIntegrityValid) AttestationBreakdownRow("App Package Signature Clean", "+20", NeonGreen)
-                        if (report.isSecureLockscreenEnabled) AttestationBreakdownRow("Lockscreen Protection Enabled", "+20", NeonGreen)
+                        if (report.isAppIntegrityValid) AttestationBreakdownRow("App Package Signature Clean", "+10", NeonGreen)
+                        if (report.isSecureLockscreenEnabled) AttestationBreakdownRow("Lockscreen Protection Enabled", "+10", NeonGreen)
                     }
 
                     // Failed parameters currently holding score beneath nominal limits
@@ -1072,12 +1072,12 @@ fun DeviceAttestationCard(context: Context) {
                                 fontSize = 11.sp,
                                 letterSpacing = 0.5.sp
                             )
-                            if (!report.isBootloaderLocked) AttestationBreakdownRow("Bootloader State Unlocked", "Prevented +20", NeonRed)
-                            if (!report.isNotRooted) AttestationBreakdownRow("Superuser / Binary Mod Detected", "Prevented +20", NeonRed)
+                            if (!report.isBootloaderLocked) AttestationBreakdownRow("Bootloader State Unlocked", "Prevented +35", NeonRed)
+                            if (!report.isNotRooted) AttestationBreakdownRow("Superuser / Binary Mod Detected", "Prevented +35", NeonRed)
                             if (!report.isDevOptionsDisabled) AttestationBreakdownRow("Developer Options Active", "Prevented +10", NeonRed)
                             if (!report.isUsbDebuggingDisabled) AttestationBreakdownRow("ADB Connection Node Open", "Prevented +10", NeonRed)
-                            if (!report.isAppIntegrityValid) AttestationBreakdownRow("Invalid App Installation Source", "Prevented +20", NeonRed)
-                            if (!report.isSecureLockscreenEnabled) AttestationBreakdownRow("No Active Host Pattern/PIN Lock", "Prevented +20", NeonRed)
+                            if (!report.isAppIntegrityValid) AttestationBreakdownRow("Invalid App Installation Source", "Prevented +10", NeonRed)
+                            if (!report.isSecureLockscreenEnabled) AttestationBreakdownRow("No Active Host Pattern/PIN Lock", "Prevented +10", NeonRed)
                         }
                     }
                 }
@@ -1627,10 +1627,10 @@ class DeviceIntegrityRegistry(private val context: Context) {
         var finalScore = 0
 
         val bootloaderLocked = checkBootloaderStatus()
-        if (bootloaderLocked) finalScore += 20
+        if (bootloaderLocked) finalScore += 35
 
         val notRooted = !checkRootStatus()
-        if (notRooted) finalScore += 20
+        if (notRooted) finalScore += 35
 
         val devOptionsDisabled = Settings.Global.getInt(
             context.contentResolver,
@@ -1645,15 +1645,15 @@ class DeviceIntegrityRegistry(private val context: Context) {
         if (usbDebuggingDisabled) finalScore += 10
 
         val appIntegrityValid = verifyAppSignatureIntegrity()
-        if (appIntegrityValid) finalScore += 20
+        if (appIntegrityValid) finalScore += 10
 
         val km = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         val secureLockscreenEnabled = km.isDeviceSecure
-        if (secureLockscreenEnabled) finalScore += 20
+        if (secureLockscreenEnabled) finalScore += 10
 
         val assignedTier = when {
-            finalScore in 90..100 -> TrustTier.TRUSTED
-            finalScore in 70..89 -> TrustTier.ELEVATED_RISK
+            finalScore in 100..110 -> TrustTier.TRUSTED
+            finalScore in 90..100 -> TrustTier.ELEVATED_RISK
             else -> TrustTier.RESTRICTED
         }
 

@@ -4,15 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattServer
-import android.bluetooth.BluetoothGattServerCallback
-import android.bluetooth.BluetoothGattService
-import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
+import android.bluetooth.*
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
@@ -20,9 +12,7 @@ import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -35,24 +25,30 @@ class BleGattServerService : Service() {
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var advertiser: BluetoothLeAdvertiser? = null
     private var isAdvertising = false
-    private var connectedDevice: BluetoothDevice? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Core Cryptographic Engine
+    private lateinit var securityEngine: ProductionSecurityEngine
+    private var activeChallenge: ByteArray? = null
 
     companion object {
         private val SERVICE_UUID = UUID.fromString("0000FFE0-0000-1000-8000-00805F9B34FB")
-        private val RSSI_CHAR_UUID = UUID.fromString("0000FFE1-0000-1000-8000-00805F9B34FB")
-        private val PANIC_CHAR_UUID = UUID.fromString("0000FFE2-0000-1000-8000-00805F9B34FB")
+
+        // Characteristic where the laptop writes its random challenge token
+        private val CHALLENGE_CHAR_UUID = UUID.fromString("0000FFE3-0000-1000-8000-00805F9B34FB")
+
+        // Characteristic where the laptop reads back the hardware signature
+        private val SIGNATURE_CHAR_UUID = UUID.fromString("0000FFE4-0000-1000-8000-00805F9B34FB")
+
         private const val CHANNEL_ID = "tether_proximity_channel"
         private const val NOTIFICATION_ID = 1
-
-        private const val MANUFACTURER_ID = 0xFFFF
-        private const val DEVICE_ID = 0x01
     }
-
-    private lateinit var panicCharacteristic: BluetoothGattCharacteristic
 
     override fun onCreate() {
         super.onCreate()
+
+        // Initialize the hardware-isolated cryptographic key pair engine
+        securityEngine = ProductionSecurityEngine()
+
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         bluetoothAdapter = bluetoothManager?.adapter
 
@@ -65,38 +61,93 @@ class BleGattServerService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
         setupGattServer()
-        startAdvertising() // Start with default idle state
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            "PANIC" -> updateAdvertisement(trustState = 0x02)
-            "LOCK_NOW" -> updateAdvertisement(trustState = 0x01)
-            "UNLOCK" -> updateAdvertisement(trustState = 0x03)
-        }
-        return START_STICKY
+        startAdvertising()
     }
 
     private fun setupGattServer() {
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         try {
             bluetoothGattServer = bluetoothManager?.openGattServer(this, gattServerCallback)
-            val rssiChar = BluetoothGattCharacteristic(RSSI_CHAR_UUID, BluetoothGattCharacteristic.PROPERTY_READ, BluetoothGattCharacteristic.PERMISSION_READ)
-            panicCharacteristic = BluetoothGattCharacteristic(PANIC_CHAR_UUID, BluetoothGattCharacteristic.PROPERTY_NOTIFY, BluetoothGattCharacteristic.PERMISSION_READ)
+
             val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
-            service.addCharacteristic(rssiChar)
-            service.addCharacteristic(panicCharacteristic)
+
+            // Challenge Characteristic: Laptop must WRITE a 32-byte secure random chunk here
+            val challengeChar = BluetoothGattCharacteristic(
+                CHALLENGE_CHAR_UUID,
+                BluetoothGattCharacteristic.PROPERTY_WRITE,
+                BluetoothGattCharacteristic.PERMISSION_WRITE_ENCRYPTED // Enforces system bonding requirement automatically
+            )
+
+            // Signature Characteristic: Laptop reads back the proof verification bytes
+            val signatureChar = BluetoothGattCharacteristic(
+                SIGNATURE_CHAR_UUID,
+                BluetoothGattCharacteristic.PROPERTY_READ,
+                BluetoothGattCharacteristic.PERMISSION_READ_ENCRYPTED // Enforces system bonding requirement automatically
+            )
+
+            service.addCharacteristic(challengeChar)
+            service.addCharacteristic(signatureChar)
             bluetoothGattServer?.addService(service)
         } catch (e: SecurityException) {
             Log.e("TetherBLE", "GATT Setup failed: ${e.message}")
         }
     }
 
-    private fun startAdvertising() {
-        updateAdvertisement(trustState = 0x00) // Default "Idle/Safe" state
+    private val gattServerCallback = object : BluetoothGattServerCallback() {
+
+        // Invoked when the laptop sends a random challenge sequence
+        override fun onCharacteristicWriteRequest(
+            device: BluetoothDevice?,
+            requestId: Int,
+            characteristic: BluetoothGattCharacteristic?,
+            preparedWrite: Boolean,
+            responseNeeded: Boolean,
+            offset: Int,
+            value: ByteArray?
+        ) {
+            super.onCharacteristicWriteRequest(device, requestId, characteristic, preparedWrite, responseNeeded, offset, value)
+
+            if (characteristic?.uuid == CHALLENGE_CHAR_UUID && value != null) {
+                // Store the transaction challenge in temporary secure app state memory
+                activeChallenge = value
+
+                if (responseNeeded) {
+                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+                }
+                Log.d("TetherSecurity", "Received secure challenge token from laptop node.")
+            }
+        }
+
+        // Invoked when the laptop reads back the generated proof signature
+        override fun onCharacteristicReadRequest(
+            device: BluetoothDevice?,
+            requestId: Int,
+            offset: Int,
+            characteristic: BluetoothGattCharacteristic?
+        ) {
+            super.onCharacteristicReadRequest(device, requestId, offset, characteristic)
+
+            if (characteristic?.uuid == SIGNATURE_CHAR_UUID) {
+                val challenge = activeChallenge
+                if (challenge != null) {
+                    // Sign the verification token inside the phone's hardware isolation zone
+                    val signatureBytes = securityEngine.signChallenge(challenge)
+
+                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, signatureBytes)
+                    Log.d("TetherSecurity", "Cryptographic signature successfully dispatched.")
+
+                    // Consume the challenge immediately to prevent replay attempts
+                    activeChallenge = null
+                } else {
+                    // Fail if laptop attempts to read signature before writing a challenge
+                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
+                }
+            }
+        }
     }
 
-    private fun updateAdvertisement(trustState: Byte) {
+    // Inside BleGattServerService.kt
+    private fun startAdvertising() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
             return
@@ -104,57 +155,24 @@ class BleGattServerService : Service() {
 
         advertiser = bluetoothAdapter?.bluetoothLeAdvertiser ?: return
 
-        // Stop previous broadcast before starting a new one with updated data
-        stopAdvertising()
-
-        // Construct 5-byte payload: [DeviceID, TrustState, HMAC1, HMAC2, HMAC3]
-        val manufacturerData = ByteArray(5)
-        manufacturerData[0] = DEVICE_ID.toByte()
-        manufacturerData[1] = trustState
-        // Placeholder for future HMAC implementation
-        manufacturerData[2] = 0xAA.toByte()
-        manufacturerData[3] = 0xBB.toByte()
-        manufacturerData[4] = 0xCC.toByte()
-
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
             .setConnectable(true)
             .build()
 
+        // FIX: Put the Service UUID directly into the primary advertisement packet
+        // This ensures it gets blasted over the air even if Windows doesn't request a scan response.
         val advertiseData = AdvertiseData.Builder()
-            .setIncludeDeviceName(true) // Disabled to ensure enough room for ManufacturerData
-            .addManufacturerData(MANUFACTURER_ID, manufacturerData)
-            .build()
-
-        // Include UUID in scan response so laptop can filter by Service UUID first
-        val scanResponse = AdvertiseData.Builder()
+            .setIncludeDeviceName(false)
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
 
         try {
-            advertiser?.startAdvertising(settings, advertiseData, scanResponse, advertiseCallback)
+            // Pass advertiseData as the primary payload, scanResponse can be null or empty
+            advertiser?.startAdvertising(settings, advertiseData, null, advertiseCallback)
         } catch (e: Exception) {
             Log.e("TetherBLE", "Adv failed: ${e.message}")
-        }
-    }
-
-    private fun stopAdvertising() {
-        try {
-            advertiser?.stopAdvertising(advertiseCallback)
-        } catch (e: Exception) { /* Ignore */ }
-        isAdvertising = false
-    }
-
-    private val gattServerCallback = object : BluetoothGattServerCallback() {
-        override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
-                connectedDevice = device
-                Log.d("TetherBLE", "✅ PC Connected via GATT")
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                connectedDevice = null
-                mainHandler.postDelayed({ updateAdvertisement(0x00) }, 1000)
-            }
         }
     }
 
@@ -177,14 +195,14 @@ class BleGattServerService : Service() {
 
     private fun createNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
         .setContentTitle("🔒 Tether Active")
-        .setContentText("Broadcasting security state")
+        .setContentText("Awaiting cryptographic verification step...")
         .setSmallIcon(android.R.drawable.ic_lock_lock)
         .build()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        stopAdvertising()
+        try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) {}
         bluetoothGattServer?.close()
         super.onDestroy()
     }

@@ -41,10 +41,5 @@
             android:name=".BleGattServerService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
-
-        <service
-            android:name=".BleServerService"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
     </application>
 </manifest>
