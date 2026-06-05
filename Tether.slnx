@@ -1,4 +1,9 @@
 <Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
   <Project Path="platform/windows/Tether.Platform.Windows/Tether.Platform.Windows.csproj" Id="c6d4ba83-b71e-4558-bed2-911ac9cf1cc5" />
   <Project Path="services/communication-service/Tether.CommunicationService/Tether.CommunicationService.csproj" Id="52fd365d-08fc-4891-9b33-acae9bbff409" />
   <Project Path="services/enforcement-engine/Tether.EnforcementEngine/Tether.EnforcementEngine.csproj" Id="776c4d29-2fc9-46b7-8c1f-60a6658611d9" />
@@ -9,4 +14,5 @@
   <Project Path="shared/Tether.Shared/Tether.Shared.csproj" Id="fa22ec12-1ea6-4d30-b4d0-373c8b9a214d" />
   <Project Path="tests/PipeTest/PipeTest.csproj" Id="d56e1606-90b5-4a6e-8e97-fdd9970ba661" />
   <Project Path="Tether.OverlayUI/Tether.OverlayUI.csproj" Id="7dae31a5-9dbb-4fe0-91ab-84e98beb7030" />
+  <Project Path="TetherCredentialProvider/TetherCredentialProvider.vcxproj" Id="8feec4ff-7295-447f-94ba-6d1fdac8d30e" />
 </Solution>

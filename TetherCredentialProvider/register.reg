@@ -1,0 +1,12 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{C8C8D282-F4F1-451D-96FC-A8B1F783117B}]
+@="SampleV2CredentialProvider"
+
+[HKEY_CLASSES_ROOT\CLSID\{C8C8D282-F4F1-451D-96FC-A8B1F783117B}]
+@="SampleV2CredentialProvider"
+
+[HKEY_CLASSES_ROOT\CLSID\{C8C8D282-F4F1-451D-96FC-A8B1F783117B}\InprocServer32]
+@="TetherCredentialProvider.dll"
+"ThreadingModel"="Apartment"
+
