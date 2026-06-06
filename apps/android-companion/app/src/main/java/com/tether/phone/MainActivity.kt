@@ -141,7 +141,8 @@ class MainActivity : FragmentActivity() {
                         stopService(Intent(this@MainActivity, BleGattServerService::class.java))
                     }
                     BluetoothAdapter.STATE_ON -> {
-                        if (checkPermissions()) startBleService()
+                        // Only auto-restart if the application framework layer isn't locked down by biometrics
+                        if (!isAppLocked.value && checkPermissions()) startBleService()
                     }
                 }
             }
@@ -171,16 +172,23 @@ class MainActivity : FragmentActivity() {
         isHideInRecentsEnabled.value = prefs.getBoolean(hideInRecentsKey, false)
 
         applyWindowSecurityFlags()
-
         evaluateDeviceIntegrity()
 
         if (isPanicActive.value) {
             setPanicUiState()
         }
 
+        // FIX 1: Evaluate if lockscreen gateway criteria should block operational startup routines immediately
         if (isBiometricSettingEnabled.value && !isEnvironmentRestricted.value) {
             isAppLocked.value = true
             authenticateForAppUnlock()
+        } else {
+            // No gateway active - verify bounds and start transmission layers normally
+            if (checkPermissions()) {
+                checkAndEnableBluetooth()
+            } else {
+                requestPermissions()
+            }
         }
 
         setContent {
@@ -269,12 +277,6 @@ class MainActivity : FragmentActivity() {
         }
 
         registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
-
-        if (checkPermissions()) {
-            checkAndEnableBluetooth()
-        } else {
-            requestPermissions()
-        }
     }
 
     private fun evaluateDeviceIntegrity() {
@@ -316,11 +318,13 @@ class MainActivity : FragmentActivity() {
 
             if (selectedTimeoutMs.value == 0L) {
                 isAppLocked.value = true
+                stopBleServiceLeak() // Terminate any leaking radio state on validation intercept
                 authenticateForAppUnlock()
             } else if (leftBackgroundAt != 0L) {
                 val elapsed = System.currentTimeMillis() - leftBackgroundAt
                 if (elapsed >= selectedTimeoutMs.value) {
                     isAppLocked.value = true
+                    stopBleServiceLeak()
                     authenticateForAppUnlock()
                 }
             }
@@ -339,6 +343,13 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private fun stopBleServiceLeak() {
+        stopService(Intent(this, BleGattServerService::class.java))
+        uiStatusText.value = "SECURITY GATE ACTIVE"
+        uiStatusColor.value = TextSecondary
+        uiConnectionStatusText.value = "Awaiting verification"
+    }
+
     private fun authenticateForAppUnlock() {
         authenticateViaSystem(
             title = "🌌 Cybernetic Decryption",
@@ -350,6 +361,13 @@ class MainActivity : FragmentActivity() {
                     isAppLocked.value = false
                     getSharedPreferences(preferenceName, Context.MODE_PRIVATE).edit()
                         .putLong(appLockBackgroundTimestampKey, 0L).apply()
+
+                    // Safe verification block passed -> safe to spin up background hardware loops
+                    if (checkPermissions()) {
+                        checkAndEnableBluetooth()
+                    } else {
+                        requestPermissions()
+                    }
                 }
             } else {
                 runOnUiThread {
@@ -479,7 +497,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun triggerBleAction(action: String, toastMessage: String) {
-        if (isEnvironmentRestricted.value) return
+        if (isEnvironmentRestricted.value || isAppLocked.value) return
         Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
         val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
             this.action = action
@@ -505,6 +523,22 @@ class MainActivity : FragmentActivity() {
         return required.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
 
+    // FIX 2: Explicitly monitor system permission results asynchronously to bootstrap cleanly after fresh installation setup loops
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == requestPermissionsCode) {
+            if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                if (!isAppLocked.value) {
+                    checkAndEnableBluetooth()
+                }
+            } else {
+                uiStatusText.value = "PERMISSIONS REQUIRED"
+                uiStatusColor.value = NeonRed
+                Toast.makeText(this, "BLE parameters must be manually allowed on clean launch configs", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private fun requestPermissions() {
         val required = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -519,13 +553,16 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun checkAndEnableBluetooth() {
-        val bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        val bluetoothManager = getSystemService(BluetoothManager::class.java)
+        val bluetoothAdapter = bluetoothManager?.adapter
+        if (bluetoothAdapter == null) return
+
         if (bluetoothAdapter.isEnabled) startBleService()
         else enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
     }
 
     private fun startBleService() {
-        if (isPanicActive.value || isEnvironmentRestricted.value) return
+        if (isPanicActive.value || isEnvironmentRestricted.value || isAppLocked.value) return
 
         val serviceIntent = Intent(this, BleGattServerService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent)
@@ -949,7 +986,6 @@ fun DeviceAttestationCard(context: Context) {
         value = evaluator.runAttestationPipeline()
     }
 
-    // Toggle state tracking for breakdown modal overlay
     var showInfoDialog by remember { mutableStateOf(false) }
 
     Column(
@@ -982,7 +1018,6 @@ fun DeviceAttestationCard(context: Context) {
                 )
             }
 
-            // Score tracking node containing custom Info telemetry button
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { showInfoDialog = true }) {
                     Icon(
@@ -1023,7 +1058,6 @@ fun DeviceAttestationCard(context: Context) {
         }
     }
 
-    // Modal breakdown layer outlining metrics vectors explicitly
     if (showInfoDialog) {
         AlertDialog(
             onDismissRequest = { showInfoDialog = false },
@@ -1041,7 +1075,6 @@ fun DeviceAttestationCard(context: Context) {
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    // Passed parameters that actively added points to score compilation
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = "▲ CREDITED METRICS (PASSED)",
@@ -1058,7 +1091,6 @@ fun DeviceAttestationCard(context: Context) {
                         if (report.isSecureLockscreenEnabled) AttestationBreakdownRow("Lockscreen Protection Enabled", "+10", NeonGreen)
                     }
 
-                    // Failed parameters currently holding score beneath nominal limits
                     val missingPointsExist = !report.isBootloaderLocked || !report.isNotRooted ||
                             !report.isDevOptionsDisabled || !report.isUsbDebuggingDisabled ||
                             !report.isAppIntegrityValid || !report.isSecureLockscreenEnabled
@@ -1690,7 +1722,11 @@ class DeviceIntegrityRegistry(private val context: Context) {
     }
 
     private fun verifyAppSignatureIntegrity(): Boolean {
-        val installer = context.packageManager.getInstallerPackageName(context.packageName)
-        return !installer.isNullOrEmpty() || Build.FINGERPRINT.startsWith("generic")
+        try {
+            val installer = context.packageManager.getInstallerPackageName(context.packageName)
+            return !installer.isNullOrEmpty() || Build.FINGERPRINT.startsWith("generic")
+        } catch (e: Exception) {
+            return false
+        }
     }
 }

@@ -30,6 +30,9 @@ class BleGattServerService : Service() {
     private lateinit var securityEngine: ProductionSecurityEngine
     private var activeChallenge: ByteArray? = null
 
+    // Reference to the command characteristic for notifications
+    private var commandCharacteristic: BluetoothGattCharacteristic? = null
+
     companion object {
         private val SERVICE_UUID = UUID.fromString("0000FFE0-0000-1000-8000-00805F9B34FB")
 
@@ -38,6 +41,12 @@ class BleGattServerService : Service() {
 
         // Characteristic where the laptop reads back the hardware signature
         private val SIGNATURE_CHAR_UUID = UUID.fromString("0000FFE4-0000-1000-8000-00805F9B34FB")
+
+        // New Characteristic: Phone writes manual button action overrides here to notify Windows
+        private val COMMAND_CHAR_UUID = UUID.fromString("0000FFE5-0000-1000-8000-00805F9B34FB")
+
+        // Standard Client Characteristic Configuration Descriptor (CCCD)
+        private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
         private const val CHANNEL_ID = "tether_proximity_channel"
         private const val NOTIFICATION_ID = 1
@@ -64,6 +73,26 @@ class BleGattServerService : Service() {
         startAdvertising()
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val action = intent?.action
+        if (action != null && commandCharacteristic != null) {
+            Log.d("TetherBLE", "Processing local UI button action pipeline: $action")
+
+            // Update characteristic value buffer locally
+            commandCharacteristic?.value = action.toByteArray(Charsets.UTF_8)
+
+            // Push notification to all explicitly paired/connected GATT client nodes
+            val bluetoothManager = getSystemService(BluetoothManager::class.java)
+            val connectedDevices = bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT)
+            if (connectedDevices != null) {
+                for (device in connectedDevices) {
+                    bluetoothGattServer?.notifyCharacteristicChanged(device, commandCharacteristic, false)
+                }
+            }
+        }
+        return START_STICKY
+    }
+
     private fun setupGattServer() {
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         try {
@@ -85,8 +114,23 @@ class BleGattServerService : Service() {
                 BluetoothGattCharacteristic.PERMISSION_READ_ENCRYPTED // Enforces system bonding requirement automatically
             )
 
+            // Command Characteristic: Phone broadcasts manual panel interactions instantly via Notify
+            val commandChar = BluetoothGattCharacteristic(
+                COMMAND_CHAR_UUID,
+                BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+                BluetoothGattCharacteristic.PERMISSION_READ_ENCRYPTED
+            )
+
+            // Attach standard configuration descriptor required for Windows client event subscriptions
+            val cccdDescriptor = BluetoothGattDescriptor(CCCD_UUID, BluetoothGattDescriptor.PERMISSION_WRITE)
+            commandChar.addDescriptor(cccdDescriptor)
+
             service.addCharacteristic(challengeChar)
             service.addCharacteristic(signatureChar)
+            service.addCharacteristic(commandChar)
+
+            this.commandCharacteristic = commandChar
+
             bluetoothGattServer?.addService(service)
         } catch (e: SecurityException) {
             Log.e("TetherBLE", "GATT Setup failed: ${e.message}")
@@ -142,11 +186,28 @@ class BleGattServerService : Service() {
                     // Fail if laptop attempts to read signature before writing a challenge
                     bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
                 }
+            } else if (characteristic?.uuid == COMMAND_CHAR_UUID) {
+                val currentCommand = commandCharacteristic?.value ?: byteArrayOf()
+                bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, currentCommand)
+            }
+        }
+
+        override fun onDescriptorWriteRequest(
+            device: BluetoothDevice?,
+            requestId: Int,
+            descriptor: BluetoothGattDescriptor?,
+            preparedWrite: Boolean,
+            responseNeeded: Boolean,
+            offset: Int,
+            value: ByteArray?
+        ) {
+            super.onDescriptorWriteRequest(device, requestId, descriptor, preparedWrite, responseNeeded, offset, value)
+            if (responseNeeded) {
+                bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
             }
         }
     }
 
-    // Inside BleGattServerService.kt
     private fun startAdvertising() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
