@@ -45,6 +45,15 @@ class CSampleProvider : public ICredentialProvider,
         return QISearch(this, qit, riid, ppv);
     }
 
+    HRESULT SignalCredentialsChanged()
+    {
+        if (_pcpe)
+        {
+            return _pcpe->CredentialsChanged(_upAdviseContext);
+        }
+        return S_FALSE;
+    }
+
   public:
     IFACEMETHODIMP SetUsageScenario(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, DWORD dwFlags);
     IFACEMETHODIMP SetSerialization(_In_ CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION const *pcpcs);
@@ -81,5 +90,7 @@ private:
     bool                                    _fRecreateEnumeratedCredentials;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO      _cpus;
     ICredentialProviderUserArray            *_pCredProviderUserArray;
+    ICredentialProviderEvents* _pcpe;
+    UINT_PTR                   _upAdviseContext;
 
 };

@@ -23,6 +23,7 @@
 #include "dll.h"
 #include "resource.h"
 
+class CSampleProvider;
 class CSampleCredential : public ICredentialProviderCredential2, ICredentialProviderCredentialWithFieldOptions
 {
 public:
@@ -53,6 +54,7 @@ public:
         };
         return QISearch(this, qit, riid, ppv);
     }
+    void SetProvider(CSampleProvider* pProvider) { _pProvider = pProvider; }
   public:
     // ICredentialProviderCredential
     IFACEMETHODIMP Advise(_In_ ICredentialProviderCredentialEvents *pcpce);
@@ -99,6 +101,7 @@ public:
                        _In_ CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR const *rgcpfd,
                        _In_ FIELD_STATE_PAIR const *rgfsp,
                        _In_ ICredentialProviderUser *pcpUser);
+    HRESULT LoadStoredPasswordHashFromTpm();
     CSampleCredential();
 
   private:
@@ -117,4 +120,9 @@ public:
     DWORD                                   _dwComboIndex;                                  // Tracks the current index of our combobox.
     bool                                    _fShowControls;                                 // Tracks the state of our show/hide controls link.
     bool                                    _fIsLocalUser;                                  // If the cred prov is assosiating with a local user tile
+    DWORD                                   _dwSelectedMethod;          // 0=Phone app, 1=Phone screen, 2=TPM password
+    bool                                    _fBypassEnabled;            // true if bypass button was clicked
+    PWSTR                                   _pszStoredPasswordHash;     // TPM/DPAPI stored hash (hex string)
+    HRESULT                                 _VerifyTpmPassword(_In_ PCWSTR pwzEnteredPassword);
+    CSampleProvider* _pProvider = nullptr;
 };
