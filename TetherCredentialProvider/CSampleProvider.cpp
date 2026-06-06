@@ -178,13 +178,17 @@ HRESULT CSampleProvider::GetCredentialCount(
 // the tiles.
 HRESULT CSampleProvider::GetCredentialAt(
     DWORD dwIndex,
-    _Outptr_result_nullonfailure_ ICredentialProviderCredential **ppcpc)
+    _Outptr_result_nullonfailure_ ICredentialProviderCredential** ppcpc)
 {
     HRESULT hr = E_INVALIDARG;
     *ppcpc = nullptr;
 
     if ((dwIndex == 0) && ppcpc)
     {
+        if (_pCredential)
+        {
+            _pCredential->SetProvider(this);
+        }
         hr = _pCredential->QueryInterface(IID_PPV_ARGS(ppcpc));
     }
     return hr;

@@ -13,10 +13,13 @@
 #define WIN32_NO_STATUS
 #endif
 #include <unknwn.h>
+#include <wincrypt.h>
+#include <winreg.h>
 #include "CSampleCredential.h"
+#include "CSampleProvider.h"
 #include "guid.h"
 
-CSampleCredential::CSampleCredential():
+CSampleCredential::CSampleCredential() :
     _cRef(1),
     _pCredProvCredentialEvents(nullptr),
     _pszUserSid(nullptr),
@@ -24,7 +27,10 @@ CSampleCredential::CSampleCredential():
     _fIsLocalUser(false),
     _fChecked(false),
     _fShowControls(false),
-    _dwComboIndex(0)
+    _dwComboIndex(0),
+    _dwSelectedMethod(0),
+    _fBypassEnabled(false),
+    _pszStoredPasswordHash(nullptr)
 {
     DllAddRef();
 
@@ -45,6 +51,7 @@ CSampleCredential::~CSampleCredential()
         CoTaskMemFree(_rgFieldStrings[i]);
         CoTaskMemFree(_rgCredProvFieldDescriptors[i].pszLabel);
     }
+    CoTaskMemFree(_pszStoredPasswordHash);
     CoTaskMemFree(_pszUserSid);
     CoTaskMemFree(_pszQualifiedUserName);
     DllRelease();
@@ -91,6 +98,12 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
         hr = SHStrDupW(L"Open Tether Manager", &_rgFieldStrings[SFI_LAUNCHWINDOW_LINK]);
     if (SUCCEEDED(hr))
         hr = SHStrDupW(L"Show advanced settings", &_rgFieldStrings[SFI_HIDECONTROLS_LINK]);
+    if (SUCCEEDED(hr))
+        hr = SHStrDupW(L"Select unlock method:", &_rgFieldStrings[SFI_METHOD_LABEL]);
+    if (SUCCEEDED(hr))
+        hr = SHStrDupW(s_rgUnlockMethodStrings[0], &_rgFieldStrings[SFI_METHOD_COMBOBOX]); // default text
+    if (SUCCEEDED(hr))
+        hr = SHStrDupW(L"Bypass (dev only)", &_rgFieldStrings[SFI_BYPASS_BUTTON]);
 
     // Get user information from the system
     if (SUCCEEDED(hr))
@@ -99,6 +112,11 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     {
         PWSTR pszUserName;
         hr = pcpUser->GetStringValue(PKEY_Identity_UserName, &pszUserName);
+        if (SUCCEEDED(hr))
+        {
+            LoadStoredPasswordHashFromTpm();
+        }
+
         if (SUCCEEDED(hr) && pszUserName)
         {
             wchar_t szString[256];
@@ -114,8 +132,30 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     return hr;
 }
 
+HRESULT CSampleCredential::LoadStoredPasswordHashFromTpm()
+{
+    HRESULT hr = S_FALSE;
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        WCHAR szHash[512];
+        DWORD dwSize = sizeof(szHash);
+        if (RegQueryValueExW(hKey, L"PasswordHash", nullptr, nullptr, (LPBYTE)szHash, &dwSize) == ERROR_SUCCESS)
+        {
+            hr = SHStrDupW(szHash, &_pszStoredPasswordHash);
+        }
+        RegCloseKey(hKey);
+    }
+    // If not present, default to empty (no password set)
+    if (FAILED(hr))
+    {
+        hr = SHStrDupW(L"", &_pszStoredPasswordHash);
+    }
+    return hr;
+}
+
 // LogonUI calls this in order to give us a callback in case we need to notify it of anything.
-HRESULT CSampleCredential::Advise(_In_ ICredentialProviderCredentialEvents *pcpce)
+HRESULT CSampleCredential::Advise(_In_ ICredentialProviderCredentialEvents* pcpce)
 {
     if (_pCredProvCredentialEvents != nullptr)
     {
@@ -141,7 +181,7 @@ HRESULT CSampleCredential::UnAdvise()
 // field definitions. But if you want to do something
 // more complicated, like change the contents of a field when the tile is
 // selected, you would do it here.
-HRESULT CSampleCredential::SetSelected(_Out_ BOOL *pbAutoLogon)
+HRESULT CSampleCredential::SetSelected(_Out_ BOOL* pbAutoLogon)
 {
     *pbAutoLogon = FALSE;
     return S_OK;
@@ -173,8 +213,8 @@ HRESULT CSampleCredential::SetDeselected()
 // Get info for a particular field of a tile. Called by logonUI to get information
 // to display the tile.
 HRESULT CSampleCredential::GetFieldState(DWORD dwFieldID,
-                                         _Out_ CREDENTIAL_PROVIDER_FIELD_STATE *pcpfs,
-                                         _Out_ CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE *pcpfis)
+    _Out_ CREDENTIAL_PROVIDER_FIELD_STATE* pcpfs,
+    _Out_ CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE* pcpfis)
 {
     HRESULT hr;
 
@@ -193,7 +233,7 @@ HRESULT CSampleCredential::GetFieldState(DWORD dwFieldID,
 }
 
 // Sets ppwsz to the string value of the field at the index dwFieldID
-HRESULT CSampleCredential::GetStringValue(DWORD dwFieldID, _Outptr_result_nullonfailure_ PWSTR *ppwsz)
+HRESULT CSampleCredential::GetStringValue(DWORD dwFieldID, _Outptr_result_nullonfailure_ PWSTR* ppwsz)
 {
     HRESULT hr;
     *ppwsz = nullptr;
@@ -214,7 +254,7 @@ HRESULT CSampleCredential::GetStringValue(DWORD dwFieldID, _Outptr_result_nullon
 }
 
 // Get the image to show in the user tile
-HRESULT CSampleCredential::GetBitmapValue(DWORD dwFieldID, _Outptr_result_nullonfailure_ HBITMAP *phbmp)
+HRESULT CSampleCredential::GetBitmapValue(DWORD dwFieldID, _Outptr_result_nullonfailure_ HBITMAP* phbmp)
 {
     HRESULT hr;
     *phbmp = nullptr;
@@ -244,7 +284,7 @@ HRESULT CSampleCredential::GetBitmapValue(DWORD dwFieldID, _Outptr_result_nullon
 // adjacent to. We recommend that the submit button is placed next to the last
 // field which the user is required to enter information in. Optional fields
 // should be below the submit button.
-HRESULT CSampleCredential::GetSubmitButtonValue(DWORD dwFieldID, _Out_ DWORD *pdwAdjacentTo)
+HRESULT CSampleCredential::GetSubmitButtonValue(DWORD dwFieldID, _Out_ DWORD* pdwAdjacentTo)
 {
     HRESULT hr;
 
@@ -271,9 +311,9 @@ HRESULT CSampleCredential::SetStringValue(DWORD dwFieldID, _In_ PCWSTR pwz)
     // Validate parameters.
     if (dwFieldID < ARRAYSIZE(_rgCredProvFieldDescriptors) &&
         (CPFT_EDIT_TEXT == _rgCredProvFieldDescriptors[dwFieldID].cpft ||
-        CPFT_PASSWORD_TEXT == _rgCredProvFieldDescriptors[dwFieldID].cpft))
+            CPFT_PASSWORD_TEXT == _rgCredProvFieldDescriptors[dwFieldID].cpft))
     {
-        PWSTR *ppwszStored = &_rgFieldStrings[dwFieldID];
+        PWSTR* ppwszStored = &_rgFieldStrings[dwFieldID];
         CoTaskMemFree(*ppwszStored);
         hr = SHStrDupW(pwz, ppwszStored);
     }
@@ -286,7 +326,7 @@ HRESULT CSampleCredential::SetStringValue(DWORD dwFieldID, _In_ PCWSTR pwz)
 }
 
 // Returns whether a checkbox is checked or not as well as its label.
-HRESULT CSampleCredential::GetCheckboxValue(DWORD dwFieldID, _Out_ BOOL *pbChecked, _Outptr_result_nullonfailure_ PWSTR *ppwszLabel)
+HRESULT CSampleCredential::GetCheckboxValue(DWORD dwFieldID, _Out_ BOOL* pbChecked, _Outptr_result_nullonfailure_ PWSTR* ppwszLabel)
 {
     HRESULT hr;
     *ppwszLabel = nullptr;
@@ -328,76 +368,67 @@ HRESULT CSampleCredential::SetCheckboxValue(DWORD dwFieldID, BOOL bChecked)
 
 // Returns the number of items to be included in the combobox (pcItems), as well as the
 // currently selected item (pdwSelectedItem).
-HRESULT CSampleCredential::GetComboBoxValueCount(DWORD dwFieldID, _Out_ DWORD *pcItems, _Deref_out_range_(<, *pcItems) _Out_ DWORD *pdwSelectedItem)
+HRESULT CSampleCredential::GetComboBoxValueCount(DWORD dwFieldID, _Out_ DWORD* pcItems, _Out_ DWORD* pdwSelectedItem)
 {
-    HRESULT hr;
-    *pcItems = 0;
-    *pdwSelectedItem = 0;
-
-    // Validate parameters.
-    if (dwFieldID < ARRAYSIZE(_rgCredProvFieldDescriptors) &&
-        (CPFT_COMBOBOX == _rgCredProvFieldDescriptors[dwFieldID].cpft))
+    if (dwFieldID == SFI_COMBOBOX)
     {
         *pcItems = _countof(s_rgComboBoxStrings);
-        *pdwSelectedItem = 0;
-        hr = S_OK;
+        *pdwSelectedItem = _dwComboIndex;
+        return S_OK;
     }
-    else
+    else if (dwFieldID == SFI_METHOD_COMBOBOX)
     {
-        hr = E_INVALIDARG;
+        *pcItems = _countof(s_rgUnlockMethodStrings);
+        *pdwSelectedItem = _dwSelectedMethod;
+        return S_OK;
     }
-
-    return hr;
+    return E_INVALIDARG;
 }
 
 // Called iteratively to fill the combobox with the string (ppwszItem) at index dwItem.
-HRESULT CSampleCredential::GetComboBoxValueAt(DWORD dwFieldID, DWORD dwItem, _Outptr_result_nullonfailure_ PWSTR *ppwszItem)
+HRESULT CSampleCredential::GetComboBoxValueAt(DWORD dwFieldID, DWORD dwItem, _Outptr_result_nullonfailure_ PWSTR* ppwszItem)
 {
-    HRESULT hr;
-    *ppwszItem = nullptr;
-
-    // Validate parameters.
-    if (dwFieldID < ARRAYSIZE(_rgCredProvFieldDescriptors) &&
-        (CPFT_COMBOBOX == _rgCredProvFieldDescriptors[dwFieldID].cpft))
+    if (dwFieldID == SFI_COMBOBOX && dwItem < _countof(s_rgComboBoxStrings))
     {
-        hr = SHStrDupW(s_rgComboBoxStrings[dwItem], ppwszItem);
+        return SHStrDupW(s_rgComboBoxStrings[dwItem], ppwszItem);
     }
-    else
+    else if (dwFieldID == SFI_METHOD_COMBOBOX && dwItem < _countof(s_rgUnlockMethodStrings))
     {
-        hr = E_INVALIDARG;
+        return SHStrDupW(s_rgUnlockMethodStrings[dwItem], ppwszItem);
     }
-
-    return hr;
+    return E_INVALIDARG;
 }
 
 // Called when the user changes the selected item in the combobox.
 HRESULT CSampleCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD dwSelectedItem)
 {
-    HRESULT hr;
-
-    // Validate parameters.
-    if (dwFieldID < ARRAYSIZE(_rgCredProvFieldDescriptors) &&
-        (CPFT_COMBOBOX == _rgCredProvFieldDescriptors[dwFieldID].cpft))
+    if (dwFieldID == SFI_COMBOBOX && dwSelectedItem < _countof(s_rgComboBoxStrings))
     {
         _dwComboIndex = dwSelectedItem;
-        hr = S_OK;
+        return S_OK;
     }
-    else
+    else if (dwFieldID == SFI_METHOD_COMBOBOX && dwSelectedItem < _countof(s_rgUnlockMethodStrings))
     {
-        hr = E_INVALIDARG;
+        _dwSelectedMethod = dwSelectedItem;
+        // Optionally show/hide password field based on method
+        if (_pCredProvCredentialEvents)
+        {
+            _pCredProvCredentialEvents->BeginFieldUpdates();
+            CREDENTIAL_PROVIDER_FIELD_STATE cpfs = (_dwSelectedMethod == 2) ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
+            _pCredProvCredentialEvents->SetFieldState(this, SFI_PASSWORD, cpfs);
+            _pCredProvCredentialEvents->EndFieldUpdates();
+        }
+        return S_OK;
     }
-
-    return hr;
+    return E_INVALIDARG;
 }
 
 // Called when the user clicks a command link.
 HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
 {
     HRESULT hr = S_OK;
-
     CREDENTIAL_PROVIDER_FIELD_STATE cpfsShow = CPFS_HIDDEN;
 
-    // Validate parameter.
     if (dwFieldID < ARRAYSIZE(_rgCredProvFieldDescriptors) &&
         (CPFT_COMMAND_LINK == _rgCredProvFieldDescriptors[dwFieldID].cpft))
     {
@@ -406,13 +437,10 @@ HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
         {
         case SFI_LAUNCHWINDOW_LINK:
             if (_pCredProvCredentialEvents)
-            {
                 _pCredProvCredentialEvents->OnCreatingWindow(&hwndOwner);
-            }
-
-            // Pop a messagebox indicating the click.
             ::MessageBox(hwndOwner, L"Command link clicked", L"Click!", 0);
             break;
+
         case SFI_HIDECONTROLS_LINK:
             _pCredProvCredentialEvents->BeginFieldUpdates();
             cpfsShow = _fShowControls ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
@@ -422,30 +450,56 @@ HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
             _pCredProvCredentialEvents->SetFieldState(nullptr, SFI_CHECKBOX, cpfsShow);
             _pCredProvCredentialEvents->SetFieldState(nullptr, SFI_EDIT_TEXT, cpfsShow);
             _pCredProvCredentialEvents->SetFieldState(nullptr, SFI_COMBOBOX, cpfsShow);
-            _pCredProvCredentialEvents->SetFieldString(nullptr, SFI_HIDECONTROLS_LINK, _fShowControls? L"Hide additional controls" : L"Show additional controls");
+            _pCredProvCredentialEvents->SetFieldString(nullptr, SFI_HIDECONTROLS_LINK, _fShowControls ? L"Hide additional controls" : L"Show additional controls");
             _pCredProvCredentialEvents->EndFieldUpdates();
             _fShowControls = !_fShowControls;
             break;
+
+        case SFI_BYPASS_BUTTON:
+        {
+            // Check registry for bypass enable (development only)
+            HKEY hKey;
+            DWORD dwEnabled = 0;
+            DWORD dwSize = sizeof(dwEnabled);
+            if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+            {
+                RegQueryValueExW(hKey, L"EnableBypass", nullptr, nullptr, (LPBYTE)&dwEnabled, &dwSize);
+                RegCloseKey(hKey);
+            }
+            if (dwEnabled == 1)
+            {
+                _fBypassEnabled = true;
+
+                if (_pProvider)
+                {
+                    _pProvider->SignalCredentialsChanged();
+                }
+            }
+            else
+            {
+                MessageBox(nullptr, L"Bypass not enabled. Set HKLM\\SOFTWARE\\Tether\\CredentialProvider\\EnableBypass=1", L"Dev mode", MB_OK);
+            }
+        }
+        break;
+
         default:
             hr = E_INVALIDARG;
         }
-
     }
     else
     {
         hr = E_INVALIDARG;
     }
-
     return hr;
 }
 
 // Collect the username and password into a serialized credential for the correct usage scenario
 // (logon/unlock is what's demonstrated in this sample).  LogonUI then passes these credentials
 // back to the system to log on.
-HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE *pcpgsr,
-                                            _Out_ CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs,
-                                            _Outptr_result_maybenull_ PWSTR *ppwszOptionalStatusText,
-                                            _Out_ CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon)
+HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
+    _Out_ CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
+    _Outptr_result_maybenull_ PWSTR* ppwszOptionalStatusText,
+    _Out_ CREDENTIAL_PROVIDER_STATUS_ICON* pcpsiOptionalStatusIcon)
 {
     HRESULT hr = E_UNEXPECTED;
     *pcpgsr = CPGSR_NO_CREDENTIAL_NOT_FINISHED;
@@ -453,8 +507,163 @@ HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIAL
     *pcpsiOptionalStatusIcon = CPSI_NONE;
     ZeroMemory(pcpcs, sizeof(*pcpcs));
 
-    // For local user, the domain and user name can be split from _pszQualifiedUserName (domain\username).
-    // CredPackAuthenticationBuffer() cannot be used because it won't work with unlock scenario.
+    // 1) Development bypass
+    if (_fBypassEnabled)
+    {
+        PWSTR pszDomain = nullptr, pszUsername = nullptr;
+        hr = SplitDomainAndUsername(_pszQualifiedUserName, &pszDomain, &pszUsername);
+        if (SUCCEEDED(hr))
+        {
+            KERB_INTERACTIVE_UNLOCK_LOGON kiul;
+            WCHAR szEmptyPassword[] = L"";
+            hr = KerbInteractiveUnlockLogonInit(pszDomain, pszUsername, szEmptyPassword, _cpus, &kiul);
+            if (SUCCEEDED(hr))
+            {
+                hr = KerbInteractiveUnlockLogonPack(kiul, &pcpcs->rgbSerialization, &pcpcs->cbSerialization);
+                if (SUCCEEDED(hr))
+                {
+                    ULONG ulAuthPackage;
+                    hr = RetrieveNegotiateAuthPackage(&ulAuthPackage);
+                    if (SUCCEEDED(hr))
+                    {
+                        pcpcs->ulAuthenticationPackage = ulAuthPackage;
+                        pcpcs->clsidCredentialProvider = CLSID_CSample;
+                        *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
+                    }
+                }
+            }
+            CoTaskMemFree(pszDomain);
+            CoTaskMemFree(pszUsername);
+        }
+        _fBypassEnabled = false;
+        return hr;
+    }
+
+    // 2) Method 1: Phone Screen Unlock
+    if (_dwSelectedMethod == 1)
+    {
+        HANDLE hEvent = OpenEventW(SYNCHRONIZE, FALSE, L"Global\\TetherPhoneScreenUnlocked");
+        if (hEvent)
+        {
+            if (WaitForSingleObject(hEvent, 0) == WAIT_OBJECT_0)
+            {
+                ResetEvent(hEvent);
+                CloseHandle(hEvent);
+                PWSTR pszDomain = nullptr, pszUsername = nullptr;
+                hr = SplitDomainAndUsername(_pszQualifiedUserName, &pszDomain, &pszUsername);
+                if (SUCCEEDED(hr))
+                {
+                    KERB_INTERACTIVE_UNLOCK_LOGON kiul;
+                    WCHAR szEmptyPassword[] = L"";
+                    hr = KerbInteractiveUnlockLogonInit(pszDomain, pszUsername, szEmptyPassword, _cpus, &kiul);
+                    if (SUCCEEDED(hr))
+                    {
+                        hr = KerbInteractiveUnlockLogonPack(kiul, &pcpcs->rgbSerialization, &pcpcs->cbSerialization);
+                        if (SUCCEEDED(hr))
+                        {
+                            ULONG ulAuthPackage;
+                            hr = RetrieveNegotiateAuthPackage(&ulAuthPackage);
+                            if (SUCCEEDED(hr))
+                            {
+                                pcpcs->ulAuthenticationPackage = ulAuthPackage;
+                                pcpcs->clsidCredentialProvider = CLSID_CSample;
+                                *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
+                            }
+                        }
+                    }
+                    CoTaskMemFree(pszDomain);
+                    CoTaskMemFree(pszUsername);
+                }
+                return hr;
+            }
+            CloseHandle(hEvent);
+        }
+        return S_FALSE;
+    }
+
+    // 3) Method 2: TPM-Stored Password
+    if (_dwSelectedMethod == 2)
+    {
+        if (SUCCEEDED(_VerifyTpmPassword(_rgFieldStrings[SFI_PASSWORD])))
+        {
+            if (_fIsLocalUser)
+            {
+                PWSTR pwzProtectedPassword;
+                hr = ProtectIfNecessaryAndCopyPassword(_rgFieldStrings[SFI_PASSWORD], _cpus, &pwzProtectedPassword);
+                if (SUCCEEDED(hr))
+                {
+                    PWSTR pszDomain;
+                    PWSTR pszUsername;
+                    hr = SplitDomainAndUsername(_pszQualifiedUserName, &pszDomain, &pszUsername);
+                    if (SUCCEEDED(hr))
+                    {
+                        KERB_INTERACTIVE_UNLOCK_LOGON kiul;
+                        hr = KerbInteractiveUnlockLogonInit(pszDomain, pszUsername, pwzProtectedPassword, _cpus, &kiul);
+                        if (SUCCEEDED(hr))
+                        {
+                            hr = KerbInteractiveUnlockLogonPack(kiul, &pcpcs->rgbSerialization, &pcpcs->cbSerialization);
+                            if (SUCCEEDED(hr))
+                            {
+                                ULONG ulAuthPackage;
+                                hr = RetrieveNegotiateAuthPackage(&ulAuthPackage);
+                                if (SUCCEEDED(hr))
+                                {
+                                    pcpcs->ulAuthenticationPackage = ulAuthPackage;
+                                    pcpcs->clsidCredentialProvider = CLSID_CSample;
+                                    *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
+                                }
+                            }
+                        }
+                        CoTaskMemFree(pszDomain);
+                        CoTaskMemFree(pszUsername);
+                    }
+                    CoTaskMemFree(pwzProtectedPassword);
+                }
+            }
+            else
+            {
+                DWORD dwAuthFlags = CRED_PACK_PROTECTED_CREDENTIALS | CRED_PACK_ID_PROVIDER_CREDENTIALS;
+                if (!CredPackAuthenticationBuffer(dwAuthFlags, _pszQualifiedUserName, const_cast<PWSTR>(_rgFieldStrings[SFI_PASSWORD]), nullptr, &pcpcs->cbSerialization) &&
+                    GetLastError() == ERROR_INSUFFICIENT_BUFFER)
+                {
+                    pcpcs->rgbSerialization = static_cast<byte*>(CoTaskMemAlloc(pcpcs->cbSerialization));
+                    if (pcpcs->rgbSerialization)
+                    {
+                        if (CredPackAuthenticationBuffer(dwAuthFlags, _pszQualifiedUserName, const_cast<PWSTR>(_rgFieldStrings[SFI_PASSWORD]), pcpcs->rgbSerialization, &pcpcs->cbSerialization))
+                        {
+                            ULONG ulAuthPackage;
+                            hr = RetrieveNegotiateAuthPackage(&ulAuthPackage);
+                            if (SUCCEEDED(hr))
+                            {
+                                pcpcs->ulAuthenticationPackage = ulAuthPackage;
+                                pcpcs->clsidCredentialProvider = CLSID_CSample;
+                                *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
+                            }
+                        }
+                        else
+                            hr = HRESULT_FROM_WIN32(GetLastError());
+                    }
+                    else
+                        hr = E_OUTOFMEMORY;
+                }
+                else
+                    hr = E_FAIL;
+            }
+            return hr;
+        }
+        else
+        {
+            if (_pCredProvCredentialEvents)
+                _pCredProvCredentialEvents->SetFieldString(this, SFI_PASSWORD, L"");
+            *pcpgsr = CPGSR_NO_CREDENTIAL_NOT_FINISHED;
+            SHStrDupW(L"Incorrect TPM password", ppwszOptionalStatusText);
+            *pcpsiOptionalStatusIcon = CPSI_ERROR;
+            return S_FALSE;
+        }
+    }
+
+    // 4) Method 0 (default): Phone App unlock - Original logic preserved
+    // For local user
     if (_fIsLocalUser)
     {
         PWSTR pwzProtectedPassword;
@@ -470,9 +679,6 @@ HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIAL
                 hr = KerbInteractiveUnlockLogonInit(pszDomain, pszUsername, pwzProtectedPassword, _cpus, &kiul);
                 if (SUCCEEDED(hr))
                 {
-                    // We use KERB_INTERACTIVE_UNLOCK_LOGON in both unlock and logon scenarios.  It contains a
-                    // KERB_INTERACTIVE_LOGON to hold the creds plus a LUID that is filled in for us by Winlogon
-                    // as necessary.
                     hr = KerbInteractiveUnlockLogonPack(kiul, &pcpcs->rgbSerialization, &pcpcs->cbSerialization);
                     if (SUCCEEDED(hr))
                     {
@@ -482,10 +688,6 @@ HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIAL
                         {
                             pcpcs->ulAuthenticationPackage = ulAuthPackage;
                             pcpcs->clsidCredentialProvider = CLSID_CSample;
-                            // At this point the credential has created the serialized credential used for logon
-                            // By setting this to CPGSR_RETURN_CREDENTIAL_FINISHED we are letting logonUI know
-                            // that we have all the information we need and it should attempt to submit the
-                            // serialized credential.
                             *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
                         }
                     }
@@ -498,18 +700,15 @@ HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIAL
     }
     else
     {
+        // Non-local user (domain account)
         DWORD dwAuthFlags = CRED_PACK_PROTECTED_CREDENTIALS | CRED_PACK_ID_PROVIDER_CREDENTIALS;
-
-        // First get the size of the authentication buffer to allocate
         if (!CredPackAuthenticationBuffer(dwAuthFlags, _pszQualifiedUserName, const_cast<PWSTR>(_rgFieldStrings[SFI_PASSWORD]), nullptr, &pcpcs->cbSerialization) &&
             (GetLastError() == ERROR_INSUFFICIENT_BUFFER))
         {
-            pcpcs->rgbSerialization = static_cast<byte *>(CoTaskMemAlloc(pcpcs->cbSerialization));
+            pcpcs->rgbSerialization = static_cast<byte*>(CoTaskMemAlloc(pcpcs->cbSerialization));
             if (pcpcs->rgbSerialization != nullptr)
             {
                 hr = S_OK;
-
-                // Retrieve the authentication buffer
                 if (CredPackAuthenticationBuffer(dwAuthFlags, _pszQualifiedUserName, const_cast<PWSTR>(_rgFieldStrings[SFI_PASSWORD]), pcpcs->rgbSerialization, &pcpcs->cbSerialization))
                 {
                     ULONG ulAuthPackage;
@@ -518,11 +717,6 @@ HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIAL
                     {
                         pcpcs->ulAuthenticationPackage = ulAuthPackage;
                         pcpcs->clsidCredentialProvider = CLSID_CSample;
-
-                        // At this point the credential has created the serialized credential used for logon
-                        // By setting this to CPGSR_RETURN_CREDENTIAL_FINISHED we are letting logonUI know
-                        // that we have all the information we need and it should attempt to submit the
-                        // serialized credential.
                         *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
                     }
                 }
@@ -534,7 +728,6 @@ HRESULT CSampleCredential::GetSerialization(_Out_ CREDENTIAL_PROVIDER_GET_SERIAL
                         hr = E_FAIL;
                     }
                 }
-
                 if (FAILED(hr))
                 {
                     CoTaskMemFree(pcpcs->rgbSerialization);
@@ -597,7 +790,7 @@ HRESULT CSampleCredential::ReportResult(NTSTATUS ntsStatus,
 }
 
 // Gets the SID of the user corresponding to the credential.
-HRESULT CSampleCredential::GetUserSid(_Outptr_result_nullonfailure_ PWSTR *ppszSid)
+HRESULT CSampleCredential::GetUserSid(_Outptr_result_nullonfailure_ PWSTR* ppszSid)
 {
     *ppszSid = nullptr;
     HRESULT hr = E_UNEXPECTED;
@@ -605,15 +798,58 @@ HRESULT CSampleCredential::GetUserSid(_Outptr_result_nullonfailure_ PWSTR *ppszS
     {
         hr = SHStrDupW(_pszUserSid, ppszSid);
     }
-    // Return S_FALSE with a null SID in ppszSid for the
-    // credential to be associated with an empty user tile.
-
     return hr;
+}
+
+HRESULT CSampleCredential::_VerifyTpmPassword(_In_ PCWSTR pwzEnteredPassword)
+{
+    if (!_pszStoredPasswordHash || wcslen(_pszStoredPasswordHash) == 0)
+        return E_FAIL;
+
+    BYTE hash[32];
+    DWORD cbHash = 32;
+
+    HCRYPTPROV hProv;
+    if (!CryptAcquireContextW(&hProv, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
+        return E_FAIL;
+
+    HCRYPTHASH hHash;
+    if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash))
+    {
+        CryptReleaseContext(hProv, 0);
+        return E_FAIL;
+    }
+
+    BYTE* pwdBytes = (BYTE*)pwzEnteredPassword;
+    DWORD pwdLen = (DWORD)(wcslen(pwzEnteredPassword) * sizeof(WCHAR));
+    if (!CryptHashData(hHash, pwdBytes, pwdLen, 0))
+    {
+        CryptDestroyHash(hHash);
+        CryptReleaseContext(hProv, 0);
+        return E_FAIL;
+    }
+
+    if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &cbHash, 0))
+    {
+        CryptDestroyHash(hHash);
+        CryptReleaseContext(hProv, 0);
+        return E_FAIL;
+    }
+
+    CryptDestroyHash(hHash);
+    CryptReleaseContext(hProv, 0);
+
+    WCHAR computedHex[65];
+    for (int i = 0; i < 32; i++)
+        swprintf_s(&computedHex[i * 2], 3, L"%02x", hash[i]);
+    computedHex[64] = 0;
+
+    return (_wcsicmp(computedHex, _pszStoredPasswordHash) == 0) ? S_OK : E_FAIL;
 }
 
 // GetFieldOptions to enable the password reveal button and touch keyboard auto-invoke in the password field.
 HRESULT CSampleCredential::GetFieldOptions(DWORD dwFieldID,
-                                           _Out_ CREDENTIAL_PROVIDER_CREDENTIAL_FIELD_OPTIONS *pcpcfo)
+    _Out_ CREDENTIAL_PROVIDER_CREDENTIAL_FIELD_OPTIONS* pcpcfo)
 {
     *pcpcfo = CPCFO_NONE;
 
