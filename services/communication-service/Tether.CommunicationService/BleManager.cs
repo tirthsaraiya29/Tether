@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.Numerics;
 using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography; // Added for secure challenge & signature validation
+using System.Security.Cryptography;
 using System.Text;
 using System.Timers;
 using Tether.EventBus;
@@ -47,14 +47,15 @@ public class BleManager : IDisposable
     private readonly Guid SERVICE_UUID = new Guid("0000FFE0-0000-1000-8000-00805F9B34FB");
     private readonly Guid CHALLENGE_CHAR_UUID = new Guid("0000FFE3-0000-1000-8000-00805F9B34FB");
     private readonly Guid SIGNATURE_CHAR_UUID = new Guid("0000FFE4-0000-1000-8000-00805F9B34FB");
+    private readonly Guid COMMAND_CHAR_UUID = new Guid("0000FFE5-0000-1000-8000-00805F9B34FB");
 
     // GATT Characteristic Tracking
     private GattCharacteristic? _challengeChar;
     private GattCharacteristic? _signatureChar;
+    private GattCharacteristic? _commandChar;
 
     /// <summary>
     /// 🔑 PASTE YOUR EXPORTED ANDROID PUBLIC KEY HERE (Base64 Format)
-    /// You can grab this from your Android logs using the securityEngine.getPublicKeyBytes() method.
     /// </summary>
     private const string PHONE_PUBLIC_KEY_BASE64 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0...[PASTE_YOUR_KEY_HERE]...";
 
@@ -68,7 +69,11 @@ public class BleManager : IDisposable
             {
                 lock (_lock)
                 {
-                    _isWorkstationLocked = false;
+                    if (_isWorkstationLocked)
+                    {
+                        _logger.Info("Trust context updated via global EventBus listener setup loop.");
+                        _isWorkstationLocked = false;
+                    }
                 }
             }
         });
@@ -77,33 +82,23 @@ public class BleManager : IDisposable
     public void Start()
     {
         _logger.Info($"BLE Manager starting - cryptographic verification active for target: '{TARGET_DEVICE_NAME}'");
-
-        // Optional: Keep it to drop OS layer communication deadlocks if needed, but not strictly forced for auth safety
-        // _ = UnpairTargetDeviceAsync();
-
         StartScanning();
     }
 
-    // Inside BleManager.cs
-
     private void StartScanning()
     {
-        // Clean up any historical watcher instances if running
         if (_advWatcher != null)
         {
             _advWatcher.Stop();
             _advWatcher.Received -= OnDeviceAdvertised;
         }
 
-        // FIX: Use the raw Advertisement Watcher instead of the device topology watcher
         _advWatcher = new BluetoothLEAdvertisementWatcher
         {
             ScanningMode = BluetoothLEScanningMode.Active
         };
 
-        // Tell Windows to filter out everything EXCEPT your explicit service UUID at the hardware controller layer
         _advWatcher.AdvertisementFilter.Advertisement.ServiceUuids.Add(SERVICE_UUID);
-
         _advWatcher.Received += OnDeviceAdvertised;
         _advWatcher.Start();
         _logger.Info("📡 Raw Over-The-Air UUID Sniffer initialized successfully.");
@@ -113,17 +108,13 @@ public class BleManager : IDisposable
     {
         if (_isConnected || _currentConnectingId != null) return;
 
-        // Grab the unique hardware Bluetooth address from the intercepted radio packet
         string structuralDeviceId = args.BluetoothAddress.ToString();
-
         lock (_lock)
         {
             _currentConnectingId = structuralDeviceId;
         }
 
         _logger.Info($"🎯 Intercepted matching Service UUID from address: {args.BluetoothAddress:X}");
-
-        // Pass the raw address directly to your connection engine
         ConnectToDeviceViaAddress(args.BluetoothAddress);
     }
 
@@ -133,7 +124,6 @@ public class BleManager : IDisposable
         {
             CleanupDevice();
 
-            // Connect directly via the captured radio address instead of OS device strings
             var device = await BluetoothLEDevice.FromBluetoothAddressAsync(bluetoothAddress);
             if (device == null) return;
 
@@ -148,7 +138,6 @@ public class BleManager : IDisposable
             _device = device;
             _device.ConnectionStatusChanged += OnConnectionStatusChanged;
 
-            // Force an uncached lookup to ensure characteristics spin up freshly
             var servicesResult = await _device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
 
             if (servicesResult.Status == GattCommunicationStatus.Success && servicesResult.Services.Count > 0)
@@ -157,12 +146,15 @@ public class BleManager : IDisposable
 
                 var challengeResult = await mainService.GetCharacteristicsForUuidAsync(CHALLENGE_CHAR_UUID, BluetoothCacheMode.Uncached);
                 var signatureResult = await mainService.GetCharacteristicsForUuidAsync(SIGNATURE_CHAR_UUID, BluetoothCacheMode.Uncached);
+                var commandResult = await mainService.GetCharacteristicsForUuidAsync(COMMAND_CHAR_UUID, BluetoothCacheMode.Uncached);
 
                 if (challengeResult.Status == GattCommunicationStatus.Success && challengeResult.Characteristics.Count > 0 &&
-                    signatureResult.Status == GattCommunicationStatus.Success && signatureResult.Characteristics.Count > 0)
+                    signatureResult.Status == GattCommunicationStatus.Success && signatureResult.Characteristics.Count > 0 &&
+                    commandResult.Status == GattCommunicationStatus.Success && commandResult.Characteristics.Count > 0)
                 {
                     _challengeChar = challengeResult.Characteristics[0];
                     _signatureChar = signatureResult.Characteristics[0];
+                    _commandChar = commandResult.Characteristics[0];
 
                     bool isAuthenticated = await AuthenticateDeviceViaChallengeAsync();
                     if (!isAuthenticated)
@@ -171,6 +163,10 @@ public class BleManager : IDisposable
                         HandleDisconnection();
                         return;
                     }
+
+                    _commandChar.ValueChanged += OnCommandReceivedFromPhone;
+                    var status = await _commandChar.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                    _logger.Info($"🛡️ Button Pipeline Subscription Complete. State code: {status}");
 
                     _logger.Info("🛡️ SECURITY HANDSHAKE VERIFIED.");
                     _isConnected = true;
@@ -230,7 +226,6 @@ public class BleManager : IDisposable
             _device = device;
             _device.ConnectionStatusChanged += OnConnectionStatusChanged;
 
-            // Force cache clearance to gather fresh structural descriptors
             var servicesResult = await _device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
 
             if (_device == null || _currentConnectingId != deviceId) return;
@@ -242,16 +237,18 @@ public class BleManager : IDisposable
 
                 var challengeResult = await mainService.GetCharacteristicsForUuidAsync(CHALLENGE_CHAR_UUID, BluetoothCacheMode.Uncached);
                 var signatureResult = await mainService.GetCharacteristicsForUuidAsync(SIGNATURE_CHAR_UUID, BluetoothCacheMode.Uncached);
+                var commandResult = await mainService.GetCharacteristicsForUuidAsync(COMMAND_CHAR_UUID, BluetoothCacheMode.Uncached);
 
                 if (challengeResult.Status == GattCommunicationStatus.Success && challengeResult.Characteristics.Count > 0 &&
-                    signatureResult.Status == GattCommunicationStatus.Success && signatureResult.Characteristics.Count > 0)
+                    signatureResult.Status == GattCommunicationStatus.Success && signatureResult.Characteristics.Count > 0 &&
+                    commandResult.Status == GattCommunicationStatus.Success && commandResult.Characteristics.Count > 0)
                 {
                     _challengeChar = challengeResult.Characteristics[0];
                     _signatureChar = signatureResult.Characteristics[0];
+                    _commandChar = commandResult.Characteristics[0];
 
                     _logger.Info("Characteristics resolved. Initializing identity challenge...");
 
-                    // Execute a pre-flight cryptographic authentication check before accepting the state
                     bool isAuthenticated = await AuthenticateDeviceViaChallengeAsync();
                     if (!isAuthenticated)
                     {
@@ -259,6 +256,10 @@ public class BleManager : IDisposable
                         HandleDisconnection();
                         return;
                     }
+
+                    _commandChar.ValueChanged += OnCommandReceivedFromPhone;
+                    var status = await _commandChar.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                    _logger.Info($"🛡️ Button Pipeline Subscription Complete. State code: {status}");
 
                     _logger.Info("🛡️ CRYPTOGRAPHIC VERIFICATION PASSED. Identity verified via Android Keystore.");
                     _isConnected = true;
@@ -288,23 +289,59 @@ public class BleManager : IDisposable
         }
     }
 
-    /// <summary>
-    /// Executes the Asymmetric Challenge-Response Protocol over GATT.
-    /// </summary>
+    // FIX 3: Explicit state handling inside the command receiver pipeline to lock workstation down natively and spin up Overlay UI instantly
+    private void OnCommandReceivedFromPhone(GattCharacteristic sender, GattValueChangedEventArgs args)
+    {
+        try
+        {
+            var reader = DataReader.FromBuffer(args.CharacteristicValue);
+            byte[] inputBytes = new byte[reader.UnconsumedBufferLength];
+            reader.ReadBytes(inputBytes);
+            string command = Encoding.UTF8.GetString(inputBytes);
+
+            _logger.Info($"📬 Manual Command Payload Evaluated from Device UI: {command}");
+
+            if (command == "PANIC" || command == "LOCK_NOW")
+            {
+                lock (_lock)
+                {
+                    _isWorkstationLocked = true;
+                }
+                _logger.Error($"🚨 MANUAL SECURE LOCK ACTION TRIGGERED BY PHONE: {command}");
+                _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
+
+                // Force an immediate layout projection instead of evaluating proximity loops asynchronously
+                _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
+            }
+            else if (command == "UNLOCK")
+            {
+                lock (_lock)
+                {
+                    _isWorkstationLocked = false;
+                }
+                _logger.Info("🔓 MANUAL UNLOCK OVERRIDE DISPATCHED VIA DEVICE APPLICATION CONSOLE");
+                _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
+                _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager" });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed parsing incoming button descriptor notification payload: {ex.Message}");
+        }
+    }
+
     private async Task<bool> AuthenticateDeviceViaChallengeAsync()
     {
         if (_challengeChar == null || _signatureChar == null) return false;
 
         try
         {
-            // 1. Generate 32 bytes of cryptographically secure random data (the Nonce)
             byte[] challengeNonce = new byte[32];
             using (var rng = RandomNumberGenerator.Create())
             {
                 rng.GetBytes(challengeNonce);
             }
 
-            // 2. Write the Challenge Nonce to the Phone
             using (var writer = new DataWriter())
             {
                 writer.WriteBytes(challengeNonce);
@@ -316,7 +353,6 @@ public class BleManager : IDisposable
                 }
             }
 
-            // 3. Read the resulting RSA signature block back from the Phone
             var readResult = await _signatureChar.ReadValueAsync(BluetoothCacheMode.Uncached);
             if (readResult.Status != GattCommunicationStatus.Success)
             {
@@ -328,8 +364,6 @@ public class BleManager : IDisposable
             {
                 byte[] phoneSignature = new byte[reader.UnconsumedBufferLength];
                 reader.ReadBytes(phoneSignature);
-
-                // 4. Verify the Signature via the locally configured public key parameter
                 return VerifyPhoneSignature(challengeNonce, phoneSignature);
             }
         }
@@ -353,10 +387,7 @@ public class BleManager : IDisposable
             byte[] publicKeyBytes = Convert.FromBase64String(PHONE_PUBLIC_KEY_BASE64);
             using (var rsa = RSA.Create())
             {
-                // Import standard SubjectPublicKeyInfo structure directly (supported natively in .NET core/8.0)
                 rsa.ImportSubjectPublicKeyInfo(publicKeyBytes, out _);
-
-                // Validate matches SHA256 with PKCS1 padding definitions from the Android Keystore spec
                 return rsa.VerifyData(challengeData, signatureToVerify, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             }
         }
@@ -371,7 +402,6 @@ public class BleManager : IDisposable
     {
         try
         {
-            // Fix: Select matching nodes dynamically by service signature
             string aqs = Windows.Devices.Bluetooth.GenericAttributeProfile.GattDeviceService.GetDeviceSelectorFromUuid(SERVICE_UUID);
             var devices = await DeviceInformation.FindAllAsync(aqs);
 
@@ -408,20 +438,30 @@ public class BleManager : IDisposable
         }
     }
 
+    // FIX 3 (Cont...): Ensure automatic proximity loops respect locked states without spraying execution triggers unnecessarily
     private async void EvaluateProximity(double avgRssi)
     {
-        _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.TRUST_DEGRADED, Source = "BleManager", PayloadJson = $"{{\"Rssi\":{avgRssi}}}" });
+        bool isLockedLocal;
+        lock (_lock)
+        {
+            isLockedLocal = _isWorkstationLocked;
+        }
 
-        if (_isWorkstationLocked && avgRssi >= RSSI_GOOD)
+        // Only project trust degradation metadata layers if the workspace remains active 
+        if (!isLockedLocal)
+        {
+            _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.TRUST_DEGRADED, Source = "BleManager", PayloadJson = $"{{\"Rssi\":{avgRssi}}}" });
+        }
+
+        if (isLockedLocal && avgRssi >= RSSI_GOOD)
         {
             _logger.Info($"Device returned within threshold parameters: {avgRssi:F0} dBm. Prompting Challenge Validation...");
 
-            // Re-authenticate cryptographically before unlocking the system space
             bool identityReverified = await AuthenticateDeviceViaChallengeAsync();
             if (identityReverified)
             {
-                _logger.Info("✅ Re-authentication passed successfully.");
-                _isWorkstationLocked = false;
+                _logger.Info("✅ Proximity Re-authentication passed successfully.");
+                lock (_lock) { _isWorkstationLocked = false; }
                 _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
                 _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager" });
             }
@@ -432,10 +472,10 @@ public class BleManager : IDisposable
             return;
         }
 
-        if (!_isWorkstationLocked && avgRssi <= RSSI_LOCK)
+        if (!isLockedLocal && avgRssi <= RSSI_LOCK)
         {
             _logger.Error($"🔒 Signal below fallback bounds: {avgRssi:F0} dBm. Locking.");
-            _isWorkstationLocked = true;
+            lock (_lock) { _isWorkstationLocked = true; }
             _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
             _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
         }
@@ -450,6 +490,8 @@ public class BleManager : IDisposable
         }
         _isConnected = false;
         StopRssiMonitoring();
+
+        lock (_lock) { _isWorkstationLocked = true; }
         _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_DISCONNECTED, Source = "BleManager" });
         _logger.Error("🔒 LOCKING: Device disconnected.");
 
@@ -459,6 +501,10 @@ public class BleManager : IDisposable
 
     private void CleanupDevice()
     {
+        if (_commandChar != null)
+        {
+            _commandChar.ValueChanged -= OnCommandReceivedFromPhone;
+        }
         if (_device != null)
         {
             _device.ConnectionStatusChanged -= OnConnectionStatusChanged;
@@ -467,6 +513,7 @@ public class BleManager : IDisposable
         }
         _challengeChar = null;
         _signatureChar = null;
+        _commandChar = null;
     }
 
     private void StartRssiMonitoring()
@@ -495,7 +542,7 @@ public class BleManager : IDisposable
                 }
             }
         }
-        catch { /* Handle potential rotation anomalies cleanly */ }
+        catch { }
     }
 
     private void StopRssiMonitoring() => _rssiTimer?.Dispose();

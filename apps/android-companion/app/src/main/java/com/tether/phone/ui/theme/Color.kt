@@ -16,3 +16,8 @@ val NeonGreen = Color(0xFF00FF9D)
 val TextPrimary = Color(0xFFF5F5FA)
 val TextSecondary = Color(0xFF8E8EA0)
 val TextMuted = Color(0xFF4E4E62)
+
+val SurfaceDarkElevated = Color(0xFF1A1A27)
+val GlowCyan = NeonCyan.copy(alpha = 0.15f)
+val GlowRed = NeonRed.copy(alpha = 0.15f)
+val GlowGreen = NeonGreen.copy(alpha = 0.15f)
