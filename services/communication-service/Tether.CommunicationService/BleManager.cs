@@ -57,7 +57,7 @@ public partial class BleManager : IDisposable
     /// <summary>
     /// 🔑 PASTE YOUR EXPORTED ANDROID PUBLIC KEY HERE (Base64 Format)
     /// </summary>
-    private const string PHONE_PUBLIC_KEY_BASE64 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0...[PASTE_YOUR_KEY_HERE]...";
+    private const string PHONE_PUBLIC_KEY_BASE64 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApufY6GaFABT+yjj4HP6DhmgDYe2Lpw38ON+fo26CI6C82tVmXGxDpRTNUq4kHlLUlz/2nNhIykY4dJ8IigY/Op5+tjsgSt6BL/xcQV1PeoZCVIyBn+AheO6FQm0StGp2xHXlF/xd9xZy4jF4XjMZI1JlQHH/SLm6wniLGaZn28D31kAHalZCBDEt+B6pp7bsy5n66g0tOBD0FQDSdOAQaX1qVAp5Qtc8Fp2FvVcx4CoJ2iNVNz+B4mTRt6xe/vIamb9JmHzxOlqtCNHWSq/F6aPRFfT4AlYNyIS4E9VgNbc3zYCGPKru+Yqz11E4O3pBUGELkEE7KrgQ4JmijV2h3wIDAQAB";
 
     public BleManager(IEventBus eventBus, ITetherLogger logger)
     {
@@ -386,12 +386,14 @@ public partial class BleManager : IDisposable
         }
     }
 
+    // Refactored cryptographic verification engine in BleManager.cs
     private bool VerifyPhoneSignature(byte[] challengeData, byte[] signatureToVerify)
     {
-        if (PHONE_PUBLIC_KEY_BASE64.Contains("PASTE_YOUR_KEY_HERE"))
+        if (string.IsNullOrWhiteSpace(PHONE_PUBLIC_KEY_BASE64) ||
+            PHONE_PUBLIC_KEY_BASE64.StartsWith("MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0...["))
         {
-            _logger.Warning("⚠️ Public key placeholder detected. Bypassing verification for compilation validation placeholder.");
-            return true;
+            _logger.Error("❌ CRITICAL: Production Bluetooth Public Key validation token is unconfigured.");
+            return false;
         }
 
         try
@@ -399,13 +401,21 @@ public partial class BleManager : IDisposable
             byte[] publicKeyBytes = Convert.FromBase64String(PHONE_PUBLIC_KEY_BASE64);
             using (var rsa = RSA.Create())
             {
+                // Inject public key components exported from Android isolated hardware engine
                 rsa.ImportSubjectPublicKeyInfo(publicKeyBytes, out _);
-                return rsa.VerifyData(challengeData, signatureToVerify, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+
+                // Execute SHA-256 validation against the original challenge nonce payload
+                return rsa.VerifyData(
+                    challengeData,
+                    signatureToVerify,
+                    HashAlgorithmName.SHA256,
+                    RSASignaturePadding.Pkcs1
+                );
             }
         }
         catch (Exception ex)
         {
-            _logger.Error($"Signature processing engine error: {ex.Message}");
+            _logger.Error($"Signature engine fault encountered: {ex.Message}");
             return false;
         }
     }

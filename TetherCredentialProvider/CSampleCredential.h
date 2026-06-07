@@ -107,6 +107,12 @@ private:
     void _StartBackgroundIPCListeners();
     void _ShutdownBackgroundIPCListeners();
     static void CALLBACK _OnIPCEventSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
+    static void CALLBACK _OnAppEventSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
+    static void CALLBACK _OnScreenEventSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
+    HWND _hWndMessage;
+    static LRESULT CALLBACK WebAuthMsgProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+    void _CreateMessageWindow();
+    void _DestroyMessageWindow();
 
     // Helper functions for packing credentials
     HRESULT _PackActualPasswordCredential(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr, CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs, PCWSTR pszPassword);
