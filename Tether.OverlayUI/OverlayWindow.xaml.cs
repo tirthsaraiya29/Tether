@@ -24,7 +24,7 @@ namespace Tether.OverlayUI
         }
 
         // Stops Alt+F4 closures completely
-        public void OnWindowClosing(object sender, CancelEventArgs e)
+        public void OnWindowClosing(object? sender, CancelEventArgs e)
         {
             e.Cancel = true;
         }

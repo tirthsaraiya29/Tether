@@ -1,0 +1,30 @@
+﻿<Window x:Class="Tether.Configuration.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Tether Desktop Dashboard" Height="250" Width="420" Background="#F3F3F3" WindowStartupLocation="CenterScreen">
+	<Grid Margin="20">
+		<StackPanel>
+			<TextBlock Text="Tether Authentication Manager" FontSize="18" FontWeight="Bold" Foreground="#222222" Margin="0,0,0,5"/>
+			<TextBlock Text="Configure local security fallback configurations below." FontSize="12" Foreground="#666666" Margin="0,0,0,20"/>
+
+			<TextBlock Text="Enter Local Account Password:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+			<PasswordBox x:Name="TxtPassword" Height="30" VerticalContentAlignment="Center" Margin="0,0,0,20"/>
+
+			<Button Content="Commit Secret to Secure Registry" Height="35" Background="#0078D4" Foreground="White" FontWeight="Bold" Click="BtnSave_Click" Cursor="Hand">
+				<Button.Resources>
+					<Style TargetType="Button">
+						<Setter Property="Template">
+							<Setter.Value>
+								<ControlTemplate TargetType="Button">
+									<Border Background="{TemplateBinding Background}" CornerRadius="4">
+										<ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+									</Border>
+								</ControlTemplate>
+							</Setter.Value>
+						</Setter>
+					</Style>
+				</Button.Resources>
+			</Button>
+		</StackPanel>
+	</Grid>
+</Window>

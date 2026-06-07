@@ -63,7 +63,7 @@ namespace Tether.OverlayUI
         private void HandleIncomingEvent(TetherEvent evt)
         {
             // Automatically capture window instance on initialization path
-             if (_activeOverlay == null) // [cite: 1091]
+             if (_activeOverlay == null) 
             {
                 _activeOverlay = MainWindow as OverlayWindow;
             }
