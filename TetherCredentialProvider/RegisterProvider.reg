@@ -4,5 +4,6 @@ Windows Registry Editor Version 5.00
 @="TetherSecureCredentialProvider"
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Tether\CredentialProvider]
-"EnableBypass"=dword:00000001
+"EnableBypass"=dword:00000000
 "PasswordHash"=""
+"EncryptedPassword"=hex:
