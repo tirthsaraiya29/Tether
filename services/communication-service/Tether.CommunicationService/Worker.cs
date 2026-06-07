@@ -1,3 +1,8 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Hosting; // FIXED: Added missing hosting extension definitions
+using Microsoft.Extensions.Logging; // FIXED: Added missing tracking log subsystem components
 using Tether.EventBus;
 using Tether.Shared.Logging;
 

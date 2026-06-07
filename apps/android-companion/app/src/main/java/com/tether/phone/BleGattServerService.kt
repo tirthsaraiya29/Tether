@@ -14,6 +14,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelUuid
+import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -50,6 +51,7 @@ class BleGattServerService : Service() {
 
         private const val CHANNEL_ID = "tether_proximity_channel"
         private const val NOTIFICATION_ID = 1
+        private const val TAG = "TetherGattService"
     }
 
     override fun onCreate() {
@@ -57,6 +59,9 @@ class BleGattServerService : Service() {
 
         // Initialize the hardware-isolated cryptographic key pair engine
         securityEngine = ProductionSecurityEngine()
+
+        // EXTRACTION UTILITY: Export and dump your phone's real public key to Logcat
+        logDevicePublicKey()
 
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         bluetoothAdapter = bluetoothManager?.adapter
@@ -73,6 +78,24 @@ class BleGattServerService : Service() {
         startAdvertising()
     }
 
+    /**
+     * Extracts your hardware-isolated public key from the Android KeyStore,
+     * formats it to a clean Base64 token string, and prints it out to Logcat.
+     */
+    private fun logDevicePublicKey() {
+        try {
+            val publicKeyBytes = securityEngine.getPublicKeyBytes()
+            val base64PublicKey = Base64.encodeToString(publicKeyBytes, Base64.NO_WRAP)
+
+            Log.i(TAG, "=====================================================================")
+            Log.i(TAG, "🔒 TETHER AUTH ACTIVATION: COPY BASE64 PUBLIC KEY FOR DESKTOP ENGINE")
+            Log.i(TAG, base64PublicKey)
+            Log.i(TAG, "=====================================================================")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to extract public cryptographic parameter metadata: ${e.message}", e)
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         if (action != null && commandCharacteristic != null) {
@@ -86,7 +109,11 @@ class BleGattServerService : Service() {
             val connectedDevices = bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT)
             if (connectedDevices != null) {
                 for (device in connectedDevices) {
-                    bluetoothGattServer?.notifyCharacteristicChanged(device, commandCharacteristic, false)
+                    try {
+                        bluetoothGattServer?.notifyCharacteristicChanged(device, commandCharacteristic, false)
+                    } catch (e: SecurityException) {
+                        Log.e("TetherBLE", "Notification permission violation: ${e.message}")
+                    }
                 }
             }
         }
@@ -156,7 +183,9 @@ class BleGattServerService : Service() {
                 activeChallenge = value
 
                 if (responseNeeded) {
-                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+                    try {
+                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+                    } catch (_: SecurityException) {}
                 }
                 Log.d("TetherSecurity", "Received secure challenge token from laptop node.")
             }
@@ -177,18 +206,24 @@ class BleGattServerService : Service() {
                     // Sign the verification token inside the phone's hardware isolation zone
                     val signatureBytes = securityEngine.signChallenge(challenge)
 
-                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, signatureBytes)
+                    try {
+                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, signatureBytes)
+                    } catch (_: SecurityException) {}
                     Log.d("TetherSecurity", "Cryptographic signature successfully dispatched.")
 
                     // Consume the challenge immediately to prevent replay attempts
                     activeChallenge = null
                 } else {
                     // Fail if laptop attempts to read signature before writing a challenge
-                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
+                    try {
+                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
+                    } catch (_: SecurityException) {}
                 }
             } else if (characteristic?.uuid == COMMAND_CHAR_UUID) {
                 val currentCommand = commandCharacteristic?.value ?: byteArrayOf()
-                bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, currentCommand)
+                try {
+                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, currentCommand)
+                } catch (_: SecurityException) {}
             }
         }
 
@@ -203,7 +238,9 @@ class BleGattServerService : Service() {
         ) {
             super.onDescriptorWriteRequest(device, requestId, descriptor, preparedWrite, responseNeeded, offset, value)
             if (responseNeeded) {
-                bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
+                try {
+                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
+                } catch (_: SecurityException) {}
             }
         }
     }
@@ -263,7 +300,11 @@ class BleGattServerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) {}
+        try {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.BLUETOOTH_ADVERTISE) == PackageManager.PERMISSION_GRANTED) {
+                advertiser?.stopAdvertising(advertiseCallback)
+            }
+        } catch (_: Exception) {}
         bluetoothGattServer?.close()
         super.onDestroy()
     }

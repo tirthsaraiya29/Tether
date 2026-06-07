@@ -7,6 +7,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 //
 
+#pragma once
+
 #include "helpers.h"
 #include <windows.h>
 #include <strsafe.h>
@@ -15,9 +17,9 @@
 #include "CSampleCredential.h"
 
 class CSampleProvider : public ICredentialProvider,
-                        public ICredentialProviderSetUserArray
+    public ICredentialProviderSetUserArray
 {
-  public:
+public:
     // IUnknown
     IFACEMETHODIMP_(ULONG) AddRef()
     {
@@ -34,63 +36,60 @@ class CSampleProvider : public ICredentialProvider,
         return cRef;
     }
 
-    IFACEMETHODIMP QueryInterface(_In_ REFIID riid, _COM_Outptr_ void **ppv)
+    IFACEMETHODIMP QueryInterface(_In_ REFIID riid, _COM_Outptr_ void** ppv)
     {
         static const QITAB qit[] =
         {
-            QITABENT(CSampleProvider, ICredentialProvider), // IID_ICredentialProvider
-            QITABENT(CSampleProvider, ICredentialProviderSetUserArray), // IID_ICredentialProviderSetUserArray
+            QITABENT(CSampleProvider, ICredentialProvider),
+            QITABENT(CSampleProvider, ICredentialProviderSetUserArray),
             {0},
         };
         return QISearch(this, qit, riid, ppv);
     }
 
-    HRESULT SignalCredentialsChanged()
-    {
-        if (_pcpe)
-        {
-            return _pcpe->CredentialsChanged(_upAdviseContext);
-        }
-        return S_FALSE;
-    }
+    // Declaration only - the body resides exclusively in CSampleProvider.cpp
+    HRESULT SignalCredentialsChanged();
 
-  public:
+public:
     IFACEMETHODIMP SetUsageScenario(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, DWORD dwFlags);
-    IFACEMETHODIMP SetSerialization(_In_ CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION const *pcpcs);
+    IFACEMETHODIMP SetSerialization(_In_ CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION const* pcpcs);
 
-    IFACEMETHODIMP Advise(_In_ ICredentialProviderEvents *pcpe, _In_ UINT_PTR upAdviseContext);
+    IFACEMETHODIMP Advise(_In_ ICredentialProviderEvents* pcpe, _In_ UINT_PTR upAdviseContext);
     IFACEMETHODIMP UnAdvise();
 
-    IFACEMETHODIMP GetFieldDescriptorCount(_Out_ DWORD *pdwCount);
-    IFACEMETHODIMP GetFieldDescriptorAt(DWORD dwIndex,  _Outptr_result_nullonfailure_ CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR **ppcpfd);
+    IFACEMETHODIMP GetFieldDescriptorCount(_Out_ DWORD* pdwCount);
+    IFACEMETHODIMP GetFieldDescriptorAt(DWORD dwIndex, _Outptr_result_nullonfailure_ CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR** ppcpfd);
 
-    IFACEMETHODIMP GetCredentialCount(_Out_ DWORD *pdwCount,
-                                      _Out_ DWORD *pdwDefault,
-                                      _Out_ BOOL *pbAutoLogonWithDefault);
+    IFACEMETHODIMP GetCredentialCount(_Out_ DWORD* pdwCount,
+        _Out_ DWORD* pdwDefault,
+        _Out_ BOOL* pbAutoLogonWithDefault);
     IFACEMETHODIMP GetCredentialAt(DWORD dwIndex,
-                                   _Outptr_result_nullonfailure_ ICredentialProviderCredential **ppcpc);
+        _Outptr_result_nullonfailure_ ICredentialProviderCredential** ppcpc);
 
-    IFACEMETHODIMP SetUserArray(_In_ ICredentialProviderUserArray *users);
+    IFACEMETHODIMP SetUserArray(_In_ ICredentialProviderUserArray* users);
 
     friend HRESULT CSample_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
 
-  protected:
+protected:
     CSampleProvider();
     __override ~CSampleProvider();
 
-  private:
+private:
     void _ReleaseEnumeratedCredentials();
     void _CreateEnumeratedCredentials();
     HRESULT _EnumerateEmpty();
     HRESULT _EnumerateCredentials();
     HRESULT _EnumerateEmptyTileCredential();
+
 private:
-    long                                    _cRef;            // Used for reference counting.
-    CSampleCredential                       *_pCredential;    // SampleV2Credential
+    long                                    _cRef;
+    CSampleCredential* _pCredential;
     bool                                    _fRecreateEnumeratedCredentials;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO      _cpus;
-    ICredentialProviderUserArray            *_pCredProviderUserArray;
-    ICredentialProviderEvents* _pcpe;
-    UINT_PTR                   _upAdviseContext;
+    ICredentialProviderUserArray* _pCredProviderUserArray;
 
+    // Unified naming alignment matching the implementation file
+    ICredentialProviderEvents* _pCredProviderEvents;
+    UINT_PTR                                _upAdviseContext;
+    DWORD                                   _dwUpToDateCredentialsCount;
 };

@@ -651,32 +651,40 @@ HRESULT DomainUsernameStringAlloc(
     return hr;
 }
 
-HRESULT SplitDomainAndUsername(_In_ PCWSTR pszQualifiedUserName, _Outptr_result_nullonfailure_ PWSTR *ppszDomain, _Outptr_result_nullonfailure_ PWSTR *ppszUsername)
+HRESULT SplitDomainAndUsername(
+    _In_ PCWSTR pszQualifiedUserName,
+    _Outptr_result_nullonfailure_ PWSTR* ppszDomain,
+    _Outptr_result_nullonfailure_ PWSTR* ppszUsername
+)
 {
-    HRESULT hr = E_UNEXPECTED;
+    if (!pszQualifiedUserName || !ppszDomain || !ppszUsername)
+    {
+        return E_INVALIDARG;
+    }
+
     *ppszDomain = nullptr;
     *ppszUsername = nullptr;
-    PWSTR pszDomain;
-    PWSTR pszUsername;
-    const wchar_t *pchWhack = wcschr(pszQualifiedUserName, L'\\');
-    const wchar_t *pchEnd = pszQualifiedUserName + wcslen(pszQualifiedUserName) - 1;
+
+    HRESULT hr = E_UNEXPECTED;
+    const wchar_t* pchWhack = wcschr(pszQualifiedUserName, L'\\');
 
     if (pchWhack != nullptr)
     {
-        const wchar_t *pchDomainBegin = pszQualifiedUserName;
-        const wchar_t *pchDomainEnd = pchWhack - 1;
-        const wchar_t *pchUsernameBegin = pchWhack + 1;
-        const wchar_t *pchUsernameEnd = pchEnd;
+        // Case A: Standard domain\username or computername\username format
+        const wchar_t* pchDomainBegin = pszQualifiedUserName;
+        const wchar_t* pchDomainEnd = pchWhack - 1;
+        const wchar_t* pchUsernameBegin = pchWhack + 1;
+        const wchar_t* pchUsernameEnd = pszQualifiedUserName + wcslen(pszQualifiedUserName) - 1;
 
-        size_t lenDomain = pchDomainEnd - pchDomainBegin + 1; // number of actual chars, NOT INCLUDING null terminated string
-        pszDomain = static_cast<PWSTR>(CoTaskMemAlloc(sizeof(wchar_t) * (lenDomain + 1)));
+        size_t lenDomain = pchDomainEnd - pchDomainBegin + 1;
+        PWSTR pszDomain = static_cast<PWSTR>(CoTaskMemAlloc(sizeof(wchar_t) * (lenDomain + 1)));
         if (pszDomain != nullptr)
         {
             hr = StringCchCopyN(pszDomain, lenDomain + 1, pchDomainBegin, lenDomain);
             if (SUCCEEDED(hr))
             {
-                size_t lenUsername = pchUsernameEnd - pchUsernameBegin + 1; // number of actual chars, NOT INCLUDING null terminated string
-                pszUsername = static_cast<PWSTR>(CoTaskMemAlloc(sizeof(wchar_t) * (lenUsername + 1)));
+                size_t lenUsername = pchUsernameEnd - pchUsernameBegin + 1;
+                PWSTR pszUsername = static_cast<PWSTR>(CoTaskMemAlloc(sizeof(wchar_t) * (lenUsername + 1)));
                 if (pszUsername != nullptr)
                 {
                     hr = StringCchCopyN(pszUsername, lenUsername + 1, pchUsernameBegin, lenUsername);
@@ -695,7 +703,6 @@ HRESULT SplitDomainAndUsername(_In_ PCWSTR pszQualifiedUserName, _Outptr_result_
                     hr = E_OUTOFMEMORY;
                 }
             }
-
             if (FAILED(hr))
             {
                 CoTaskMemFree(pszDomain);
@@ -706,5 +713,32 @@ HRESULT SplitDomainAndUsername(_In_ PCWSTR pszQualifiedUserName, _Outptr_result_
             hr = E_OUTOFMEMORY;
         }
     }
+    else
+    {
+        // Case B: Pure local account (no domain delimiter present)
+        // Fallback: Bind domain to local computer name to satisfy Kerberos provider
+        WCHAR szComputerName[MAX_COMPUTERNAME_LENGTH + 1];
+        DWORD dwSize = ARRAYSIZE(szComputerName);
+
+        if (GetComputerNameW(szComputerName, &dwSize))
+        {
+            hr = SHStrDupW(szComputerName, ppszDomain);
+        }
+        else
+        {
+            hr = SHStrDupW(L".", ppszDomain);
+        }
+
+        if (SUCCEEDED(hr))
+        {
+            hr = SHStrDupW(pszQualifiedUserName, ppszUsername);
+            if (FAILED(hr))
+            {
+                CoTaskMemFree(*ppszDomain);
+                *ppszDomain = nullptr;
+            }
+        }
+    }
+
     return hr;
 }
