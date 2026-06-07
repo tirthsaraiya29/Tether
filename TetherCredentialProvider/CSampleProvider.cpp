@@ -98,19 +98,31 @@ HRESULT CSampleProvider::SetSerialization(
     return E_NOTIMPL;
 }
 
-// Called by LogonUI to give you a callback.  Providers often use the callback if they
-// some event would cause them to need to change the set of tiles that they enumerated.
+// Replace this complete function in CSampleProvider.cpp
 HRESULT CSampleProvider::Advise(
-    _In_ ICredentialProviderEvents * /*pcpe*/,
-    _In_ UINT_PTR /*upAdviseContext*/)
+    _In_ ICredentialProviderEvents* pcpe,
+    _In_ UINT_PTR upAdviseContext)
 {
-    return E_NOTIMPL;
+    if (pcpe != nullptr)
+    {
+        _pcpe = pcpe;
+        _pcpe->AddRef();
+        _upAdviseContext = upAdviseContext;
+        return S_OK;
+    }
+    return E_INVALIDARG;
 }
 
-// Called by LogonUI when the ICredentialProviderEvents callback is no longer valid.
+// Replace this complete function in CSampleProvider.cpp
 HRESULT CSampleProvider::UnAdvise()
 {
-    return E_NOTIMPL;
+    if (_pcpe != nullptr)
+    {
+        _pcpe->Release();
+        _pcpe = nullptr;
+    }
+    _upAdviseContext = 0;
+    return S_OK;
 }
 
 // Called by LogonUI to determine the number of fields in your tiles.  This

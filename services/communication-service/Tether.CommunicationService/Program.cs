@@ -5,6 +5,7 @@ using Tether.PanicEngine;
 using Tether.RecoveryEngine;
 using Tether.Shared.Logging;
 using Tether.TrustEngine;
+using Tether.Communication;
 
 namespace Tether.CommunicationService
 {
@@ -49,7 +50,7 @@ namespace Tether.CommunicationService
 
             // Start BLE manager
             var bleManager = host.Services.GetRequiredService<BleManager>();
-            bleManager.Start();
+            bleManager.InitializeIPCHandles();
 
             var logger = host.Services.GetRequiredService<ITetherLogger>();
             logger.Info("All services initialized. Starting host...");
