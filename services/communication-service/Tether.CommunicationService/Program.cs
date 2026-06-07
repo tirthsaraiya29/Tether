@@ -1,3 +1,7 @@
+using System;
+using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Tether.CommunicationService;
 using Tether.EnforcementEngine;
 using Tether.EventBus;
@@ -5,7 +9,6 @@ using Tether.PanicEngine;
 using Tether.RecoveryEngine;
 using Tether.Shared.Logging;
 using Tether.TrustEngine;
-using Tether.Communication;
 
 namespace Tether.CommunicationService
 {
@@ -15,6 +18,7 @@ namespace Tether.CommunicationService
         {
             var builder = Host.CreateApplicationBuilder(args);
 
+            // 1. Core Platform Shared Utilities Setup
             builder.Services.AddSingleton<ITetherLogger, SerilogTetherLogger>();
             builder.Services.AddSingleton<IEventBus>(sp =>
             {
@@ -22,7 +26,7 @@ namespace Tether.CommunicationService
                 return new InMemoryEventBus(logger);
             });
 
-            // Register engine managers (renamed classes)
+            // 2. Core Engine Manager Architecture Registrations
             builder.Services.AddSingleton<TrustStateManager>();
             builder.Services.AddSingleton<EnforcementManager>();
             builder.Services.AddSingleton<PanicManager>();
@@ -31,6 +35,7 @@ namespace Tether.CommunicationService
             builder.Services.AddSingleton<PipeServer>();
             builder.Services.AddHostedService<Worker>();
 
+            // 3. Native Windows Service Lifecycle Configuration
             builder.Services.AddWindowsService(options =>
             {
                 options.ServiceName = "Tether Communication Service";
@@ -38,22 +43,28 @@ namespace Tether.CommunicationService
 
             var host = builder.Build();
 
-            // Force initialization (they subscribe in constructor)
+            // 4. Force Instance Activation (Triggers Constructor Event Bus Subscriptions)
             _ = host.Services.GetRequiredService<TrustStateManager>();
             _ = host.Services.GetRequiredService<EnforcementManager>();
             _ = host.Services.GetRequiredService<PanicManager>();
             _ = host.Services.GetRequiredService<RecoveryManager>();
 
-            // Start IPC server
+            // 5. Spin up Inter-Process Communication Pipe Layer
             var pipeServer = host.Services.GetRequiredService<PipeServer>();
             pipeServer.Start();
 
-            // Start BLE manager
+            // 6. Extract BleManager to run handle configuration AND boot up the BT stack
             var bleManager = host.Services.GetRequiredService<BleManager>();
+
+            // Setup our low-integrity Session 0 global signaling handles 
             bleManager.InitializeIPCHandles();
 
+            // FIXED: Restored your core Bluetooth discovery/OTA engine startup sequence!
+            bleManager.Start();
+
+            // 7. Fire Logging and Run Service Host Loop
             var logger = host.Services.GetRequiredService<ITetherLogger>();
-            logger.Info("All services initialized. Starting host...");
+            logger.Info("All background services, low-integrity handles, and BLE stacks initialized. Starting execution host...");
 
             await host.RunAsync();
         }
