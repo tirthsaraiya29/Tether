@@ -7,13 +7,13 @@ enum SAMPLE_FIELD_ID
     SFI_TILEIMAGE = 0,
     SFI_LABEL = 1,
     SFI_LARGE_TEXT = 2,
-    SFI_METHOD_LABEL = 3, // Small prompt text
-    SFI_METHOD_COMBOBOX = 4, // Method choice dropdown
-    SFI_PASSWORD = 5, // PIN/Password input field (Shown only for Method 3)
-    SFI_BYPASS_BUTTON = 6, // Command Link for development (Shown only for Method 4)
-    SFI_SUBMIT_BUTTON = 7, // Submit arrow button
-    SFI_LOGONSTATUS_TEXT = 8, // Informational status text field
-    SFI_NUM_FIELDS = 9  // Absolute field footprint count
+    SFI_METHOD_LABEL = 3,
+    SFI_METHOD_COMBOBOX = 4,
+    SFI_PASSWORD = 5,
+    SFI_BYPASS_BUTTON = 6,
+    SFI_SUBMIT_BUTTON = 7,
+    SFI_LOGONSTATUS_TEXT = 8,
+    SFI_NUM_FIELDS = 9
 };
 
 struct FIELD_STATE_PAIR
@@ -24,15 +24,15 @@ struct FIELD_STATE_PAIR
 
 static const FIELD_STATE_PAIR s_rgFieldStatePairs[] =
 {
-    { CPFS_DISPLAY_IN_BOTH,            CPFIS_NONE    }, // SFI_TILEIMAGE
-    { CPFS_DISPLAY_IN_BOTH,            CPFIS_NONE    }, // SFI_LABEL
-    { CPFS_DISPLAY_IN_BOTH,            CPFIS_NONE    }, // SFI_LARGE_TEXT
-    { CPFS_DISPLAY_IN_SELECTED_TILE,   CPFIS_NONE    }, // SFI_METHOD_LABEL
-    { CPFS_DISPLAY_IN_SELECTED_TILE,   CPFIS_NONE    }, // SFI_METHOD_COMBOBOX
-    { CPFS_HIDDEN,                     CPFIS_NONE    }, // SFI_PASSWORD (Hidden by default)
-    { CPFS_HIDDEN,                     CPFIS_NONE    }, // SFI_BYPASS_BUTTON (Hidden by default)
-    { CPFS_DISPLAY_IN_SELECTED_TILE,   CPFIS_NONE    }, // SFI_SUBMIT_BUTTON
-    { CPFS_DISPLAY_IN_SELECTED_TILE,   CPFIS_NONE    }, // SFI_LOGONSTATUS_TEXT
+    { CPFS_DISPLAY_IN_BOTH,            CPFIS_NONE }, // SFI_TILEIMAGE
+    { CPFS_DISPLAY_IN_BOTH,            CPFIS_NONE }, // SFI_LABEL
+    { CPFS_DISPLAY_IN_BOTH,            CPFIS_NONE }, // SFI_LARGE_TEXT
+    { CPFS_DISPLAY_IN_SELECTED_TILE,   CPFIS_NONE }, // SFI_METHOD_LABEL
+    { CPFS_DISPLAY_IN_SELECTED_TILE,   CPFIS_NONE }, // SFI_METHOD_COMBOBOX
+    { CPFS_HIDDEN,                     CPFIS_NONE }, // SFI_PASSWORD
+    { CPFS_HIDDEN,                     CPFIS_NONE }, // SFI_BYPASS_BUTTON
+    { CPFS_DISPLAY_IN_SELECTED_TILE,   CPFIS_NONE }, // SFI_SUBMIT_BUTTON
+    { CPFS_DISPLAY_IN_SELECTED_TILE,   CPFIS_NONE }, // SFI_LOGONSTATUS_TEXT
 };
 
 static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgCredProvFieldDescriptors[] =

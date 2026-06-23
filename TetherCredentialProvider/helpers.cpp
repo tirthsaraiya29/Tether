@@ -13,6 +13,10 @@
 #include "helpers.h"
 #include <intsafe.h>
 
+#pragma comment(lib, "shlwapi.lib")
+#pragma comment(lib, "secur32.lib")
+#pragma comment(lib, "credui.lib")
+
 //
 // Copies the field descriptor pointed to by rcpfd into a buffer allocated
 // using CoTaskMemAlloc. Returns that buffer in ppcpfd.
@@ -651,94 +655,58 @@ HRESULT DomainUsernameStringAlloc(
     return hr;
 }
 
-HRESULT SplitDomainAndUsername(
-    _In_ PCWSTR pszQualifiedUserName,
-    _Outptr_result_nullonfailure_ PWSTR* ppszDomain,
-    _Outptr_result_nullonfailure_ PWSTR* ppszUsername
-)
+HRESULT SplitDomainAndUsername(PCWSTR pszQualifiedUserName,
+    PWSTR* ppszDomain, PWSTR* ppszUsername)
 {
     if (!pszQualifiedUserName || !ppszDomain || !ppszUsername)
-    {
         return E_INVALIDARG;
-    }
 
     *ppszDomain = nullptr;
     *ppszUsername = nullptr;
 
-    HRESULT hr = E_UNEXPECTED;
+    // 1) UPN format: user@domain
+    const wchar_t* pchAt = wcschr(pszQualifiedUserName, L'@');
+    if (pchAt)
+    {
+        size_t lenUser = pchAt - pszQualifiedUserName;
+        PWSTR user = (PWSTR)CoTaskMemAlloc((lenUser + 1) * sizeof(WCHAR));
+        if (!user) return E_OUTOFMEMORY;
+        wcsncpy_s(user, lenUser + 1, pszQualifiedUserName, lenUser);
+
+        PWSTR domain = (PWSTR)CoTaskMemAlloc((wcslen(pchAt + 1) + 1) * sizeof(WCHAR));
+        if (!domain) { CoTaskMemFree(user); return E_OUTOFMEMORY; }
+        wcscpy_s(domain, wcslen(pchAt + 1) + 1, pchAt + 1);
+
+        *ppszDomain = domain;
+        *ppszUsername = user;
+        return S_OK;
+    }
+
+    // 2) domain\user format
     const wchar_t* pchWhack = wcschr(pszQualifiedUserName, L'\\');
-
-    if (pchWhack != nullptr)
+    if (pchWhack)
     {
-        // Case A: Standard domain\username or computername\username format
-        const wchar_t* pchDomainBegin = pszQualifiedUserName;
-        const wchar_t* pchDomainEnd = pchWhack - 1;
-        const wchar_t* pchUsernameBegin = pchWhack + 1;
-        const wchar_t* pchUsernameEnd = pszQualifiedUserName + wcslen(pszQualifiedUserName) - 1;
+        size_t lenDomain = pchWhack - pszQualifiedUserName;
+        PWSTR domain = (PWSTR)CoTaskMemAlloc((lenDomain + 1) * sizeof(WCHAR));
+        if (!domain) return E_OUTOFMEMORY;
+        wcsncpy_s(domain, lenDomain + 1, pszQualifiedUserName, lenDomain);
 
-        size_t lenDomain = pchDomainEnd - pchDomainBegin + 1;
-        PWSTR pszDomain = static_cast<PWSTR>(CoTaskMemAlloc(sizeof(wchar_t) * (lenDomain + 1)));
-        if (pszDomain != nullptr)
-        {
-            hr = StringCchCopyN(pszDomain, lenDomain + 1, pchDomainBegin, lenDomain);
-            if (SUCCEEDED(hr))
-            {
-                size_t lenUsername = pchUsernameEnd - pchUsernameBegin + 1;
-                PWSTR pszUsername = static_cast<PWSTR>(CoTaskMemAlloc(sizeof(wchar_t) * (lenUsername + 1)));
-                if (pszUsername != nullptr)
-                {
-                    hr = StringCchCopyN(pszUsername, lenUsername + 1, pchUsernameBegin, lenUsername);
-                    if (SUCCEEDED(hr))
-                    {
-                        *ppszDomain = pszDomain;
-                        *ppszUsername = pszUsername;
-                    }
-                    else
-                    {
-                        CoTaskMemFree(pszUsername);
-                    }
-                }
-                else
-                {
-                    hr = E_OUTOFMEMORY;
-                }
-            }
-            if (FAILED(hr))
-            {
-                CoTaskMemFree(pszDomain);
-            }
-        }
-        else
-        {
-            hr = E_OUTOFMEMORY;
-        }
-    }
-    else
-    {
-        // Case B: Pure local account (no domain delimiter present)
-        // Fallback: Bind domain to local computer name to satisfy Kerberos provider
-        WCHAR szComputerName[MAX_COMPUTERNAME_LENGTH + 1];
-        DWORD dwSize = ARRAYSIZE(szComputerName);
+        PWSTR user = (PWSTR)CoTaskMemAlloc((wcslen(pchWhack + 1) + 1) * sizeof(WCHAR));
+        if (!user) { CoTaskMemFree(domain); return E_OUTOFMEMORY; }
+        wcscpy_s(user, wcslen(pchWhack + 1) + 1, pchWhack + 1);
 
-        if (GetComputerNameW(szComputerName, &dwSize))
-        {
-            hr = SHStrDupW(szComputerName, ppszDomain);
-        }
-        else
-        {
-            hr = SHStrDupW(L".", ppszDomain);
-        }
-
-        if (SUCCEEDED(hr))
-        {
-            hr = SHStrDupW(pszQualifiedUserName, ppszUsername);
-            if (FAILED(hr))
-            {
-                CoTaskMemFree(*ppszDomain);
-                *ppszDomain = nullptr;
-            }
-        }
+        *ppszDomain = domain;
+        *ppszUsername = user;
+        return S_OK;
     }
 
+    // 3) local user only – use computer name as domain
+    WCHAR computerName[MAX_COMPUTERNAME_LENGTH + 1];
+    DWORD size = ARRAYSIZE(computerName);
+    if (!GetComputerNameW(computerName, &size))
+        wcscpy_s(computerName, L".");
+    HRESULT hr = SHStrDupW(computerName, ppszDomain);
+    if (SUCCEEDED(hr))
+        hr = SHStrDupW(pszQualifiedUserName, ppszUsername);
     return hr;
 }

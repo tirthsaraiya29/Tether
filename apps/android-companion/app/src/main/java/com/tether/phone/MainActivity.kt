@@ -13,6 +13,10 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationAttributes
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.Settings
 import android.view.WindowManager
 import android.widget.Toast
@@ -45,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -60,6 +65,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 
 val EaseInOutSans = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
@@ -71,7 +77,8 @@ enum class TrustVerificationStep {
 
 enum class AppScreen {
     TELEMETRY_DASHBOARD,
-    SECURITY_SETTINGS
+    SECURITY_SETTINGS,
+    LAPTOP_CONTROL
 }
 
 enum class TrustTier(val label: String, val color: Color) {
@@ -141,7 +148,6 @@ class MainActivity : FragmentActivity() {
                         stopService(Intent(this@MainActivity, BleGattServerService::class.java))
                     }
                     BluetoothAdapter.STATE_ON -> {
-                        // Only auto-restart if the application framework layer isn't locked down by biometrics
                         if (!isAppLocked.value && checkPermissions()) startBleService()
                     }
                 }
@@ -178,12 +184,10 @@ class MainActivity : FragmentActivity() {
             setPanicUiState()
         }
 
-        // FIX 1: Evaluate if lockscreen gateway criteria should block operational startup routines immediately
         if (isBiometricSettingEnabled.value && !isEnvironmentRestricted.value) {
             isAppLocked.value = true
             authenticateForAppUnlock()
         } else {
-            // No gateway active - verify bounds and start transmission layers normally
             if (checkPermissions()) {
                 checkAndEnableBluetooth()
             } else {
@@ -256,6 +260,9 @@ class MainActivity : FragmentActivity() {
                                     isHideInRecentsEnabled.value = enabled
                                     prefs.edit().putBoolean(hideInRecentsKey, enabled).apply()
                                     applyWindowSecurityFlags()
+                                },
+                                onLaptopActionClick = { action, toastMessage ->
+                                    triggerBleAction(action, toastMessage)
                                 }
                             )
 
@@ -318,7 +325,7 @@ class MainActivity : FragmentActivity() {
 
             if (selectedTimeoutMs.value == 0L) {
                 isAppLocked.value = true
-                stopBleServiceLeak() // Terminate any leaking radio state on validation intercept
+                stopBleServiceLeak()
                 authenticateForAppUnlock()
             } else if (leftBackgroundAt != 0L) {
                 val elapsed = System.currentTimeMillis() - leftBackgroundAt
@@ -362,7 +369,6 @@ class MainActivity : FragmentActivity() {
                     getSharedPreferences(preferenceName, Context.MODE_PRIVATE).edit()
                         .putLong(appLockBackgroundTimestampKey, 0L).apply()
 
-                    // Safe verification block passed -> safe to spin up background hardware loops
                     if (checkPermissions()) {
                         checkAndEnableBluetooth()
                     } else {
@@ -498,7 +504,12 @@ class MainActivity : FragmentActivity() {
 
     private fun triggerBleAction(action: String, toastMessage: String) {
         if (isEnvironmentRestricted.value || isAppLocked.value) return
-        Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
+
+        // Suppress toasts for background automated tracking operations
+        if (toastMessage.isNotEmpty()) {
+            Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
+        }
+
         val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
             this.action = action
         }
@@ -523,7 +534,6 @@ class MainActivity : FragmentActivity() {
         return required.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
 
-    // FIX 2: Explicitly monitor system permission results asynchronously to bootstrap cleanly after fresh installation setup loops
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == requestPermissionsCode) {
@@ -596,7 +606,8 @@ fun TetherNavigationShell(
     onTimeoutChanged: (Long) -> Unit,
     onPrivacyMaskToggled: (Boolean) -> Unit,
     onBlockScreenReadingToggled: (Boolean) -> Unit,
-    onHideInRecentsToggled: (Boolean) -> Unit
+    onHideInRecentsToggled: (Boolean) -> Unit,
+    onLaptopActionClick: (String, String) -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -642,6 +653,26 @@ fun TetherNavigationShell(
                     shape = RoundedCornerShape(0.dp),
                     onClick = {
                         currentScreen = AppScreen.TELEMETRY_DASHBOARD
+                        scope.launch { drawerState.close() }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("SLIDERS PANEL", fontWeight = FontWeight.Bold, letterSpacing = 1.sp) },
+                    selected = currentScreen == AppScreen.LAPTOP_CONTROL,
+                    icon = { Icon(Icons.Default.Info, contentDescription = null) },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        selectedContainerColor = NeonCyan.copy(alpha = 0.1f),
+                        unselectedContainerColor = Color.Transparent,
+                        selectedIconColor = NeonCyan,
+                        unselectedIconColor = TextSecondary,
+                        selectedTextColor = NeonCyan,
+                        unselectedTextColor = TextSecondary
+                    ),
+                    shape = RoundedCornerShape(0.dp),
+                    onClick = {
+                        currentScreen = AppScreen.LAPTOP_CONTROL
                         scope.launch { drawerState.close() }
                     },
                     modifier = Modifier.padding(horizontal = 12.dp)
@@ -704,7 +735,8 @@ fun TetherNavigationShell(
                             onLockClick = onLockClick,
                             onPanicClick = onPanicClick,
                             onInitiateRestore = onInitiateRestore,
-                            onTriggerStepVerification = onTriggerStepVerification
+                            onTriggerStepVerification = onTriggerStepVerification,
+                            onBleActionRequested = onLaptopActionClick
                         )
                     }
                     AppScreen.SECURITY_SETTINGS -> {
@@ -715,11 +747,14 @@ fun TetherNavigationShell(
                             isBlockScreenReadingEnabled = isBlockScreenReadingEnabled,
                             isHideInRecentsEnabled = isHideInRecentsEnabled,
                             onBiometricToggled = onBiometricSettingToggled,
-                            onTimeoutSelected = onTimeoutChanged,
+                            onTimeoutChanged = onTimeoutChanged,
                             onPrivacyMaskToggled = onPrivacyMaskToggled,
                             onBlockScreenReadingToggled = onBlockScreenReadingToggled,
                             onHideInRecentsToggled = onHideInRecentsToggled
                         )
+                    }
+                    AppScreen.LAPTOP_CONTROL -> {
+                        LaptopControlScreen(onBleActionRequested = onLaptopActionClick)
                     }
                 }
             }
@@ -736,7 +771,7 @@ fun SettingsScreen(
     isBlockScreenReadingEnabled: Boolean,
     isHideInRecentsEnabled: Boolean,
     onBiometricToggled: (Boolean) -> Unit,
-    onTimeoutSelected: (Long) -> Unit,
+    onTimeoutChanged: (Long) -> Unit,
     onPrivacyMaskToggled: (Boolean) -> Unit,
     onBlockScreenReadingToggled: (Boolean) -> Unit,
     onHideInRecentsToggled: (Boolean) -> Unit
@@ -841,7 +876,7 @@ fun SettingsScreen(
                                         shape = RoundedCornerShape(4.dp)
                                     )
                                     .background(if (isSelected) NeonCyan.copy(alpha = 0.12f) else SpaceDark)
-                                    .clickable { onTimeoutSelected(value) },
+                                    .clickable { onTimeoutChanged(value) },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -1417,7 +1452,8 @@ fun TetherAppScreen(
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
     onInitiateRestore: () -> Unit,
-    onTriggerStepVerification: (TrustVerificationStep) -> Unit
+    onTriggerStepVerification: (TrustVerificationStep) -> Unit,
+    onBleActionRequested: (String, String) -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "TelemetryInfinite")
 
@@ -1461,7 +1497,7 @@ fun TetherAppScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.5f)
+                .fillMaxHeight(0.4f)
                 .align(Alignment.TopCenter)
                 .graphicsLayer { alpha = ambientGlowAlpha }
                 .background(ambientGradient)
@@ -1470,36 +1506,39 @@ fun TetherAppScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
+                .padding(horizontal = 24.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
                 text = stringResource(id = R.string.app_name).uppercase(),
-                modifier = Modifier.padding(top = 16.dp),
+                modifier = Modifier.padding(top = 8.dp),
                 style = MaterialTheme.typography.labelMedium.copy(
                     color = NeonCyan,
                     fontWeight = FontWeight.Bold
                 )
             )
 
+            // CORE HUD ELEMENT
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 12.dp)
             ) {
-                Canvas(modifier = Modifier.size(280.dp)) {
+                Canvas(modifier = Modifier.size(230.dp)) {
                     drawArc(
                         color = SurfaceDark,
                         startAngle = 0f,
                         sweepAngle = 360f,
                         useCenter = false,
-                        style = Stroke(width = 8.dp.toPx())
+                        style = Stroke(width = 6.dp.toPx())
                     )
                 }
 
                 Canvas(
                     modifier = Modifier
-                        .size(280.dp)
+                        .size(230.dp)
                         .graphicsLayer { rotationZ = rotation }
                 ) {
                     drawArc(
@@ -1507,13 +1546,13 @@ fun TetherAppScreen(
                         startAngle = 0f,
                         sweepAngle = if (isPanicActive) 360f else 140f,
                         useCenter = false,
-                        style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
+                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
                     )
                 }
 
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(24.dp)
+                    modifier = Modifier.padding(16.dp)
                 ) {
                     Text(
                         text = when (verificationStep) {
@@ -1522,12 +1561,14 @@ fun TetherAppScreen(
                             else -> statusText
                         },
                         style = MaterialTheme.typography.headlineSmall.copy(
+                            fontSize = 18.sp,
+                            lineHeight = 24.sp,
                             fontWeight = FontWeight.Black,
                             textAlign = TextAlign.Center,
                             color = if (verificationStep != TrustVerificationStep.NOT_IN_PANIC) NeonCyan else statusColor
                         )
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = when (verificationStep) {
                             TrustVerificationStep.DEVICE_CREDENTIAL -> "TIER 1 OF 2"
@@ -1536,12 +1577,70 @@ fun TetherAppScreen(
                         },
                         style = MaterialTheme.typography.labelMedium.copy(
                             color = if (verificationStep != TrustVerificationStep.NOT_IN_PANIC) NeonCyan else TextSecondary,
-                            fontSize = 10.sp
+                            fontSize = 9.sp
                         )
                     )
                 }
             }
 
+            // POWER MANAGEMENT NODE
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+                    .border(1.dp, NeonRed.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
+                    .background(SurfaceDark)
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = "CRITICAL OPERATION DIRECTIVES",
+                    color = NeonRed,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { onBleActionRequested("PWR_SLEEP", "💤 Dispatched: Sleep Command") },
+                        colors = ButtonDefaults.buttonColors(containerColor = SpaceDark),
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .border(1.dp, Color(0xFFFFB300).copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                    ) {
+                        Text("SLEEP", color = Color(0xFFFFB300), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = { onBleActionRequested("PWR_REBOOT", "🔄 Dispatched: Reboot Command") },
+                        colors = ButtonDefaults.buttonColors(containerColor = SpaceDark),
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .border(1.dp, NeonRed.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                    ) {
+                        Text("REBOOT", color = NeonRed, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = { onBleActionRequested("PWR_SHUTDOWN", "🚨 Dispatched: Shutdown Command") },
+                        colors = ButtonDefaults.buttonColors(containerColor = SpaceDark),
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .border(1.dp, NeonRed.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                    ) {
+                        Text("SHUTDOWN", color = NeonRed, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            // CORE TRUST OPERATION MATRIX
             AnimatedContent(
                 targetState = verificationStep,
                 transitionSpec = {
@@ -1552,15 +1651,15 @@ fun TetherAppScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                        .padding(bottom = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     when (step) {
                         TrustVerificationStep.NOT_IN_PANIC -> {
                             if (isPanicActive) {
                                 Text(
                                     text = "System trust compromised. Device validation required.",
-                                    style = MaterialTheme.typography.bodyLarge.copy(color = TextSecondary, textAlign = TextAlign.Center),
+                                    style = MaterialTheme.typography.bodyLarge.copy(color = TextSecondary, textAlign = TextAlign.Center, fontSize = 14.sp),
                                     modifier = Modifier.padding(horizontal = 16.dp)
                                 )
                                 PremiumControlAction(
@@ -1569,16 +1668,25 @@ fun TetherAppScreen(
                                     onClick = onInitiateRestore
                                 )
                             } else {
-                                PremiumControlAction(
-                                    label = "INITIATE UNLOCK SYSTEM",
-                                    accentColor = NeonGreen,
-                                    onClick = onUnlockClick
-                                )
-                                PremiumControlAction(
-                                    label = "INITIATE LOCK SYSTEM",
-                                    accentColor = NeonCyan,
-                                    onClick = onLockClick
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        PremiumControlAction(
+                                            label = "UNLOCK SYSTEM",
+                                            accentColor = NeonGreen,
+                                            onClick = onUnlockClick
+                                        )
+                                    }
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        PremiumControlAction(
+                                            label = "LOCK SYSTEM",
+                                            accentColor = NeonCyan,
+                                            onClick = onLockClick
+                                        )
+                                    }
+                                }
                                 PremiumControlAction(
                                     label = "FORCE TERMINATE LINK",
                                     accentColor = NeonRed,
@@ -1633,7 +1741,7 @@ fun PremiumControlAction(
         shape = RoundedCornerShape(4.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
+            .height(48.dp)
             .border(1.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
     ) {
         Box(
@@ -1646,7 +1754,8 @@ fun PremiumControlAction(
                 text = label,
                 style = MaterialTheme.typography.labelMedium.copy(
                     color = accentColor,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp
                 )
             )
         }
@@ -1727,6 +1836,189 @@ class DeviceIntegrityRegistry(private val context: Context) {
             return !installer.isNullOrEmpty() || Build.FINGERPRINT.startsWith("generic")
         } catch (e: Exception) {
             return false
+        }
+    }
+}
+
+@Composable
+fun LaptopControlScreen(
+    onBleActionRequested: (String, String) -> Unit
+) {
+    val context = LocalContext.current
+
+    val vibrator = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            vibratorManager?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+    }
+
+    // Ultra-subtle haptic execution designed for real-time slider feeds on Android 16
+    fun triggerSubtleSliderTick() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // EFFECT_TICK provides a light, microscopic mechanical click ideal for fine sliding scales
+                val effect = VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+                val attributes = VibrationAttributes.Builder()
+                    .setUsage(VibrationAttributes.USAGE_TOUCH)
+                    .build()
+                vibrator?.vibrate(effect, attributes)
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(8)
+            }
+        } catch (_: Exception) {}
+    }
+
+    var volumeValue by remember { mutableStateOf(50f) }
+    var brightnessValue by remember { mutableStateOf(50f) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(SpaceDark)
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Top
+    ) {
+        Text(
+            text = "HARDWARE ANALOG CONTROLS",
+            style = MaterialTheme.typography.titleMedium.copy(
+                color = NeonCyan,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.5.sp
+            ),
+            modifier = Modifier.padding(bottom = 24.dp)
+        )
+
+        // SLIDER COMPONENT 1: VOLUME CONTROL
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, NeonCyan.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                .background(SurfaceDark)
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "VOLUME COMPONENT ANALYSIS",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = "${volumeValue.roundToInt()}%",
+                    color = NeonCyan,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 13.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Dynamic fluid hardware stream adjusting system sound parameters synchronously across active modules.",
+                color = TextSecondary,
+                fontSize = 11.sp,
+                lineHeight = 14.sp
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Slider(
+                value = volumeValue,
+                onValueChange = { nextVolume ->
+                    val oldInt = volumeValue.roundToInt()
+                    val nextInt = nextVolume.roundToInt()
+                    if (oldInt != nextInt) {
+                        volumeValue = nextVolume
+
+                        // Fire subtle haptic on every individual numerical block shift
+                        triggerSubtleSliderTick()
+
+                        // Execute background BLE broadcast without popping layout Toasts
+                        if (nextInt > oldInt) {
+                            onBleActionRequested("VOL_UP", "")
+                        } else {
+                            onBleActionRequested("VOL_DOWN", "")
+                        }
+                    }
+                },
+                valueRange = 0f..100f,
+                colors = SliderDefaults.colors(
+                    activeTrackColor = NeonCyan,
+                    inactiveTrackColor = SpaceDark,
+                    thumbColor = NeonCyan
+                )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // SLIDER COMPONENT 2: BRIGHTNESS MATRIX
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, NeonCyan.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                .background(SurfaceDark)
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "BRIGHTNESS MATRIX INTENSITY",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = "${brightnessValue.roundToInt()}%",
+                    color = NeonCyan,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 13.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Continuous adjustments managing the host display backlight array intensity variables layout pass.",
+                color = TextSecondary,
+                fontSize = 11.sp,
+                lineHeight = 14.sp
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Slider(
+                value = brightnessValue,
+                onValueChange = { nextBrightness ->
+                    val oldInt = brightnessValue.roundToInt()
+                    val nextInt = nextBrightness.roundToInt()
+                    if (oldInt != nextInt) {
+                        brightnessValue = nextBrightness
+
+                        triggerSubtleSliderTick()
+
+                        if (nextInt > oldInt) {
+                            onBleActionRequested("BRIGHT_UP", "")
+                        } else {
+                            onBleActionRequested("BRIGHT_DOWN", "")
+                        }
+                    }
+                },
+                valueRange = 0f..100f,
+                colors = SliderDefaults.colors(
+                    activeTrackColor = NeonCyan,
+                    inactiveTrackColor = SpaceDark,
+                    thumbColor = NeonCyan
+                )
+            )
         }
     }
 }
