@@ -1,30 +1,46 @@
 ﻿<Window x:Class="Tether.Configuration.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Tether Desktop Dashboard" Height="250" Width="420" Background="#F3F3F3" WindowStartupLocation="CenterScreen">
-	<Grid Margin="20">
-		<StackPanel>
-			<TextBlock Text="Tether Authentication Manager" FontSize="18" FontWeight="Bold" Foreground="#222222" Margin="0,0,0,5"/>
-			<TextBlock Text="Configure local security fallback configurations below." FontSize="12" Foreground="#666666" Margin="0,0,0,20"/>
+        Title="Tether Desktop Dashboard" Height="500" Width="520" Background="#F3F3F3" WindowStartupLocation="CenterScreen">
 
-			<TextBlock Text="Enter Local Account Password:" FontWeight="SemiBold" Margin="0,0,0,5"/>
-			<PasswordBox x:Name="TxtPassword" Height="30" VerticalContentAlignment="Center" Margin="0,0,0,20"/>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid Margin="20">
+            <StackPanel>
+                <TextBlock Text="Tether Authentication Manager" FontSize="18" FontWeight="Bold" Foreground="#222222" Margin="0,0,0,5"/>
+                <TextBlock Text="Configure local security fallback configurations below." FontSize="12" Foreground="#666666" Margin="0,0,0,20"/>
 
-			<Button Content="Commit Secret to Secure Registry" Height="35" Background="#0078D4" Foreground="White" FontWeight="Bold" Click="BtnSave_Click" Cursor="Hand">
-				<Button.Resources>
-					<Style TargetType="Button">
-						<Setter Property="Template">
-							<Setter.Value>
-								<ControlTemplate TargetType="Button">
-									<Border Background="{TemplateBinding Background}" CornerRadius="4">
-										<ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-									</Border>
-								</ControlTemplate>
-							</Setter.Value>
-						</Setter>
-					</Style>
-				</Button.Resources>
-			</Button>
-		</StackPanel>
-	</Grid>
+                <!-- Section 1: Local Account Password -->
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,20">
+                    <StackPanel>
+                        <TextBlock Text="🔐 Local Account Password" FontWeight="Bold" FontSize="14" Foreground="#333333" Margin="0,0,0,10"/>
+                        <TextBlock Text="Enter your Windows login password. This will be stored securely (salted hash + DPAPI)." FontSize="11" Foreground="#666666" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                        <PasswordBox x:Name="TxtPassword" Height="32" VerticalContentAlignment="Center" Margin="0,0,0,12"/>
+                        <Button Content="Commit Secret to Secure Registry" Height="38" Background="#0078D4" Foreground="White" FontWeight="Bold" Click="BtnSave_Click" Cursor="Hand"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Section 2: Phone Public Key -->
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,20">
+                    <StackPanel>
+                        <TextBlock Text="📱 Phone Public Key" FontWeight="Bold" FontSize="14" Foreground="#333333" Margin="0,0,0,10"/>
+                        <TextBlock Text="Paste your Android phone's public key (Base64) here." FontSize="11" Foreground="#666666" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                        <TextBox x:Name="TxtPhonePublicKey" Height="80" VerticalContentAlignment="Top" TextWrapping="Wrap" AcceptsReturn="True" Margin="0,0,0,12"/>
+                        <Button Content="Save Phone Key" Height="38" Background="#0078D4" Foreground="White" FontWeight="Bold" Click="BtnSavePhoneKey_Click" Cursor="Hand"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Section 3: Status / Help Text -->
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <StackPanel>
+                        <TextBlock Text="ℹ️ How to get the phone's public key" FontWeight="Bold" FontSize="14" Foreground="#333333" Margin="0,0,0,10"/>
+                        <TextBlock Text="1. Run the Tether app on your Android phone" FontSize="11" Foreground="#666666" Margin="0,0,0,5"/>
+                        <TextBlock Text="2. Check Logcat output (use Logcat Reader app or Android Studio)" FontSize="11" Foreground="#666666" Margin="0,0,0,5"/>
+                        <TextBlock Text="3. Look for lines between the ====== markers" FontSize="11" Foreground="#666666" Margin="0,0,0,5"/>
+                        <TextBlock Text="4. Copy the entire Base64 string starting with 'MIIBIjAN...'" FontSize="11" Foreground="#666666" Margin="0,0,0,5"/>
+                        <TextBlock Text="5. Paste it above and click 'Save Phone Key'" FontSize="11" Foreground="#666666" Margin="0,0,0,5"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
 </Window>

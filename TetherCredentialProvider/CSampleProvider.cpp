@@ -13,6 +13,7 @@
 #include <new>
 #include "CSampleProvider.h"
 #include "CSampleCredential.h"
+#include "CSampleCredentialGlobals.h"
 #include "guid.h"
 
 CSampleProvider::CSampleProvider() :
@@ -103,44 +104,30 @@ HRESULT CSampleProvider::GetFieldDescriptorAt(
     return hr;
 }
 
-HRESULT CSampleProvider::GetCredentialCount(
-    _Out_ DWORD* pdwCount,
+HRESULT CSampleProvider::GetCredentialCount(_Out_ DWORD* pdwCount,
     _Out_ DWORD* pdwDefault,
     _Out_ BOOL* pbAutoLogonWithDefault)
 {
     if (pdwCount == nullptr || pdwDefault == nullptr || pbAutoLogonWithDefault == nullptr)
-    {
         return E_POINTER;
-    }
 
     *pdwCount = 0;
     *pdwDefault = CREDENTIAL_PROVIDER_NO_DEFAULT;
     *pbAutoLogonWithDefault = FALSE;
 
     HRESULT hr = S_OK;
-
     if (_pCredential == nullptr)
-    {
         hr = _EnumerateCredentials();
-    }
 
     if (SUCCEEDED(hr) && _pCredential != nullptr)
     {
         *pdwCount = 1;
         *pdwDefault = 0;
-
-        extern bool g_fAutoLogonReady;
-        if (g_fAutoLogonReady)
-        {
+        if (g_fAutoLogonReady.load())
             *pbAutoLogonWithDefault = TRUE;
-            // g_fAutoLogonReady = false;
-        }
         else
-        {
             *pbAutoLogonWithDefault = FALSE;
-        }
     }
-
     return hr;
 }
 
@@ -239,7 +226,6 @@ void CSampleProvider::_ReleaseEnumeratedCredentials()
 HRESULT CSampleProvider::_EnumerateCredentials()
 {
     HRESULT hr = E_UNEXPECTED;
-
     _ReleaseEnumeratedCredentials();
 
     if (_pCredProviderUserArray != nullptr)
@@ -251,44 +237,29 @@ HRESULT CSampleProvider::_EnumerateCredentials()
         {
             ICredentialProviderUser* pCredUser = nullptr;
             hr = _pCredProviderUserArray->GetAt(0, &pCredUser);
-
             if (SUCCEEDED(hr) && pCredUser != nullptr)
             {
                 _pCredential = new(std::nothrow) CSampleCredential();
-                if (_pCredential != nullptr)
+                if (_pCredential)
                 {
                     _pCredential->SetProvider(this);
-                    hr = _pCredential->Initialize(_cpus, s_rgCredProvFieldDescriptors, s_rgFieldStatePairs, pCredUser);
+                    hr = _pCredential->Initialize(_cpus, s_rgCredProvFieldDescriptors,
+                        s_rgFieldStatePairs, pCredUser);
                     if (FAILED(hr))
                     {
                         _pCredential->Release();
                         _pCredential = nullptr;
                     }
                 }
-                else
-                {
-                    hr = E_OUTOFMEMORY;
-                }
+                else hr = E_OUTOFMEMORY;
                 pCredUser->Release();
             }
         }
         else
         {
-            _pCredential = new(std::nothrow) CSampleCredential();
-            if (_pCredential != nullptr)
-            {
-                _pCredential->SetProvider(this);
-                hr = _pCredential->Initialize(_cpus, s_rgCredProvFieldDescriptors, s_rgFieldStatePairs, nullptr);
-                if (FAILED(hr))
-                {
-                    _pCredential->Release();
-                    _pCredential = nullptr;
-                }
-            }
-            else
-            {
-                hr = E_OUTOFMEMORY;
-            }
+            // No users – do not create a credential (FIX #3)
+            _pCredential = nullptr;
+            hr = S_OK;
         }
     }
     return hr;

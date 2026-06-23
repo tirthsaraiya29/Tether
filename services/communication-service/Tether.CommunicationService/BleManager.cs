@@ -1,4 +1,5 @@
-﻿using System.ComponentModel;
+﻿using Microsoft.Win32;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Numerics;
 using System.Reflection.Metadata;
@@ -53,11 +54,12 @@ public partial class BleManager : IDisposable
     private GattCharacteristic? _challengeChar;
     private GattCharacteristic? _signatureChar;
     private GattCharacteristic? _commandChar;
+    private string? _phonePublicKeyBase64 = null;
 
     /// <summary>
     /// 🔑 PASTE YOUR EXPORTED ANDROID PUBLIC KEY HERE (Base64 Format)
     /// </summary>
-    private const string PHONE_PUBLIC_KEY_BASE64 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2dbYLlmSn9Z90MfKIFyOAhN9GK+/kdNRSr1Y0ceIFumC/FHdMRoQvXIJH7QHoQVPBP/91w3+dwMg6LkEn7N2DRV6XyH1vOhqTxWeae6n9qHSk+o0KttNwL1bnpBAz1tjFztdvaXEsuNbj1h8bZN2QE3UIrQJNU/9yeLx8JKrCkC8WajJv0RRAQx07pY+n0wbxF0PB/o2kGYhR5gZ1SEzIzbw+swzG5mF0CovolFCNQPoyAwlkbG/ATZRSVFDMA6Min4MkZWBfzQLLEHq0qLoHD+Pio0gmKOy/np+nU1ihzcoLe3CyYxFgludECvay0gGa0WjhmB79kvBsbPrVvuE2QIDAQAB";
+    private const string PHONE_PUBLIC_KEY_BASE64 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuvYKdO7d/JxgNz2ai5JgOga3w2tJmNlS6POZ2d9uNO5sbGCKM7BLgzZMWSUVStnUHQcrbzS7njyeILOqYTc48rvWppUPlrh8QdwQkY01Amy2x8HdiotPBbtQp0QC1Zgg1nmtuKSjIa0lJARDpZrpy1j5IqzVeiNcGQIY3BxQQN7wB5gEIsgiXgok96rSx3T09xppKEGp9T1d1aWtS6XoLF3ZtYAgUn396pe10vZxx7npPA3H+cd0QE/ZyVqYVwOvN2UYsmbd23R/knYg4buIMr9Po32YEBs0S7CPvAlZEHd6FYrUKBEpT/4d2tJiUczU5qCsjspWfbnpc4jMadsNwQIDAQAB";
 
     public BleManager(IEventBus eventBus, ITetherLogger logger)
     {
@@ -85,6 +87,7 @@ public partial class BleManager : IDisposable
 
     public void Start()
     {
+        LoadPhonePublicKeyFromRegistry();
         _logger.Info($"BLE Manager starting - cryptographic verification active for target: '{TARGET_DEVICE_NAME}'");
         StartScanning();
     }
@@ -106,6 +109,31 @@ public partial class BleManager : IDisposable
         _advWatcher.Received += OnDeviceAdvertised;
         _advWatcher.Start();
         _logger.Info("📡 Raw Over-The-Air UUID Sniffer initialized successfully.");
+    }
+
+    private void LoadPhonePublicKeyFromRegistry()
+    {
+        try
+        {
+            using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider"))
+            {
+                if (key != null)
+                {
+                    var value = key.GetValue("PhonePublicKeyBase64") as string;
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        _phonePublicKeyBase64 = value;
+                        _logger.Info("Phone public key loaded from registry.");
+                        return;
+                    }
+                }
+            }
+            _logger.Error("Phone public key NOT found in registry. Authentication will fail.");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to load phone public key: {ex.Message}");
+        }
     }
 
     private void OnDeviceAdvertised(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
@@ -389,33 +417,24 @@ public partial class BleManager : IDisposable
     // Refactored cryptographic verification engine in BleManager.cs
     private bool VerifyPhoneSignature(byte[] challengeData, byte[] signatureToVerify)
     {
-        if (string.IsNullOrWhiteSpace(PHONE_PUBLIC_KEY_BASE64) ||
-            PHONE_PUBLIC_KEY_BASE64.StartsWith("MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0...["))
+        if (string.IsNullOrWhiteSpace(_phonePublicKeyBase64))
         {
-            _logger.Error("❌ CRITICAL: Production Bluetooth Public Key validation token is unconfigured.");
+            _logger.Error("Phone public key not configured. Run Tether.Configuration.exe as Administrator.");
             return false;
         }
 
         try
         {
-            byte[] publicKeyBytes = Convert.FromBase64String(PHONE_PUBLIC_KEY_BASE64);
+            byte[] publicKeyBytes = Convert.FromBase64String(_phonePublicKeyBase64);
             using (var rsa = RSA.Create())
             {
-                // Inject public key components exported from Android isolated hardware engine
                 rsa.ImportSubjectPublicKeyInfo(publicKeyBytes, out _);
-
-                // Execute SHA-256 validation against the original challenge nonce payload
-                return rsa.VerifyData(
-                    challengeData,
-                    signatureToVerify,
-                    HashAlgorithmName.SHA256,
-                    RSASignaturePadding.Pkcs1
-                );
+                return rsa.VerifyData(challengeData, signatureToVerify, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             }
         }
         catch (Exception ex)
         {
-            _logger.Error($"Signature engine fault encountered: {ex.Message}");
+            _logger.Error($"Signature verification failed: {ex.Message}");
             return false;
         }
     }

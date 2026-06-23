@@ -1,12 +1,14 @@
 Windows Registry Editor Version 5.00
 
-[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{C8C8D282-F4F1-451D-96FC-A8B1F783117B}]
-@="SampleV2CredentialProvider"
+[HKEY_CLASSES_ROOT\CLSID\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}]
+@="TetherCredentialProvider"
 
-[HKEY_CLASSES_ROOT\CLSID\{C8C8D282-F4F1-451D-96FC-A8B1F783117B}]
-@="SampleV2CredentialProvider"
-
-[HKEY_CLASSES_ROOT\CLSID\{C8C8D282-F4F1-451D-96FC-A8B1F783117B}\InprocServer32]
-@="TetherCredentialProvider.dll"
+[HKEY_CLASSES_ROOT\CLSID\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}\InprocServer32]
+@="C:\\Dev\\Tether\\x64\\Release\\TetherCredentialProvider.dll"
 "ThreadingModel"="Apartment"
 
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}]
+@="TetherCredentialProvider"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}]
+@="TetherCredentialProvider"
