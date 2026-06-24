@@ -262,7 +262,17 @@ class MainActivity : FragmentActivity() {
                                     applyWindowSecurityFlags()
                                 },
                                 onLaptopActionClick = { action, toastMessage ->
-                                    triggerBleAction(action, toastMessage)
+                                    // Intercept hardware sliders and route over Classic BT with PQC encryption
+                                    if (action.startsWith("VOL_") || action.startsWith("BRIGHT_")) {
+                                        val classicIntent = Intent(this@MainActivity, ClassicBtServerService::class.java).apply {
+                                            this.action = ClassicBtServerService.ACTION_SEND_STREAM
+                                            putExtra(ClassicBtServerService.EXTRA_PAYLOAD, action)
+                                        }
+                                        startService(classicIntent)
+                                    } else {
+                                        // Keep master core control mechanisms operating on default BLE architecture
+                                        triggerBleAction(action, toastMessage)
+                                    }
                                 }
                             )
 
@@ -352,6 +362,7 @@ class MainActivity : FragmentActivity() {
 
     private fun stopBleServiceLeak() {
         stopService(Intent(this, BleGattServerService::class.java))
+        stopService(Intent(this, ClassicBtServerService::class.java))
         uiStatusText.value = "SECURITY GATE ACTIVE"
         uiStatusColor.value = TextSecondary
         uiConnectionStatusText.value = "Awaiting verification"
@@ -577,6 +588,8 @@ class MainActivity : FragmentActivity() {
         val serviceIntent = Intent(this, BleGattServerService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent)
         else startService(serviceIntent)
+
+        startService(Intent(this, ClassicBtServerService::class.java))
 
         uiStatusText.value = "TETHER ACTIVE\nSYSTEM SECURE"
         uiStatusColor.value = NeonGreen
