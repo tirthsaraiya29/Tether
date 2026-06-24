@@ -109,6 +109,7 @@ class BleGattServerService : Service() {
             val connectedDevices = bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT)
             if (connectedDevices != null) {
                 for (device in connectedDevices) {
+                    if (device == null) continue
                     try {
                         bluetoothGattServer?.notifyCharacteristicChanged(device, commandCharacteristic, false)
                     } catch (e: SecurityException) {
@@ -182,7 +183,7 @@ class BleGattServerService : Service() {
                 // Store the transaction challenge in temporary secure app state memory
                 activeChallenge = value
 
-                if (responseNeeded) {
+                if (responseNeeded && device != null) {
                     try {
                         bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
                     } catch (_: SecurityException) {}
@@ -206,24 +207,30 @@ class BleGattServerService : Service() {
                     // Sign the verification token inside the phone's hardware isolation zone
                     val signatureBytes = securityEngine.signChallenge(challenge)
 
-                    try {
-                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, signatureBytes)
-                    } catch (_: SecurityException) {}
+                    if (device != null) {
+                        try {
+                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, signatureBytes)
+                        } catch (_: SecurityException) {}
+                    }
                     Log.d("TetherSecurity", "Cryptographic signature successfully dispatched.")
 
                     // Consume the challenge immediately to prevent replay attempts
                     activeChallenge = null
                 } else {
                     // Fail if laptop attempts to read signature before writing a challenge
-                    try {
-                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
-                    } catch (_: SecurityException) {}
+                    if (device != null) {
+                        try {
+                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
+                        } catch (_: SecurityException) {}
+                    }
                 }
             } else if (characteristic?.uuid == COMMAND_CHAR_UUID) {
                 val currentCommand = commandCharacteristic?.value ?: byteArrayOf()
-                try {
-                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, currentCommand)
-                } catch (_: SecurityException) {}
+                if (device != null) {
+                    try {
+                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, currentCommand)
+                    } catch (_: SecurityException) {}
+                }
             }
         }
 
@@ -237,7 +244,7 @@ class BleGattServerService : Service() {
             value: ByteArray?
         ) {
             super.onDescriptorWriteRequest(device, requestId, descriptor, preparedWrite, responseNeeded, offset, value)
-            if (responseNeeded) {
+            if (responseNeeded && device != null) {
                 try {
                     bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
                 } catch (_: SecurityException) {}
