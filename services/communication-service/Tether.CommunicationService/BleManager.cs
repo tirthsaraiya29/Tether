@@ -1,12 +1,6 @@
 ﻿using Microsoft.Win32;
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Numerics;
-using System.Reflection.Metadata;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
-using System.Timers;
 using Tether.EventBus;
 using Tether.Shared.Events;
 using Tether.Shared.Logging;
@@ -14,10 +8,8 @@ using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
-using Windows.Graphics;
+using Windows.Foundation;
 using Windows.Storage.Streams;
-using Windows.System;
-using Windows.UI.Composition;
 
 namespace Tether.CommunicationService;
 
@@ -25,13 +17,11 @@ public partial class BleManager : IDisposable
 {
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
-    private DeviceWatcher? _deviceWatcher;
     private BluetoothLEAdvertisementWatcher? _advWatcher;
     private BluetoothLEDevice? _device;
     private System.Threading.Timer? _rssiTimer;
     private readonly List<int> _rssiSamples = new();
     private readonly object _lock = new();
-    private byte _lastTrustState = 0x00;
 
     private bool _isWorkstationLocked = false;
     private bool _isConnected = false;
@@ -44,22 +34,17 @@ public partial class BleManager : IDisposable
     private const int SAMPLES_PER_AVERAGE = 5;
 
     // Target Identification & Secure Dynamic UUIDs
-    private const string TARGET_DEVICE_NAME = "Tirth's S25 FE";
     private readonly Guid SERVICE_UUID = new Guid("0000FFE0-0000-1000-8000-00805F9B34FB");
     private readonly Guid CHALLENGE_CHAR_UUID = new Guid("0000FFE3-0000-1000-8000-00805F9B34FB");
     private readonly Guid SIGNATURE_CHAR_UUID = new Guid("0000FFE4-0000-1000-8000-00805F9B34FB");
     private readonly Guid COMMAND_CHAR_UUID = new Guid("0000FFE5-0000-1000-8000-00805F9B34FB");
+    private readonly Guid PUBLIC_KEY_CHAR_UUID = new Guid("0000FFE6-0000-1000-8000-00805F9B34FB");
 
     // GATT Characteristic Tracking
     private GattCharacteristic? _challengeChar;
     private GattCharacteristic? _signatureChar;
     private GattCharacteristic? _commandChar;
-    private string? _phonePublicKeyBase64 = null;
-
-    /// <summary>
-    /// 🔑 PASTE YOUR EXPORTED ANDROID PUBLIC KEY HERE (Base64 Format)
-    /// </summary>
-    private const string PHONE_PUBLIC_KEY_BASE64 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuvYKdO7d/JxgNz2ai5JgOga3w2tJmNlS6POZ2d9uNO5sbGCKM7BLgzZMWSUVStnUHQcrbzS7njyeILOqYTc48rvWppUPlrh8QdwQkY01Amy2x8HdiotPBbtQp0QC1Zgg1nmtuKSjIa0lJARDpZrpy1j5IqzVeiNcGQIY3BxQQN7wB5gEIsgiXgok96rSx3T09xppKEGp9T1d1aWtS6XoLF3ZtYAgUn396pe10vZxx7npPA3H+cd0QE/ZyVqYVwOvN2UYsmbd23R/knYg4buIMr9Po32YEBs0S7CPvAlZEHd6FYrUKBEpT/4d2tJiUczU5qCsjspWfbnpc4jMadsNwQIDAQAB";
+    private GattCharacteristic? _publicKeyChar;
 
     public BleManager(IEventBus eventBus, ITetherLogger logger)
     {
@@ -87,8 +72,7 @@ public partial class BleManager : IDisposable
 
     public void Start()
     {
-        LoadPhonePublicKeyFromRegistry();
-        _logger.Info($"BLE Manager starting - cryptographic verification active for target: '{TARGET_DEVICE_NAME}'");
+        _logger.Info($"BLE Manager starting - cryptographic verification active for target devices advertising service UUID");
         StartScanning();
     }
 
@@ -109,31 +93,6 @@ public partial class BleManager : IDisposable
         _advWatcher.Received += OnDeviceAdvertised;
         _advWatcher.Start();
         _logger.Info("📡 Raw Over-The-Air UUID Sniffer initialized successfully.");
-    }
-
-    private void LoadPhonePublicKeyFromRegistry()
-    {
-        try
-        {
-            using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider"))
-            {
-                if (key != null)
-                {
-                    var value = key.GetValue("PhonePublicKeyBase64") as string;
-                    if (!string.IsNullOrWhiteSpace(value))
-                    {
-                        _phonePublicKeyBase64 = value;
-                        _logger.Info("Phone public key loaded from registry.");
-                        return;
-                    }
-                }
-            }
-            _logger.Error("Phone public key NOT found in registry. Authentication will fail.");
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Failed to load phone public key: {ex.Message}");
-        }
     }
 
     private void OnDeviceAdvertised(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
@@ -157,7 +116,11 @@ public partial class BleManager : IDisposable
             CleanupDevice();
 
             var device = await BluetoothLEDevice.FromBluetoothAddressAsync(bluetoothAddress);
-            if (device == null) return;
+            if (device == null)
+            {
+                _logger.Error("Device is null.");
+                return;
+            }
 
             var accessStatus = await device.RequestAccessAsync();
             if (accessStatus != DeviceAccessStatus.Allowed)
@@ -170,149 +133,68 @@ public partial class BleManager : IDisposable
             _device = device;
             _device.ConnectionStatusChanged += OnConnectionStatusChanged;
 
-            var servicesResult = await _device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
+            // This triggers the connection and retrieves all services
+            var servicesResult = await _device.GetGattServicesAsync(BluetoothCacheMode.Uncached);
 
-            if (servicesResult.Status == GattCommunicationStatus.Success && servicesResult.Services.Count > 0)
+            if (servicesResult.Status != GattCommunicationStatus.Success)
             {
-                var mainService = servicesResult.Services[0];
-
-                var challengeResult = await mainService.GetCharacteristicsForUuidAsync(CHALLENGE_CHAR_UUID, BluetoothCacheMode.Uncached);
-                var signatureResult = await mainService.GetCharacteristicsForUuidAsync(SIGNATURE_CHAR_UUID, BluetoothCacheMode.Uncached);
-                var commandResult = await mainService.GetCharacteristicsForUuidAsync(COMMAND_CHAR_UUID, BluetoothCacheMode.Uncached);
-
-                if (challengeResult.Status == GattCommunicationStatus.Success && challengeResult.Characteristics.Count > 0 &&
-                    signatureResult.Status == GattCommunicationStatus.Success && signatureResult.Characteristics.Count > 0 &&
-                    commandResult.Status == GattCommunicationStatus.Success && commandResult.Characteristics.Count > 0)
-                {
-                    _challengeChar = challengeResult.Characteristics[0];
-                    _signatureChar = signatureResult.Characteristics[0];
-                    _commandChar = commandResult.Characteristics[0];
-
-                    bool isAuthenticated = await AuthenticateDeviceViaChallengeAsync();
-                    if (!isAuthenticated)
-                    {
-                        _logger.Error("❌ CRYPTOGRAPHIC CHALLENGE REJECTED.");
-                        HandleDisconnection();
-                        return;
-                    }
-
-                    _commandChar.ValueChanged += OnCommandReceivedFromPhone;
-                    var status = await _commandChar.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
-                    _logger.Info($"🛡️ Button Pipeline Subscription Complete. State code: {status}");
-
-                    _logger.Info("🛡️ SECURITY HANDSHAKE VERIFIED.");
-                    _isConnected = true;
-                    _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_CONNECTED, Source = "BleManager" });
-                    StartRssiMonitoring();
-                }
-            }
-            else
-            {
+                _logger.Error($"Failed to get GATT services: {servicesResult.Status}");
                 HandleDisconnection();
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"GATT processing link fault: {ex.Message}");
-            HandleDisconnection();
-        }
-        finally
-        {
-            lock (_lock) { _currentConnectingId = null; }
-        }
-    }
-
-    private void OnDeviceDiscovered(DeviceWatcher sender, DeviceInformation args)
-    {
-        if (_isConnected || _currentConnectingId != null) return;
-        _logger.Info($"🎯 SECURE TARGET FOUND VIA SERVICE UUID (ID suffix: {args.Id.Substring(Math.Max(0, args.Id.Length - 5))})");
-        ConnectToDevice(args.Id);
-    }
-
-    private async void ConnectToDevice(string deviceId)
-    {
-        lock (_lock)
-        {
-            if (_isConnected || _currentConnectingId != null) return;
-            _currentConnectingId = deviceId;
-        }
-
-        try
-        {
-            _logger.Info($"Attempting connection to: {deviceId}");
-            CleanupDevice();
-
-            var device = await BluetoothLEDevice.FromIdAsync(deviceId);
-            if (device == null) return;
-
-            var accessStatus = await device.RequestAccessAsync();
-            if (accessStatus != DeviceAccessStatus.Allowed)
-            {
-                _logger.Error($"Access denied by Windows: {accessStatus}");
-                device.Dispose();
                 return;
             }
 
-            if (_currentConnectingId != deviceId) { device.Dispose(); return; }
-
-            _device = device;
-            _device.ConnectionStatusChanged += OnConnectionStatusChanged;
-
-            var servicesResult = await _device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
-
-            if (_device == null || _currentConnectingId != deviceId) return;
-
-            if (servicesResult.Status == GattCommunicationStatus.Success && servicesResult.Services.Count > 0)
+            // Find our service by UUID
+            var mainService = servicesResult.Services.FirstOrDefault(s => s.Uuid == SERVICE_UUID);
+            if (mainService == null)
             {
-                var mainService = servicesResult.Services[0];
-                _logger.Info("✅ Core Service found. Discovering cryptographic characteristics...");
+                _logger.Error($"Service {SERVICE_UUID} not found on device.");
+                HandleDisconnection();
+                return;
+            }
 
-                var challengeResult = await mainService.GetCharacteristicsForUuidAsync(CHALLENGE_CHAR_UUID, BluetoothCacheMode.Uncached);
-                var signatureResult = await mainService.GetCharacteristicsForUuidAsync(SIGNATURE_CHAR_UUID, BluetoothCacheMode.Uncached);
-                var commandResult = await mainService.GetCharacteristicsForUuidAsync(COMMAND_CHAR_UUID, BluetoothCacheMode.Uncached);
+            // Resolve all characteristics
+            var challengeResult = await mainService.GetCharacteristicsForUuidAsync(CHALLENGE_CHAR_UUID, BluetoothCacheMode.Uncached);
+            var signatureResult = await mainService.GetCharacteristicsForUuidAsync(SIGNATURE_CHAR_UUID, BluetoothCacheMode.Uncached);
+            var commandResult = await mainService.GetCharacteristicsForUuidAsync(COMMAND_CHAR_UUID, BluetoothCacheMode.Uncached);
+            var publicKeyResult = await mainService.GetCharacteristicsForUuidAsync(PUBLIC_KEY_CHAR_UUID, BluetoothCacheMode.Uncached);
 
-                if (challengeResult.Status == GattCommunicationStatus.Success && challengeResult.Characteristics.Count > 0 &&
-                    signatureResult.Status == GattCommunicationStatus.Success && signatureResult.Characteristics.Count > 0 &&
-                    commandResult.Status == GattCommunicationStatus.Success && commandResult.Characteristics.Count > 0)
+            if (challengeResult.Status == GattCommunicationStatus.Success && challengeResult.Characteristics.Count > 0 &&
+                signatureResult.Status == GattCommunicationStatus.Success && signatureResult.Characteristics.Count > 0 &&
+                commandResult.Status == GattCommunicationStatus.Success && commandResult.Characteristics.Count > 0 &&
+                publicKeyResult.Status == GattCommunicationStatus.Success && publicKeyResult.Characteristics.Count > 0)
+            {
+                _challengeChar = challengeResult.Characteristics[0];
+                _signatureChar = signatureResult.Characteristics[0];
+                _commandChar = commandResult.Characteristics[0];
+                _publicKeyChar = publicKeyResult.Characteristics[0];
+
+                bool isAuthenticated = await PerformAuthenticationAsync(device);
+                if (!isAuthenticated)
                 {
-                    _challengeChar = challengeResult.Characteristics[0];
-                    _signatureChar = signatureResult.Characteristics[0];
-                    _commandChar = commandResult.Characteristics[0];
-
-                    _logger.Info("Characteristics resolved. Initializing identity challenge...");
-
-                    bool isAuthenticated = await AuthenticateDeviceViaChallengeAsync();
-                    if (!isAuthenticated)
-                    {
-                        _logger.Error("❌ CRYPTOGRAPHIC VERIFICATION FAILED. Rogue device detected.");
-                        HandleDisconnection();
-                        return;
-                    }
-
-                    _commandChar.ValueChanged += OnCommandReceivedFromPhone;
-                    var status = await _commandChar.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
-                    _logger.Info($"🛡️ Button Pipeline Subscription Complete. State code: {status}");
-
-                    _logger.Info("🛡️ CRYPTOGRAPHIC VERIFICATION PASSED. Identity verified via Android Keystore.");
-                    _isConnected = true;
-                    _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_CONNECTED, Source = "BleManager" });
-                    StartRssiMonitoring();
-                }
-                else
-                {
-                    _logger.Error("Failed to discover secure cryptographic characteristics.");
+                    _logger.Error("❌ CRYPTOGRAPHIC CHALLENGE REJECTED.");
                     HandleDisconnection();
+                    return;
                 }
+
+                _commandChar.ValueChanged += OnCommandReceivedFromPhone;
+                var status = await _commandChar.WriteClientCharacteristicConfigurationDescriptorAsync(
+                    GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                _logger.Info($"🛡️ Button Pipeline Subscription Complete. State code: {status}");
+
+                _logger.Info("🛡️ SECURITY HANDSHAKE VERIFIED.");
+                _isConnected = true;
+                _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_CONNECTED, Source = "BleManager" });
+                StartRssiMonitoring();
             }
             else
             {
-                _logger.Error($"Secure Service discovery failed: {servicesResult.Status}");
+                _logger.Error("Failed to discover all required characteristics.");
                 HandleDisconnection();
             }
         }
         catch (Exception ex)
         {
-            _logger.Error($"Connection lifecycle processing failure: {ex.GetType().Name} - {ex.Message}");
+            _logger.Error($"GATT processing error: {ex.GetType().Name} - {ex.Message}");
             HandleDisconnection();
         }
         finally
@@ -321,58 +203,68 @@ public partial class BleManager : IDisposable
         }
     }
 
-    private void OnCommandReceivedFromPhone(GattCharacteristic sender, GattValueChangedEventArgs args)
+    private async Task<bool> PerformAuthenticationAsync(BluetoothLEDevice device)
     {
         try
         {
-            var reader = DataReader.FromBuffer(args.CharacteristicValue);
-            byte[] inputBytes = new byte[reader.UnconsumedBufferLength];
-            reader.ReadBytes(inputBytes);
-            string command = Encoding.UTF8.GetString(inputBytes);
+            string addressHex = device.BluetoothAddress.ToString("X");
+            string? storedKey = GetStoredPublicKey(addressHex);
+            byte[]? publicKeyBytes = null;
 
-            _logger.Info($"📬 Manual Command Payload Evaluated from Device UI: {command}");
-
-            if (command == "PANIC" || command == "LOCK_NOW")
+            if (!string.IsNullOrEmpty(storedKey))
             {
-                lock (_lock)
-                {
-                    _isWorkstationLocked = true;
-                }
-                _logger.Error($"🚨 MANUAL SECURE LOCK ACTION TRIGGERED BY PHONE: {command}");
-
-                // Clear out active Session 0 login tokens instantly
-                ResetIPCHandles();
-
-                _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
-
-                // Force an immediate layout projection instead of evaluating proximity loops asynchronously
-                _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
+                publicKeyBytes = Convert.FromBase64String(storedKey);
+                _logger.Info($"Using stored public key for device {addressHex}");
             }
-            else if (command == "UNLOCK")
+            else
             {
-                lock (_lock)
+                _logger.Info($"No stored public key for {addressHex}. Reading from phone...");
+
+                // Check pairing status but do NOT auto-pair
+                if (!device.DeviceInformation.Pairing.IsPaired)
                 {
-                    _isWorkstationLocked = false;
+                    _logger.Warning("Device is not paired. Public key read may fail if characteristic requires encryption.");
                 }
-                _logger.Info("🔓 MANUAL UNLOCK OVERRIDE DISPATCHED VIA DEVICE APPLICATION CONSOLE");
 
-                // Signal Windows Global Wait Handles to clear the OS layer login screen
-                _appEvent?.Set();
-                _screenEvent?.Set();
+                if (_publicKeyChar == null)
+                {
+                    _logger.Error("Public key characteristic is null.");
+                    return false;
+                }
 
-                _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
-                _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager" });
+                // Read the public key characteristic
+                var readResult = await _publicKeyChar.ReadValueAsync(BluetoothCacheMode.Uncached);
+                if (readResult.Status != GattCommunicationStatus.Success)
+                {
+                    _logger.Error($"Failed to read public key: {readResult.Status}");
+                    return false;
+                }
+
+                using (var reader = DataReader.FromBuffer(readResult.Value))
+                {
+                    publicKeyBytes = new byte[reader.UnconsumedBufferLength];
+                    reader.ReadBytes(publicKeyBytes);
+                }
+
+                string base64Key = Convert.ToBase64String(publicKeyBytes);
+                StorePublicKey(addressHex, base64Key);
+                _logger.Info($"Public key stored for device {addressHex}");
             }
+
+            // Perform challenge-response using the obtained public key
+            return await AuthenticateDeviceViaChallengeAsync(publicKeyBytes);
         }
         catch (Exception ex)
         {
-            _logger.Error($"Failed parsing incoming button descriptor notification payload: {ex.Message}");
+            _logger.Error($"Authentication error: {ex.Message}");
+            return false;
         }
     }
 
-    private async Task<bool> AuthenticateDeviceViaChallengeAsync()
+    private async Task<bool> AuthenticateDeviceViaChallengeAsync(byte[] phonePublicKeyBytes)
     {
-        if (_challengeChar == null || _signatureChar == null) return false;
+        if (_challengeChar == null || _signatureChar == null || phonePublicKeyBytes == null)
+            return false;
 
         try
         {
@@ -404,60 +296,195 @@ public partial class BleManager : IDisposable
             {
                 byte[] phoneSignature = new byte[reader.UnconsumedBufferLength];
                 reader.ReadBytes(phoneSignature);
-                return VerifyPhoneSignature(challengeNonce, phoneSignature);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Error executing security challenge execution: {ex.Message}");
-            return false;
-        }
-    }
 
-    // Refactored cryptographic verification engine in BleManager.cs
-    private bool VerifyPhoneSignature(byte[] challengeData, byte[] signatureToVerify)
-    {
-        if (string.IsNullOrWhiteSpace(_phonePublicKeyBase64))
-        {
-            _logger.Error("Phone public key not configured. Run Tether.Configuration.exe as Administrator.");
-            return false;
-        }
-
-        try
-        {
-            byte[] publicKeyBytes = Convert.FromBase64String(_phonePublicKeyBase64);
-            using (var rsa = RSA.Create())
-            {
-                rsa.ImportSubjectPublicKeyInfo(publicKeyBytes, out _);
-                return rsa.VerifyData(challengeData, signatureToVerify, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Signature verification failed: {ex.Message}");
-            return false;
-        }
-    }
-
-    private async Task UnpairTargetDeviceAsync()
-    {
-        try
-        {
-            string aqs = Windows.Devices.Bluetooth.GenericAttributeProfile.GattDeviceService.GetDeviceSelectorFromUuid(SERVICE_UUID);
-            var devices = await DeviceInformation.FindAllAsync(aqs);
-
-            foreach (var device in devices)
-            {
-                if (device.Pairing.IsPaired)
+                using (var rsa = RSA.Create())
                 {
-                    _logger.Warning($"Flushing system cache connection bounds for discovered node.");
-                    await device.Pairing.UnpairAsync();
+                    rsa.ImportSubjectPublicKeyInfo(phonePublicKeyBytes, out _);
+                    return rsa.VerifyData(challengeNonce, phoneSignature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.Debug($"Unpairing routing skipped: {ex.Message}");
+            _logger.Error($"Signature verification error: {ex.Message}");
+            return false;
+        }
+    }
+
+    private string? GetStoredPublicKey(string addressHex)
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider");
+            return key?.GetValue($"PhonePublicKey_{addressHex}") as string;
+        }
+        catch { return null; }
+    }
+
+    private void StorePublicKey(string addressHex, string base64Key)
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider");
+            key.SetValue($"PhonePublicKey_{addressHex}", base64Key);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to store public key: {ex.Message}");
+        }
+    }
+
+    private void OnCommandReceivedFromPhone(GattCharacteristic sender, GattValueChangedEventArgs args)
+    {
+        try
+        {
+            var reader = DataReader.FromBuffer(args.CharacteristicValue);
+            byte[] inputBytes = new byte[reader.UnconsumedBufferLength];
+            reader.ReadBytes(inputBytes);
+            string command = Encoding.UTF8.GetString(inputBytes).Trim().ToLowerInvariant();
+
+            _logger.Info($"📬 Command received: {command}");
+
+            switch (command)
+            {
+                case "panic":
+                case "lock_now":
+                    lock (_lock) { _isWorkstationLocked = true; }
+                    _logger.Error($"🚨 Manual lock triggered: {command}");
+                    ResetIPCHandles();
+                    _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
+                    _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
+                    break;
+
+                case "unlock":
+                    lock (_lock) { _isWorkstationLocked = false; }
+                    _logger.Info("🔓 Manual unlock override");
+                    _appEvent?.Set();
+                    _screenEvent?.Set();
+                    _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
+                    _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager" });
+                    break;
+
+                case "sleep":
+                    _logger.Info("💤 Executing sleep...");
+                    ExecuteCommand("rundll32.exe", "powrprof.dll,SetSuspendState 0,1,0");
+                    break;
+
+                case "reboot":
+                    _logger.Info("🔄 Executing reboot...");
+                    ExecuteCommand("shutdown", "/r /t 0");
+                    break;
+
+                case "shutdown":
+                    _logger.Info("⏻ Executing shutdown...");
+                    ExecuteCommand("shutdown", "/s /t 0");
+                    break;
+
+                case "volume_up":
+                    _logger.Info("🔊 Increasing volume...");
+                    AdjustVolume(1);
+                    break;
+
+                case "volume_down":
+                    _logger.Info("🔉 Decreasing volume...");
+                    AdjustVolume(-1);
+                    break;
+
+                case "brightness_up":
+                    _logger.Info("☀️ Increasing brightness...");
+                    AdjustBrightness(1);
+                    break;
+
+                case "brightness_down":
+                    _logger.Info("🌙 Decreasing brightness...");
+                    AdjustBrightness(-1);
+                    break;
+
+                default:
+                    _logger.Warning($"Unknown command: {command}");
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Command handling error: {ex.Message}");
+        }
+    }
+
+    private void ExecuteCommand(string fileName, string arguments)
+    {
+        try
+        {
+            using var process = new System.Diagnostics.Process();
+            process.StartInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                UseShellExecute = true,
+                CreateNoWindow = true
+            };
+            process.Start();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to execute command {fileName}: {ex.Message}");
+        }
+    }
+
+    private void AdjustVolume(int delta)
+    {
+        try
+        {
+            // Try using nircmd if available
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "nircmd.exe",
+                Arguments = delta > 0 ? "changesysvolume 1000" : "changesysvolume -1000",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            p?.WaitForExit(1000);
+        }
+        catch
+        {
+            try
+            {
+                // Fallback: use PowerShell
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $"(New-Object -ComObject WScript.Shell).SendKeys({{{(delta > 0 ? "VK_VOLUME_UP" : "VK_VOLUME_DOWN")}}})",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using var p = System.Diagnostics.Process.Start(psi);
+                p?.WaitForExit(1000);
+            }
+            catch
+            {
+                _logger.Warning("Volume adjustment failed. Install nircmd or enable PowerShell.");
+            }
+        }
+    }
+
+    private void AdjustBrightness(int delta)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $@"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, (Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightness).CurrentBrightness + {delta * 5})",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            p?.WaitForExit(1000);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"Brightness adjustment failed: {ex.Message}");
         }
     }
 
@@ -465,17 +492,12 @@ public partial class BleManager : IDisposable
     {
         if (sender.ConnectionStatus == BluetoothConnectionStatus.Disconnected)
         {
-            _logger.Warning("Physical connection link drop reported by underlying Windows OS core.");
+            _logger.Warning("BLE connection dropped.");
             HandleDisconnection();
         }
-    }
-
-    private void OnDeviceRemoved(DeviceWatcher sender, DeviceInformationUpdate args)
-    {
-        if (_device?.DeviceId == args.Id || _currentConnectingId == args.Id)
+        else if (sender.ConnectionStatus == BluetoothConnectionStatus.Connected)
         {
-            _logger.Warning("Target device boundary range connection dropped from scanner.");
-            HandleDisconnection();
+            _logger.Info("BLE device connected.");
         }
     }
 
@@ -487,7 +509,6 @@ public partial class BleManager : IDisposable
             isLockedLocal = _isWorkstationLocked;
         }
 
-        // Only project trust degradation metadata layers if the workspace remains active 
         if (!isLockedLocal)
         {
             _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.TRUST_DEGRADED, Source = "BleManager", PayloadJson = $"{{\"Rssi\":{avgRssi}}}" });
@@ -497,13 +518,26 @@ public partial class BleManager : IDisposable
         {
             _logger.Info($"Device returned within threshold parameters: {avgRssi:F0} dBm. Prompting Challenge Validation...");
 
-            bool identityReverified = await AuthenticateDeviceViaChallengeAsync();
+            string addressHex = _device?.BluetoothAddress.ToString("X") ?? "";
+            string? storedKey = GetStoredPublicKey(addressHex);
+            byte[]? publicKeyBytes = null;
+
+            if (!string.IsNullOrEmpty(storedKey))
+            {
+                publicKeyBytes = Convert.FromBase64String(storedKey);
+            }
+            else
+            {
+                _logger.Error("No stored public key for re-authentication");
+                return;
+            }
+
+            bool identityReverified = await AuthenticateDeviceViaChallengeAsync(publicKeyBytes);
             if (identityReverified)
             {
                 _logger.Info("✅ Proximity Re-authentication passed successfully.");
                 lock (_lock) { _isWorkstationLocked = false; }
 
-                // Signal Windows Global Wait Handles to drop OS-level locking frames automatically
                 _appEvent?.Set();
                 _screenEvent?.Set();
 
@@ -522,7 +556,6 @@ public partial class BleManager : IDisposable
             _logger.Error($"🔒 Signal below fallback bounds: {avgRssi:F0} dBm. Locking.");
             lock (_lock) { _isWorkstationLocked = true; }
 
-            // Wipe out OS authentication states instantly
             ResetIPCHandles();
 
             _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
@@ -542,7 +575,6 @@ public partial class BleManager : IDisposable
 
         lock (_lock) { _isWorkstationLocked = true; }
 
-        // Sever Win32 session authentication lines immediately
         ResetIPCHandles();
 
         _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_DISCONNECTED, Source = "BleManager" });
@@ -567,6 +599,7 @@ public partial class BleManager : IDisposable
         _challengeChar = null;
         _signatureChar = null;
         _commandChar = null;
+        _publicKeyChar = null;
     }
 
     private void StartRssiMonitoring()
@@ -602,8 +635,10 @@ public partial class BleManager : IDisposable
 
     public void Stop()
     {
-        _deviceWatcher?.Stop();
+        _advWatcher?.Stop();
+        _advWatcher = null;
         CleanupDevice();
+        StopRssiMonitoring();
     }
 
     public void Dispose() => Stop();
