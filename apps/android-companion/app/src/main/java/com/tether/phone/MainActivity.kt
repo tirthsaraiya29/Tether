@@ -1,6 +1,7 @@
 package com.tether.phone
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.KeyguardManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -60,12 +61,16 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
 import com.tether.phone.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 val EaseInOutSans = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
@@ -119,19 +124,17 @@ class MainActivity : FragmentActivity() {
     private var isPanicActive = mutableStateOf(false)
     private var currentVerificationStep = mutableStateOf(TrustVerificationStep.NOT_IN_PANIC)
 
-    // Core App Lock States
     private var isAppLocked = mutableStateOf(false)
     private var isBiometricSettingEnabled = mutableStateOf(false)
-    private var selectedTimeoutMs = mutableStateOf(0L)
+    private var selectedTimeoutMs = mutableLongStateOf(0L)
 
-    // Privacy Overlay States
     private var isPrivacyMaskEnabled = mutableStateOf(false)
     private var isBlockScreenReadingEnabled = mutableStateOf(false)
     private var isHideInRecentsEnabled = mutableStateOf(false)
 
-    // Hard Environment Lockdown States
     private var isEnvironmentRestricted = mutableStateOf(false)
-    private var currentIntegrityScore = mutableStateOf(100)
+    private var currentIntegrityScore = mutableIntStateOf(100)
+    private var isLoading = mutableStateOf(true)
 
     private lateinit var executor: Executor
 
@@ -168,30 +171,44 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         executor = Executors.newSingleThreadExecutor()
 
-        val prefs = getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
         isPanicActive.value = prefs.getBoolean(panicStateKey, false)
         isBiometricSettingEnabled.value = prefs.getBoolean(appLockEnabledKey, false)
-        selectedTimeoutMs.value = prefs.getLong(appLockTimeoutKey, 0L)
+        selectedTimeoutMs.longValue = prefs.getLong(appLockTimeoutKey, 0L)
 
         isPrivacyMaskEnabled.value = prefs.getBoolean(privacyMaskEnabledKey, false)
         isBlockScreenReadingEnabled.value = prefs.getBoolean(blockScreenReadingKey, false)
         isHideInRecentsEnabled.value = prefs.getBoolean(hideInRecentsKey, false)
 
         applyWindowSecurityFlags()
-        evaluateDeviceIntegrity()
 
         if (isPanicActive.value) {
             setPanicUiState()
         }
 
-        if (isBiometricSettingEnabled.value && !isEnvironmentRestricted.value) {
-            isAppLocked.value = true
-            authenticateForAppUnlock()
-        } else {
-            if (checkPermissions()) {
-                checkAndEnableBluetooth()
-            } else {
-                requestPermissions()
+        // Start BLE service immediately for faster discovery, but with permission check
+        // and only if not about to be immediately locked
+        val shouldStartImmediately = !isBiometricSettingEnabled.value || selectedTimeoutMs.longValue > 0
+        if (checkPermissions() && shouldStartImmediately) {
+            startBleService()
+        }
+
+        // Run integrity check in background
+        lifecycleScope.launch(Dispatchers.IO) {
+            val report = DeviceIntegrityRegistry(this@MainActivity).runAttestationPipeline()
+            withContext(Dispatchers.Main) {
+                isLoading.value = false
+                currentIntegrityScore.intValue = report.score
+                if (report.score < 70) {
+                    isEnvironmentRestricted.value = true
+                    stopService(Intent(this@MainActivity, BleGattServerService::class.java))
+                } else {
+                    isEnvironmentRestricted.value = false
+                    if (isBiometricSettingEnabled.value) {
+                        isAppLocked.value = true
+                        authenticateForAppUnlock()
+                    }
+                }
             }
         }
 
@@ -202,8 +219,17 @@ class MainActivity : FragmentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        if (isEnvironmentRestricted.value) {
-                            CompromisedEnvironmentOverlay(score = currentIntegrityScore.value)
+                        if (isLoading.value) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = NeonCyan)
+                                Text(
+                                    "Initializing secure environment...",
+                                    color = TextSecondary,
+                                    modifier = Modifier.padding(top = 16.dp)
+                                )
+                            }
+                        } else if (isEnvironmentRestricted.value) {
+                            CompromisedEnvironmentOverlay(score = currentIntegrityScore.intValue)
                         } else {
                             TetherNavigationShell(
                                 statusText = uiStatusText.value,
@@ -212,66 +238,80 @@ class MainActivity : FragmentActivity() {
                                 isPanicActive = isPanicActive.value,
                                 verificationStep = currentVerificationStep.value,
                                 isBiometricSettingEnabled = isBiometricSettingEnabled.value,
-                                selectedTimeoutMs = selectedTimeoutMs.value,
+                                selectedTimeoutMs = selectedTimeoutMs.longValue,
                                 isPrivacyMaskEnabled = isPrivacyMaskEnabled.value,
                                 isBlockScreenReadingEnabled = isBlockScreenReadingEnabled.value,
                                 isHideInRecentsEnabled = isHideInRecentsEnabled.value,
-                                onUnlockClick = { triggerBleAction("UNLOCK", "🔓 Unlock Command Sent!") },
-                                onLockClick = { triggerBleAction("LOCK_NOW", "🔒 Manual Lock Sent!") },
+                                onUnlockClick = { triggerBleAction("unlock", "🔓 Unlock Command Sent!") },
+                                onLockClick = { triggerBleAction("lock_now", "🔒 Manual Lock Sent!") },
                                 onPanicClick = {
                                     persistPanicState(true)
-                                    triggerBleAction("PANIC", "🚨 Panic Sent! Locking PC...")
+                                    triggerBleAction("panic", "🚨 Panic Sent! Locking PC...")
                                 },
                                 onInitiateRestore = {
                                     executeVerificationPipeline(TrustVerificationStep.DEVICE_CREDENTIAL)
                                 },
+                                onSelectLaptop = { showLaptopSelectionDialog() },
                                 onTriggerStepVerification = { step ->
                                     triggerSystemBiometricPrompt(step)
                                 },
                                 onBiometricSettingToggled = { enabled ->
                                     isBiometricSettingEnabled.value = enabled
-                                    prefs.edit().putBoolean(appLockEnabledKey, enabled).apply()
+                                    prefs.edit { putBoolean(appLockEnabledKey, enabled) }
                                     if (enabled) {
                                         isAppLocked.value = true
                                         authenticateForAppUnlock()
                                     }
                                 },
                                 onTimeoutChanged = { timeout ->
-                                    selectedTimeoutMs.value = timeout
-                                    prefs.edit().putLong(appLockTimeoutKey, timeout).apply()
+                                    selectedTimeoutMs.longValue = timeout
+                                    prefs.edit { putLong(appLockTimeoutKey, timeout) }
                                 },
                                 onPrivacyMaskToggled = { enabled ->
                                     isPrivacyMaskEnabled.value = enabled
-                                    prefs.edit().putBoolean(privacyMaskEnabledKey, enabled).apply()
+                                    prefs.edit { putBoolean(privacyMaskEnabledKey, enabled) }
                                     if (!enabled) {
                                         isBlockScreenReadingEnabled.value = false
                                         isHideInRecentsEnabled.value = false
-                                        prefs.edit().putBoolean(blockScreenReadingKey, false)
-                                            .putBoolean(hideInRecentsKey, false).apply()
+                                        prefs.edit {
+                                            putBoolean(blockScreenReadingKey, false)
+                                            putBoolean(hideInRecentsKey, false)
+                                        }
                                     }
                                     applyWindowSecurityFlags()
                                 },
                                 onBlockScreenReadingToggled = { enabled ->
                                     isBlockScreenReadingEnabled.value = enabled
-                                    prefs.edit().putBoolean(blockScreenReadingKey, enabled).apply()
+                                    prefs.edit { putBoolean(blockScreenReadingKey, enabled) }
                                     applyWindowSecurityFlags()
                                 },
                                 onHideInRecentsToggled = { enabled ->
                                     isHideInRecentsEnabled.value = enabled
-                                    prefs.edit().putBoolean(hideInRecentsKey, enabled).apply()
+                                    prefs.edit { putBoolean(hideInRecentsKey, enabled) }
                                     applyWindowSecurityFlags()
                                 },
                                 onLaptopActionClick = { action, toastMessage ->
-                                    // Intercept hardware sliders and route over Classic BT with PQC encryption
-                                    if (action.startsWith("VOL_") || action.startsWith("BRIGHT_")) {
-                                        val classicIntent = Intent(this@MainActivity, ClassicBtServerService::class.java).apply {
-                                            this.action = ClassicBtServerService.ACTION_SEND_STREAM
-                                            putExtra(ClassicBtServerService.EXTRA_PAYLOAD, action)
+                                    val command = when (action) {
+                                        "PWR_SLEEP" -> "sleep"
+                                        "PWR_REBOOT" -> "reboot"
+                                        "PWR_SHUTDOWN" -> "shutdown"
+                                        "VOL_UP" -> "volume_up"
+                                        "VOL_DOWN" -> "volume_down"
+                                        "BRIGHT_UP" -> "brightness_up"
+                                        "BRIGHT_DOWN" -> "brightness_down"
+                                        else -> action.lowercase()
+                                    }
+
+                                    // Send all commands via BLE
+                                    when (command) {
+                                        "shutdown", "sleep", "reboot" -> {
+                                            showPowerConfirmation(command) {
+                                                triggerBleAction(command, toastMessage)
+                                            }
                                         }
-                                        startService(classicIntent)
-                                    } else {
-                                        // Keep master core control mechanisms operating on default BLE architecture
-                                        triggerBleAction(action, toastMessage)
+                                        else -> {
+                                            triggerBleAction(command, toastMessage)
+                                        }
                                     }
                                 }
                             )
@@ -296,18 +336,6 @@ class MainActivity : FragmentActivity() {
         registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
     }
 
-    private fun evaluateDeviceIntegrity() {
-        val report = DeviceIntegrityRegistry(this).runAttestationPipeline()
-        currentIntegrityScore.value = report.score
-
-        if (report.score < 70) {
-            isEnvironmentRestricted.value = true
-            stopService(Intent(this, BleGattServerService::class.java))
-        } else {
-            isEnvironmentRestricted.value = false
-        }
-    }
-
     private fun applyWindowSecurityFlags() {
         runOnUiThread {
             val shouldProtectScreen = isPrivacyMaskEnabled.value && isBlockScreenReadingEnabled.value
@@ -321,18 +349,13 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
-        evaluateDeviceIntegrity()
-
         if (isEnvironmentRestricted.value) return
-
         if (isPrivacyMaskEnabled.value && isBlockScreenReadingEnabled.value) {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
-
         if (isBiometricSettingEnabled.value && !isAppLocked.value) {
-            val prefs = getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
+            val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
             val leftBackgroundAt = prefs.getLong(appLockBackgroundTimestampKey, 0L)
-
             if (selectedTimeoutMs.value == 0L) {
                 isAppLocked.value = true
                 stopBleServiceLeak()
@@ -353,16 +376,19 @@ class MainActivity : FragmentActivity() {
         if (isPrivacyMaskEnabled.value && isHideInRecentsEnabled.value) {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
-
         if (isBiometricSettingEnabled.value) {
-            val prefs = getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
+            val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
             prefs.edit().putLong(appLockBackgroundTimestampKey, System.currentTimeMillis()).apply()
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        try { unregisterReceiver(bluetoothStateReceiver) } catch (_: Exception) {}
+    }
+
     private fun stopBleServiceLeak() {
         stopService(Intent(this, BleGattServerService::class.java))
-        stopService(Intent(this, ClassicBtServerService::class.java))
         uiStatusText.value = "SECURITY GATE ACTIVE"
         uiStatusColor.value = TextSecondary
         uiConnectionStatusText.value = "Awaiting verification"
@@ -379,7 +405,6 @@ class MainActivity : FragmentActivity() {
                     isAppLocked.value = false
                     getSharedPreferences(preferenceName, Context.MODE_PRIVATE).edit()
                         .putLong(appLockBackgroundTimestampKey, 0L).apply()
-
                     if (checkPermissions()) {
                         checkAndEnableBluetooth()
                     } else {
@@ -399,7 +424,6 @@ class MainActivity : FragmentActivity() {
         getSharedPreferences(preferenceName, Context.MODE_PRIVATE).edit(commit = true) {
             putBoolean(panicStateKey, active)
         }
-
         if (active) {
             setPanicUiState()
         } else {
@@ -416,7 +440,6 @@ class MainActivity : FragmentActivity() {
 
     private fun executeVerificationPipeline(nextStep: TrustVerificationStep) {
         currentVerificationStep.value = nextStep
-
         if (nextStep == TrustVerificationStep.DEVICE_CREDENTIAL) {
             triggerSystemBiometricPrompt(nextStep)
         }
@@ -458,22 +481,18 @@ class MainActivity : FragmentActivity() {
                 .setTitle(title)
                 .setSubtitle(subtitle)
                 .setAllowedAuthenticators(allowedAuthenticators)
-
             if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
                 promptBuilder.setNegativeButtonText("Abort")
             }
-
             val biometricPrompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
                     callback(true)
                 }
-
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     super.onAuthenticationError(errorCode, errString)
                     callback(false)
                 }
-
                 override fun onAuthenticationFailed() {
                     super.onAuthenticationFailed()
                 }
@@ -494,7 +513,6 @@ class MainActivity : FragmentActivity() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channel = NotificationChannel(notificationRestoreChannelId, "System Trust Restorations", NotificationManager.IMPORTANCE_HIGH)
         manager.createNotificationChannel(channel)
-
         val notification = NotificationCompat.Builder(this, notificationRestoreChannelId)
             .setContentTitle("🛡️ Cryptographic Trust Restored")
             .setContentText("Local validation pipeline passed successfully.")
@@ -502,34 +520,68 @@ class MainActivity : FragmentActivity() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
-
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
             manager.notify(2, notification)
         } else {
             runOnUiThread {
-                Toast.makeText(this, "🛡️ System Trust Restored (Notification Blocked)", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "🛡️ System Trust Restored (Notification Blocked)", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun showLaptopSelectionDialog() {
+        try {
+            val bluetoothManager = getSystemService(BluetoothManager::class.java)
+            val adapter = bluetoothManager?.adapter
+            if (adapter == null || !adapter.isEnabled) {
+                Toast.makeText(this, "Bluetooth is off", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val pairedDevices = adapter.bondedDevices
+            if (pairedDevices.isEmpty()) {
+                Toast.makeText(this, "No paired devices found. Please pair your laptop first.", Toast.LENGTH_LONG).show()
+                return
+            }
+            val deviceList = pairedDevices.map { "${it.name ?: "Unknown"} (${it.address})" }.toTypedArray()
+            val deviceAddresses = pairedDevices.map { it.address }.toTypedArray()
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Select Your Laptop")
+                .setItems(deviceList) { _, which ->
+                    val mac = deviceAddresses[which]
+                    getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
+                        putString("laptop_mac", mac)
+                    }
+                    Toast.makeText(this, "Selected: ${deviceList[which]}", Toast.LENGTH_SHORT).show()
+                    // BLE will auto-connect via advertisement detection
+                    Toast.makeText(this, "Make sure Tether service is running on laptop", Toast.LENGTH_LONG).show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showPowerConfirmation(command: String, action: () -> Unit) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Confirm Action")
+            .setMessage("Are you sure you want to $command the laptop?")
+            .setPositiveButton("Yes") { _, _ -> action() }
+            .setNegativeButton("No", null)
+            .show()
+    }
+
     private fun triggerBleAction(action: String, toastMessage: String) {
         if (isEnvironmentRestricted.value || isAppLocked.value) return
-
-        // Suppress toasts for background automated tracking operations
         if (toastMessage.isNotEmpty()) {
             Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
         }
-
         val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
             this.action = action
         }
         startService(serviceIntent)
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        try { unregisterReceiver(bluetoothStateReceiver) } catch (_: Exception) {}
     }
 
     private fun checkPermissions(): Boolean {
@@ -577,7 +629,6 @@ class MainActivity : FragmentActivity() {
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         val bluetoothAdapter = bluetoothManager?.adapter
         if (bluetoothAdapter == null) return
-
         if (bluetoothAdapter.isEnabled) startBleService()
         else enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
     }
@@ -585,11 +636,12 @@ class MainActivity : FragmentActivity() {
     private fun startBleService() {
         if (isPanicActive.value || isEnvironmentRestricted.value || isAppLocked.value) return
 
-        val serviceIntent = Intent(this, BleGattServerService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent)
-        else startService(serviceIntent)
-
-        startService(Intent(this, ClassicBtServerService::class.java))
+        val bleIntent = Intent(this, BleGattServerService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(bleIntent)
+        } else {
+            startService(bleIntent)
+        }
 
         uiStatusText.value = "TETHER ACTIVE\nSYSTEM SECURE"
         uiStatusColor.value = NeonGreen
@@ -614,6 +666,7 @@ fun TetherNavigationShell(
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
     onInitiateRestore: () -> Unit,
+    onSelectLaptop: () -> Unit,
     onTriggerStepVerification: (TrustVerificationStep) -> Unit,
     onBiometricSettingToggled: (Boolean) -> Unit,
     onTimeoutChanged: (Long) -> Unit,
@@ -625,7 +678,6 @@ fun TetherNavigationShell(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var currentScreen by remember { mutableStateOf(AppScreen.TELEMETRY_DASHBOARD) }
-
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -650,7 +702,6 @@ fun TetherNavigationShell(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 2.sp
                 )
-
                 NavigationDrawerItem(
                     label = { Text("TELEMETRY MAIN", fontWeight = FontWeight.Bold, letterSpacing = 1.sp) },
                     selected = currentScreen == AppScreen.TELEMETRY_DASHBOARD,
@@ -670,7 +721,6 @@ fun TetherNavigationShell(
                     },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
-
                 NavigationDrawerItem(
                     label = { Text("SLIDERS PANEL", fontWeight = FontWeight.Bold, letterSpacing = 1.sp) },
                     selected = currentScreen == AppScreen.LAPTOP_CONTROL,
@@ -690,7 +740,6 @@ fun TetherNavigationShell(
                     },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
-
                 NavigationDrawerItem(
                     label = { Text("SECURITY SETTINGS", fontWeight = FontWeight.Bold, letterSpacing = 1.sp) },
                     selected = currentScreen == AppScreen.SECURITY_SETTINGS,
@@ -716,12 +765,29 @@ fun TetherNavigationShell(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = {},
+                    title = {
+                        Text(
+                            text = "TETHER COMMAND",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = NeonCyan,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 2.sp
+                        )
+                    },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(
                                 imageVector = Icons.Default.Menu,
                                 contentDescription = "Menu Open",
+                                tint = NeonCyan
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = onSelectLaptop) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Select Laptop",
                                 tint = NeonCyan
                             )
                         }
@@ -748,6 +814,7 @@ fun TetherNavigationShell(
                             onLockClick = onLockClick,
                             onPanicClick = onPanicClick,
                             onInitiateRestore = onInitiateRestore,
+                            onSelectLaptop = onSelectLaptop,
                             onTriggerStepVerification = onTriggerStepVerification,
                             onBleActionRequested = onLaptopActionClick
                         )
@@ -796,7 +863,6 @@ fun SettingsScreen(
         "10 MIN" to 600000L,
         "1 HR" to 3600000L
     )
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -813,7 +879,6 @@ fun SettingsScreen(
             ),
             modifier = Modifier.padding(bottom = 24.dp)
         )
-
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -852,7 +917,6 @@ fun SettingsScreen(
                     )
                 )
             }
-
             AnimatedVisibility(
                 visible = isBiometricEnabled,
                 enter = fadeIn() + expandVertically(),
@@ -871,7 +935,6 @@ fun SettingsScreen(
                         ),
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
-
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -904,9 +967,7 @@ fun SettingsScreen(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(24.dp))
-
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -945,7 +1006,6 @@ fun SettingsScreen(
                     )
                 )
             }
-
             AnimatedVisibility(
                 visible = isPrivacyMaskEnabled,
                 enter = fadeIn() + expandVertically(),
@@ -958,7 +1018,6 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     HorizontalDivider(color = NeonCyan.copy(alpha = 0.1f), thickness = 1.dp)
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -988,7 +1047,6 @@ fun SettingsScreen(
                             )
                         )
                     }
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1021,7 +1079,6 @@ fun SettingsScreen(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(24.dp))
         DeviceAttestationCard(context = androidx.compose.ui.platform.LocalContext.current)
     }
@@ -1030,12 +1087,23 @@ fun SettingsScreen(
 @Composable
 fun DeviceAttestationCard(context: Context) {
     val evaluator = remember { DeviceIntegrityRegistry(context) }
-    val report by produceState(initialValue = evaluator.runAttestationPipeline()) {
-        value = evaluator.runAttestationPipeline()
+    val report by produceState(
+        initialValue = IntegrityReport(
+            score = 100,
+            tier = TrustTier.TRUSTED,
+            isBootloaderLocked = true,
+            isNotRooted = true,
+            isDevOptionsDisabled = true,
+            isUsbDebuggingDisabled = true,
+            isAppIntegrityValid = true,
+            isSecureLockscreenEnabled = true
+        )
+    ) {
+        withContext(Dispatchers.IO) {
+            value = evaluator.runAttestationPipeline()
+        }
     }
-
     var showInfoDialog by remember { mutableStateOf(false) }
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1065,7 +1133,6 @@ fun DeviceAttestationCard(context: Context) {
                     letterSpacing = 1.5.sp
                 )
             }
-
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { showInfoDialog = true }) {
                     Icon(
@@ -1091,11 +1158,9 @@ fun DeviceAttestationCard(context: Context) {
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(16.dp))
         HorizontalDivider(color = report.tier.color.copy(alpha = 0.1f), thickness = 1.dp)
         Spacer(modifier = Modifier.height(16.dp))
-
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             MetricRow(label = "BOOTLOADER SECURITY STATE", pass = report.isBootloaderLocked, weightPoints = "+35")
             MetricRow(label = "ENVIRONMENT ROOT DETECTION", pass = report.isNotRooted, weightPoints = "+35")
@@ -1105,7 +1170,6 @@ fun DeviceAttestationCard(context: Context) {
             MetricRow(label = "SECURE DEVICE SECURITY SHIELD", pass = report.isSecureLockscreenEnabled, weightPoints = "+10")
         }
     }
-
     if (showInfoDialog) {
         AlertDialog(
             onDismissRequest = { showInfoDialog = false },
@@ -1138,11 +1202,9 @@ fun DeviceAttestationCard(context: Context) {
                         if (report.isAppIntegrityValid) AttestationBreakdownRow("App Package Signature Clean", "+10", NeonGreen)
                         if (report.isSecureLockscreenEnabled) AttestationBreakdownRow("Lockscreen Protection Enabled", "+10", NeonGreen)
                     }
-
                     val missingPointsExist = !report.isBootloaderLocked || !report.isNotRooted ||
                             !report.isDevOptionsDisabled || !report.isUsbDebuggingDisabled ||
                             !report.isAppIntegrityValid || !report.isSecureLockscreenEnabled
-
                     if (missingPointsExist) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
@@ -1229,7 +1291,6 @@ fun CompromisedEnvironmentOverlay(score: Int) {
             repeatMode = RepeatMode.Reverse
         ), label = "BreachPulse"
     )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1249,9 +1310,7 @@ fun CompromisedEnvironmentOverlay(score: Int) {
                 letterSpacing = 2.sp,
                 modifier = Modifier.graphicsLayer { alpha = pulseAlpha }
             )
-
             Spacer(modifier = Modifier.height(40.dp))
-
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -1274,9 +1333,7 @@ fun CompromisedEnvironmentOverlay(score: Int) {
                     )
                 }
             }
-
             Spacer(modifier = Modifier.height(40.dp))
-
             Text(
                 text = "ENVIRONMENT RESTRICTED",
                 color = Color.White,
@@ -1284,9 +1341,7 @@ fun CompromisedEnvironmentOverlay(score: Int) {
                 fontSize = 18.sp,
                 letterSpacing = 1.5.sp
             )
-
             Spacer(modifier = Modifier.height(12.dp))
-
             Text(
                 text = "Your device integrity score has dropped below the threshold safety index (< 70).\n\nAll cryptographic local processes and background radio communication services have been terminated to safeguard connected hardware systems.",
                 color = TextSecondary,
@@ -1295,9 +1350,7 @@ fun CompromisedEnvironmentOverlay(score: Int) {
                 lineHeight = 20.sp,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
-
             Spacer(modifier = Modifier.height(32.dp))
-
             Text(
                 text = "REMEDIAL ACTIONS REQUIRED:\n• DISABLE DEVELOPER OPTIONS\n• UNPLUG USB DEBUGGING LINKS\n• RESTORE FACTORY OPERATING SYSTEM",
                 color = NeonRed.copy(alpha = 0.8f),
@@ -1313,7 +1366,6 @@ fun CompromisedEnvironmentOverlay(score: Int) {
 @Composable
 fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
     val infiniteTransition = rememberInfiniteTransition(label = "LockMatrixInfinite")
-
     val scanLineProgress by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -1322,7 +1374,6 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
             repeatMode = RepeatMode.Reverse
         ), label = "ScanlineMovement"
     )
-
     val pulseAlpha by infiniteTransition.animateFloat(
         initialValue = 0.2f,
         targetValue = 0.8f,
@@ -1331,7 +1382,6 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
             repeatMode = RepeatMode.Reverse
         ), label = "MatrixPulse"
     )
-
     val matrixRotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = -360f,
@@ -1339,7 +1389,6 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
             animation = tween(16000, easing = LinearEasing)
         ), label = "NodeRotation"
     )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1363,7 +1412,6 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                 strokeWidth = 3.dp.toPx()
             )
         }
-
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
@@ -1377,9 +1425,7 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                 letterSpacing = 3.sp,
                 modifier = Modifier.graphicsLayer { alpha = pulseAlpha }
             )
-
             Spacer(modifier = Modifier.height(48.dp))
-
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -1402,14 +1448,12 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                         style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
                     )
                 }
-
                 Canvas(modifier = Modifier.size(150.dp)) {
                     drawCircle(
                         color = NeonCyan.copy(alpha = pulseAlpha * 0.2f),
                         style = Stroke(width = 1.dp.toPx())
                     )
                 }
-
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
@@ -1429,9 +1473,7 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                     )
                 }
             }
-
             Spacer(modifier = Modifier.height(48.dp))
-
             Text(
                 text = "SYSTEM ACCESS INTERCEPTED\nBIOLOGICAL MATRIX MATCH REQUIRED",
                 textAlign = TextAlign.Center,
@@ -1441,9 +1483,7 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                 lineHeight = 18.sp,
                 letterSpacing = 0.5.sp
             )
-
             Spacer(modifier = Modifier.height(8.dp))
-
             Text(
                 text = "DECRYPT ENGINE v4.0.26",
                 color = NeonCyan.copy(alpha = 0.4f),
@@ -1465,11 +1505,11 @@ fun TetherAppScreen(
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
     onInitiateRestore: () -> Unit,
+    onSelectLaptop: () -> Unit,
     onTriggerStepVerification: (TrustVerificationStep) -> Unit,
     onBleActionRequested: (String, String) -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "TelemetryInfinite")
-
     val ambientGlowAlpha by infiniteTransition.animateFloat(
         initialValue = 0.15f,
         targetValue = 0.35f,
@@ -1478,7 +1518,6 @@ fun TetherAppScreen(
             repeatMode = RepeatMode.Reverse
         ), label = "AmbientGlow"
     )
-
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
@@ -1486,14 +1525,12 @@ fun TetherAppScreen(
             animation = tween(12000, easing = LinearEasing)
         ), label = "TelemetryRotation"
     )
-
     val ambientGradient = remember(statusColor) {
         Brush.radialGradient(
             colors = listOf(statusColor.copy(alpha = 0.12f), Color.Transparent),
             center = Offset.Unspecified
         )
     }
-
     val sweepGradient = remember(statusColor) {
         Brush.sweepGradient(
             0f to Color.Transparent,
@@ -1501,7 +1538,6 @@ fun TetherAppScreen(
             1f to Color.Transparent
         )
     }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1515,7 +1551,6 @@ fun TetherAppScreen(
                 .graphicsLayer { alpha = ambientGlowAlpha }
                 .background(ambientGradient)
         )
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1531,8 +1566,6 @@ fun TetherAppScreen(
                     fontWeight = FontWeight.Bold
                 )
             )
-
-            // CORE HUD ELEMENT
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -1548,7 +1581,6 @@ fun TetherAppScreen(
                         style = Stroke(width = 6.dp.toPx())
                     )
                 }
-
                 Canvas(
                     modifier = Modifier
                         .size(230.dp)
@@ -1562,7 +1594,6 @@ fun TetherAppScreen(
                         style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
                     )
                 }
-
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.padding(16.dp)
@@ -1582,12 +1613,21 @@ fun TetherAppScreen(
                         )
                     )
                     Spacer(modifier = Modifier.height(4.dp))
+                    val displayStatus = when (verificationStep) {
+                        TrustVerificationStep.DEVICE_CREDENTIAL -> "TIER 1 OF 2"
+                        TrustVerificationStep.BIOMETRIC_FINGERPRINT -> "TIER 2 OF 2"
+                        else -> {
+                            val connStatus = if (connectionStatus.contains("Connected", ignoreCase = true) || connectionStatus.contains("Secure Broadcast", ignoreCase = true))
+                                "🟢 $connectionStatus"
+                            else if (connectionStatus.contains("Not connected", ignoreCase = true))
+                                "🔴 $connectionStatus"
+                            else
+                                connectionStatus
+                            connStatus.uppercase()
+                        }
+                    }
                     Text(
-                        text = when (verificationStep) {
-                            TrustVerificationStep.DEVICE_CREDENTIAL -> "TIER 1 OF 2"
-                            TrustVerificationStep.BIOMETRIC_FINGERPRINT -> "TIER 2 OF 2"
-                            else -> connectionStatus.uppercase()
-                        },
+                        text = displayStatus,
                         style = MaterialTheme.typography.labelMedium.copy(
                             color = if (verificationStep != TrustVerificationStep.NOT_IN_PANIC) NeonCyan else TextSecondary,
                             fontSize = 9.sp
@@ -1595,8 +1635,6 @@ fun TetherAppScreen(
                     )
                 }
             }
-
-            // POWER MANAGEMENT NODE
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1652,8 +1690,6 @@ fun TetherAppScreen(
                     }
                 }
             }
-
-            // CORE TRUST OPERATION MATRIX
             AnimatedContent(
                 targetState = verificationStep,
                 transitionSpec = {
@@ -1701,13 +1737,17 @@ fun TetherAppScreen(
                                     }
                                 }
                                 PremiumControlAction(
+                                    label = "SELECT HOST LAPTOP",
+                                    accentColor = Color.White.copy(alpha = 0.8f),
+                                    onClick = onSelectLaptop
+                                )
+                                PremiumControlAction(
                                     label = "FORCE TERMINATE LINK",
                                     accentColor = NeonRed,
                                     onClick = onPanicClick
                                 )
                             }
                         }
-
                         TrustVerificationStep.DEVICE_CREDENTIAL -> {
                             Text(
                                 text = "Processing secure environment overlay...",
@@ -1715,7 +1755,6 @@ fun TetherAppScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
-
                         TrustVerificationStep.BIOMETRIC_FINGERPRINT -> {
                             Text(
                                 text = "Scan registered fingerprint hardware node to finish authentication.",
@@ -1746,7 +1785,6 @@ fun PremiumControlAction(
             listOf(accentColor.copy(alpha = 0.06f), Color.Transparent)
         )
     }
-
     Button(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
@@ -1776,41 +1814,32 @@ fun PremiumControlAction(
 }
 
 class DeviceIntegrityRegistry(private val context: Context) {
-
     fun runAttestationPipeline(): IntegrityReport {
         var finalScore = 0
-
         val bootloaderLocked = checkBootloaderStatus()
         if (bootloaderLocked) finalScore += 35
-
         val notRooted = !checkRootStatus()
         if (notRooted) finalScore += 35
-
         val devOptionsDisabled = Settings.Global.getInt(
             context.contentResolver,
             Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0
         ) == 0
         if (devOptionsDisabled) finalScore += 10
-
         val usbDebuggingDisabled = Settings.Global.getInt(
             context.contentResolver,
             Settings.Global.ADB_ENABLED, 0
         ) == 0
         if (usbDebuggingDisabled) finalScore += 10
-
         val appIntegrityValid = verifyAppSignatureIntegrity()
         if (appIntegrityValid) finalScore += 10
-
         val km = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         val secureLockscreenEnabled = km.isDeviceSecure
         if (secureLockscreenEnabled) finalScore += 10
-
         val assignedTier = when {
             finalScore in 100..110 -> TrustTier.TRUSTED
             finalScore in 90..100 -> TrustTier.ELEVATED_RISK
             else -> TrustTier.RESTRICTED
         }
-
         return IntegrityReport(
             score = finalScore,
             tier = assignedTier,
@@ -1822,16 +1851,13 @@ class DeviceIntegrityRegistry(private val context: Context) {
             isSecureLockscreenEnabled = secureLockscreenEnabled
         )
     }
-
     private fun checkBootloaderStatus(): Boolean {
         val aboot = Build.BOOTLOADER.lowercase()
         return aboot.isNotEmpty() && !aboot.contains("unknown") && !aboot.contains("unlocked")
     }
-
     private fun checkRootStatus(): Boolean {
         val tags = Build.TAGS
         if (tags != null && tags.contains("test-keys")) return true
-
         val commonPaths = arrayOf(
             "/system/app/Superuser.apk", "/sbin/su", "/system/bin/su",
             "/system/xbin/su", "/data/local/xbin/su", "/data/local/bin/su",
@@ -1842,13 +1868,18 @@ class DeviceIntegrityRegistry(private val context: Context) {
         }
         return false
     }
-
     private fun verifyAppSignatureIntegrity(): Boolean {
-        try {
-            val installer = context.packageManager.getInstallerPackageName(context.packageName)
-            return !installer.isNullOrEmpty() || Build.FINGERPRINT.startsWith("generic")
-        } catch (e: Exception) {
-            return false
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val info = context.packageManager.getInstallSourceInfo(context.packageName)
+                info.installingPackageName != null
+            } else {
+                @Suppress("DEPRECATION")
+                val installer = context.packageManager.getInstallerPackageName(context.packageName)
+                !installer.isNullOrEmpty()
+            } || Build.FINGERPRINT.startsWith("generic")
+        } catch (_: Exception) {
+            false
         }
     }
 }
@@ -1858,7 +1889,6 @@ fun LaptopControlScreen(
     onBleActionRequested: (String, String) -> Unit
 ) {
     val context = LocalContext.current
-
     val vibrator = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
@@ -1868,27 +1898,26 @@ fun LaptopControlScreen(
             context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
         }
     }
-
-    // Ultra-subtle haptic execution designed for real-time slider feeds on Android 16
     fun triggerSubtleSliderTick() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // EFFECT_TICK provides a light, microscopic mechanical click ideal for fine sliding scales
                 val effect = VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
-                val attributes = VibrationAttributes.Builder()
-                    .setUsage(VibrationAttributes.USAGE_TOUCH)
-                    .build()
-                vibrator?.vibrate(effect, attributes)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val attributes = VibrationAttributes.Builder()
+                        .setUsage(VibrationAttributes.USAGE_TOUCH)
+                        .build()
+                    vibrator?.vibrate(effect, attributes)
+                } else {
+                    vibrator?.vibrate(effect)
+                }
             } else {
                 @Suppress("DEPRECATION")
                 vibrator?.vibrate(8)
             }
         } catch (_: Exception) {}
     }
-
-    var volumeValue by remember { mutableStateOf(50f) }
-    var brightnessValue by remember { mutableStateOf(50f) }
-
+    var volumeValue by remember { mutableFloatStateOf(50f) }
+    var brightnessValue by remember { mutableFloatStateOf(50f) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1905,8 +1934,6 @@ fun LaptopControlScreen(
             ),
             modifier = Modifier.padding(bottom = 24.dp)
         )
-
-        // SLIDER COMPONENT 1: VOLUME CONTROL
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1941,7 +1968,6 @@ fun LaptopControlScreen(
                 lineHeight = 14.sp
             )
             Spacer(modifier = Modifier.height(16.dp))
-
             Slider(
                 value = volumeValue,
                 onValueChange = { nextVolume ->
@@ -1949,11 +1975,7 @@ fun LaptopControlScreen(
                     val nextInt = nextVolume.roundToInt()
                     if (oldInt != nextInt) {
                         volumeValue = nextVolume
-
-                        // Fire subtle haptic on every individual numerical block shift
                         triggerSubtleSliderTick()
-
-                        // Execute background BLE broadcast without popping layout Toasts
                         if (nextInt > oldInt) {
                             onBleActionRequested("VOL_UP", "")
                         } else {
@@ -1969,10 +1991,7 @@ fun LaptopControlScreen(
                 )
             )
         }
-
         Spacer(modifier = Modifier.height(24.dp))
-
-        // SLIDER COMPONENT 2: BRIGHTNESS MATRIX
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2007,7 +2026,6 @@ fun LaptopControlScreen(
                 lineHeight = 14.sp
             )
             Spacer(modifier = Modifier.height(16.dp))
-
             Slider(
                 value = brightnessValue,
                 onValueChange = { nextBrightness ->
@@ -2015,9 +2033,7 @@ fun LaptopControlScreen(
                     val nextInt = nextBrightness.roundToInt()
                     if (oldInt != nextInt) {
                         brightnessValue = nextBrightness
-
                         triggerSubtleSliderTick()
-
                         if (nextInt > oldInt) {
                             onBleActionRequested("BRIGHT_UP", "")
                         } else {
