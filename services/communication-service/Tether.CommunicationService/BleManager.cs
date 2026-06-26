@@ -1,4 +1,6 @@
-﻿using Microsoft.Win32;
+using Microsoft.Win32;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using Tether.EventBus;
@@ -45,6 +47,42 @@ public partial class BleManager : IDisposable
     private GattCharacteristic? _signatureChar;
     private GattCharacteristic? _commandChar;
     private GattCharacteristic? _publicKeyChar;
+
+    // Native Windows API for instant volume control
+    [DllImport("user32.dll")]
+    private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    private const byte VK_VOLUME_UP = 0xAF;
+    private const byte VK_VOLUME_DOWN = 0xAE;
+    private const uint KEYEVENTF_KEYDOWN = 0x0000;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+
+    // Native Windows API for brightness control
+    [DllImport("gdi32.dll")]
+    private static extern bool SetMonitorBrightness(IntPtr hMonitor, uint dwBrightness);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool GetMonitorBrightness(IntPtr hMonitor, out uint pdwMinimumBrightness, out uint pdwCurrentBrightness, out uint pdwMaximumBrightness);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetPhysicalMonitorsFromHMONITOR(IntPtr hMonitor, uint dwPhysicalMonitorArraySize, [Out] PHYSICAL_MONITOR[] pPhysicalMonitorArray);
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyPhysicalMonitor(IntPtr hMonitor);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct PHYSICAL_MONITOR
+    {
+        public IntPtr hPhysicalMonitor;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string szPhysicalMonitorDescription;
+        public uint dwPhysicalMonitorHandleCount;
+    }
+
+    private const uint MONITOR_DEFAULTTOPRIMARY = 0x00000001;
 
     public BleManager(IEventBus eventBus, ITetherLogger logger)
     {
@@ -345,6 +383,19 @@ public partial class BleManager : IDisposable
 
             _logger.Info($"📬 Command received: {command}");
 
+            // Fire-and-forget: execute command on a thread pool thread
+            _ = Task.Run(() => ExecuteCommandAsync(command));
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Command handling error: {ex.Message}");
+        }
+    }
+
+    private async Task ExecuteCommandAsync(string command)
+    {
+        try
+        {
             switch (command)
             {
                 case "panic":
@@ -353,7 +404,7 @@ public partial class BleManager : IDisposable
                     _logger.Error($"🚨 Manual lock triggered: {command}");
                     ResetIPCHandles();
                     _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
-                    _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
+                    await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
                     break;
 
                 case "unlock":
@@ -362,42 +413,60 @@ public partial class BleManager : IDisposable
                     _appEvent?.Set();
                     _screenEvent?.Set();
                     _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
-                    _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager" });
+                    await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager" });
                     break;
 
                 case "sleep":
                     _logger.Info("💤 Executing sleep...");
-                    ExecuteCommand("rundll32.exe", "powrprof.dll,SetSuspendState 0,1,0");
+                    await Task.Run(() => Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "rundll32.exe",
+                        Arguments = "powrprof.dll,SetSuspendState 0,1,0",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    }));
                     break;
 
                 case "reboot":
                     _logger.Info("🔄 Executing reboot...");
-                    ExecuteCommand("shutdown", "/r /t 0");
+                    await Task.Run(() => Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "shutdown",
+                        Arguments = "/r /t 0",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    }));
                     break;
 
                 case "shutdown":
                     _logger.Info("⏻ Executing shutdown...");
-                    ExecuteCommand("shutdown", "/s /t 0");
+                    await Task.Run(() => Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "shutdown",
+                        Arguments = "/s /t 0",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    }));
                     break;
 
                 case "volume_up":
                     _logger.Info("🔊 Increasing volume...");
-                    AdjustVolume(1);
+                    AdjustVolumeNative(1);
                     break;
 
                 case "volume_down":
                     _logger.Info("🔉 Decreasing volume...");
-                    AdjustVolume(-1);
+                    AdjustVolumeNative(-1);
                     break;
 
                 case "brightness_up":
                     _logger.Info("☀️ Increasing brightness...");
-                    AdjustBrightness(1);
+                    await AdjustBrightnessNativeAsync(5);
                     break;
 
                 case "brightness_down":
                     _logger.Info("🌙 Decreasing brightness...");
-                    AdjustBrightness(-1);
+                    await AdjustBrightnessNativeAsync(-5);
                     break;
 
                 default:
@@ -407,85 +476,70 @@ public partial class BleManager : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Error($"Command handling error: {ex.Message}");
+            _logger.Error($"Command execution error: {ex.Message}");
         }
     }
 
-    private void ExecuteCommand(string fileName, string arguments)
+    private void AdjustVolumeNative(int delta)
     {
-        try
-        {
-            using var process = new System.Diagnostics.Process();
-            process.StartInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = fileName,
-                Arguments = arguments,
-                UseShellExecute = true,
-                CreateNoWindow = true
-            };
-            process.Start();
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Failed to execute command {fileName}: {ex.Message}");
-        }
+        // Simulate pressing the media volume key - instantaneous
+        byte key = delta > 0 ? VK_VOLUME_UP : VK_VOLUME_DOWN;
+        keybd_event(key, 0, KEYEVENTF_KEYDOWN, UIntPtr.Zero);
+        keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
     }
 
-    private void AdjustVolume(int delta)
+    private async Task AdjustBrightnessNativeAsync(int deltaPercent)
     {
-        try
-        {
-            // Try using nircmd if available
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "nircmd.exe",
-                Arguments = delta > 0 ? "changesysvolume 1000" : "changesysvolume -1000",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = System.Diagnostics.Process.Start(psi);
-            p?.WaitForExit(1000);
-        }
-        catch
+        await Task.Run(() =>
         {
             try
             {
-                // Fallback: use PowerShell
-                var psi = new System.Diagnostics.ProcessStartInfo
+                // Get primary monitor handle
+                IntPtr hMonitor = MonitorFromWindow(IntPtr.Zero, MONITOR_DEFAULTTOPRIMARY);
+                if (hMonitor == IntPtr.Zero)
                 {
-                    FileName = "powershell.exe",
-                    Arguments = $"(New-Object -ComObject WScript.Shell).SendKeys({{{(delta > 0 ? "VK_VOLUME_UP" : "VK_VOLUME_DOWN")}}})",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                using var p = System.Diagnostics.Process.Start(psi);
-                p?.WaitForExit(1000);
-            }
-            catch
-            {
-                _logger.Warning("Volume adjustment failed. Install nircmd or enable PowerShell.");
-            }
-        }
-    }
+                    _logger.Warning("Failed to get primary monitor handle");
+                    return;
+                }
 
-    private void AdjustBrightness(int delta)
-    {
-        try
-        {
-            var psi = new System.Diagnostics.ProcessStartInfo
+                uint physicalMonitorCount = 1;
+                PHYSICAL_MONITOR[] monitors = new PHYSICAL_MONITOR[1];
+                if (!GetPhysicalMonitorsFromHMONITOR(hMonitor, physicalMonitorCount, monitors))
+                {
+                    _logger.Warning("Failed to get physical monitor");
+                    return;
+                }
+
+                IntPtr hPhysical = monitors[0].hPhysicalMonitor;
+                uint min, current, max;
+                if (!GetMonitorBrightness(hPhysical, out min, out current, out max))
+                {
+                    _logger.Warning("Failed to get current brightness");
+                    DestroyPhysicalMonitor(hPhysical);
+                    return;
+                }
+
+                // Calculate new brightness (deltaPercent is +/- percentage points)
+                float step = (max - min) / 100.0f;
+                int newBrightness = (int)(current + (deltaPercent * step));
+                newBrightness = Math.Clamp(newBrightness, (int)min, (int)max);
+
+                if (!SetMonitorBrightness(hPhysical, (uint)newBrightness))
+                {
+                    _logger.Warning("Failed to set brightness");
+                }
+                else
+                {
+                    _logger.Info($"Brightness set to {newBrightness} (range: {min}-{max})");
+                }
+
+                DestroyPhysicalMonitor(hPhysical);
+            }
+            catch (Exception ex)
             {
-                FileName = "powershell.exe",
-                Arguments = $@"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, (Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightness).CurrentBrightness + {delta * 5})",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = System.Diagnostics.Process.Start(psi);
-            p?.WaitForExit(1000);
-        }
-        catch (Exception ex)
-        {
-            _logger.Warning($"Brightness adjustment failed: {ex.Message}");
-        }
+                _logger.Warning($"Brightness adjustment failed: {ex.Message}");
+            }
+        });
     }
 
     private void OnConnectionStatusChanged(BluetoothLEDevice sender, object args)
@@ -662,16 +716,16 @@ public partial class BleManager : IDisposable
 
         if (!shouldLaunch) return;
 
-        var processes = System.Diagnostics.Process.GetProcessesByName("Tether.OverlayUI");
+        var processes = Process.GetProcessesByName("Tether.OverlayUI");
         if (processes.Length > 0) return;
 
         try
         {
             string exactPath = @"C:\Dev\Tether\Tether.OverlayUI\bin\Debug\net8.0-windows\Tether.OverlayUI.exe";
 
-            if (System.IO.File.Exists(exactPath))
+            if (File.Exists(exactPath))
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                Process.Start(new ProcessStartInfo
                 {
                     FileName = exactPath,
                     UseShellExecute = true
@@ -692,7 +746,7 @@ public partial class BleManager : IDisposable
         try
         {
             var json = System.Text.Json.JsonSerializer.Serialize(evt);
-            var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+            var bytes = Encoding.UTF8.GetBytes(json);
             using var client = new System.IO.Pipes.NamedPipeClientStream(".", Tether.Shared.IPC.IpcConstants.UiPipeName, System.IO.Pipes.PipeDirection.Out);
             await client.ConnectAsync(200);
             await client.WriteAsync(bytes, 0, bytes.Length);
