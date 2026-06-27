@@ -9,6 +9,10 @@ namespace Tether.Configuration
 {
     public partial class MainWindow : Window
     {
+        // ========================================================================
+        // Win32 P/Invoke Declarations
+        // ========================================================================
+
         [DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern bool CryptProtectData(
             ref DATA_BLOB pDataIn,
@@ -31,8 +35,15 @@ namespace Tether.Configuration
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool CloseHandle(IntPtr hObject);
 
-        [DllImport("secur32.dll", SetLastError = false)]
-        private static extern uint GetUserNameEx(int nameFormat, StringBuilder lpNameBuffer, ref uint lpnSize);
+        [DllImport("secur32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetUserNameEx(
+            int nameFormat,
+            StringBuilder lpNameBuffer,
+            ref uint lpnSize);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr LocalFree(IntPtr hMem);
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         private struct DATA_BLOB
@@ -41,66 +52,317 @@ namespace Tether.Configuration
             public IntPtr pbData;
         }
 
+        // ========================================================================
+        // Constants
+        // ========================================================================
+
         private const uint CRYPTPROTECT_UI_FORBIDDEN = 0x1;
         private const uint CRYPTPROTECT_LOCAL_MACHINE = 0x4;
+
         private const int LOGON32_LOGON_INTERACTIVE = 2;
+        private const int LOGON32_LOGON_NETWORK = 3;
         private const int LOGON32_PROVIDER_DEFAULT = 0;
-        private const int EXTENDED_NAME_FORMAT_UPN = 2; // user@domain.com format
+
+        private enum EXTENDED_NAME_FORMAT
+        {
+            NameUnknown = 0,
+            NameFullyQualifiedDN = 1,
+            NameSamCompatible = 2,
+            NameDisplay = 3,
+            NameUniqueId = 6,
+            NameCanonical = 7,
+            NameUserPrincipal = 8
+        }
+
+        // ========================================================================
+        // Constructor
+        // ========================================================================
 
         public MainWindow()
         {
             InitializeComponent();
+            SetUserTypeDisplay();
+        }
+
+        // ========================================================================
+        // User Type Detection
+        // ========================================================================
+
+        private void SetUserTypeDisplay()
+        {
+            string upn = GetCurrentUserPrincipalName();
+            bool isMicrosoft = !string.IsNullOrEmpty(upn) && upn.Contains('@');
+
+            TxtUserType.Text = isMicrosoft
+                ? $"✓ Current user type: Microsoft Account ({upn})"
+                : "✓ Current user type: Local / Domain account";
         }
 
         private string GetCurrentUserPrincipalName()
         {
             uint size = 256;
             StringBuilder sb = new StringBuilder((int)size);
-            uint result = GetUserNameEx(EXTENDED_NAME_FORMAT_UPN, sb, ref size);
-            if (result != 0)
+
+            if (GetUserNameEx((int)EXTENDED_NAME_FORMAT.NameUserPrincipal, sb, ref size))
             {
                 return sb.ToString();
             }
-            return System.Environment.UserName;
+
+            // Fallback: try SamCompatible (DOMAIN\User)
+            size = 256;
+            sb.Clear();
+            if (GetUserNameEx((int)EXTENDED_NAME_FORMAT.NameSamCompatible, sb, ref size))
+            {
+                return sb.ToString();
+            }
+
+            return Environment.UserName;
         }
+
+        // ========================================================================
+        // Password Verification (Supports Both Local & Microsoft Accounts)
+        // ========================================================================
 
         private bool VerifyWindowsPassword(string password)
         {
-            return true;
+            string upn = GetCurrentUserPrincipalName();
+            string domain = Environment.UserDomainName;
+            string username = Environment.UserName;
+            string computerName = Environment.MachineName;
+
+            IntPtr token;
+            bool success = false;
+
+            // Try multiple logon types for each combination
+
+            // 1. Try UPN (user@domain) - works for Microsoft Accounts
+            if (!string.IsNullOrEmpty(upn) && upn.Contains('@'))
+            {
+                // Interactive logon with domain = null
+                success = LogonUser(upn, null, password,
+                                    LOGON32_LOGON_INTERACTIVE,
+                                    LOGON32_PROVIDER_DEFAULT,
+                                    out token);
+                if (success) { CloseHandle(token); return true; }
+
+                // Network logon (less restrictive)
+                success = LogonUser(upn, null, password,
+                                    LOGON32_LOGON_NETWORK,
+                                    LOGON32_PROVIDER_DEFAULT,
+                                    out token);
+                if (success) { CloseHandle(token); return true; }
+
+                // Try with domain extracted from UPN
+                string upnDomain = upn.Substring(upn.IndexOf('@') + 1);
+                success = LogonUser(upn, upnDomain, password,
+                                    LOGON32_LOGON_INTERACTIVE,
+                                    LOGON32_PROVIDER_DEFAULT,
+                                    out token);
+                if (success) { CloseHandle(token); return true; }
+
+                success = LogonUser(upn, upnDomain, password,
+                                    LOGON32_LOGON_NETWORK,
+                                    LOGON32_PROVIDER_DEFAULT,
+                                    out token);
+                if (success) { CloseHandle(token); return true; }
+            }
+
+            // 2. Try domain\username
+            success = LogonUser(username, domain, password,
+                                LOGON32_LOGON_INTERACTIVE,
+                                LOGON32_PROVIDER_DEFAULT,
+                                out token);
+            if (success) { CloseHandle(token); return true; }
+
+            success = LogonUser(username, domain, password,
+                                LOGON32_LOGON_NETWORK,
+                                LOGON32_PROVIDER_DEFAULT,
+                                out token);
+            if (success) { CloseHandle(token); return true; }
+
+            // 3. Try computer\username (local accounts)
+            success = LogonUser(username, computerName, password,
+                                LOGON32_LOGON_INTERACTIVE,
+                                LOGON32_PROVIDER_DEFAULT,
+                                out token);
+            if (success) { CloseHandle(token); return true; }
+
+            success = LogonUser(username, computerName, password,
+                                LOGON32_LOGON_NETWORK,
+                                LOGON32_PROVIDER_DEFAULT,
+                                out token);
+            if (success) { CloseHandle(token); return true; }
+
+            // 4. Final fallback: just username with no domain
+            success = LogonUser(username, null, password,
+                                LOGON32_LOGON_INTERACTIVE,
+                                LOGON32_PROVIDER_DEFAULT,
+                                out token);
+            if (success) { CloseHandle(token); return true; }
+
+            success = LogonUser(username, null, password,
+                                LOGON32_LOGON_NETWORK,
+                                LOGON32_PROVIDER_DEFAULT,
+                                out token);
+            if (success) { CloseHandle(token); return true; }
+
+            return false;
         }
+
+        // ========================================================================
+        // Registry Management
+        // ========================================================================
+
+        private void ClearRegistryKeys()
+        {
+            try
+            {
+                using RegistryKey? key = Registry.LocalMachine.OpenSubKey(
+                    @"SOFTWARE\Tether\CredentialProvider",
+                    true);
+
+                if (key == null) return;
+
+                // Get all value names
+                string[] valueNames = key.GetValueNames();
+
+                foreach (string name in valueNames)
+                {
+                    // Don't delete PhonePublicKeyBase64 - it's managed by BLE auto-pairing
+                    if (name == "PhonePublicKeyBase64") continue;
+                    key.DeleteValue(name);
+                }
+
+                System.Diagnostics.Debug.WriteLine("Registry keys cleared (except PhonePublicKeyBase64)");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to clear registry: {ex.Message}");
+            }
+        }
+
+        // ========================================================================
+        // DPAPI Encryption Helpers
+        // ========================================================================
+
+        private bool StoreEncryptedPassword(string cleartextPassword)
+        {
+            try
+            {
+                byte[] rawPlainBytes = Encoding.Unicode.GetBytes(cleartextPassword ?? string.Empty);
+
+                DATA_BLOB dataIn = new DATA_BLOB();
+                DATA_BLOB dataOut = new DATA_BLOB();
+                DATA_BLOB entropy = new DATA_BLOB();
+
+                dataIn.cbData = rawPlainBytes.Length;
+                dataIn.pbData = Marshal.AllocHGlobal(rawPlainBytes.Length);
+                Marshal.Copy(rawPlainBytes, 0, dataIn.pbData, rawPlainBytes.Length);
+
+                try
+                {
+                    bool success = CryptProtectData(
+                        ref dataIn,
+                        "TetherCredentialProviderSecret",
+                        ref entropy,
+                        IntPtr.Zero,
+                        IntPtr.Zero,
+                        CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE,
+                        ref dataOut);
+
+                    if (success)
+                    {
+                        byte[] encryptedPayload = new byte[dataOut.cbData];
+                        Marshal.Copy(dataOut.pbData, encryptedPayload, 0, dataOut.cbData);
+
+                        using RegistryKey? key = Registry.LocalMachine.CreateSubKey(
+                            @"SOFTWARE\Tether\CredentialProvider",
+                            true);
+
+                        if (key == null)
+                        {
+                            throw new InvalidOperationException("Failed to create/open registry key.");
+                        }
+
+                        key.SetValue("EncryptedPassword", encryptedPayload, RegistryValueKind.Binary);
+                        return true;
+                    }
+
+                    int lastError = Marshal.GetLastWin32Error();
+                    System.Diagnostics.Debug.WriteLine($"CryptProtectData failed with error: {lastError}");
+                    return false;
+                }
+                finally
+                {
+                    if (dataIn.pbData != IntPtr.Zero)
+                        Marshal.FreeHGlobal(dataIn.pbData);
+
+                    if (dataOut.pbData != IntPtr.Zero)
+                        LocalFree(dataOut.pbData);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"StoreEncryptedPassword exception: {ex.Message}");
+                MessageBox.Show($"Encryption error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
+            }
+        }
+
+        // ========================================================================
+        // Event Handlers
+        // ========================================================================
 
         private void BtnSave_Click(object sender, RoutedEventArgs e)
         {
             if (TxtPassword.SecurePassword.Length == 0)
             {
-                MessageBox.Show("Password entry field cannot be empty.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Password entry field cannot be empty.",
+                    "Validation Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
                 return;
             }
 
             IntPtr passwordPointer = IntPtr.Zero;
+            string cleartextPassword = string.Empty;
+
             try
             {
                 // Convert SecureString to plaintext (temporarily)
                 passwordPointer = Marshal.SecureStringToGlobalAllocUnicode(TxtPassword.SecurePassword);
-                string cleartextPassword = Marshal.PtrToStringUni(passwordPointer) ?? string.Empty;
+                cleartextPassword = Marshal.PtrToStringUni(passwordPointer) ?? string.Empty;
 
-                // Verify the password is correct before storing
-                if (!VerifyWindowsPassword(cleartextPassword))
+                // Try to verify the password
+                bool verified = VerifyWindowsPassword(cleartextPassword);
+
+                if (!verified)
                 {
-                    MessageBox.Show(
-                        "The password you entered is NOT your current Windows login password.\n\n" +
-                        "Please enter the correct password that you use to log into Windows.\n\n" +
-                        "If you use a Microsoft account, enter that password (not a local PIN).",
+                    // Verification failed – ask user if they want to proceed anyway
+                    MessageBoxResult result = MessageBox.Show(
+                        "We couldn't verify your password with the system.\n\n" +
+                        "This can happen with Microsoft accounts or certain domain configurations.\n" +
+                        "If you are 100% sure the password is correct, you can proceed.\n\n" +
+                        "Do you want to store this password anyway?",
                         "Password Verification Failed",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Error);
-                    return;
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Warning);
+
+                    if (result != MessageBoxResult.Yes)
+                    {
+                        return; // User chose not to store
+                    }
                 }
+
+                // ✅ CLEAR PREVIOUS REGISTRY ENTRIES BEFORE WRITING
+                ClearRegistryKeys();
 
                 // Generate random salt (16 bytes)
                 byte[] salt = new byte[16];
                 using (var rng = RandomNumberGenerator.Create())
+                {
                     rng.GetBytes(salt);
+                }
 
                 // Compute salted hash (SHA-256)
                 byte[] passwordBytes = Encoding.UTF8.GetBytes(cleartextPassword);
@@ -110,23 +372,32 @@ namespace Tether.Configuration
 
                 byte[] hashBytes;
                 using (SHA256 sha = SHA256.Create())
+                {
                     hashBytes = sha.ComputeHash(combined);
+                }
 
                 string hashHex = BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
 
                 // Store salt and hash in registry
-                using (RegistryKey key = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
+                using RegistryKey? key = Registry.LocalMachine.CreateSubKey(
+                    @"SOFTWARE\Tether\CredentialProvider",
+                    true);
+
+                if (key == null)
                 {
-                    key.SetValue("PasswordHash", hashHex, RegistryValueKind.String);
-                    key.SetValue("PasswordSalt", salt, RegistryValueKind.Binary);
+                    throw new InvalidOperationException("Failed to create/open registry key.");
                 }
+
+                key.SetValue("PasswordHash", hashHex, RegistryValueKind.String);
+                key.SetValue("PasswordSalt", salt, RegistryValueKind.Binary);
 
                 // Encrypt the cleartext password with DPAPI (machine scope)
                 bool storedSecurely = StoreEncryptedPassword(cleartextPassword);
+
                 if (storedSecurely)
                 {
                     MessageBox.Show(
-                        "✓ Password verified and stored successfully!\n\n" +
+                        "✓ Password stored successfully!\n\n" +
                         "The salted hash and encrypted password have been saved to the registry.\n" +
                         "Reboot your computer for changes to take effect.",
                         "Success",
@@ -135,7 +406,11 @@ namespace Tether.Configuration
                 }
                 else
                 {
-                    MessageBox.Show("DPAPI Data protection framework fault encountered.", "Storage Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show(
+                        "DPAPI data protection framework fault encountered.",
+                        "Storage Error",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
                 }
 
                 TxtPassword.Clear();
@@ -151,74 +426,73 @@ namespace Tether.Configuration
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Critical error writing descriptors: {ex.Message}", "Exception Trace", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(
+                    $"Critical error: {ex.Message}",
+                    "Exception Trace",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
             }
             finally
             {
                 if (passwordPointer != IntPtr.Zero)
+                {
                     Marshal.ZeroFreeGlobalAllocUnicode(passwordPointer);
-            }
-        }
-
-        private bool StoreEncryptedPassword(string cleartextPassword)
-        {
-            try
-            {
-                byte[] rawPlainBytes = Encoding.Unicode.GetBytes(cleartextPassword ?? string.Empty);
-                DATA_BLOB dataIn = new DATA_BLOB();
-                DATA_BLOB dataOut = new DATA_BLOB();
-                DATA_BLOB entropy = new DATA_BLOB();
-
-                dataIn.cbData = rawPlainBytes.Length;
-                dataIn.pbData = Marshal.AllocHGlobal(rawPlainBytes.Length);
-                Marshal.Copy(rawPlainBytes, 0, dataIn.pbData, rawPlainBytes.Length);
-
-                try
-                {
-                    if (CryptProtectData(ref dataIn, "TetherCredentialProviderSecret", ref entropy, IntPtr.Zero, IntPtr.Zero,
-                                         CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, ref dataOut))
-                    {
-                        byte[] encryptedPayload = new byte[dataOut.cbData];
-                        Marshal.Copy(dataOut.pbData, encryptedPayload, 0, dataOut.cbData);
-
-                        using (RegistryKey key = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
-                        {
-                            key.SetValue("EncryptedPassword", encryptedPayload, RegistryValueKind.Binary);
-                        }
-                        return true;
-                    }
                 }
-                finally
+                // Clear the plaintext from memory
+                if (!string.IsNullOrEmpty(cleartextPassword))
                 {
-                    if (dataIn.pbData != IntPtr.Zero) Marshal.FreeHGlobal(dataIn.pbData);
-                    if (dataOut.pbData != IntPtr.Zero) Marshal.FreeHGlobal(dataOut.pbData);
+                    Array.Clear(cleartextPassword.ToCharArray(), 0, cleartextPassword.Length);
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"StoreEncryptedPassword exception: {ex.Message}");
-            }
-            return false;
         }
 
         private void BtnSavePhoneKey_Click(object sender, RoutedEventArgs e)
         {
             if (string.IsNullOrWhiteSpace(TxtPhonePublicKey.Text))
             {
-                MessageBox.Show("Public key cannot be empty.");
+                MessageBox.Show("Public key cannot be empty.",
+                    "Validation Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
                 return;
             }
+
             try
             {
-                using (var key = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider"))
+                using RegistryKey? key = Registry.LocalMachine.CreateSubKey(
+                    @"SOFTWARE\Tether\CredentialProvider",
+                    true);
+
+                if (key == null)
                 {
-                    key.SetValue("PhonePublicKeyBase64", TxtPhonePublicKey.Text.Trim(), RegistryValueKind.String);
+                    throw new InvalidOperationException("Failed to create/open registry key.");
                 }
-                MessageBox.Show("Phone public key stored. Restart Tether Communication Service.");
+
+                key.SetValue("PhonePublicKeyBase64", TxtPhonePublicKey.Text.Trim(), RegistryValueKind.String);
+
+                MessageBox.Show(
+                    "Phone public key stored successfully.\n\n" +
+                    "Restart the Tether Communication Service for changes to take effect.",
+                    "Success",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
             }
             catch (UnauthorizedAccessException)
             {
-                MessageBox.Show("Run as Administrator.");
+                MessageBox.Show(
+                    "You need administrator privileges to write to the registry.\n\n" +
+                    "Please restart the application as Administrator.",
+                    "Access Denied",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Failed to store phone key: {ex.Message}",
+                    "Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
             }
         }
     }

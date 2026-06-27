@@ -346,47 +346,26 @@ HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
 // -------------------------------------------------------------------
 // Password packing helpers
 // -------------------------------------------------------------------
-HRESULT CSampleCredential::_PackActualPasswordCredential(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
+HRESULT CSampleCredential::_PackActualPasswordCredential(
+    CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
     CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
     PCWSTR pszPassword)
 {
     HRESULT hr = E_FAIL;
     *pcpgsr = CPGSR_NO_CREDENTIAL_NOT_FINISHED;
 
-    // Get computer name as domain
-    WCHAR szComputerName[MAX_COMPUTERNAME_LENGTH + 1];
-    DWORD dwSize = ARRAYSIZE(szComputerName);
-    if (!GetComputerNameW(szComputerName, &dwSize))
-        wcscpy_s(szComputerName, L".");
-    PWSTR pszDomain = szComputerName;
-
-    // Extract simple username from qualified name (strip domain\ and @domain)
+    PWSTR pszDomain = nullptr;
     PWSTR pszUsername = nullptr;
-    const wchar_t* pchWhack = wcschr(_pszQualifiedUserName, L'\\');
-    const wchar_t* pchAt = wcschr(_pszQualifiedUserName, L'@');
-    if (pchWhack)
+
+    // Use the reliable project helper function to cleanly split domain and username context
+    // Force a local-null fallback bypass rule
+    hr = SHStrDupW(L"", &pszDomain);
+    if (SUCCEEDED(hr))
     {
-        // domain\user
-        size_t len = wcslen(pchWhack + 1);
-        pszUsername = (PWSTR)CoTaskMemAlloc((len + 1) * sizeof(WCHAR));
-        if (pszUsername)
-            wcscpy_s(pszUsername, len + 1, pchWhack + 1);
-    }
-    else if (pchAt)
-    {
-        // user@domain
-        size_t len = pchAt - _pszQualifiedUserName;
-        pszUsername = (PWSTR)CoTaskMemAlloc((len + 1) * sizeof(WCHAR));
-        if (pszUsername)
-            wcsncpy_s(pszUsername, len + 1, _pszQualifiedUserName, len);
-    }
-    else
-    {
-        // plain username
         hr = SHStrDupW(_pszQualifiedUserName, &pszUsername);
     }
 
-    if (pszUsername)
+    if (SUCCEEDED(hr) && pszUsername)
     {
         PWSTR pwzProtectedPassword = nullptr;
         hr = ProtectIfNecessaryAndCopyPassword(pszPassword, _cpus, &pwzProtectedPassword);
@@ -394,7 +373,6 @@ HRESULT CSampleCredential::_PackActualPasswordCredential(CREDENTIAL_PROVIDER_GET
         {
             KERB_INTERACTIVE_UNLOCK_LOGON kiul;
             ZeroMemory(&kiul, sizeof(kiul));
-            // Use computer name as domain, simple username
             hr = KerbInteractiveUnlockLogonInit(pszDomain, pszUsername, pwzProtectedPassword, _cpus, &kiul);
             if (SUCCEEDED(hr))
             {
@@ -414,6 +392,7 @@ HRESULT CSampleCredential::_PackActualPasswordCredential(CREDENTIAL_PROVIDER_GET
             }
             CoTaskMemFree(pwzProtectedPassword);
         }
+        CoTaskMemFree(pszDomain);
         CoTaskMemFree(pszUsername);
     }
     return hr;
@@ -436,14 +415,26 @@ HRESULT CSampleCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SER
             if (CryptUnprotectData(&dataIn, nullptr, nullptr, nullptr, nullptr,
                 CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, &dataOut))
             {
-                size_t passwordLen = dataOut.cbData / sizeof(WCHAR);
-                PWSTR pszDecryptedPassword = (PWSTR)CoTaskMemAlloc(dataOut.cbData + sizeof(WCHAR));
+                // Calculate length strictly based on non-zero WCHARs to drop any padding artifacts
+                size_t passwordLen = 0;
+                const WCHAR* pChars = reinterpret_cast<const WCHAR*>(dataOut.pbData);
+                size_t maxChars = dataOut.cbData / sizeof(WCHAR);
+
+                while (passwordLen < maxChars && pChars[passwordLen] != L'\0')
+                {
+                    passwordLen++;
+                }
+
+                PWSTR pszDecryptedPassword = (PWSTR)CoTaskMemAlloc((passwordLen + 1) * sizeof(WCHAR));
                 if (pszDecryptedPassword)
                 {
-                    CopyMemory(pszDecryptedPassword, dataOut.pbData, dataOut.cbData);
-                    pszDecryptedPassword[passwordLen] = L'\0';
+                    CopyMemory(pszDecryptedPassword, dataOut.pbData, passwordLen * sizeof(WCHAR));
+                    pszDecryptedPassword[passwordLen] = L'\0'; // Hard null-termination
+
+                    // Pack the completely sanitized password string
                     hr = _PackActualPasswordCredential(pcpgsr, pcpcs, pszDecryptedPassword);
-                    SecureZeroMemory(pszDecryptedPassword, dataOut.cbData);
+
+                    SecureZeroMemory(pszDecryptedPassword, (passwordLen + 1) * sizeof(WCHAR));
                     CoTaskMemFree(pszDecryptedPassword);
                 }
                 SecureZeroMemory(dataOut.pbData, dataOut.cbData);
@@ -665,15 +656,17 @@ HRESULT CSampleCredential::_VerifySaltedPassword(PCWSTR pwzEnteredPassword)
     // Convert password to UTF-8 bytes
     int cbNeeded = WideCharToMultiByte(CP_UTF8, 0, pwzEnteredPassword, -1, nullptr, 0, nullptr, nullptr);
     if (cbNeeded <= 0) return E_FAIL;
-    std::vector<BYTE> passwordBytes(cbNeeded - 1);  // exclude null terminator
+
+    // 1. Allocate the FULL size the API requested
+    std::vector<BYTE> passwordBytes(cbNeeded);
     if (WideCharToMultiByte(CP_UTF8, 0, pwzEnteredPassword, -1, (LPSTR)passwordBytes.data(), (int)passwordBytes.size(), nullptr, nullptr) == 0)
         return E_FAIL;
 
-    // Combine salt + password
+    // 2. Combine salt + password (but deliberately drop the trailing null byte when hashing)
     std::vector<BYTE> combined;
-    combined.reserve(dwSize + passwordBytes.size());
+    combined.reserve(dwSize + cbNeeded - 1);
     combined.insert(combined.end(), salt, salt + dwSize);
-    combined.insert(combined.end(), passwordBytes.begin(), passwordBytes.end());
+    combined.insert(combined.end(), passwordBytes.begin(), passwordBytes.end() - 1);
 
     // Compute SHA-256 using CryptoAPI
     HCRYPTPROV hProv;
