@@ -9,7 +9,7 @@
 #include "common.h"
 #include "dll.h"
 #include "resource.h"
-#include "CSampleCredentialGlobals.h"
+#include "TetherCredentialGlobals.h"
 
 class CSampleProvider;
 

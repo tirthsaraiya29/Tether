@@ -11,9 +11,9 @@
 
 #include <initguid.h>
 #include <new>
-#include "CSampleProvider.h"
-#include "CSampleCredential.h"
-#include "CSampleCredentialGlobals.h"
+#include "TetherProvider.h"
+#include "TetherCredential.h"
+#include "TetherCredentialGlobals.h"
 #include "guid.h"
 
 CSampleProvider::CSampleProvider() :
