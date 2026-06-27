@@ -9,10 +9,10 @@
 #include <vector>
 #include <cstring>
 #include <cstdarg>
-#include "CSampleCredential.h"
-#include "CSampleProvider.h"
+#include "TetherCredential.h"
+#include "TetherProvider.h"
 #include "guid.h"
-#include "CSampleCredentialGlobals.h"
+#include "TetherCredentialGlobals.h"
 
 #pragma comment(lib, "crypt32.lib")
 

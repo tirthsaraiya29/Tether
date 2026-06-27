@@ -14,7 +14,7 @@
 #include <strsafe.h>
 #include <new>
 
-#include "CSampleCredential.h"
+#include "TetherCredential.h"
 
 class CSampleProvider : public ICredentialProvider,
     public ICredentialProviderSetUserArray

@@ -1,4 +1,3 @@
-// CSampleCredentialGlobals.h
 #pragma once
 #include <atomic>
 #include <windows.h>
