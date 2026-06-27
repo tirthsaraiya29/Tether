@@ -60,17 +60,16 @@ class BleGattServerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-
         createNotificationChannel()
 
-        // Call startForeground immediately to avoid ForegroundServiceDidNotStartInTimeException
+        // Start foreground service
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         } else {
             startForeground(NOTIFICATION_ID, createNotification())
         }
 
-        // Initialize the hardware-isolated cryptographic key pair engine
+        // Initialize security engine
         try {
             securityEngine = ProductionSecurityEngine()
         } catch (e: Exception) {
@@ -79,8 +78,11 @@ class BleGattServerService : Service() {
             return
         }
 
-        // EXTRACTION UTILITY: Export and dump your phone's real public key to Logcat
-        logDevicePublicKey()
+        // ✅ AUTOMATIC: Log public key ONCE for debugging (optional)
+        // Remove this for production or keep for troubleshooting
+        if (BuildConfig.DEBUG) {
+            logDevicePublicKey()
+        }
 
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         bluetoothAdapter = bluetoothManager?.adapter

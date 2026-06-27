@@ -171,7 +171,6 @@ public partial class BleManager : IDisposable
             _device = device;
             _device.ConnectionStatusChanged += OnConnectionStatusChanged;
 
-            // This triggers the connection and retrieves all services
             var servicesResult = await _device.GetGattServicesAsync(BluetoothCacheMode.Uncached);
 
             if (servicesResult.Status != GattCommunicationStatus.Success)
@@ -181,7 +180,6 @@ public partial class BleManager : IDisposable
                 return;
             }
 
-            // Find our service by UUID
             var mainService = servicesResult.Services.FirstOrDefault(s => s.Uuid == SERVICE_UUID);
             if (mainService == null)
             {
@@ -206,7 +204,19 @@ public partial class BleManager : IDisposable
                 _commandChar = commandResult.Characteristics[0];
                 _publicKeyChar = publicKeyResult.Characteristics[0];
 
-                bool isAuthenticated = await PerformAuthenticationAsync(device);
+                // ✅ AUTOMATIC: Read public key from phone
+                byte[]? publicKeyBytes = await ReadPublicKeyFromPhone();
+
+                // ✅ AUTOMATIC: Store public key in registry
+                if (publicKeyBytes != null)
+                {
+                    string base64Key = Convert.ToBase64String(publicKeyBytes);
+                    StorePublicKey(device.BluetoothAddress.ToString("X"), base64Key);
+                    _logger.Info($"✅ Public key automatically stored for device {device.BluetoothAddress:X}");
+                }
+
+                // Perform authentication using the auto-obtained key
+                bool isAuthenticated = await AuthenticateDeviceViaChallengeAsync(publicKeyBytes);
                 if (!isAuthenticated)
                 {
                     _logger.Error("❌ CRYPTOGRAPHIC CHALLENGE REJECTED.");
@@ -238,6 +248,37 @@ public partial class BleManager : IDisposable
         finally
         {
             lock (_lock) { _currentConnectingId = null; }
+        }
+    }
+
+    private async Task<byte[]?> ReadPublicKeyFromPhone()
+    {
+        if (_publicKeyChar == null)
+        {
+            _logger.Error("Public key characteristic is null.");
+            return null;
+        }
+
+        try
+        {
+            var readResult = await _publicKeyChar.ReadValueAsync(BluetoothCacheMode.Uncached);
+            if (readResult.Status != GattCommunicationStatus.Success)
+            {
+                _logger.Error($"Failed to read public key: {readResult.Status}");
+                return null;
+            }
+
+            using (var reader = DataReader.FromBuffer(readResult.Value))
+            {
+                byte[] publicKeyBytes = new byte[reader.UnconsumedBufferLength];
+                reader.ReadBytes(publicKeyBytes);
+                return publicKeyBytes;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error reading public key: {ex.Message}");
+            return null;
         }
     }
 

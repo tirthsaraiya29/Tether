@@ -70,7 +70,6 @@ import java.io.File
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
-import kotlinx.coroutines.delay
 
 val EaseInOutSans = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
@@ -186,8 +185,7 @@ class MainActivity : FragmentActivity() {
             setPanicUiState()
         }
 
-        // Start BLE service immediately for faster discovery, but with permission check
-        // and only if not about to be immediately locked
+        // Start BLE service immediately with auto-public-key broadcast
         val shouldStartImmediately = !isBiometricSettingEnabled.value || selectedTimeoutMs.longValue > 0
         if (checkPermissions() && shouldStartImmediately) {
             startBleService()
@@ -302,7 +300,6 @@ class MainActivity : FragmentActivity() {
                                         else -> action.lowercase()
                                     }
 
-                                    // Send all commands via BLE
                                     when (command) {
                                         "shutdown", "sleep", "reboot" -> {
                                             showPowerConfirmation(command) {
@@ -554,7 +551,6 @@ class MainActivity : FragmentActivity() {
                         putString("laptop_mac", mac)
                     }
                     Toast.makeText(this, "Selected: ${deviceList[which]}", Toast.LENGTH_SHORT).show()
-                    // BLE will auto-connect via advertisement detection
                     Toast.makeText(this, "Make sure Tether service is running on laptop", Toast.LENGTH_LONG).show()
                 }
                 .setNegativeButton("Cancel", null)
@@ -581,15 +577,28 @@ class MainActivity : FragmentActivity() {
         val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
             this.action = action
         }
-        startService(serviceIntent)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
     }
 
     private fun checkPermissions(): Boolean {
         val required = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            required.addAll(listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.ACCESS_FINE_LOCATION))
+            required.addAll(listOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ))
         } else {
-            required.addAll(listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.BLUETOOTH, Manifest.permission.BLUETOOTH_ADMIN))
+            required.addAll(listOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.BLUETOOTH,
+                Manifest.permission.BLUETOOTH_ADMIN
+            ))
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             required.add(Manifest.permission.POST_NOTIFICATIONS)
@@ -607,7 +616,7 @@ class MainActivity : FragmentActivity() {
             } else {
                 uiStatusText.value = "PERMISSIONS REQUIRED"
                 uiStatusColor.value = NeonRed
-                Toast.makeText(this, "BLE parameters must be manually allowed on clean launch configs", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "BLE permissions must be granted", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -615,9 +624,18 @@ class MainActivity : FragmentActivity() {
     private fun requestPermissions() {
         val required = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            required.addAll(listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.ACCESS_FINE_LOCATION))
+            required.addAll(listOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ))
         } else {
-            required.addAll(listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.BLUETOOTH, Manifest.permission.BLUETOOTH_ADMIN))
+            required.addAll(listOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.BLUETOOTH,
+                Manifest.permission.BLUETOOTH_ADMIN
+            ))
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             required.add(Manifest.permission.POST_NOTIFICATIONS)
@@ -643,11 +661,15 @@ class MainActivity : FragmentActivity() {
             startService(bleIntent)
         }
 
-        uiStatusText.value = "TETHER ACTIVE\nSYSTEM SECURE"
+        uiStatusText.value = "TETHER ACTIVE\nAUTO-KEY BROADCAST"
         uiStatusColor.value = NeonGreen
         uiConnectionStatusText.value = "Secure Broadcast Active"
     }
 }
+
+// ========================================================================
+// Compose UI Components (unchanged from original - kept for completeness)
+// ========================================================================
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -678,6 +700,7 @@ fun TetherNavigationShell(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var currentScreen by remember { mutableStateOf(AppScreen.TELEMETRY_DASHBOARD) }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {

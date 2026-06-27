@@ -8,7 +8,9 @@
             <StackPanel>
                 <TextBlock Text="Tether Authentication Manager" FontSize="18" FontWeight="Bold" Foreground="#222222" Margin="0,0,0,5"/>
                 <TextBlock Text="Configure local security fallback configurations below." FontSize="12" Foreground="#666666" Margin="0,0,0,20"/>
-
+                <!-- User type indicator -->
+                <TextBlock x:Name="TxtUserType" FontSize="12" Foreground="#0078D4" Margin="0,0,0,10"/>
+                
                 <!-- Section 1: Local Account Password -->
                 <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,20">
                     <StackPanel>

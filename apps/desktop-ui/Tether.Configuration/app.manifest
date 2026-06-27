@@ -3,7 +3,7 @@
 	<assemblyIdentity version="1.0.0.0" name="Tether.Configuration"/>
 	<trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
 		<security>
-			<requestedPrivileges>
+			<requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
 				<requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
 			</requestedPrivileges>
 		</security>
