@@ -43,10 +43,5 @@
             android:name=".BleGattServerService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
-        <service
-            android:name=".ClassicBtServerService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
     </application>
 </manifest>

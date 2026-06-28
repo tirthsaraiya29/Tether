@@ -59,7 +59,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.Dp
@@ -149,6 +148,28 @@ class MainActivity : FragmentActivity() {
     private data class PowerAction(val command: String, val toastMessage: String, val title: String)
 
     private lateinit var executor: Executor
+
+    // Add this near your other class variables (e.g., below private lateinit var executor: Executor)
+    private val gattStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.tether.phone.ACTION_GATT_STATE_CHANGED") {
+                val count = intent.getIntExtra("extra_connection_count", 0)
+                runOnUiThread {
+                    if (count > 0) {
+                        uiStatusText.value = "TETHER LINK ENFORCED"
+                        uiStatusColor.value = NeonGreen
+                        uiConnectionStatusText.value = "CONNECTED HOST NODES: $count"
+                    } else {
+                        if (!isPanicActive.value) {
+                            uiStatusText.value = "BROADCAST ACTIVE"
+                            uiStatusColor.value = NeonCyan
+                            uiConnectionStatusText.value = "AWAITING VERIFICATION STEP"
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -344,9 +365,20 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        ContextCompat.registerReceiver(
+            this,
+            bluetoothStateReceiver,
+            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+            ContextCompat.RECEIVER_EXPORTED
+        )
         val filter = IntentFilter(Intent.ACTION_USER_PRESENT)
-        registerReceiver(screenUnlockReceiver, filter)
+        ContextCompat.registerReceiver(this, screenUnlockReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
+        ContextCompat.registerReceiver(
+            this,
+            gattStateReceiver,
+            IntentFilter("com.tether.phone.ACTION_GATT_STATE_CHANGED"),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
     }
 
     private fun applyWindowSecurityFlags() {
@@ -380,13 +412,11 @@ class MainActivity : FragmentActivity() {
             val leftBackgroundAt = prefs.getLong(appLockBackgroundTimestampKey, 0L)
             if (selectedTimeoutMs.longValue == 0L) {
                 isAppLocked.value = true
-                stopBleServiceLeak()
                 authenticateForAppUnlock()
             } else if (leftBackgroundAt != 0L) {
                 val elapsed = System.currentTimeMillis() - leftBackgroundAt
                 if (elapsed >= selectedTimeoutMs.longValue) {
                     isAppLocked.value = true
-                    stopBleServiceLeak()
                     authenticateForAppUnlock()
                 }
             }
@@ -405,16 +435,10 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
+        try { unregisterReceiver(gattStateReceiver) } catch (_: Exception) {}
         super.onDestroy()
         unregisterReceiver(screenUnlockReceiver)
         try { unregisterReceiver(bluetoothStateReceiver) } catch (_: Exception) {}
-    }
-
-    private fun stopBleServiceLeak() {
-        stopService(Intent(this, BleGattServerService::class.java))
-        uiStatusText.value = "SECURITY GATE ACTIVE"
-        uiStatusColor.value = TextSecondary
-        uiConnectionStatusText.value = "Awaiting verification"
     }
 
     private fun authenticateForAppUnlock() {
@@ -426,8 +450,9 @@ class MainActivity : FragmentActivity() {
             if (success) {
                 runOnUiThread {
                     isAppLocked.value = false
-                    getSharedPreferences(preferenceName, MODE_PRIVATE).edit()
-                        .putLong(appLockBackgroundTimestampKey, 0L).apply()
+                    getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
+                        putLong(appLockBackgroundTimestampKey, 0L)
+                    }
                     if (checkPermissions()) {
                         checkAndEnableBluetooth()
                     } else {
@@ -516,9 +541,6 @@ class MainActivity : FragmentActivity() {
                     super.onAuthenticationError(errorCode, errString)
                     callback(false)
                 }
-                override fun onAuthenticationFailed() {
-                    super.onAuthenticationFailed()
-                }
             })
             biometricPrompt.authenticate(promptBuilder.build())
         }
@@ -533,7 +555,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun dispatchTrustRestoredNotification() {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         val channel = NotificationChannel(notificationRestoreChannelId, "System Trust Restorations", NotificationManager.IMPORTANCE_HIGH)
         manager.createNotificationChannel(channel)
         val notification = NotificationCompat.Builder(this, notificationRestoreChannelId)
@@ -658,8 +680,7 @@ class MainActivity : FragmentActivity() {
 
     private fun checkAndEnableBluetooth() {
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
-        val bluetoothAdapter = bluetoothManager?.adapter
-        if (bluetoothAdapter == null) return
+        val bluetoothAdapter = bluetoothManager?.adapter ?: return
         if (bluetoothAdapter.isEnabled) startBleService()
         else enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
     }
@@ -668,11 +689,7 @@ class MainActivity : FragmentActivity() {
         if (isPanicActive.value || isEnvironmentRestricted.value || isAppLocked.value) return
 
         val bleIntent = Intent(this, BleGattServerService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(bleIntent)
-        } else {
-            startService(bleIntent)
-        }
+        startForegroundService(bleIntent)
 
         uiStatusText.value = "TETHER ACTIVE\nAUTO-KEY BROADCAST"
         uiStatusColor.value = NeonGreen
@@ -685,6 +702,7 @@ fun GlassCard(
     modifier: Modifier = Modifier,
     alpha: Float = 0.4f,
     strokeAlpha: Float = 0.2f,
+    edgeHighlight: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Box(
@@ -695,7 +713,7 @@ fun GlassCard(
                 Brush.verticalGradient(
                     listOf(
                         SurfaceDark.copy(alpha = alpha),
-                        SurfaceDark.copy(alpha = alpha * 0.8f)
+                        SurfaceDark.copy(alpha = alpha * 0.85f)
                     )
                 )
             )
@@ -705,25 +723,27 @@ fun GlassCard(
                     listOf(
                         Color.White.copy(alpha = strokeAlpha),
                         Color.White.copy(alpha = strokeAlpha * 0.2f),
-                        NeonCyan.copy(alpha = strokeAlpha * 0.5f)
+                        NeonCyan.copy(alpha = strokeAlpha * 0.6f)
                     )
                 ),
                 RoundedCornerShape(12.dp)
             )
     ) {
-        // Inner "refraction" highlight
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(1.dp)
-                .border(
-                    0.5.dp,
-                    Brush.verticalGradient(
-                        listOf(Color.White.copy(alpha = 0.05f), Color.Transparent)
-                    ),
-                    RoundedCornerShape(11.dp)
+        if (edgeHighlight) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val path = Path().apply {
+                    moveTo(0f, 0f)
+                    lineTo(size.width * 0.1f, 0f)
+                    moveTo(size.width, size.height)
+                    lineTo(size.width * 0.9f, size.height)
+                }
+                drawPath(
+                    path = path,
+                    color = NeonCyan.copy(alpha = 0.3f),
+                    style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round)
                 )
-        )
+            }
+        }
         Column(
             modifier = Modifier
                 .padding(16.dp)
@@ -737,8 +757,8 @@ fun GlassCard(
 fun BackgroundGrid() {
     val infiniteTransition = rememberInfiniteTransition(label = "GridPulse")
     val gridAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.03f,
-        targetValue = 0.08f,
+        initialValue = 0.04f,
+        targetValue = 0.12f,
         animationSpec = infiniteRepeatable(
             animation = tween(4000, easing = EaseInOutSans),
             repeatMode = RepeatMode.Reverse
@@ -748,14 +768,23 @@ fun BackgroundGrid() {
         initialValue = -0.5f,
         targetValue = 1.5f,
         animationSpec = infiniteRepeatable(
-            animation = tween(8000, easing = LinearEasing),
+            animation = tween(12000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ), label = "GlowPos"
     )
+    val scanLineY by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(8000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ), label = "ScanLine"
+    )
 
     Canvas(modifier = Modifier.fillMaxSize()) {
-        val gridSize = 40.dp.toPx()
+        val gridSize = 45.dp.toPx()
         val gridColor = NeonCyan.copy(alpha = gridAlpha)
+        
         var x = 0f
         while (x < size.width) {
             drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), 0.5.dp.toPx())
@@ -767,24 +796,24 @@ fun BackgroundGrid() {
             y += gridSize
         }
 
-        // Add some moving "liquid" refraction spots
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(NeonCyan.copy(alpha = 0.06f), Color.Transparent),
-                center = Offset(size.width * glowPosition, size.height * (1f - glowPosition)),
-                radius = 400.dp.toPx()
+        // Animated Scan Line
+        val scanY = size.height * scanLineY
+        drawLine(
+            brush = Brush.verticalGradient(
+                listOf(Color.Transparent, NeonCyan.copy(alpha = 0.15f), Color.Transparent)
             ),
-            center = Offset(size.width * glowPosition, size.height * (1f - glowPosition)),
-            radius = 400.dp.toPx()
+            start = Offset(0f, scanY),
+            end = Offset(size.width, scanY),
+            strokeWidth = 2.dp.toPx()
         )
-        
+
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(NeonRed.copy(alpha = 0.04f), Color.Transparent),
-                center = Offset(size.width * (1f - glowPosition), size.height * glowPosition),
+                colors = listOf(NeonCyan.copy(alpha = 0.08f), Color.Transparent),
+                center = Offset(size.width * glowPosition, size.height * (1f - glowPosition)),
                 radius = 500.dp.toPx()
             ),
-            center = Offset(size.width * (1f - glowPosition), size.height * glowPosition),
+            center = Offset(size.width * glowPosition, size.height * (1f - glowPosition)),
             radius = 500.dp.toPx()
         )
     }
@@ -1473,37 +1502,37 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(3000, easing = LinearEasing),
+            animation = tween(2500, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
         ), label = "ScanlineMovement"
     )
     val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.9f,
+        initialValue = 0.4f,
+        targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = EaseInOutSans),
+            animation = tween(1200, easing = EaseInOutSans),
             repeatMode = RepeatMode.Reverse
         ), label = "MatrixPulse"
     )
     val matrixRotation by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = -360f,
+        targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(20000, easing = LinearEasing)
+            animation = tween(15000, easing = LinearEasing)
         ), label = "NodeRotation"
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(SpaceDark.copy(alpha = 0.9f))
+            .background(SpaceDark.copy(alpha = 0.92f))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) { onAuthorizeRequested() },
         contentAlignment = Alignment.Center
     ) {
-        Box(modifier = Modifier.fillMaxSize().blur(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 20.dp else 0.dp)) {
+        Box(modifier = Modifier.fillMaxSize().blur(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 25.dp else 0.dp)) {
             BackgroundGrid()
         }
 
@@ -1511,21 +1540,35 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
             val width = size.width
             val height = size.height
             val yPos = height * scanLineProgress
+            
+            // Primary Scanning Beam
             drawLine(
                 brush = Brush.horizontalGradient(
-                    colors = listOf(Color.Transparent, NeonCyan.copy(alpha = 0.5f), Color.Transparent)
+                    listOf(Color.Transparent, NeonCyan.copy(alpha = 0.6f), Color.Transparent)
                 ),
                 start = Offset(0f, yPos),
                 end = Offset(width, yPos),
-                strokeWidth = 2.dp.toPx()
+                strokeWidth = 3.dp.toPx()
+            )
+            
+            // Secondary Glow
+            drawRect(
+                brush = Brush.verticalGradient(
+                    listOf(Color.Transparent, NeonCyan.copy(alpha = 0.1f), Color.Transparent),
+                    startY = yPos - 100.dp.toPx(),
+                    endY = yPos + 100.dp.toPx()
+                ),
+                topLeft = Offset(0f, yPos - 100.dp.toPx()),
+                size = androidx.compose.ui.geometry.Size(width, 200.dp.toPx())
             )
         }
 
         GlassCard(
             modifier = Modifier
-                .size(320.dp)
+                .size(340.dp)
                 .padding(16.dp),
-            alpha = 0.7f
+            alpha = 0.75f,
+            edgeHighlight = true
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -1536,15 +1579,16 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                     text = "SECURITY OVERLAY ACTIVE",
                     color = NeonRed,
                     fontWeight = FontWeight.Black,
-                    fontSize = 11.sp,
-                    letterSpacing = 3.sp,
+                    fontSize = 12.sp,
+                    letterSpacing = 4.sp,
                     modifier = Modifier.graphicsLayer { alpha = pulseAlpha }
                 )
                 Spacer(modifier = Modifier.height(32.dp))
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(180.dp)
+                    modifier = Modifier.size(190.dp)
                 ) {
+                    // Outer rotating ring
                     Canvas(
                         modifier = Modifier
                             .fillMaxSize()
@@ -1552,18 +1596,40 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                     ) {
                         drawArc(
                             brush = Brush.sweepGradient(
-                                colors = listOf(Color.Transparent, NeonCyan, Color.Transparent, NeonCyan)
+                                listOf(Color.Transparent, NeonCyan, Color.Transparent, NeonCyan, Color.Transparent)
                             ),
                             startAngle = 0f,
-                            sweepAngle = 270f,
+                            sweepAngle = 300f,
                             useCenter = false,
                             style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
                         )
                     }
+                    
+                    // Inner rotating ring (reverse)
+                    Canvas(
+                        modifier = Modifier
+                            .size(150.dp)
+                            .graphicsLayer { rotationZ = -matrixRotation * 1.5f }
+                    ) {
+                        drawArc(
+                            brush = Brush.sweepGradient(
+                                listOf(Color.Transparent, NeonRed.copy(alpha = 0.5f), Color.Transparent)
+                            ),
+                            startAngle = 0f,
+                            sweepAngle = 180f,
+                            useCenter = false,
+                            style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round)
+                        )
+                    }
+
                     Text(
                         text = "🧬",
-                        fontSize = 56.sp,
-                        modifier = Modifier.graphicsLayer { alpha = pulseAlpha }
+                        fontSize = 64.sp,
+                        modifier = Modifier.graphicsLayer { 
+                            alpha = pulseAlpha
+                            scaleX = 0.9f + (pulseAlpha * 0.1f)
+                            scaleY = 0.9f + (pulseAlpha * 0.1f)
+                        }
                     )
                 }
                 Spacer(modifier = Modifier.height(32.dp))
@@ -1571,17 +1637,20 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                     text = "SYSTEM ACCESS INTERCEPTED\nBIOLOGICAL MATRIX MATCH REQUIRED",
                     textAlign = TextAlign.Center,
                     color = TextPrimary,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    lineHeight = 18.sp,
+                    lineHeight = 20.sp,
                     letterSpacing = 0.5.sp
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "DECRYPT ENGINE v4.2.0",
-                    color = NeonCyan.copy(alpha = 0.5f),
-                    fontSize = 9.sp,
-                    letterSpacing = 1.sp
+                Spacer(modifier = Modifier.height(16.dp))
+                LinearProgressIndicator(
+                    progress = { scanLineProgress },
+                    modifier = Modifier
+                        .fillMaxWidth(0.6f)
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(1.dp)),
+                    color = NeonCyan,
+                    trackColor = Color.White.copy(alpha = 0.1f)
                 )
             }
         }
@@ -1913,7 +1982,7 @@ fun PremiumControlAction(
                 )
             )
         }
-        
+
         // Liquid Shine overlay
         Canvas(modifier = Modifier.fillMaxSize()) {
             val path = Path().apply {
@@ -1952,12 +2021,12 @@ class DeviceIntegrityRegistry(private val context: Context) {
         if (usbDebuggingDisabled) finalScore += 10
         val appIntegrityValid = verifyAppSignatureIntegrity()
         if (appIntegrityValid) finalScore += 10
-        val km = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-        val secureLockscreenEnabled = km.isDeviceSecure
+        val km = context.getSystemService(KeyguardManager::class.java)
+        val secureLockscreenEnabled = km?.isDeviceSecure ?: false
         if (secureLockscreenEnabled) finalScore += 10
-        val assignedTier = when {
-            finalScore in 100..110 -> TrustTier.TRUSTED
-            finalScore in 90..100 -> TrustTier.ELEVATED_RISK
+        val assignedTier = when (finalScore) {
+            in 100..110 -> TrustTier.TRUSTED
+            in 85..99 -> TrustTier.ELEVATED_RISK
             else -> TrustTier.RESTRICTED
         }
         return IntegrityReport(
@@ -2011,11 +2080,11 @@ fun LaptopControlScreen(
     val context = LocalContext.current
     val vibrator = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            val vibratorManager = context.getSystemService(VibratorManager::class.java)
             vibratorManager?.defaultVibrator
         } else {
             @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            context.getSystemService(Vibrator::class.java)
         }
     }
     fun triggerSubtleSliderTick() {
