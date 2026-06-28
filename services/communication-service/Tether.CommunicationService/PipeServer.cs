@@ -14,6 +14,7 @@ public class PipeServer : IDisposable
     private readonly ITetherLogger _logger;
     private CancellationTokenSource? _cts;
     private Task? _listenTask;
+    private bool _disposed = false;
 
     public PipeServer(IEventBus eventBus, ITetherLogger logger)
     {
@@ -92,8 +93,21 @@ public class PipeServer : IDisposable
 
     public void Dispose()
     {
-        _cts?.Cancel();
-        _listenTask?.Wait(5000);
-        _cts?.Dispose();
+        lock (this)
+        {
+            if (_disposed) return;
+            _disposed = true;
+        }
+
+        try
+        {
+            _cts?.Cancel();
+            _listenTask?.Wait(5000);
+        }
+        catch { }
+        finally
+        {
+            _cts?.Dispose();
+        }
     }
 }
