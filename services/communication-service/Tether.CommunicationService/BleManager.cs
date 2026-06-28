@@ -58,11 +58,16 @@ public partial class BleManager : IDisposable
     // Native Windows API for instant volume control
     [DllImport("user32.dll")]
     private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-
     private const byte VK_VOLUME_UP = 0xAF;
     private const byte VK_VOLUME_DOWN = 0xAE;
     private const uint KEYEVENTF_KEYDOWN = 0x0000;
     private const uint KEYEVENTF_KEYUP = 0x0002;
+
+
+    [DllImport("kernel32.dll", SetLastError = false)]
+    private static extern uint WTSGetActiveConsoleSessionId();
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSDisconnectSession(IntPtr hServer, uint sessionId, bool bWait);
 
     // Native Windows API for brightness control
     [DllImport("gdi32.dll")]
@@ -243,7 +248,7 @@ public partial class BleManager : IDisposable
                 if (servicesResult.Status != GattCommunicationStatus.Success || !servicesResult.Services.Any())
                 {
                     _logger.Error($"Failed to resolve GATT target service context status: {servicesResult.Status}");
-                    if (attempt < maxRetryAttempts) { await Task.Delay(500); continue; }
+                    if (attempt < maxRetryAttempts) { await Task.Delay(100); continue; }
                     HandleDisconnection();
                     return;
                 }
@@ -267,7 +272,7 @@ public partial class BleManager : IDisposable
                 if (allCharacteristicsResult.Status != GattCommunicationStatus.Success)
                 {
                     _logger.Error($"Failed to map characteristics buffer layout context: {allCharacteristicsResult.Status}");
-                    if (attempt < maxRetryAttempts) { await Task.Delay(500); continue; }
+                    if (attempt < maxRetryAttempts) { await Task.Delay(100); continue; }
                     HandleDisconnection();
                     return;
                 }
@@ -335,7 +340,7 @@ public partial class BleManager : IDisposable
                 else
                 {
                     _logger.Error("Failed to discover all required characteristic hardware registers.");
-                    if (attempt < maxRetryAttempts) { await Task.Delay(500); continue; }
+                    if (attempt < maxRetryAttempts) { await Task.Delay(100); continue; }
                     HandleDisconnection();
                     return;
                 }
@@ -547,12 +552,48 @@ public partial class BleManager : IDisposable
             {
                 case "panic":
                 case "lock_now":
-                    lock (_lock) { _isWorkstationLocked = true; _unlockCooldown = false; _lockedByProximity = false; }
+                    lock (_lock)
+                    {
+                        _isWorkstationLocked = true;
+                        _unlockCooldown = false;
+                        _lockedByProximity = false;
+                    }
+
                     _logger.Error($"🚨 Manual lock triggered: {command}");
                     ResetIPCHandles();
+
                     _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
+
                     await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
                     await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.LOCK_WORKSTATION, Source = "BleManager" });
+
+                    // ✅ DYNAMIC BOUNDARY CROSSING: Query and drop the active interactive desktop session
+                    try
+                    {
+                        uint activeSessionId = WTSGetActiveConsoleSessionId();
+
+                        // 0xFFFFFFFF means no interactive session is currently attached (e.g., at cold boot)
+                        if (activeSessionId != 0xFFFFFFFF)
+                        {
+                            if (!WTSDisconnectSession(IntPtr.Zero, activeSessionId, false))
+                            {
+                                int errorCode = Marshal.GetLastWin32Error();
+                                _logger.Warning($"WTSDisconnectSession failed for Session {activeSessionId}. Win32 Error: {errorCode}");
+                            }
+                            else
+                            {
+                                _logger.Info($"Successfully disconnected active console Session {activeSessionId}.");
+                            }
+                        }
+                        else
+                        {
+                            _logger.Warning("No active interactive console session detected to disconnect.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Error($"Failed to execute WTS session lock primitive: {ex.Message}");
+                    }
                     break;
 
                 case "unlock":
