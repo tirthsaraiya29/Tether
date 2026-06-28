@@ -17,7 +17,8 @@
         OVERLAY_ENABLED,
         OVERLAY_DISABLED,
         AUTH_SUCCESS,
-        AUTH_FAILURE
+        AUTH_FAILURE,
+        LOCK_WORKSTATION
     }
 
     public class TetherEvent

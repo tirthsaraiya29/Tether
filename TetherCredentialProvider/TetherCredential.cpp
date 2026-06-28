@@ -121,14 +121,12 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     }
 
     _rgFieldStatePairs[SFI_PASSWORD].cpfs = (_dwSelectedMethod == 2) ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
-    _rgFieldStatePairs[SFI_BYPASS_BUTTON].cpfs = (_dwSelectedMethod == 3) ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
 
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Tether Pro Gateway", &_rgFieldStrings[SFI_LABEL]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Sign in using Tether", &_rgFieldStrings[SFI_LARGE_TEXT]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Choose verification channel:", &_rgFieldStrings[SFI_METHOD_LABEL]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(s_rgUnlockMethodStrings[_dwSelectedMethod], &_rgFieldStrings[SFI_METHOD_COMBOBOX]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"", &_rgFieldStrings[SFI_PASSWORD]);
-    if (SUCCEEDED(hr)) hr = SHStrDupW(L"Execute Unsafe Dev Bypass", &_rgFieldStrings[SFI_BYPASS_BUTTON]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Authenticate", &_rgFieldStrings[SFI_SUBMIT_BUTTON]);
 
     const WCHAR* pszStatus = L"Awaiting phone app synchronization...";
@@ -295,50 +293,13 @@ HRESULT CSampleCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD dwSel
             CREDENTIAL_PROVIDER_FIELD_STATE cpfsPassword = (_dwSelectedMethod == 2) ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
             CREDENTIAL_PROVIDER_FIELD_STATE cpfsBypass = (_dwSelectedMethod == 3) ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
             _pCredProvCredentialEvents->SetFieldState(this, SFI_PASSWORD, cpfsPassword);
-            _pCredProvCredentialEvents->SetFieldState(this, SFI_BYPASS_BUTTON, cpfsBypass);
 
             PCWSTR status = L"Awaiting phone app authorization confirmation...";
             if (_dwSelectedMethod == 1) status = L"Unlock your connected mobile screen to proceed...";
             else if (_dwSelectedMethod == 2) status = L"Provide local TPM authorization credential.";
-            else if (_dwSelectedMethod == 3) status = L"Development Bypass Active.";
             _pCredProvCredentialEvents->SetFieldString(this, SFI_LOGONSTATUS_TEXT, status);
         }
         return S_OK;
-    }
-    return E_INVALIDARG;
-}
-
-// -------------------------------------------------------------------
-// CommandLinkClicked – bypass only in debug
-// -------------------------------------------------------------------
-HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
-{
-    if (dwFieldID == SFI_BYPASS_BUTTON)
-    {
-#ifdef _DEBUG
-        HKEY hKey;
-        DWORD dwEnabled = 0;
-        DWORD dwSize = sizeof(dwEnabled);
-        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
-        {
-            RegQueryValueExW(hKey, L"EnableBypass", nullptr, nullptr, (LPBYTE)&dwEnabled, &dwSize);
-            RegCloseKey(hKey);
-        }
-        if (dwEnabled == 1)
-        {
-            g_fBypassTriggered.store(true);
-            g_fAutoLogonReady.store(true);
-            if (_pProvider) _pProvider->SignalCredentialsChanged();
-        }
-        else
-        {
-            MessageBoxW(nullptr, L"Access Denied: Set HKLM\\SOFTWARE\\Tether\\CredentialProvider\\EnableBypass=1",
-                L"Security Guardrail", MB_OK | MB_ICONERROR);
-        }
-        return S_OK;
-#else
-        return E_ACCESSDENIED;
-#endif
     }
     return E_INVALIDARG;
 }
@@ -357,12 +318,64 @@ HRESULT CSampleCredential::_PackActualPasswordCredential(
     PWSTR pszDomain = nullptr;
     PWSTR pszUsername = nullptr;
 
-    // Use the reliable project helper function to cleanly split domain and username context
-    // Force a local-null fallback bypass rule
-    hr = SHStrDupW(L"", &pszDomain);
-    if (SUCCEEDED(hr))
+    // Robust self-contained parsing engine to resolve explicit routing tokens for LSA
+    if (_pszQualifiedUserName)
     {
-        hr = SHStrDupW(_pszQualifiedUserName, &pszUsername);
+        if (wcsstr(_pszQualifiedUserName, L"MicrosoftAccount\\") == _pszQualifiedUserName)
+        {
+            // 1) Microsoft Account format routing (Domain must be explicit, username is the raw email)
+            hr = SHStrDupW(L"MicrosoftAccount", &pszDomain);
+            if (SUCCEEDED(hr))
+            {
+                hr = SHStrDupW(_pszQualifiedUserName + 17, &pszUsername); // Skip "MicrosoftAccount\" (17 chars)
+            }
+        }
+        else
+        {
+            const wchar_t* pchWhack = wcschr(_pszQualifiedUserName, L'\\');
+            if (pchWhack)
+            {
+                // 2) Standard Local or Domain format (Domain\User)
+                size_t lenDomain = pchWhack - _pszQualifiedUserName;
+                pszDomain = (PWSTR)CoTaskMemAlloc((lenDomain + 1) * sizeof(WCHAR));
+                if (pszDomain)
+                {
+                    wcsncpy_s(pszDomain, lenDomain + 1, _pszQualifiedUserName, lenDomain);
+                    hr = SHStrDupW(pchWhack + 1, &pszUsername);
+                }
+                else hr = E_OUTOFMEMORY;
+            }
+            else
+            {
+                const wchar_t* pchAt = wcschr(_pszQualifiedUserName, L'@');
+                if (pchAt)
+                {
+                    // 3) Pure UPN format (User@Domain)
+                    size_t lenUser = pchAt - _pszQualifiedUserName;
+                    pszUsername = (PWSTR)CoTaskMemAlloc((lenUser + 1) * sizeof(WCHAR));
+                    if (pszUsername)
+                    {
+                        wcsncpy_s(pszUsername, lenUser + 1, _pszQualifiedUserName, lenUser);
+                        hr = SHStrDupW(pchAt + 1, &pszDomain);
+                    }
+                    else hr = E_OUTOFMEMORY;
+                }
+                else
+                {
+                    // 4) Isolated Username Fallback - Fetch active machine profile context
+                    WCHAR computerName[MAX_COMPUTERNAME_LENGTH + 1];
+                    DWORD size = ARRAYSIZE(computerName);
+                    if (!GetComputerNameW(computerName, &size))
+                        wcscpy_s(computerName, L".");
+
+                    hr = SHStrDupW(computerName, &pszDomain);
+                    if (SUCCEEDED(hr))
+                    {
+                        hr = SHStrDupW(_pszQualifiedUserName, &pszUsername);
+                    }
+                }
+            }
+        }
     }
 
     if (SUCCEEDED(hr) && pszUsername)
@@ -492,32 +505,7 @@ HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
     }
     CoTaskMemFree(pszCurrentTileSid);
 
-    if (_dwSelectedMethod == 3)   // bypass
-    {
-#ifdef _DEBUG
-        if (!g_fBypassTriggered.load())
-        {
-            SHStrDupW(L"Click 'Bypass (Development Use Only)' link to activate authorization.",
-                ppwszOptionalStatusText);
-            *pcpsiOptionalStatusIcon = CPSI_WARNING;
-            return S_FALSE;
-        }
-        HRESULT hr = _GetStoredPasswordAndPack(pcpgsr, pcpcs);
-        g_fBypassTriggered.store(false);
-        g_fAutoLogonReady.store(false);
-        if (SUCCEEDED(hr) && *pcpgsr == CPGSR_RETURN_CREDENTIAL_FINISHED)
-            return S_OK;
-        SHStrDupW(L"Bypass execution aborted: Stored configuration material is unreadable.",
-            ppwszOptionalStatusText);
-        *pcpsiOptionalStatusIcon = CPSI_ERROR;
-        return S_FALSE;
-#else
-        SHStrDupW(L"Bypass method not available in release build.", ppwszOptionalStatusText);
-        *pcpsiOptionalStatusIcon = CPSI_ERROR;
-        return S_FALSE;
-#endif
-    }
-    else if (_dwSelectedMethod == 0)   // phone app
+    if (_dwSelectedMethod == 0)   // phone app
     {
         if (!g_fPhoneAppTriggered.load())
         {
@@ -653,20 +641,20 @@ HRESULT CSampleCredential::_VerifySaltedPassword(PCWSTR pwzEnteredPassword)
     }
     RegCloseKey(hKey);
 
-    // Convert password to UTF-8 bytes
-    int cbNeeded = WideCharToMultiByte(CP_UTF8, 0, pwzEnteredPassword, -1, nullptr, 0, nullptr, nullptr);
+    // Convert password to UTF-8 bytes (Passing wcslen instead of -1 excludes the null terminator)
+    int cchPassword = (int)wcslen(pwzEnteredPassword);
+    int cbNeeded = WideCharToMultiByte(CP_UTF8, 0, pwzEnteredPassword, cchPassword, nullptr, 0, nullptr, nullptr);
     if (cbNeeded <= 0) return E_FAIL;
 
-    // 1. Allocate the FULL size the API requested
     std::vector<BYTE> passwordBytes(cbNeeded);
-    if (WideCharToMultiByte(CP_UTF8, 0, pwzEnteredPassword, -1, (LPSTR)passwordBytes.data(), (int)passwordBytes.size(), nullptr, nullptr) == 0)
+    if (WideCharToMultiByte(CP_UTF8, 0, pwzEnteredPassword, cchPassword, (LPSTR)passwordBytes.data(), (int)passwordBytes.size(), nullptr, nullptr) == 0)
         return E_FAIL;
 
-    // 2. Combine salt + password (but deliberately drop the trailing null byte when hashing)
+    // Combine salt + password cleanly (No need to subtract 1 anymore!)
     std::vector<BYTE> combined;
-    combined.reserve(dwSize + cbNeeded - 1);
+    combined.reserve(dwSize + cbNeeded);
     combined.insert(combined.end(), salt, salt + dwSize);
-    combined.insert(combined.end(), passwordBytes.begin(), passwordBytes.end() - 1);
+    combined.insert(combined.end(), passwordBytes.begin(), passwordBytes.end());
 
     // Compute SHA-256 using CryptoAPI
     HCRYPTPROV hProv;
@@ -703,11 +691,19 @@ HRESULT CSampleCredential::_VerifySaltedPassword(PCWSTR pwzEnteredPassword)
     WriteDebugLog(L"Stored hash: %s", szStoredHash);
     WriteDebugLog(L"Computed hex: %s", computedHex);
     return (_wcsicmp(computedHex, szStoredHash) == 0) ? S_OK : E_FAIL;
+
+
+    WriteDebugLog(L"Stored hash: %s", szStoredHash);
+    WriteDebugLog(L"Computed hex: %s", computedHex);
 }
 
 // Old method kept for compatibility (not used)
 HRESULT CSampleCredential::_VerifyTpmPassword(PCWSTR) { return E_NOTIMPL; }
-
+HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
+{
+    // No command links are used in this credential provider.
+    return E_INVALIDARG;
+}
 // -------------------------------------------------------------------
 // Field options
 // -------------------------------------------------------------------

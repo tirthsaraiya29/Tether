@@ -345,6 +345,8 @@ class MainActivity : FragmentActivity() {
         }
 
         registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        val filter = IntentFilter(Intent.ACTION_USER_PRESENT)
+        registerReceiver(screenUnlockReceiver, filter)
     }
 
     private fun applyWindowSecurityFlags() {
@@ -354,6 +356,15 @@ class MainActivity : FragmentActivity() {
                 window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             } else {
                 window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+    }
+
+    private val screenUnlockReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_USER_PRESENT) {
+                // Send "screen_unlock" command via BLE
+                triggerBleAction("screen_unlock", "Screen unlocked")
             }
         }
     }
@@ -395,6 +406,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        unregisterReceiver(screenUnlockReceiver)
         try { unregisterReceiver(bluetoothStateReceiver) } catch (_: Exception) {}
     }
 

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.ComponentModel;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -14,6 +15,8 @@ namespace Tether.OverlayUI
     {
         private bool _isListening = true;
         private OverlayWindow? _activeOverlay = null;
+        [DllImport("user32.dll")]
+        private static extern bool LockWorkStation();
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -98,6 +101,10 @@ namespace Tether.OverlayUI
                         }
                         catch { }
                     }
+                    break;
+
+                case TetherEventType.LOCK_WORKSTATION:
+                    LockWorkStation();
                     break;
 
                 case TetherEventType.OVERLAY_ENABLED:
