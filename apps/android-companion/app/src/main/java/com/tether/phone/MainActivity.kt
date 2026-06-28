@@ -66,6 +66,9 @@ import com.tether.phone.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import java.io.File
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
@@ -134,6 +137,9 @@ class MainActivity : FragmentActivity() {
     private var isEnvironmentRestricted = mutableStateOf(false)
     private var currentIntegrityScore = mutableIntStateOf(100)
     private var isLoading = mutableStateOf(true)
+
+    private var pendingPowerAction = mutableStateOf<PowerAction?>(null)
+    private data class PowerAction(val command: String, val toastMessage: String, val title: String)
 
     private lateinit var executor: Executor
 
@@ -217,6 +223,7 @@ class MainActivity : FragmentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
+                        BackgroundGrid()
                         if (isLoading.value) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(color = NeonCyan)
@@ -238,8 +245,6 @@ class MainActivity : FragmentActivity() {
                                 isBiometricSettingEnabled = isBiometricSettingEnabled.value,
                                 selectedTimeoutMs = selectedTimeoutMs.longValue,
                                 isPrivacyMaskEnabled = isPrivacyMaskEnabled.value,
-                                isBlockScreenReadingEnabled = isBlockScreenReadingEnabled.value,
-                                isHideInRecentsEnabled = isHideInRecentsEnabled.value,
                                 onUnlockClick = { triggerBleAction("unlock", "🔓 Unlock Command Sent!") },
                                 onLockClick = { triggerBleAction("lock_now", "🔒 Manual Lock Sent!") },
                                 onPanicClick = {
@@ -267,25 +272,13 @@ class MainActivity : FragmentActivity() {
                                 },
                                 onPrivacyMaskToggled = { enabled ->
                                     isPrivacyMaskEnabled.value = enabled
-                                    prefs.edit { putBoolean(privacyMaskEnabledKey, enabled) }
-                                    if (!enabled) {
-                                        isBlockScreenReadingEnabled.value = false
-                                        isHideInRecentsEnabled.value = false
-                                        prefs.edit {
-                                            putBoolean(blockScreenReadingKey, false)
-                                            putBoolean(hideInRecentsKey, false)
-                                        }
-                                    }
-                                    applyWindowSecurityFlags()
-                                },
-                                onBlockScreenReadingToggled = { enabled ->
                                     isBlockScreenReadingEnabled.value = enabled
-                                    prefs.edit { putBoolean(blockScreenReadingKey, enabled) }
-                                    applyWindowSecurityFlags()
-                                },
-                                onHideInRecentsToggled = { enabled ->
                                     isHideInRecentsEnabled.value = enabled
-                                    prefs.edit { putBoolean(hideInRecentsKey, enabled) }
+                                    prefs.edit {
+                                        putBoolean(privacyMaskEnabledKey, enabled)
+                                        putBoolean(blockScreenReadingKey, enabled)
+                                        putBoolean(hideInRecentsKey, enabled)
+                                    }
                                     applyWindowSecurityFlags()
                                 },
                                 onLaptopActionClick = { action, toastMessage ->
@@ -302,9 +295,11 @@ class MainActivity : FragmentActivity() {
 
                                     when (command) {
                                         "shutdown", "sleep", "reboot" -> {
-                                            showPowerConfirmation(command) {
-                                                triggerBleAction(command, toastMessage)
-                                            }
+                                            pendingPowerAction.value = PowerAction(
+                                                command = command,
+                                                toastMessage = toastMessage,
+                                                title = "CONFIRM ${command.uppercase()} PROTOCOL"
+                                            )
                                         }
                                         else -> {
                                             triggerBleAction(command, toastMessage)
@@ -312,6 +307,18 @@ class MainActivity : FragmentActivity() {
                                     }
                                 }
                             )
+
+                            pendingPowerAction.value?.let { action ->
+                                CyberConfirmationDialog(
+                                    title = action.title,
+                                    message = "Are you sure you want to execute the ${action.command} directive on the target host?",
+                                    onConfirm = {
+                                        triggerBleAction(action.command, action.toastMessage)
+                                        pendingPowerAction.value = null
+                                    },
+                                    onDismiss = { pendingPowerAction.value = null }
+                                )
+                            }
 
                             AnimatedVisibility(
                                 visible = isAppLocked.value,
@@ -353,13 +360,13 @@ class MainActivity : FragmentActivity() {
         if (isBiometricSettingEnabled.value && !isAppLocked.value) {
             val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
             val leftBackgroundAt = prefs.getLong(appLockBackgroundTimestampKey, 0L)
-            if (selectedTimeoutMs.value == 0L) {
+            if (selectedTimeoutMs.longValue == 0L) {
                 isAppLocked.value = true
                 stopBleServiceLeak()
                 authenticateForAppUnlock()
             } else if (leftBackgroundAt != 0L) {
                 val elapsed = System.currentTimeMillis() - leftBackgroundAt
-                if (elapsed >= selectedTimeoutMs.value) {
+                if (elapsed >= selectedTimeoutMs.longValue) {
                     isAppLocked.value = true
                     stopBleServiceLeak()
                     authenticateForAppUnlock()
@@ -375,7 +382,7 @@ class MainActivity : FragmentActivity() {
         }
         if (isBiometricSettingEnabled.value) {
             val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
-            prefs.edit().putLong(appLockBackgroundTimestampKey, System.currentTimeMillis()).apply()
+            prefs.edit { putLong(appLockBackgroundTimestampKey, System.currentTimeMillis()) }
         }
     }
 
@@ -560,15 +567,6 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun showPowerConfirmation(command: String, action: () -> Unit) {
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Confirm Action")
-            .setMessage("Are you sure you want to $command the laptop?")
-            .setPositiveButton("Yes") { _, _ -> action() }
-            .setNegativeButton("No", null)
-            .show()
-    }
-
     private fun triggerBleAction(action: String, toastMessage: String) {
         if (isEnvironmentRestricted.value || isAppLocked.value) return
         if (toastMessage.isNotEmpty()) {
@@ -577,11 +575,7 @@ class MainActivity : FragmentActivity() {
         val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
             this.action = action
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
+        startForegroundService(serviceIntent)
     }
 
     private fun checkPermissions(): Boolean {
@@ -667,6 +661,66 @@ class MainActivity : FragmentActivity() {
     }
 }
 
+@Composable
+fun BackgroundGrid() {
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val gridSize = 40.dp.toPx()
+        val gridColor = NeonCyan.copy(alpha = 0.05f)
+        var x = 0f
+        while (x < size.width) {
+            drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), 0.5.dp.toPx())
+            x += gridSize
+        }
+        var y = 0f
+        while (y < size.height) {
+            drawLine(gridColor, Offset(0f, y), Offset(size.width, y), 0.5.dp.toPx())
+            y += gridSize
+        }
+    }
+}
+
+@Composable
+fun CyberConfirmationDialog(
+    title: String,
+    message: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        titleContentColor = NeonRed,
+        textContentColor = Color.White,
+        modifier = Modifier.border(1.dp, NeonRed.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+        title = {
+            Text(
+                text = title,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 2.sp,
+                fontSize = 16.sp
+            )
+        },
+        text = {
+            Text(text = message, color = TextSecondary, fontSize = 13.sp)
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = NeonRed.copy(alpha = 0.2f)),
+                shape = RoundedCornerShape(4.dp),
+                border = BorderStroke(1.dp, NeonRed)
+            ) {
+                Text("EXECUTE", color = NeonRed, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("ABORT", color = TextSecondary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            }
+        }
+    )
+}
+
 // ========================================================================
 // Compose UI Components (unchanged from original - kept for completeness)
 // ========================================================================
@@ -682,8 +736,6 @@ fun TetherNavigationShell(
     isBiometricSettingEnabled: Boolean,
     selectedTimeoutMs: Long,
     isPrivacyMaskEnabled: Boolean,
-    isBlockScreenReadingEnabled: Boolean,
-    isHideInRecentsEnabled: Boolean,
     onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
@@ -693,8 +745,6 @@ fun TetherNavigationShell(
     onBiometricSettingToggled: (Boolean) -> Unit,
     onTimeoutChanged: (Long) -> Unit,
     onPrivacyMaskToggled: (Boolean) -> Unit,
-    onBlockScreenReadingToggled: (Boolean) -> Unit,
-    onHideInRecentsToggled: (Boolean) -> Unit,
     onLaptopActionClick: (String, String) -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -825,6 +875,7 @@ fun TetherNavigationShell(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
+                BackgroundGrid()
                 when (currentScreen) {
                     AppScreen.TELEMETRY_DASHBOARD -> {
                         TetherAppScreen(
@@ -847,13 +898,9 @@ fun TetherNavigationShell(
                             isBiometricEnabled = isBiometricSettingEnabled,
                             selectedTimeoutMs = selectedTimeoutMs,
                             isPrivacyMaskEnabled = isPrivacyMaskEnabled,
-                            isBlockScreenReadingEnabled = isBlockScreenReadingEnabled,
-                            isHideInRecentsEnabled = isHideInRecentsEnabled,
                             onBiometricToggled = onBiometricSettingToggled,
                             onTimeoutChanged = onTimeoutChanged,
-                            onPrivacyMaskToggled = onPrivacyMaskToggled,
-                            onBlockScreenReadingToggled = onBlockScreenReadingToggled,
-                            onHideInRecentsToggled = onHideInRecentsToggled
+                            onPrivacyMaskToggled = onPrivacyMaskToggled
                         )
                     }
                     AppScreen.LAPTOP_CONTROL -> {
@@ -871,14 +918,11 @@ fun SettingsScreen(
     isBiometricEnabled: Boolean,
     selectedTimeoutMs: Long,
     isPrivacyMaskEnabled: Boolean,
-    isBlockScreenReadingEnabled: Boolean,
-    isHideInRecentsEnabled: Boolean,
     onBiometricToggled: (Boolean) -> Unit,
     onTimeoutChanged: (Long) -> Unit,
-    onPrivacyMaskToggled: (Boolean) -> Unit,
-    onBlockScreenReadingToggled: (Boolean) -> Unit,
-    onHideInRecentsToggled: (Boolean) -> Unit
+    onPrivacyMaskToggled: (Boolean) -> Unit
 ) {
+    val scrollState = rememberScrollState()
     val timeouts = listOf(
         "0 SEC" to 0L,
         "1 MIN" to 60000L,
@@ -889,7 +933,8 @@ fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(SpaceDark)
+            .background(Color.Transparent)
+            .verticalScroll(scrollState)
             .padding(24.dp),
         verticalArrangement = Arrangement.Top
     ) {
@@ -906,7 +951,7 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .border(1.dp, NeonCyan.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                .background(SurfaceDark)
+                .background(SurfaceDark.copy(alpha = 0.8f))
                 .padding(16.dp)
         ) {
             Row(
@@ -995,7 +1040,7 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .border(1.dp, NeonCyan.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                .background(SurfaceDark)
+                .background(SurfaceDark.copy(alpha = 0.8f))
                 .padding(16.dp)
         ) {
             Row(
@@ -1028,78 +1073,6 @@ fun SettingsScreen(
                         uncheckedTrackColor = SurfaceDark
                     )
                 )
-            }
-            AnimatedVisibility(
-                visible = isPrivacyMaskEnabled,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    HorizontalDivider(color = NeonCyan.copy(alpha = 0.1f), thickness = 1.dp)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "SECURE DISPLAY SHIELD",
-                                color = if (isBlockScreenReadingEnabled) NeonCyan else Color.White,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 12.sp
-                            )
-                            Text(
-                                text = "Block all forms of active background screen recording, screen scraping, and screenshots.",
-                                color = TextSecondary,
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp
-                            )
-                        }
-                        Checkbox(
-                            checked = isBlockScreenReadingEnabled,
-                            onCheckedChange = onBlockScreenReadingToggled,
-                            colors = CheckboxDefaults.colors(
-                                checkedColor = NeonCyan,
-                                uncheckedColor = TextSecondary,
-                                checkmarkColor = SpaceDark
-                            )
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "RECENTS BUFFER BLANKING",
-                                color = if (isHideInRecentsEnabled) NeonCyan else Color.White,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 12.sp
-                            )
-                            Text(
-                                text = "Mask active app view state layers inside the system overview switcher panel.",
-                                color = TextSecondary,
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp
-                            )
-                        }
-                        Checkbox(
-                            checked = isHideInRecentsEnabled,
-                            onCheckedChange = onHideInRecentsToggled,
-                            colors = CheckboxDefaults.colors(
-                                checkedColor = NeonCyan,
-                                uncheckedColor = TextSecondary,
-                                checkmarkColor = SpaceDark
-                            )
-                        )
-                    }
-                }
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
@@ -1662,21 +1635,21 @@ fun TetherAppScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 12.dp)
-                    .border(1.dp, NeonRed.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
-                    .background(SurfaceDark)
-                    .padding(12.dp)
+                    .border(1.dp, NeonRed.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                    .background(SurfaceDark.copy(alpha = 0.8f))
+                    .padding(16.dp)
             ) {
                 Text(
                     text = "CRITICAL OPERATION DIRECTIVES",
                     color = NeonRed,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    letterSpacing = 1.sp
+                    fontWeight = FontWeight.Black,
+                    fontSize = 13.sp,
+                    letterSpacing = 2.sp
                 )
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(14.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Button(
                         onClick = { onBleActionRequested("PWR_SLEEP", "💤 Dispatched: Sleep Command") },
@@ -1684,10 +1657,10 @@ fun TetherAppScreen(
                         shape = RoundedCornerShape(4.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .height(40.dp)
-                            .border(1.dp, Color(0xFFFFB300).copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                            .height(44.dp)
+                            .border(1.dp, Color(0xFFFFB300).copy(alpha = 0.4f), RoundedCornerShape(4.dp))
                     ) {
-                        Text("SLEEP", color = Color(0xFFFFB300), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("SLEEP", color = Color(0xFFFFB300), fontSize = 11.sp, fontWeight = FontWeight.Black)
                     }
                     Button(
                         onClick = { onBleActionRequested("PWR_REBOOT", "🔄 Dispatched: Reboot Command") },
@@ -1695,10 +1668,10 @@ fun TetherAppScreen(
                         shape = RoundedCornerShape(4.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .height(40.dp)
-                            .border(1.dp, NeonRed.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                            .height(44.dp)
+                            .border(1.dp, NeonRed.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
                     ) {
-                        Text("REBOOT", color = NeonRed, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("REBOOT", color = NeonRed, fontSize = 11.sp, fontWeight = FontWeight.Black)
                     }
                     Button(
                         onClick = { onBleActionRequested("PWR_SHUTDOWN", "🚨 Dispatched: Shutdown Command") },
@@ -1706,10 +1679,10 @@ fun TetherAppScreen(
                         shape = RoundedCornerShape(4.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .height(40.dp)
-                            .border(1.dp, NeonRed.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                            .height(44.dp)
+                            .border(1.dp, NeonRed.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
                     ) {
-                        Text("SHUTDOWN", color = NeonRed, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("HALT", color = NeonRed, fontSize = 11.sp, fontWeight = FontWeight.Black)
                     }
                 }
             }
@@ -1805,18 +1778,22 @@ fun PremiumControlAction(
 ) {
     val gradientBrush = remember(accentColor) {
         Brush.verticalGradient(
-            listOf(accentColor.copy(alpha = 0.06f), Color.Transparent)
+            listOf(accentColor.copy(alpha = 0.1f), Color.Transparent)
         )
     }
+
     Button(
         onClick = onClick,
-        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+        colors = ButtonDefaults.buttonColors(containerColor = SpaceDark.copy(alpha = 0.6f)),
         contentPadding = PaddingValues(),
-        shape = RoundedCornerShape(4.dp),
+        shape = RoundedCornerShape(6.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(48.dp)
-            .border(1.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
+            .height(52.dp)
+            .border(
+                BorderStroke(1.dp, Brush.linearGradient(listOf(accentColor.copy(alpha = 0.5f), accentColor.copy(alpha = 0.1f)))),
+                RoundedCornerShape(6.dp)
+            )
     ) {
         Box(
             modifier = Modifier
@@ -1828,8 +1805,9 @@ fun PremiumControlAction(
                 text = label,
                 style = MaterialTheme.typography.labelMedium.copy(
                     color = accentColor,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp
+                    fontWeight = FontWeight.Black,
+                    fontSize = 12.sp,
+                    letterSpacing = 2.sp
                 )
             )
         }
