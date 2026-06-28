@@ -16,7 +16,7 @@
 static long g_cRef = 0;   // global dll reference count
 HINSTANCE g_hinst = NULL; // global dll hinstance
 
-extern HRESULT CSample_CreateInstance(__in REFIID riid, __deref_out void** ppv);
+HRESULT CSample_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
 EXTERN_C GUID CLSID_CSample;
 
 class CClassFactory : public IClassFactory

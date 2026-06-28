@@ -28,6 +28,7 @@ public partial class BleManager : IDisposable
     private bool _isWorkstationLocked = false;
     private bool _isConnected = false;
     private string? _currentConnectingId;
+    private bool _unlockCooldown = false;
 
     // Configuration Thresholds
     private const int RSSI_GOOD = -55;
@@ -441,20 +442,27 @@ public partial class BleManager : IDisposable
             {
                 case "panic":
                 case "lock_now":
-                    lock (_lock) { _isWorkstationLocked = true; }
+                    lock (_lock) { _isWorkstationLocked = true; _unlockCooldown = false; }
                     _logger.Error($"🚨 Manual lock triggered: {command}");
                     ResetIPCHandles();
                     _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
                     await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
+                    await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.LOCK_WORKSTATION, Source = "BleManager" });
                     break;
 
                 case "unlock":
-                    lock (_lock) { _isWorkstationLocked = false; }
+                    lock (_lock) { _isWorkstationLocked = false; _unlockCooldown = true; }
                     _logger.Info("🔓 Manual unlock override");
                     _appEvent?.Set();
                     _screenEvent?.Set();
                     _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
                     await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager" });
+                    break;
+
+                case "screen_unlock":
+                    _logger.Info("📱 Phone screen unlock detected.");
+                    _screenEvent?.Set(); // Signal the credential provider
+                    _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_UNLOCKED, Source = "BleManager" });
                     break;
 
                 case "sleep":
@@ -539,46 +547,53 @@ public partial class BleManager : IDisposable
                 IntPtr hMonitor = MonitorFromWindow(IntPtr.Zero, MONITOR_DEFAULTTOPRIMARY);
                 if (hMonitor == IntPtr.Zero)
                 {
-                    _logger.Warning("Failed to get primary monitor handle");
+                    _logger.Warning("Failed to get primary monitor handle.");
                     return;
                 }
 
-                uint physicalMonitorCount = 1;
-                PHYSICAL_MONITOR[] monitors = new PHYSICAL_MONITOR[1];
+                // Get physical monitors
+                const uint physicalMonitorCount = 1;
+                var monitors = new PHYSICAL_MONITOR[physicalMonitorCount];
                 if (!GetPhysicalMonitorsFromHMONITOR(hMonitor, physicalMonitorCount, monitors))
                 {
-                    _logger.Warning("Failed to get physical monitor");
+                    _logger.Warning("GetPhysicalMonitorsFromHMONITOR failed. Error: " + Marshal.GetLastWin32Error());
                     return;
                 }
 
                 IntPtr hPhysical = monitors[0].hPhysicalMonitor;
-                uint min, current, max;
-                if (!GetMonitorBrightness(hPhysical, out min, out current, out max))
+                if (hPhysical == IntPtr.Zero)
                 {
-                    _logger.Warning("Failed to get current brightness");
+                    _logger.Warning("Physical monitor handle is zero.");
+                    return;
+                }
+
+                // Get current brightness
+                if (!GetMonitorBrightness(hPhysical, out uint min, out uint current, out uint max))
+                {
+                    _logger.Warning("GetMonitorBrightness failed. Error: " + Marshal.GetLastWin32Error());
                     DestroyPhysicalMonitor(hPhysical);
                     return;
                 }
 
-                // Calculate new brightness (deltaPercent is +/- percentage points)
+                // Calculate new brightness
                 float step = (max - min) / 100.0f;
                 int newBrightness = (int)(current + (deltaPercent * step));
                 newBrightness = Math.Clamp(newBrightness, (int)min, (int)max);
 
                 if (!SetMonitorBrightness(hPhysical, (uint)newBrightness))
                 {
-                    _logger.Warning("Failed to set brightness");
+                    _logger.Warning($"SetMonitorBrightness failed. Error: {Marshal.GetLastWin32Error()}");
                 }
                 else
                 {
-                    _logger.Info($"Brightness set to {newBrightness} (range: {min}-{max})");
+                    _logger.Info($"Brightness set to {newBrightness} (range {min}-{max})");
                 }
 
                 DestroyPhysicalMonitor(hPhysical);
             }
             catch (Exception ex)
             {
-                _logger.Warning($"Brightness adjustment failed: {ex.Message}");
+                _logger.Error($"Brightness adjustment error: {ex.Message}");
             }
         });
     }
@@ -631,7 +646,7 @@ public partial class BleManager : IDisposable
             if (identityReverified)
             {
                 _logger.Info("✅ Proximity Re-authentication passed successfully.");
-                lock (_lock) { _isWorkstationLocked = false; }
+                lock (_lock) { _isWorkstationLocked = false; _unlockCooldown = true; }
 
                 _appEvent?.Set();
                 _screenEvent?.Set();
@@ -649,10 +664,9 @@ public partial class BleManager : IDisposable
         if (!isLockedLocal && avgRssi <= RSSI_LOCK)
         {
             _logger.Error($"🔒 Signal below fallback bounds: {avgRssi:F0} dBm. Locking.");
-            lock (_lock) { _isWorkstationLocked = true; }
+            lock (_lock) { _isWorkstationLocked = true; _unlockCooldown = false; }
 
             ResetIPCHandles();
-
             _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
             _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
         }
@@ -668,7 +682,7 @@ public partial class BleManager : IDisposable
         _isConnected = false;
         StopRssiMonitoring();
 
-        lock (_lock) { _isWorkstationLocked = true; }
+        lock (_lock) { _isWorkstationLocked = true; _unlockCooldown = false; }
 
         ResetIPCHandles();
 
@@ -681,20 +695,27 @@ public partial class BleManager : IDisposable
 
     private void CleanupDevice()
     {
-        if (_commandChar != null)
+        try
         {
-            _commandChar.ValueChanged -= OnCommandReceivedFromPhone;
+            if (_commandChar != null)
+            {
+                _commandChar.ValueChanged -= OnCommandReceivedFromPhone;
+                _commandChar = null;
+            }
+            if (_device != null)
+            {
+                _device.ConnectionStatusChanged -= OnConnectionStatusChanged;
+                _device.Dispose();
+                _device = null;
+            }
+            _challengeChar = null;
+            _signatureChar = null;
+            _publicKeyChar = null;
         }
-        if (_device != null)
+        catch (Exception ex)
         {
-            _device.ConnectionStatusChanged -= OnConnectionStatusChanged;
-            _device.Dispose();
-            _device = null;
+            _logger.Error($"CleanupDevice error: {ex.Message}");
         }
-        _challengeChar = null;
-        _signatureChar = null;
-        _commandChar = null;
-        _publicKeyChar = null;
     }
 
     private void StartRssiMonitoring()
@@ -740,44 +761,23 @@ public partial class BleManager : IDisposable
 
     private void EnsureOverlayProcessRunning(TetherEvent evt)
     {
-        bool shouldLaunch = evt.EventType == TetherEventType.OVERLAY_ENABLED;
+        if (evt.EventType != TetherEventType.OVERLAY_ENABLED)
+            return; // No longer trigger on degraded
 
-        if (evt.EventType == TetherEventType.TRUST_DEGRADED && evt.PayloadJson != null)
-        {
-            try
-            {
-                using var doc = System.Text.Json.JsonDocument.Parse(evt.PayloadJson);
-                if (doc.RootElement.TryGetProperty("Rssi", out var rssiProp) && rssiProp.GetDouble() < -68)
-                {
-                    shouldLaunch = true;
-                }
-            }
-            catch { }
-        }
-
-        if (!shouldLaunch) return;
-
+        // Existing code to launch the overlay process
         var processes = Process.GetProcessesByName("Tether.OverlayUI");
         if (processes.Length > 0) return;
 
         try
         {
             string exactPath = @"C:\Dev\Tether\Tether.OverlayUI\bin\Debug\net8.0-windows\Tether.OverlayUI.exe";
-
             if (File.Exists(exactPath))
             {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = exactPath,
-                    UseShellExecute = true
-                });
+                Process.Start(new ProcessStartInfo { FileName = exactPath, UseShellExecute = true });
                 _logger.Info($"🚀 Launched overlay execution process vector: {exactPath}");
             }
         }
-        catch (Exception ex)
-        {
-            _logger.Error($"Failed to spin up UI space execution layer: {ex.Message}");
-        }
+        catch (Exception ex) { _logger.Error($"Failed to spin up UI space execution layer: {ex.Message}"); }
     }
 
     private async Task SendUiEventAsync(TetherEvent evt)

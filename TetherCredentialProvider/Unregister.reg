@@ -1,3 +1,9 @@
 Windows Registry Editor Version 5.00
 
-[-HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{C8C8D282-F4F1-451D-96FC-A8B1F783117B}]
+[-HKEY_CLASSES_ROOT\CLSID\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}]
+
+[-HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}]
+
+[-HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}]
+
+[-HKEY_LOCAL_MACHINE\SOFTWARE\Tether]
