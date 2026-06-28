@@ -16,44 +16,33 @@ namespace Tether.CommunicationService
     {
         public static async Task Main(string[] args)
         {
-            var builder = Host.CreateApplicationBuilder(args);
+            var host = Host.CreateDefaultBuilder(args)
+                .UseWindowsService(options =>
+                {
+                    options.ServiceName = "TetherCommService";
+                })
+                .ConfigureServices((hostContext, services) =>
+                {
+                    services.AddSingleton<ITetherLogger, SerilogTetherLogger>();
+                    services.AddSingleton<IEventBus>(sp =>
+                    {
+                        var logger = sp.GetRequiredService<ITetherLogger>();
+                        return new InMemoryEventBus(logger);
+                    });
 
-            builder.Services.AddSingleton<ITetherLogger, SerilogTetherLogger>();
-            builder.Services.AddSingleton<IEventBus>(sp =>
-            {
-                var logger = sp.GetRequiredService<ITetherLogger>();
-                return new InMemoryEventBus(logger);
-            });
+                    services.AddSingleton<TrustStateManager>();
+                    services.AddSingleton<EnforcementManager>();
+                    services.AddSingleton<PanicManager>();
+                    services.AddSingleton<RecoveryManager>();
+                    services.AddSingleton<BleManager>();
+                    services.AddSingleton<PipeServer>();
 
-            builder.Services.AddSingleton<TrustStateManager>();
-            builder.Services.AddSingleton<EnforcementManager>();
-            builder.Services.AddSingleton<PanicManager>();
-            builder.Services.AddSingleton<RecoveryManager>();
-            builder.Services.AddSingleton<BleManager>();
-            builder.Services.AddSingleton<PipeServer>();
+                    services.AddHostedService<Worker>();
+                })
+                .Build();
 
-            builder.Services.AddHostedService<Worker>();
-
-            var host = builder.Build();
-
-            // Force initialization of background engines
-            _ = host.Services.GetRequiredService<TrustStateManager>();
-            _ = host.Services.GetRequiredService<EnforcementManager>();
-            _ = host.Services.GetRequiredService<PanicManager>();
-            _ = host.Services.GetRequiredService<RecoveryManager>();
-
-            // Start the IPC pipe server for UI communication
-            var pipeServer = host.Services.GetRequiredService<PipeServer>();
-            pipeServer.Start();
-
-            // Initialize and start BLE manager
-            var bleManager = host.Services.GetRequiredService<BleManager>();
-            bleManager.InitializeIPCHandles();
-            bleManager.Start();
-
-            var logger = host.Services.GetRequiredService<ITetherLogger>();
-            logger.Info("All background engines, cross-session named pipes, and BLE stacks initialized. Launching host environment...");
-
+            // DO NOT PUT CUSTOM INITIALIZATION HERE.
+            // RunAsync() must be hit immediately to avoid Error 1053.
             await host.RunAsync();
         }
     }
