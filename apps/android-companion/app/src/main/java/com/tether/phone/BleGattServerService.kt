@@ -1,6 +1,7 @@
 package com.tether.phone
 
 import android.app.Notification
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -9,8 +10,8 @@ import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
+import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -31,9 +32,18 @@ class BleGattServerService : Service() {
     private lateinit var securityEngine: ProductionSecurityEngine
     private var activeChallenge: ByteArray? = null
     private var commandCharacteristic: BluetoothGattCharacteristic? = null
-    
-    // Explicit tracking of connected device instances
+
     private val connectedDevicesMap = java.util.concurrent.ConcurrentHashMap<String, BluetoothDevice>()
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private val advWatchdogRunnable = object : Runnable {
+        override fun run() {
+            if (connectedDevicesMap.isEmpty()) {
+                startAdvertising()
+            }
+            mainHandler.postDelayed(this, 60000)
+        }
+    }
 
     companion object {
         val SERVICE_UUID: UUID = UUID.fromString("0000FFE0-0000-1000-8000-00805F9B34FB")
@@ -72,7 +82,7 @@ class BleGattServerService : Service() {
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         bluetoothAdapter = bluetoothManager?.adapter
 
-        if (bluetoothAdapter == null || !bluetoothAdapter!!.isEnabled) {
+        if (bluetoothAdapter == null || bluetoothAdapter?.isEnabled == false) {
             stopSelf()
             return
         }
@@ -82,6 +92,9 @@ class BleGattServerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        mainHandler.removeCallbacks(advWatchdogRunnable)
+        mainHandler.postDelayed(advWatchdogRunnable, 60000)
+
         val action = intent?.action
         if (action != null && commandCharacteristic != null) {
             val value = action.toByteArray(Charsets.UTF_8)
@@ -102,6 +115,7 @@ class BleGattServerService : Service() {
         return START_STICKY
     }
 
+    @SuppressLint("MissingPermission")
     private fun setupGattServer() {
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         try {
@@ -135,9 +149,16 @@ class BleGattServerService : Service() {
         override fun onConnectionStateChange(device: BluetoothDevice?, status: Int, newState: Int) {
             super.onConnectionStateChange(device, status, newState)
             if (device == null) return
-            
+
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                connectedDevicesMap.remove(device.address)
                 connectedDevicesMap[device.address] = device
+
+                try {
+                    val bluetoothManager = getSystemService(BluetoothManager::class.java)
+                    bluetoothManager?.adapter?.getRemoteDevice(device.address)
+                } catch (_: Exception) {}
+
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connectedDevicesMap.remove(device.address)
             }
@@ -164,19 +185,20 @@ class BleGattServerService : Service() {
                         val challenge = activeChallenge
                         if (challenge != null) {
                             val signatureBytes = securityEngine.signChallenge(challenge)
-                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, signatureBytes)
+                            sendSlicedResponse(device, requestId, offset, signatureBytes)
                             activeChallenge = null
                         } else {
                             bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
                         }
                     }
                     COMMAND_CHAR_UUID -> {
+                        @Suppress("DEPRECATION")
                         val currentCommand = commandCharacteristic?.value ?: byteArrayOf()
-                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, currentCommand)
+                        sendSlicedResponse(device, requestId, offset, currentCommand)
                     }
                     PUBLIC_KEY_CHAR_UUID -> {
                         val publicKeyBytes = securityEngine.getPublicKeyBytes()
-                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, publicKeyBytes)
+                        sendSlicedResponse(device, requestId, offset, publicKeyBytes)
                     }
                 }
             } catch (_: SecurityException) {}
@@ -193,12 +215,22 @@ class BleGattServerService : Service() {
             super.onDescriptorReadRequest(device, requestId, offset, descriptor)
             if (device != null) {
                 try {
-                    // Tell Windows the descriptor is valid and currently enabled
                     val value = if (descriptor?.uuid == CCCD_UUID) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else byteArrayOf(0, 0)
-                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+                    sendSlicedResponse(device, requestId, offset, value)
                 } catch (_: SecurityException) {}
             }
         }
+    }
+
+    private fun sendSlicedResponse(device: BluetoothDevice, requestId: Int, offset: Int, fullValue: ByteArray) {
+        try {
+            if (offset >= fullValue.size) {
+                bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, byteArrayOf())
+                return
+            }
+            val slicedValue = fullValue.copyOfRange(offset, fullValue.size)
+            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, slicedValue)
+        } catch (_: SecurityException) {}
     }
 
     private fun notifyStateToInterface() {
@@ -246,7 +278,9 @@ class BleGattServerService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    @SuppressLint("MissingPermission")
     override fun onDestroy() {
+        mainHandler.removeCallbacks(advWatchdogRunnable)
         try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) {}
         bluetoothGattServer?.close()
         super.onDestroy()
