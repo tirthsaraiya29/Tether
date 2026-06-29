@@ -34,6 +34,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -51,6 +52,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -95,9 +98,9 @@ enum class AppScreen {
 }
 
 enum class TrustTier(val label: String, val color: Color) {
-    TRUSTED("TRUSTED NODAL STATE", NeonGreen),
-    ELEVATED_RISK("ELEVATED RISK MATRIX", Color(0xFFFFB300)),
-    RESTRICTED("RESTRICTED ENVIRONMENT", NeonRed)
+    TRUSTED("CRYPTO-TRUSTED STATE", IntegrityGreen),
+    ELEVATED_RISK("ELEVATED RISK MATRIX", MatrixGold),
+    RESTRICTED("RESTRICTED ENVIRONMENT", AlertRed)
 }
 
 data class IntegrityReport(
@@ -157,12 +160,12 @@ class MainActivity : FragmentActivity() {
                 runOnUiThread {
                     if (count > 0) {
                         uiStatusText.value = "TETHER LINK ENFORCED"
-                        uiStatusColor.value = NeonGreen
+                        uiStatusColor.value = IntegrityGreen
                         uiConnectionStatusText.value = "CONNECTED HOST NODES: $count"
                     } else {
                         if (!isPanicActive.value) {
                             uiStatusText.value = "BROADCAST ACTIVE"
-                            uiStatusColor.value = NeonCyan
+                            uiStatusColor.value = LiquidCyan
                             uiConnectionStatusText.value = "AWAITING VERIFICATION STEP"
                         }
                     }
@@ -178,7 +181,7 @@ class MainActivity : FragmentActivity() {
                     BluetoothAdapter.STATE_OFF -> {
                         if (!isPanicActive.value) {
                             uiStatusText.value = "BLUETOOTH OFFLINE"
-                            uiStatusColor.value = NeonRed
+                            uiStatusColor.value = AlertRed
                             uiConnectionStatusText.value = "Hardware link severed"
                         }
                         stopService(Intent(this@MainActivity, BleGattServerService::class.java))
@@ -195,7 +198,7 @@ class MainActivity : FragmentActivity() {
         if (result.resultCode == RESULT_OK) startBleService()
         else {
             uiStatusText.value = "ACCESS DENIED"
-            uiStatusColor.value = NeonRed
+            uiStatusColor.value = AlertRed
         }
     }
 
@@ -254,10 +257,11 @@ class MainActivity : FragmentActivity() {
                         BackgroundGrid()
                         if (isLoading.value) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = NeonCyan)
+                                CircularProgressIndicator(color = LiquidCyan, strokeWidth = 2.dp)
                                 Text(
                                     "Initializing secure environment...",
                                     color = TextSecondary,
+                                    style = MaterialTheme.typography.labelMedium,
                                     modifier = Modifier.padding(top = 16.dp)
                                 )
                             }
@@ -350,8 +354,8 @@ class MainActivity : FragmentActivity() {
 
                             AnimatedVisibility(
                                 visible = isAppLocked.value,
-                                enter = fadeIn(animationSpec = tween(400)) + scaleIn(initialScale = 0.85f),
-                                exit = fadeOut(animationSpec = tween(400)) + scaleOut(targetScale = 0.85f)
+                                enter = fadeIn(animationSpec = tween(600, easing = EaseInOutSans)),
+                                exit = fadeOut(animationSpec = tween(600, easing = EaseInOutSans))
                             ) {
                                 FuturisticLockOverlay(
                                     onAuthorizeRequested = {
@@ -482,7 +486,7 @@ class MainActivity : FragmentActivity() {
 
     private fun setPanicUiState() {
         uiStatusText.value = "PANIC PROTOCOL\nENGAGED"
-        uiStatusColor.value = NeonRed
+        uiStatusColor.value = AlertRed
         uiConnectionStatusText.value = "Hardware Lockdown Active"
     }
 
@@ -564,6 +568,7 @@ class MainActivity : FragmentActivity() {
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
+            .setColor(IntegrityGreen.toArgb())
             .build()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
@@ -650,7 +655,7 @@ class MainActivity : FragmentActivity() {
                 }
             } else {
                 uiStatusText.value = "PERMISSIONS REQUIRED"
-                uiStatusColor.value = NeonRed
+                uiStatusColor.value = AlertRed
                 Toast.makeText(this, "BLE permissions must be granted", Toast.LENGTH_LONG).show()
             }
         }
@@ -691,8 +696,8 @@ class MainActivity : FragmentActivity() {
         val bleIntent = Intent(this, BleGattServerService::class.java)
         startForegroundService(bleIntent)
 
-        uiStatusText.value = "TETHER ACTIVE\nAUTO-KEY BROADCAST"
-        uiStatusColor.value = NeonGreen
+        uiStatusText.value = "TETHER ACTIVE\nSECURE MESH"
+        uiStatusColor.value = IntegrityGreen
         uiConnectionStatusText.value = "Secure Broadcast Active"
     }
 }
@@ -700,53 +705,37 @@ class MainActivity : FragmentActivity() {
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
-    alpha: Float = 0.4f,
-    strokeAlpha: Float = 0.2f,
-    edgeHighlight: Boolean = true,
+    alpha: Float = 0.08f,
+    strokeAlpha: Float = 0.15f,
+    edgeHighlight: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Box(
         modifier = modifier
-            .shadow(elevation = 16.dp, shape = RoundedCornerShape(12.dp), ambientColor = Color.Black, spotColor = NeonCyan.copy(alpha = 0.2f))
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        SurfaceDark.copy(alpha = alpha),
-                        SurfaceDark.copy(alpha = alpha * 0.85f)
+                        Color.White.copy(alpha = alpha),
+                        Color.White.copy(alpha = alpha * 0.5f)
                     )
                 )
             )
             .border(
-                1.dp,
-                Brush.linearGradient(
+                width = 0.5.dp,
+                brush = Brush.linearGradient(
                     listOf(
                         Color.White.copy(alpha = strokeAlpha),
-                        Color.White.copy(alpha = strokeAlpha * 0.2f),
-                        NeonCyan.copy(alpha = strokeAlpha * 0.6f)
+                        Color.Transparent,
+                        Color.White.copy(alpha = strokeAlpha * 0.3f)
                     )
                 ),
-                RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(20.dp)
             )
     ) {
-        if (edgeHighlight) {
-            Canvas(modifier = Modifier.matchParentSize()) {
-                val path = Path().apply {
-                    moveTo(0f, 0f)
-                    lineTo(size.width * 0.1f, 0f)
-                    moveTo(size.width, size.height)
-                    lineTo(size.width * 0.9f, size.height)
-                }
-                drawPath(
-                    path = path,
-                    color = NeonCyan.copy(alpha = 0.3f),
-                    style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round)
-                )
-            }
-        }
         Column(
             modifier = Modifier
-                .padding(16.dp)
+                .padding(20.dp)
                 .fillMaxWidth(),
             content = content
         )
@@ -755,35 +744,35 @@ fun GlassCard(
 
 @Composable
 fun BackgroundGrid() {
-    val infiniteTransition = rememberInfiniteTransition(label = "GridPulse")
+    val infiniteTransition = rememberInfiniteTransition(label = "LiquidBackground")
     val gridAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.04f,
-        targetValue = 0.12f,
+        initialValue = 0.02f,
+        targetValue = 0.06f,
         animationSpec = infiniteRepeatable(
-            animation = tween(4000, easing = EaseInOutSans),
+            animation = tween(6000, easing = EaseInOutSans),
             repeatMode = RepeatMode.Reverse
         ), label = "Alpha"
     )
-    val glowPosition by infiniteTransition.animateFloat(
-        initialValue = -0.5f,
-        targetValue = 1.5f,
+    val glowPositionX by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 0.8f,
         animationSpec = infiniteRepeatable(
-            animation = tween(12000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ), label = "GlowPos"
+            animation = tween(15000, easing = EaseInOutSans),
+            repeatMode = RepeatMode.Reverse
+        ), label = "GlowX"
     )
-    val scanLineY by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
+    val glowPositionY by infiniteTransition.animateFloat(
+        initialValue = 0.8f,
+        targetValue = 0.2f,
         animationSpec = infiniteRepeatable(
-            animation = tween(8000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ), label = "ScanLine"
+            animation = tween(12000, easing = EaseInOutSans),
+            repeatMode = RepeatMode.Reverse
+        ), label = "GlowY"
     )
 
     Canvas(modifier = Modifier.fillMaxSize()) {
-        val gridSize = 45.dp.toPx()
-        val gridColor = NeonCyan.copy(alpha = gridAlpha)
+        val gridSize = 60.dp.toPx()
+        val gridColor = LiquidCyan.copy(alpha = gridAlpha)
         
         var x = 0f
         while (x < size.width) {
@@ -796,24 +785,24 @@ fun BackgroundGrid() {
             y += gridSize
         }
 
-        // Animated Scan Line
-        val scanY = size.height * scanLineY
-        drawLine(
-            brush = Brush.verticalGradient(
-                listOf(Color.Transparent, NeonCyan.copy(alpha = 0.15f), Color.Transparent)
-            ),
-            start = Offset(0f, scanY),
-            end = Offset(size.width, scanY),
-            strokeWidth = 2.dp.toPx()
-        )
-
+        // Deep Liquid Glows
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(NeonCyan.copy(alpha = 0.08f), Color.Transparent),
-                center = Offset(size.width * glowPosition, size.height * (1f - glowPosition)),
+                colors = listOf(LiquidCyan.copy(alpha = 0.05f), Color.Transparent),
+                center = Offset(size.width * glowPositionX, size.height * glowPositionY),
+                radius = 600.dp.toPx()
+            ),
+            center = Offset(size.width * glowPositionX, size.height * glowPositionY),
+            radius = 600.dp.toPx()
+        )
+        
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(IntegrityGreen.copy(alpha = 0.03f), Color.Transparent),
+                center = Offset(size.width * (1f - glowPositionX), size.height * (1f - glowPositionY)),
                 radius = 500.dp.toPx()
             ),
-            center = Offset(size.width * glowPosition, size.height * (1f - glowPosition)),
+            center = Offset(size.width * (1f - glowPositionX), size.height * (1f - glowPositionY)),
             radius = 500.dp.toPx()
         )
     }
@@ -828,34 +817,34 @@ fun CyberConfirmationDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = SurfaceDark,
-        titleContentColor = NeonRed,
-        textContentColor = Color.White,
-        modifier = Modifier.border(1.dp, NeonRed.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+        containerColor = SurfaceElevated,
+        titleContentColor = TextPrimary,
+        textContentColor = TextSecondary,
+        modifier = Modifier.border(0.5.dp, GlassBorder, RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp),
         title = {
             Text(
                 text = title,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 2.sp,
-                fontSize = 16.sp
+                style = MaterialTheme.typography.titleLarge,
+                color = AlertRed
             )
         },
         text = {
-            Text(text = message, color = TextSecondary, fontSize = 13.sp)
+            Text(text = message, style = MaterialTheme.typography.bodyMedium)
         },
         confirmButton = {
             Button(
                 onClick = onConfirm,
-                colors = ButtonDefaults.buttonColors(containerColor = NeonRed.copy(alpha = 0.2f)),
-                shape = RoundedCornerShape(4.dp),
-                border = BorderStroke(1.dp, NeonRed)
+                colors = ButtonDefaults.buttonColors(containerColor = AlertRed.copy(alpha = 0.1f)),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(0.5.dp, AlertRed)
             ) {
-                Text("EXECUTE", color = NeonRed, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                Text("EXECUTE", color = AlertRed, style = MaterialTheme.typography.labelLarge)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("ABORT", color = TextSecondary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                Text("ABORT", color = TextSecondary, style = MaterialTheme.typography.labelLarge)
             }
         }
     )
@@ -898,80 +887,77 @@ fun TetherNavigationShell(
                 drawerContainerColor = Color.Transparent,
                 drawerContentColor = TextSecondary,
                 modifier = Modifier
-                    .width(300.dp)
+                    .width(320.dp)
                     .fillMaxHeight()
-                    .padding(end = 24.dp)
             ) {
-                GlassCard(
-                    modifier = Modifier.fillMaxSize(),
-                    alpha = 0.8f
-                ) {
-                    Spacer(modifier = Modifier.height(32.dp))
-                    Text(
-                        text = "CORE NAV SYSTEM",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = NeonCyan,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 16.dp),
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp
-                    )
-                    NavigationDrawerItem(
-                        label = { Text("TELEMETRY MAIN", fontWeight = FontWeight.Bold, letterSpacing = 1.sp) },
-                        selected = currentScreen == AppScreen.TELEMETRY_DASHBOARD,
-                        icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                        colors = NavigationDrawerItemDefaults.colors(
-                            selectedContainerColor = NeonCyan.copy(alpha = 0.1f),
-                            unselectedContainerColor = Color.Transparent,
-                            selectedIconColor = NeonCyan,
-                            unselectedIconColor = TextSecondary,
-                            selectedTextColor = NeonCyan,
-                            unselectedTextColor = TextSecondary
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        onClick = {
-                            currentScreen = AppScreen.TELEMETRY_DASHBOARD
-                            scope.launch { drawerState.close() }
-                        },
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-                    NavigationDrawerItem(
-                        label = { Text("SLIDERS PANEL", fontWeight = FontWeight.Bold, letterSpacing = 1.sp) },
-                        selected = currentScreen == AppScreen.LAPTOP_CONTROL,
-                        icon = { Icon(Icons.Default.Info, contentDescription = null) },
-                        colors = NavigationDrawerItemDefaults.colors(
-                            selectedContainerColor = NeonCyan.copy(alpha = 0.1f),
-                            unselectedContainerColor = Color.Transparent,
-                            selectedIconColor = NeonCyan,
-                            unselectedIconColor = TextSecondary,
-                            selectedTextColor = NeonCyan,
-                            unselectedTextColor = TextSecondary
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        onClick = {
-                            currentScreen = AppScreen.LAPTOP_CONTROL
-                            scope.launch { drawerState.close() }
-                        },
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-                    NavigationDrawerItem(
-                        label = { Text("SECURITY SETTINGS", fontWeight = FontWeight.Bold, letterSpacing = 1.sp) },
-                        selected = currentScreen == AppScreen.SECURITY_SETTINGS,
-                        icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                        colors = NavigationDrawerItemDefaults.colors(
-                            selectedContainerColor = NeonCyan.copy(alpha = 0.1f),
-                            unselectedContainerColor = Color.Transparent,
-                            selectedIconColor = NeonCyan,
-                            unselectedIconColor = TextSecondary,
-                            selectedTextColor = NeonCyan,
-                            unselectedTextColor = TextSecondary
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        onClick = {
-                            currentScreen = AppScreen.SECURITY_SETTINGS
-                            scope.launch { drawerState.close() }
-                        },
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
+                Box(modifier = Modifier.fillMaxSize().background(DeepSpace.copy(alpha = 0.95f))) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp)
+                    ) {
+                        Spacer(modifier = Modifier.height(48.dp))
+                        Text(
+                            text = "COMMAND SYSTEM",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = LiquidCyan,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 16.dp)
+                        )
+                        NavigationDrawerItem(
+                            label = { Text("DASHBOARD", style = MaterialTheme.typography.labelLarge) },
+                            selected = currentScreen == AppScreen.TELEMETRY_DASHBOARD,
+                            icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = LiquidCyan.copy(alpha = 0.1f),
+                                unselectedContainerColor = Color.Transparent,
+                                selectedIconColor = LiquidCyan,
+                                unselectedIconColor = TextSecondary,
+                                selectedTextColor = LiquidCyan,
+                                unselectedTextColor = TextSecondary
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            onClick = {
+                                currentScreen = AppScreen.TELEMETRY_DASHBOARD
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                        NavigationDrawerItem(
+                            label = { Text("HARDWARE CONTROL", style = MaterialTheme.typography.labelLarge) },
+                            selected = currentScreen == AppScreen.LAPTOP_CONTROL,
+                            icon = { Icon(Icons.Default.Info, contentDescription = null) },
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = LiquidCyan.copy(alpha = 0.1f),
+                                unselectedContainerColor = Color.Transparent,
+                                selectedIconColor = LiquidCyan,
+                                unselectedIconColor = TextSecondary,
+                                selectedTextColor = LiquidCyan,
+                                unselectedTextColor = TextSecondary
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            onClick = {
+                                currentScreen = AppScreen.LAPTOP_CONTROL
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                        NavigationDrawerItem(
+                            label = { Text("SECURITY VAULT", style = MaterialTheme.typography.labelLarge) },
+                            selected = currentScreen == AppScreen.SECURITY_SETTINGS,
+                            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = LiquidCyan.copy(alpha = 0.1f),
+                                unselectedContainerColor = Color.Transparent,
+                                selectedIconColor = LiquidCyan,
+                                unselectedIconColor = TextSecondary,
+                                selectedTextColor = LiquidCyan,
+                                unselectedTextColor = TextSecondary
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            onClick = {
+                                currentScreen = AppScreen.SECURITY_SETTINGS
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -981,11 +967,9 @@ fun TetherNavigationShell(
                 TopAppBar(
                     title = {
                         Text(
-                            text = "TETHER COMMAND",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = NeonCyan,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 2.sp
+                            text = "TETHER",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = TextPrimary
                         )
                     },
                     navigationIcon = {
@@ -993,7 +977,7 @@ fun TetherNavigationShell(
                             Icon(
                                 imageVector = Icons.Default.Menu,
                                 contentDescription = "Menu Open",
-                                tint = NeonCyan
+                                tint = LiquidCyan
                             )
                         }
                     },
@@ -1002,21 +986,20 @@ fun TetherNavigationShell(
                             Icon(
                                 imageVector = Icons.Default.Settings,
                                 contentDescription = "Select Laptop",
-                                tint = NeonCyan
+                                tint = TextSecondary
                             )
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = SpaceDark)
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                 )
             },
-            containerColor = SpaceDark
+            containerColor = Color.Transparent
         ) { paddingValues ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                BackgroundGrid()
                 when (currentScreen) {
                     AppScreen.TELEMETRY_DASHBOARD -> {
                         TetherAppScreen(
@@ -1065,7 +1048,7 @@ fun SettingsScreen(
 ) {
     val scrollState = rememberScrollState()
     val timeouts = listOf(
-        "0 SEC" to 0L,
+        "IMMEDIATE" to 0L,
         "1 MIN" to 60000L,
         "2 MIN" to 120000L,
         "10 MIN" to 600000L,
@@ -1074,23 +1057,18 @@ fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Transparent)
             .verticalScroll(scrollState)
             .padding(24.dp),
         verticalArrangement = Arrangement.Top
     ) {
         Text(
             text = "SYSTEM CONFIGURATION",
-            style = MaterialTheme.typography.titleMedium.copy(
-                color = NeonCyan,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 1.5.sp
-            ),
+            style = MaterialTheme.typography.labelLarge,
+            color = LiquidCyan,
             modifier = Modifier.padding(bottom = 24.dp)
         )
         GlassCard(
-            modifier = Modifier.fillMaxWidth(),
-            alpha = 0.6f
+            modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1099,27 +1077,25 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "BIOMETRIC APP GATEWAY",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
+                        text = "BIOMETRIC GATEWAY",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Enforce localized biological pattern identification check on app relaunch configurations.",
-                        color = TextSecondary,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp
+                        text = "Enforce biological pattern verification on application activation.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
                     )
                 }
                 Switch(
                     checked = isBiometricEnabled,
                     onCheckedChange = onBiometricToggled,
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = SpaceDark,
-                        checkedTrackColor = NeonCyan,
-                        uncheckedThumbColor = TextSecondary,
-                        uncheckedTrackColor = SurfaceDark
+                        checkedThumbColor = DeepSpace,
+                        checkedTrackColor = LiquidCyan,
+                        uncheckedThumbColor = TextMuted,
+                        uncheckedTrackColor = SurfaceVeneer
                     )
                 )
             }
@@ -1131,15 +1107,13 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 16.dp)
+                        .padding(top = 24.dp)
                 ) {
                     Text(
-                        text = "LOCK AFTER CONTINUOUS INACTIVITY?",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            color = NeonCyan,
-                            fontWeight = FontWeight.Bold
-                        ),
-                        modifier = Modifier.padding(bottom = 12.dp)
+                        text = "LOCK INACTIVITY THRESHOLD",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = LiquidCyan,
+                        modifier = Modifier.padding(bottom = 16.dp)
                     )
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
@@ -1150,23 +1124,22 @@ fun SettingsScreen(
                             val isSelected = selectedTimeoutMs == value
                             Box(
                                 modifier = Modifier
-                                    .height(46.dp)
-                                    .weight(if (label == "IMMEDIATE" || label == "10 MIN") 1.2f else 1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) NeonCyan.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f))
+                                    .height(40.dp)
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isSelected) LiquidCyan.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.03f))
                                     .border(
-                                        width = 1.dp,
-                                        color = if (isSelected) NeonCyan else Color.White.copy(alpha = 0.1f),
-                                        shape = RoundedCornerShape(8.dp)
+                                        width = 0.5.dp,
+                                        color = if (isSelected) LiquidCyan else GlassBorder,
+                                        shape = RoundedCornerShape(12.dp)
                                     )
                                     .clickable { onTimeoutChanged(value) },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = label,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) NeonCyan else TextSecondary
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (isSelected) LiquidCyan else TextSecondary
                                 )
                             }
                         }
@@ -1176,8 +1149,7 @@ fun SettingsScreen(
         }
         Spacer(modifier = Modifier.height(24.dp))
         GlassCard(
-            modifier = Modifier.fillMaxWidth(),
-            alpha = 0.6f
+            modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1186,33 +1158,31 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "UI HARDENING OVERLAY",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
+                        text = "UI HARDENING",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Protect the user interface from being captured by software readers or cached on device buffers.",
-                        color = TextSecondary,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp
+                        text = "Prevent interface capture and background caching.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
                     )
                 }
                 Switch(
                     checked = isPrivacyMaskEnabled,
                     onCheckedChange = onPrivacyMaskToggled,
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = SpaceDark,
-                        checkedTrackColor = NeonCyan,
-                        uncheckedThumbColor = TextSecondary,
-                        uncheckedTrackColor = SurfaceDark
+                        checkedThumbColor = DeepSpace,
+                        checkedTrackColor = LiquidCyan,
+                        uncheckedThumbColor = TextMuted,
+                        uncheckedTrackColor = SurfaceVeneer
                     )
                 )
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
-        DeviceAttestationCard(context = androidx.compose.ui.platform.LocalContext.current)
+        DeviceAttestationCard(context = LocalContext.current)
     }
 }
 
@@ -1237,8 +1207,7 @@ fun DeviceAttestationCard(context: Context) {
     }
     var showInfoDialog by remember { mutableStateOf(false) }
     GlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        alpha = 0.6f
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1247,19 +1216,15 @@ fun DeviceAttestationCard(context: Context) {
         ) {
             Column {
                 Text(
-                    text = "INTEGRITY ATTESTATION CORE",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    letterSpacing = 1.sp
+                    text = "INTEGRITY CORE",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = LiquidCyan
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = report.tier.label,
-                    color = report.tier.color,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 11.sp,
-                    letterSpacing = 1.5.sp
+                    style = MaterialTheme.typography.labelMedium,
+                    color = report.tier.color
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1267,69 +1232,57 @@ fun DeviceAttestationCard(context: Context) {
                     Icon(
                         imageVector = Icons.Default.Info,
                         contentDescription = "Analysis Breakdown",
-                        tint = NeonCyan
+                        tint = TextSecondary
                     )
                 }
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
                         text = "${report.score}",
-                        color = report.tier.color,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                    Text(
-                        text = "INDEX SCORE",
-                        color = TextSecondary,
-                        fontSize = 8.sp,
-                        letterSpacing = 0.5.sp
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = report.tier.color
                     )
                 }
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
-        HorizontalDivider(color = report.tier.color.copy(alpha = 0.1f), thickness = 1.dp)
-        Spacer(modifier = Modifier.height(16.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            MetricRow(label = "BOOTLOADER SECURITY STATE", pass = report.isBootloaderLocked, weightPoints = "+35")
-            MetricRow(label = "ENVIRONMENT ROOT DETECTION", pass = report.isNotRooted, weightPoints = "+35")
-            MetricRow(label = "HOST DEVELOPER CONFIG MODULE", pass = report.isDevOptionsDisabled, weightPoints = "+10")
-            MetricRow(label = "HARDWARE ADB INTERACTION LINK", pass = report.isUsbDebuggingDisabled, weightPoints = "+10")
-            MetricRow(label = "CRYPTOGRAPHIC PACKAGE INTEGRITY", pass = report.isAppIntegrityValid, weightPoints = "+10")
-            MetricRow(label = "SECURE DEVICE SECURITY SHIELD", pass = report.isSecureLockscreenEnabled, weightPoints = "+10")
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            MetricRow(label = "BOOTLOADER STATE", pass = report.isBootloaderLocked)
+            MetricRow(label = "ENVIRONMENT ROOT", pass = report.isNotRooted)
+            MetricRow(label = "DEVELOPER MODULE", pass = report.isDevOptionsDisabled)
+            MetricRow(label = "ADB INTERACTION", pass = report.isUsbDebuggingDisabled)
+            MetricRow(label = "PACKAGE INTEGRITY", pass = report.isAppIntegrityValid)
+            MetricRow(label = "SECURE LOCKSCREEN", pass = report.isSecureLockscreenEnabled)
         }
     }
     if (showInfoDialog) {
         AlertDialog(
             onDismissRequest = { showInfoDialog = false },
-            containerColor = SurfaceDark,
-            titleContentColor = NeonCyan,
-            textContentColor = Color.White,
-            modifier = Modifier.border(1.dp, NeonCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+            containerColor = SurfaceElevated,
+            titleContentColor = LiquidCyan,
+            textContentColor = TextPrimary,
+            modifier = Modifier.border(0.5.dp, GlassBorder, RoundedCornerShape(24.dp)),
+            shape = RoundedCornerShape(24.dp),
             title = {
                 Text(
-                    text = "ATTESTATION VECTOR ANALYSIS",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    letterSpacing = 1.sp
+                    text = "INTEGRITY VECTOR ANALYSIS",
+                    style = MaterialTheme.typography.titleLarge
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "▲ CREDITED METRICS (PASSED)",
-                            color = NeonGreen,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            letterSpacing = 0.5.sp
+                            text = "▲ VALIDATED PARAMETERS",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = IntegrityGreen
                         )
-                        if (report.isBootloaderLocked) AttestationBreakdownRow("Bootloader Locked", "+35", NeonGreen)
-                        if (report.isNotRooted) AttestationBreakdownRow("No Local Root Rights Detected", "+35", NeonGreen)
-                        if (report.isDevOptionsDisabled) AttestationBreakdownRow("Developer Modules Halted", "+10", NeonGreen)
-                        if (report.isUsbDebuggingDisabled) AttestationBreakdownRow("USB Debugging Inactive", "+10", NeonGreen)
-                        if (report.isAppIntegrityValid) AttestationBreakdownRow("App Package Signature Clean", "+10", NeonGreen)
-                        if (report.isSecureLockscreenEnabled) AttestationBreakdownRow("Lockscreen Protection Enabled", "+10", NeonGreen)
+                        if (report.isBootloaderLocked) AttestationBreakdownRow("Bootloader Secured", "+35", IntegrityGreen)
+                        if (report.isNotRooted) AttestationBreakdownRow("No Root Detection", "+35", IntegrityGreen)
+                        if (report.isDevOptionsDisabled) AttestationBreakdownRow("Dev Mode Halted", "+10", IntegrityGreen)
+                        if (report.isUsbDebuggingDisabled) AttestationBreakdownRow("ADB Inactive", "+10", IntegrityGreen)
+                        if (report.isAppIntegrityValid) AttestationBreakdownRow("Signature Verified", "+10", IntegrityGreen)
+                        if (report.isSecureLockscreenEnabled) AttestationBreakdownRow("Lockscreen Active", "+10", IntegrityGreen)
                     }
                     val missingPointsExist = !report.isBootloaderLocked || !report.isNotRooted ||
                             !report.isDevOptionsDisabled || !report.isUsbDebuggingDisabled ||
@@ -1337,28 +1290,25 @@ fun DeviceAttestationCard(context: Context) {
                     if (missingPointsExist) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                text = "▼ ENVIRONMENT FAULTS (BLOCKED INCREASE)",
-                                color = NeonRed,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                letterSpacing = 0.5.sp
+                                text = "▼ ENVIRONMENT FAULTS",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = AlertRed
                             )
-                            if (!report.isBootloaderLocked) AttestationBreakdownRow("Bootloader State Unlocked", "Prevented +35", NeonRed)
-                            if (!report.isNotRooted) AttestationBreakdownRow("Superuser / Binary Mod Detected", "Prevented +35", NeonRed)
-                            if (!report.isDevOptionsDisabled) AttestationBreakdownRow("Developer Options Active", "Prevented +10", NeonRed)
-                            if (!report.isUsbDebuggingDisabled) AttestationBreakdownRow("ADB Connection Node Open", "Prevented +10", NeonRed)
-                            if (!report.isAppIntegrityValid) AttestationBreakdownRow("Invalid App Installation Source", "Prevented +10", NeonRed)
-                            if (!report.isSecureLockscreenEnabled) AttestationBreakdownRow("No Active Host Pattern/PIN Lock", "Prevented +10", NeonRed)
+                            if (!report.isBootloaderLocked) AttestationBreakdownRow("Bootloader Unlocked", "0", AlertRed)
+                            if (!report.isNotRooted) AttestationBreakdownRow("Root Rights Detected", "0", AlertRed)
+                            if (!report.isDevOptionsDisabled) AttestationBreakdownRow("Developer Options Active", "0", AlertRed)
+                            if (!report.isUsbDebuggingDisabled) AttestationBreakdownRow("ADB Connection Open", "0", AlertRed)
+                            if (!report.isAppIntegrityValid) AttestationBreakdownRow("Invalid App Source", "0", AlertRed)
+                            if (!report.isSecureLockscreenEnabled) AttestationBreakdownRow("No Pattern/PIN Lock", "0", AlertRed)
                         }
                     }
                 }
             },
             confirmButton = {
                 TextButton(
-                    onClick = { showInfoDialog = false },
-                    colors = ButtonDefaults.textButtonColors(contentColor = NeonCyan)
+                    onClick = { showInfoDialog = false }
                 ) {
-                    Text("DISMISS DATA", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("DISMISS", style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
                 }
             }
         )
@@ -1378,281 +1328,175 @@ fun AttestationBreakdownRow(label: String, points: String, color: Color) {
 }
 
 @Composable
-fun MetricRow(label: String, pass: Boolean, weightPoints: String) {
+fun MetricRow(label: String, pass: Boolean) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = if (pass) "✔" else "❌",
-                color = if (pass) NeonGreen else NeonRed,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.width(18.dp)
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(if (pass) IntegrityGreen else AlertRed)
             )
+            Spacer(modifier = Modifier.width(12.dp))
             Text(
                 text = label,
-                color = if (pass) Color.White else TextSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 0.5.sp
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (pass) TextPrimary else TextSecondary
             )
         }
         Text(
-            text = if (pass) weightPoints else "0",
-            color = if (pass) NeonCyan else NeonRed.copy(alpha = 0.6f),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold
+            text = if (pass) "SECURE" else "FAILED",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (pass) IntegrityGreen else AlertRed
         )
     }
 }
 
 @Composable
 fun CompromisedEnvironmentOverlay(score: Int) {
-    val infiniteTransition = rememberInfiniteTransition(label = "BreachInfinite")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = EaseInOutSans),
-            repeatMode = RepeatMode.Reverse
-        ), label = "BreachPulse"
-    )
-    val scrollState = rememberScrollState()
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0D0202)),
+            .background(DeepSpace),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier
-                .verticalScroll(scrollState)
-                .padding(32.dp)
+            modifier = Modifier.padding(32.dp)
         ) {
             Text(
-                text = "⚠️ HARDWARE LOCKDOWN ENGAGED ⚠️",
-                color = NeonRed,
-                fontWeight = FontWeight.Black,
-                fontSize = 14.sp,
-                letterSpacing = 2.sp,
-                modifier = Modifier.graphicsLayer { alpha = pulseAlpha }
+                text = "SECURITY LOCKDOWN",
+                style = MaterialTheme.typography.labelLarge,
+                color = AlertRed
             )
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(48.dp))
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(160.dp)
-                    .border(2.dp, NeonRed, RoundedCornerShape(80.dp))
-                    .background(NeonRed.copy(alpha = 0.05f))
+                    .size(200.dp)
+                    .drawBehind {
+                        drawCircle(
+                            color = AlertRed.copy(alpha = 0.05f),
+                            radius = size.width / 2f,
+                            style = Stroke(width = 1.dp.toPx())
+                        )
+                    }
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "$score",
-                        color = NeonRed,
-                        fontSize = 48.sp,
-                        fontWeight = FontWeight.Black
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = AlertRed
                     )
                     Text(
-                        text = "CRITICAL SCORE",
-                        color = TextSecondary,
-                        fontSize = 9.sp,
-                        letterSpacing = 1.sp
+                        text = "TRUST INDEX",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(48.dp))
             Text(
                 text = "ENVIRONMENT RESTRICTED",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
-                letterSpacing = 1.5.sp
+                style = MaterialTheme.typography.headlineMedium,
+                color = TextPrimary
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Your device integrity score has dropped below the threshold safety index (< 70).\n\nAll cryptographic local processes and background radio communication services have been terminated to safeguard connected hardware systems.",
+                text = "Device integrity score has dropped below the safety threshold. All background services have been terminated to protect host systems.",
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
-                textAlign = TextAlign.Center,
-                fontSize = 12.sp,
-                lineHeight = 20.sp,
-                modifier = Modifier.padding(horizontal = 16.dp)
+                textAlign = TextAlign.Center
             )
-            Spacer(modifier = Modifier.height(32.dp))
-            Text(
-                text = "REMEDIAL ACTIONS REQUIRED:\n• DISABLE DEVELOPER OPTIONS\n• UNPLUG USB DEBUGGING LINKS\n• RESTORE FACTORY OPERATING SYSTEM",
-                color = NeonRed.copy(alpha = 0.8f),
-                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-                fontSize = 11.sp,
-                lineHeight = 18.sp,
-                letterSpacing = 0.5.sp
-            )
+            Spacer(modifier = Modifier.height(48.dp))
+            GlassCard {
+                Text(
+                    text = "REMEDIAL ACTIONS",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = AlertRed
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "• Disable Developer Options\n• Terminate ADB Debugging\n• Restore Factory Signature",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    lineHeight = 24.sp
+                )
+            }
         }
     }
 }
 
 @Composable
 fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
-    val infiniteTransition = rememberInfiniteTransition(label = "LockMatrixInfinite")
-    val scanLineProgress by infiniteTransition.animateFloat(
-        initialValue = 0f,
+    val infiniteTransition = rememberInfiniteTransition(label = "LockMatrix")
+    val pulse by infiniteTransition.animateFloat(
+        initialValue = 0.7f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2500, easing = LinearEasing),
+            animation = tween(2000, easing = EaseInOutSans),
             repeatMode = RepeatMode.Reverse
-        ), label = "ScanlineMovement"
-    )
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = EaseInOutSans),
-            repeatMode = RepeatMode.Reverse
-        ), label = "MatrixPulse"
-    )
-    val matrixRotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(15000, easing = LinearEasing)
-        ), label = "NodeRotation"
+        ), label = "Pulse"
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(SpaceDark.copy(alpha = 0.92f))
+            .background(DeepSpace.copy(alpha = 0.98f))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) { onAuthorizeRequested() },
         contentAlignment = Alignment.Center
     ) {
-        Box(modifier = Modifier.fillMaxSize().blur(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 25.dp else 0.dp)) {
-            BackgroundGrid()
-        }
-
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val width = size.width
-            val height = size.height
-            val yPos = height * scanLineProgress
-            
-            // Primary Scanning Beam
-            drawLine(
-                brush = Brush.horizontalGradient(
-                    listOf(Color.Transparent, NeonCyan.copy(alpha = 0.6f), Color.Transparent)
-                ),
-                start = Offset(0f, yPos),
-                end = Offset(width, yPos),
-                strokeWidth = 3.dp.toPx()
-            )
-            
-            // Secondary Glow
-            drawRect(
-                brush = Brush.verticalGradient(
-                    listOf(Color.Transparent, NeonCyan.copy(alpha = 0.1f), Color.Transparent),
-                    startY = yPos - 100.dp.toPx(),
-                    endY = yPos + 100.dp.toPx()
-                ),
-                topLeft = Offset(0f, yPos - 100.dp.toPx()),
-                size = androidx.compose.ui.geometry.Size(width, 200.dp.toPx())
-            )
-        }
-
-        GlassCard(
-            modifier = Modifier
-                .size(340.dp)
-                .padding(16.dp),
-            alpha = 0.75f,
-            edgeHighlight = true
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier.fillMaxSize()
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(240.dp)
             ) {
-                Text(
-                    text = "SECURITY OVERLAY ACTIVE",
-                    color = NeonRed,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 12.sp,
-                    letterSpacing = 4.sp,
-                    modifier = Modifier.graphicsLayer { alpha = pulseAlpha }
-                )
-                Spacer(modifier = Modifier.height(32.dp))
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(190.dp)
-                ) {
-                    // Outer rotating ring
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { rotationZ = matrixRotation }
-                    ) {
-                        drawArc(
-                            brush = Brush.sweepGradient(
-                                listOf(Color.Transparent, NeonCyan, Color.Transparent, NeonCyan, Color.Transparent)
-                            ),
-                            startAngle = 0f,
-                            sweepAngle = 300f,
-                            useCenter = false,
-                            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
-                        )
-                    }
-                    
-                    // Inner rotating ring (reverse)
-                    Canvas(
-                        modifier = Modifier
-                            .size(150.dp)
-                            .graphicsLayer { rotationZ = -matrixRotation * 1.5f }
-                    ) {
-                        drawArc(
-                            brush = Brush.sweepGradient(
-                                listOf(Color.Transparent, NeonRed.copy(alpha = 0.5f), Color.Transparent)
-                            ),
-                            startAngle = 0f,
-                            sweepAngle = 180f,
-                            useCenter = false,
-                            style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round)
-                        )
-                    }
-
-                    Text(
-                        text = "🧬",
-                        fontSize = 64.sp,
-                        modifier = Modifier.graphicsLayer { 
-                            alpha = pulseAlpha
-                            scaleX = 0.9f + (pulseAlpha * 0.1f)
-                            scaleY = 0.9f + (pulseAlpha * 0.1f)
-                        }
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawCircle(
+                        color = LiquidCyan.copy(alpha = 0.05f),
+                        radius = (size.width / 2) * pulse
+                    )
+                    drawCircle(
+                        color = LiquidCyan.copy(alpha = 0.1f),
+                        radius = size.width / 2,
+                        style = Stroke(width = 0.5.dp.toPx())
                     )
                 }
-                Spacer(modifier = Modifier.height(32.dp))
                 Text(
-                    text = "SYSTEM ACCESS INTERCEPTED\nBIOLOGICAL MATRIX MATCH REQUIRED",
-                    textAlign = TextAlign.Center,
-                    color = TextPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    lineHeight = 20.sp,
-                    letterSpacing = 0.5.sp
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                LinearProgressIndicator(
-                    progress = { scanLineProgress },
-                    modifier = Modifier
-                        .fillMaxWidth(0.6f)
-                        .height(2.dp)
-                        .clip(RoundedCornerShape(1.dp)),
-                    color = NeonCyan,
-                    trackColor = Color.White.copy(alpha = 0.1f)
+                    text = "🔒",
+                    fontSize = 64.sp,
+                    modifier = Modifier.graphicsLayer {
+                        scaleX = pulse
+                        scaleY = pulse
+                    }
                 )
             }
+            Spacer(modifier = Modifier.height(32.dp))
+            Text(
+                text = "VAULT ENFORCED",
+                style = MaterialTheme.typography.labelLarge,
+                color = LiquidCyan
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "BIOLOGICAL MATRIX REQUIRED",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+            Spacer(modifier = Modifier.height(48.dp))
+            Text(
+                text = "TAP TO DECRYPT",
+                style = MaterialTheme.typography.labelMedium,
+                color = TextMuted,
+                modifier = Modifier.graphicsLayer { alpha = pulse }
+            )
         }
     }
 }
@@ -1673,14 +1517,6 @@ fun TetherAppScreen(
     onBleActionRequested: (String, String) -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "TelemetryInfinite")
-    val ambientGlowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.15f,
-        targetValue = 0.35f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2500, easing = EaseInOutSans),
-            repeatMode = RepeatMode.Reverse
-        ), label = "AmbientGlow"
-    )
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
@@ -1688,12 +1524,6 @@ fun TetherAppScreen(
             animation = tween(12000, easing = LinearEasing)
         ), label = "TelemetryRotation"
     )
-    val ambientGradient = remember(statusColor) {
-        Brush.radialGradient(
-            colors = listOf(statusColor.copy(alpha = 0.12f), Color.Transparent),
-            center = Offset.Unspecified
-        )
-    }
     val sweepGradient = remember(statusColor) {
         Brush.sweepGradient(
             0f to Color.Transparent,
@@ -1702,239 +1532,191 @@ fun TetherAppScreen(
         )
     }
     val scrollState = rememberScrollState()
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(SpaceDark)
+            .verticalScroll(scrollState)
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Top
     ) {
         Box(
+            contentAlignment = Alignment.Center,
             modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.4f)
-                .align(Alignment.TopCenter)
-                .graphicsLayer { alpha = ambientGlowAlpha }
-                .background(ambientGradient)
-        )
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 24.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Top
+                .size(300.dp)
+                .padding(vertical = 24.dp)
         ) {
-            Text(
-                text = stringResource(id = R.string.app_name).uppercase(),
-                modifier = Modifier.padding(top = 8.dp),
-                style = MaterialTheme.typography.labelMedium.copy(
-                    color = NeonCyan,
-                    fontWeight = FontWeight.Bold
+            // Refractive Orbitals
+            Canvas(modifier = Modifier.size(260.dp)) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(statusColor.copy(alpha = 0.05f), Color.Transparent),
+                        center = center,
+                        radius = size.width / 2
+                    )
                 )
-            )
-            Box(
-                contentAlignment = Alignment.Center,
+            }
+            Canvas(
                 modifier = Modifier
-                    .weight(1f)
-                    .padding(vertical = 12.dp)
+                    .size(240.dp)
+                    .graphicsLayer { rotationZ = rotation }
             ) {
-                // Outer glow
-                Canvas(modifier = Modifier.size(250.dp)) {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(statusColor.copy(alpha = 0.1f), Color.Transparent),
-                            center = center,
-                            radius = size.width / 2
-                        )
-                    )
-                }
-                Canvas(modifier = Modifier.size(230.dp)) {
-                    drawArc(
-                        color = SurfaceDark,
-                        startAngle = 0f,
-                        sweepAngle = 360f,
-                        useCenter = false,
-                        style = Stroke(width = 6.dp.toPx())
-                    )
-                }
-                Canvas(
-                    modifier = Modifier
-                        .size(230.dp)
-                        .graphicsLayer { rotationZ = rotation }
-                ) {
-                    drawArc(
-                        brush = sweepGradient,
-                        startAngle = 0f,
-                        sweepAngle = if (isPanicActive) 360f else 140f,
-                        useCenter = false,
-                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-                    )
-                }
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(16.dp)
-                ) {
-                    Text(
-                        text = when (verificationStep) {
-                            TrustVerificationStep.DEVICE_CREDENTIAL -> "VERIFYING\nMASTER CODE"
-                            TrustVerificationStep.BIOMETRIC_FINGERPRINT -> "BIOMETRIC\nIDENTITY MATCH"
-                            else -> statusText
-                        },
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontSize = 18.sp,
-                            lineHeight = 24.sp,
-                            fontWeight = FontWeight.Black,
-                            textAlign = TextAlign.Center,
-                            color = if (verificationStep != TrustVerificationStep.NOT_IN_PANIC) NeonCyan else statusColor
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    val displayStatus = when (verificationStep) {
-                        TrustVerificationStep.DEVICE_CREDENTIAL -> "TIER 1 OF 2"
-                        TrustVerificationStep.BIOMETRIC_FINGERPRINT -> "TIER 2 OF 2"
-                        else -> {
-                            val connStatus = if (connectionStatus.contains("Connected", ignoreCase = true) || connectionStatus.contains("Secure Broadcast", ignoreCase = true))
-                                "🟢 $connectionStatus"
-                            else if (connectionStatus.contains("Not connected", ignoreCase = true))
-                                "🔴 $connectionStatus"
-                            else
-                                connectionStatus
-                            connStatus.uppercase()
-                        }
-                    }
-                    Text(
-                        text = displayStatus,
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            color = if (verificationStep != TrustVerificationStep.NOT_IN_PANIC) NeonCyan else TextSecondary,
-                            fontSize = 9.sp
-                        )
-                    )
-                }
+                drawArc(
+                    brush = sweepGradient,
+                    startAngle = 0f,
+                    sweepAngle = if (isPanicActive) 360f else 160f,
+                    useCenter = false,
+                    style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round)
+                )
             }
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 12.dp)
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(16.dp)
             ) {
-                GlassCard(
-                    alpha = 0.5f
-                ) {
-                    Text(
-                        text = "CRITICAL OPERATION DIRECTIVES",
-                        color = NeonRed,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 13.sp,
-                        letterSpacing = 2.sp
+                Text(
+                    text = when (verificationStep) {
+                        TrustVerificationStep.DEVICE_CREDENTIAL -> "VERIFYING\nMASTER CODE"
+                        TrustVerificationStep.BIOMETRIC_FINGERPRINT -> "BIOMETRIC\nIDENTITY MATCH"
+                        else -> statusText
+                    },
+                    style = MaterialTheme.typography.headlineSmall,
+                    textAlign = TextAlign.Center,
+                    color = if (verificationStep != TrustVerificationStep.NOT_IN_PANIC) LiquidCyan else statusColor
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                val displayStatus = when (verificationStep) {
+                    TrustVerificationStep.DEVICE_CREDENTIAL -> "PROTOCOL TIER 1"
+                    TrustVerificationStep.BIOMETRIC_FINGERPRINT -> "PROTOCOL TIER 2"
+                    else -> connectionStatus.uppercase()
+                }
+                Text(
+                    text = displayStatus,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        GlassCard {
+            Text(
+                text = "HOST DIRECTIVES",
+                style = MaterialTheme.typography.labelMedium,
+                color = TextMuted
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    PremiumControlAction(
+                        label = "SLEEP",
+                        accentColor = MatrixGold,
+                        onClick = { onBleActionRequested("PWR_SLEEP", "💤 Dispatched: Sleep Command") }
                     )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(modifier = Modifier.weight(1f)) {
-                            PremiumControlAction(
-                                label = "SLEEP",
-                                accentColor = Color(0xFFFFB300),
-                                onClick = { onBleActionRequested("PWR_SLEEP", "💤 Dispatched: Sleep Command") }
+                }
+                Box(modifier = Modifier.weight(1f)) {
+                    PremiumControlAction(
+                        label = "REBOOT",
+                        accentColor = TextPrimary,
+                        onClick = { onBleActionRequested("PWR_REBOOT", "🔄 Dispatched: Reboot Command") }
+                    )
+                }
+                Box(modifier = Modifier.weight(1f)) {
+                    PremiumControlAction(
+                        label = "HALT",
+                        accentColor = AlertRed,
+                        onClick = { onBleActionRequested("PWR_SHUTDOWN", "🚨 Dispatched: Shutdown Command") }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        AnimatedContent(
+            targetState = verificationStep,
+            transitionSpec = {
+                fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(400))
+            },
+            label = "ActionSuite"
+        ) { step ->
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                when (step) {
+                    TrustVerificationStep.NOT_IN_PANIC -> {
+                        if (isPanicActive) {
+                            Text(
+                                text = "System trust compromised. Local validation required to restore link.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondary,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 24.dp)
                             )
-                        }
-                        Box(modifier = Modifier.weight(1f)) {
                             PremiumControlAction(
-                                label = "REBOOT",
-                                accentColor = NeonRed,
-                                onClick = { onBleActionRequested("PWR_REBOOT", "🔄 Dispatched: Reboot Command") }
+                                label = "RESTORE TRUST",
+                                accentColor = IntegrityGreen,
+                                onClick = onInitiateRestore
                             )
-                        }
-                        Box(modifier = Modifier.weight(1f)) {
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    PremiumControlAction(
+                                        label = "UNLOCK",
+                                        accentColor = IntegrityGreen,
+                                        onClick = onUnlockClick
+                                    )
+                                }
+                                Box(modifier = Modifier.weight(1f)) {
+                                    PremiumControlAction(
+                                        label = "LOCK",
+                                        accentColor = LiquidCyan,
+                                        onClick = onLockClick
+                                    )
+                                }
+                            }
                             PremiumControlAction(
-                                label = "HALT",
-                                accentColor = NeonRed,
-                                onClick = { onBleActionRequested("PWR_SHUTDOWN", "🚨 Dispatched: Shutdown Command") }
+                                label = "SELECT HOST",
+                                accentColor = TextSecondary,
+                                onClick = onSelectLaptop
+                            )
+                            PremiumControlAction(
+                                label = "EMERGENCY DISCONNECT",
+                                accentColor = AlertRed,
+                                onClick = onPanicClick
                             )
                         }
                     }
-                }
-            }
-            AnimatedContent(
-                targetState = verificationStep,
-                transitionSpec = {
-                    fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300))
-                },
-                label = "DynamicActionSuite"
-            ) { step ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    when (step) {
-                        TrustVerificationStep.NOT_IN_PANIC -> {
-                            if (isPanicActive) {
-                                Text(
-                                    text = "System trust compromised. Device validation required.",
-                                    style = MaterialTheme.typography.bodyLarge.copy(color = TextSecondary, textAlign = TextAlign.Center, fontSize = 14.sp),
-                                    modifier = Modifier.padding(horizontal = 16.dp)
-                                )
-                                PremiumControlAction(
-                                    label = "RESTORE SYSTEM TRUST",
-                                    accentColor = NeonGreen,
-                                    onClick = onInitiateRestore
-                                )
-                            } else {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Box(modifier = Modifier.weight(1f)) {
-                                        PremiumControlAction(
-                                            label = "UNLOCK SYSTEM",
-                                            accentColor = NeonGreen,
-                                            onClick = onUnlockClick
-                                        )
-                                    }
-                                    Box(modifier = Modifier.weight(1f)) {
-                                        PremiumControlAction(
-                                            label = "LOCK SYSTEM",
-                                            accentColor = NeonCyan,
-                                            onClick = onLockClick
-                                        )
-                                    }
-                                }
-                                PremiumControlAction(
-                                    label = "SELECT HOST LAPTOP",
-                                    accentColor = Color.White.copy(alpha = 0.8f),
-                                    onClick = onSelectLaptop
-                                )
-                                PremiumControlAction(
-                                    label = "FORCE TERMINATE LINK",
-                                    accentColor = NeonRed,
-                                    onClick = onPanicClick
-                                )
-                            }
+                    TrustVerificationStep.DEVICE_CREDENTIAL -> {
+                        Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = LiquidCyan, strokeWidth = 1.dp)
                         }
-                        TrustVerificationStep.DEVICE_CREDENTIAL -> {
-                            Text(
-                                text = "Processing secure environment overlay...",
-                                style = MaterialTheme.typography.bodyLarge.copy(color = TextSecondary, textAlign = TextAlign.Center),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        TrustVerificationStep.BIOMETRIC_FINGERPRINT -> {
-                            Text(
-                                text = "Scan registered fingerprint hardware node to finish authentication.",
-                                style = MaterialTheme.typography.bodyLarge.copy(color = NeonCyan, textAlign = TextAlign.Center),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            PremiumControlAction(
-                                label = "VERIFY BIOMETRIC TOKEN",
-                                accentColor = NeonCyan,
-                                onClick = { onTriggerStepVerification(TrustVerificationStep.BIOMETRIC_FINGERPRINT) }
-                            )
-                        }
+                    }
+                    TrustVerificationStep.BIOMETRIC_FINGERPRINT -> {
+                        Text(
+                            text = "Awaiting biological matrix match...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = LiquidCyan,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        PremiumControlAction(
+                            label = "VERIFY IDENTITY",
+                            accentColor = LiquidCyan,
+                            onClick = { onTriggerStepVerification(TrustVerificationStep.BIOMETRIC_FINGERPRINT) }
+                        )
                     }
                 }
             }
         }
+        Spacer(modifier = Modifier.height(32.dp))
     }
 }
 
@@ -1944,61 +1726,25 @@ fun PremiumControlAction(
     accentColor: Color,
     onClick: () -> Unit
 ) {
-    val gradientBrush = remember(accentColor) {
-        Brush.verticalGradient(
-            listOf(accentColor.copy(alpha = 0.15f), Color.Transparent)
-        )
-    }
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
-            .shadow(elevation = 8.dp, shape = RoundedCornerShape(12.dp), spotColor = accentColor.copy(alpha = 0.3f))
+            .height(52.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(SurfaceDark.copy(alpha = 0.6f))
+            .background(accentColor.copy(alpha = 0.08f))
             .border(
-                1.dp,
-                Brush.linearGradient(
-                    listOf(accentColor.copy(alpha = 0.5f), Color.Transparent, accentColor.copy(alpha = 0.2f))
-                ),
-                RoundedCornerShape(12.dp)
+                width = 0.5.dp,
+                color = accentColor.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(12.dp)
             )
-            .clickable { onClick() }
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(gradientBrush),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium.copy(
-                    color = accentColor,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 12.sp,
-                    letterSpacing = 2.sp
-                )
-            )
-        }
-
-        // Liquid Shine overlay
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val path = Path().apply {
-                moveTo(0f, 0f)
-                lineTo(size.width * 0.4f, 0f)
-                lineTo(size.width * 0.2f, size.height)
-                lineTo(0f, size.height)
-                close()
-            }
-            drawPath(
-                path = path,
-                brush = Brush.horizontalGradient(
-                    listOf(Color.White.copy(alpha = 0.05f), Color.Transparent)
-                )
-            )
-        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = accentColor
+        )
     }
 }
 
@@ -2111,23 +1857,18 @@ fun LaptopControlScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(SpaceDark)
             .verticalScroll(scrollState)
             .padding(24.dp),
         verticalArrangement = Arrangement.Top
     ) {
         Text(
-            text = "HARDWARE ANALOG CONTROLS",
-            style = MaterialTheme.typography.titleMedium.copy(
-                color = NeonCyan,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 1.5.sp
-            ),
+            text = "HARDWARE INTERFACE",
+            style = MaterialTheme.typography.labelLarge,
+            color = LiquidCyan,
             modifier = Modifier.padding(bottom = 24.dp)
         )
         GlassCard(
-            modifier = Modifier.fillMaxWidth(),
-            alpha = 0.6f
+            modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2135,27 +1876,23 @@ fun LaptopControlScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "VOLUME COMPONENT ANALYSIS",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    letterSpacing = 1.sp
+                    text = "MASTER VOLUME",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = TextPrimary
                 )
                 Text(
                     text = "${volumeValue.roundToInt()}%",
-                    color = NeonCyan,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 13.sp
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = LiquidCyan
                 )
             }
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Dynamic fluid hardware stream adjusting system sound parameters synchronously across active modules.",
-                color = TextSecondary,
-                fontSize = 11.sp,
-                lineHeight = 14.sp
+                text = "Synchronous host audio module adjustment.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
             Slider(
                 value = volumeValue,
                 onValueChange = { nextVolume ->
@@ -2173,16 +1910,15 @@ fun LaptopControlScreen(
                 },
                 valueRange = 0f..100f,
                 colors = SliderDefaults.colors(
-                    activeTrackColor = NeonCyan,
-                    inactiveTrackColor = Color.White.copy(alpha = 0.1f),
-                    thumbColor = NeonCyan
+                    activeTrackColor = LiquidCyan,
+                    inactiveTrackColor = Color.White.copy(alpha = 0.05f),
+                    thumbColor = TextPrimary
                 )
             )
         }
         Spacer(modifier = Modifier.height(24.dp))
         GlassCard(
-            modifier = Modifier.fillMaxWidth(),
-            alpha = 0.6f
+            modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2190,27 +1926,23 @@ fun LaptopControlScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "BRIGHTNESS MATRIX INTENSITY",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    letterSpacing = 1.sp
+                    text = "BRIGHTNESS MATRIX",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = TextPrimary
                 )
                 Text(
                     text = "${brightnessValue.roundToInt()}%",
-                    color = NeonCyan,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 13.sp
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = LiquidCyan
                 )
             }
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Continuous adjustments managing the host display backlight array intensity variables layout pass.",
-                color = TextSecondary,
-                fontSize = 11.sp,
-                lineHeight = 14.sp
+                text = "Backlight array intensity variable control.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
             Slider(
                 value = brightnessValue,
                 onValueChange = { nextBrightness ->
@@ -2228,9 +1960,9 @@ fun LaptopControlScreen(
                 },
                 valueRange = 0f..100f,
                 colors = SliderDefaults.colors(
-                    activeTrackColor = NeonCyan,
-                    inactiveTrackColor = Color.White.copy(alpha = 0.1f),
-                    thumbColor = NeonCyan
+                    activeTrackColor = LiquidCyan,
+                    inactiveTrackColor = Color.White.copy(alpha = 0.05f),
+                    thumbColor = TextPrimary
                 )
             )
         }

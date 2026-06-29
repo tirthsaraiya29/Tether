@@ -27,35 +27,28 @@ public partial class BleManager : IDisposable
 
     private bool _isWorkstationLocked = false;
     private bool _isConnected = false;
-    private string? _currentConnectingId;
-    private bool _unlockCooldown = false;
     private bool _lockedByProximity = false;
     private bool _isStopping = false;
 
-    // Configuration Thresholds
     private const int RSSI_GOOD = -55;
     private const int RSSI_LOCK = -80;
     private const int SAMPLE_INTERVAL_MS = 500;
     private const int SAMPLES_PER_AVERAGE = 5;
 
-    // Target Identification & Secure Dynamic UUIDs
     private readonly Guid SERVICE_UUID = new Guid("0000FFE0-0000-1000-8000-00805F9B34FB");
     private readonly Guid CHALLENGE_CHAR_UUID = new Guid("0000FFE3-0000-1000-8000-00805F9B34FB");
     private readonly Guid SIGNATURE_CHAR_UUID = new Guid("0000FFE4-0000-1000-8000-00805F9B34FB");
     private readonly Guid COMMAND_CHAR_UUID = new Guid("0000FFE5-0000-1000-8000-00805F9B34FB");
     private readonly Guid PUBLIC_KEY_CHAR_UUID = new Guid("0000FFE6-0000-1000-8000-00805F9B34FB");
 
-    // Concurrency control to eliminate duplicate advertisement processing races
     private readonly SemaphoreSlim _connectionSemaphore = new SemaphoreSlim(1, 1);
 
-    // GATT Service and Characteristic Tracking References
     private GattDeviceService? _service;
     private GattCharacteristic? _challengeChar;
     private GattCharacteristic? _signatureChar;
     private GattCharacteristic? _commandChar;
     private GattCharacteristic? _publicKeyChar;
 
-    // Native Windows API for instant volume control
     [DllImport("user32.dll")]
     private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
     private const byte VK_VOLUME_UP = 0xAF;
@@ -63,13 +56,11 @@ public partial class BleManager : IDisposable
     private const uint KEYEVENTF_KEYDOWN = 0x0000;
     private const uint KEYEVENTF_KEYUP = 0x0002;
 
-
     [DllImport("kernel32.dll", SetLastError = false)]
     private static extern uint WTSGetActiveConsoleSessionId();
     [DllImport("wtsapi32.dll", SetLastError = true)]
     private static extern bool WTSDisconnectSession(IntPtr hServer, uint sessionId, bool bWait);
 
-    // Native Windows API for brightness control
     [DllImport("gdi32.dll")]
     private static extern bool SetMonitorBrightness(IntPtr hMonitor, uint dwBrightness);
 
@@ -111,7 +102,6 @@ public partial class BleManager : IDisposable
                         _logger.Info("Trust context updated via global EventBus listener setup loop.");
                         _isWorkstationLocked = false;
 
-                        // Fire cross-session Win32 Handles to clear the OS lock screen
                         _appEvent?.Set();
                         _screenEvent?.Set();
                     }
@@ -172,7 +162,6 @@ public partial class BleManager : IDisposable
     {
         if (_isConnected) return;
 
-        // Atomically skip execution if a connection processing task is already running
         bool acquired = await _connectionSemaphore.WaitAsync(0);
         if (!acquired) return;
 
@@ -229,26 +218,52 @@ public partial class BleManager : IDisposable
 
                 _logger.Info($"BLE device transport link connected (Attempt {attempt}/{maxRetryAttempts}). Settling radio context...");
 
-                // Allow hardware transport handles to stabilize before launching OTA packet sweeps
                 await Task.Delay(300);
 
                 GattDeviceServicesResult servicesResult;
                 try
                 {
-                    // Target specifically the exact Service UUID to bypass full profile discovery driver panics
-                    servicesResult = await _device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
+                    using (var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
+                    {
+                        servicesResult = await _device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
+                    }
                 }
-                catch (COMException ex) when ((uint)ex.HResult == 0x8000FFFF || (uint)ex.HResult == 0x8007001F)
+                catch (Exception ex) when (ex is COMException || ex is TaskCanceledException)
                 {
-                    _logger.Warning($"⚠️ WinRT COM Error [0x{ex.HResult:X8}] on uncached query. Retrying with active cached profile resolution...");
-                    await Task.Delay(250);
-                    servicesResult = await _device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Cached);
+                    lock (_lock)
+                    {
+                        if (_device == null || _isStopping)
+                        {
+                            _logger.Warning("Connection severed during GATT negotiation. Aborting setup pipeline.");
+                            return;
+                        }
+                    }
+
+                    _logger.Warning($"⚠️ WinRT profile discovery stalled or canceled. Falling back to cached layout pass...");
+                    await Task.Delay(100);
+
+                    lock (_lock)
+                    {
+                        if (_device == null || _isStopping) return;
+                    }
+
+                    try
+                    {
+                        servicesResult = await _device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Cached);
+                    }
+                    catch (Exception nestedEx)
+                    {
+                        _logger.Error($"Cached GATT service resolution failed: {nestedEx.Message}");
+                        if (attempt == maxRetryAttempts) HandleDisconnection();
+                        else await Task.Delay(500);
+                        continue;
+                    }
                 }
 
                 if (servicesResult.Status != GattCommunicationStatus.Success || !servicesResult.Services.Any())
                 {
                     _logger.Error($"Failed to resolve GATT target service context status: {servicesResult.Status}");
-                    if (attempt < maxRetryAttempts) { await Task.Delay(100); continue; }
+                    if (attempt < maxRetryAttempts) { await Task.Delay(500); continue; }
                     HandleDisconnection();
                     return;
                 }
@@ -287,14 +302,13 @@ public partial class BleManager : IDisposable
                 {
                     byte[]? publicKeyBytes = await ReadPublicKeyFromPhone();
 
-                    if (publicKeyBytes == null)
+                    if (publicKeyBytes == null || publicKeyBytes.Length < 64)
                     {
-                        _logger.Error("❌ Security aborted: Public key byte array stream returned null.");
+                        _logger.Error("❌ Security aborted: Public key byte array stream returned null or truncated data.");
                         HandleDisconnection();
                         return;
                     }
 
-                    // Store public key pinned to the fixed registry engine path
                     string base64Key = Convert.ToBase64String(publicKeyBytes);
                     StorePublicKey(_device.BluetoothAddress.ToString("X"), base64Key);
                     _logger.Info($"✅ Identity parameters successfully recorded for target node {_device.BluetoothAddress:X}");
@@ -320,7 +334,6 @@ public partial class BleManager : IDisposable
                     }
 
                     _logger.Info($"🛡️ Control pipeline stream initialized. Status code: {cccdResult.Status}");
-
                     _logger.Info("🛡️ CRYPTOGRAPHIC TETHER PIPELINE FULLY ENFORCED.");
 
                     lock (_lock)
@@ -335,7 +348,7 @@ public partial class BleManager : IDisposable
 
                     _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_CONNECTED, Source = "BleManager" });
                     StartRssiMonitoring();
-                    return; // Handshake complete, exit retry matrix safely
+                    return;
                 }
                 else
                 {
@@ -453,8 +466,6 @@ public partial class BleManager : IDisposable
 
         try
         {
-            // 💡 CRITICAL FIX: Fixed from 32 to 16 bytes to fit perfectly inside standard single-packet MTU payload frames.
-            // Bypasses WinRT Prepared Write segment mapping failure constraints entirely.
             byte[] challengeNonce = new byte[16];
             using (var rng = RandomNumberGenerator.Create())
             {
@@ -555,7 +566,6 @@ public partial class BleManager : IDisposable
                     lock (_lock)
                     {
                         _isWorkstationLocked = true;
-                        _unlockCooldown = false;
                         _lockedByProximity = false;
                     }
 
@@ -567,12 +577,9 @@ public partial class BleManager : IDisposable
                     await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
                     await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.LOCK_WORKSTATION, Source = "BleManager" });
 
-                    // ✅ DYNAMIC BOUNDARY CROSSING: Query and drop the active interactive desktop session
                     try
                     {
                         uint activeSessionId = WTSGetActiveConsoleSessionId();
-
-                        // 0xFFFFFFFF means no interactive session is currently attached (e.g., at cold boot)
                         if (activeSessionId != 0xFFFFFFFF)
                         {
                             if (!WTSDisconnectSession(IntPtr.Zero, activeSessionId, false))
@@ -597,7 +604,7 @@ public partial class BleManager : IDisposable
                     break;
 
                 case "unlock":
-                    lock (_lock) { _isWorkstationLocked = false; _unlockCooldown = true; _lockedByProximity = false; }
+                    lock (_lock) { _isWorkstationLocked = false; _lockedByProximity = false; }
                     _logger.Info("🔓 Manual unlock override");
                     _appEvent?.Set();
                     _screenEvent?.Set();
@@ -768,7 +775,6 @@ public partial class BleManager : IDisposable
             _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.TRUST_DEGRADED, Source = "BleManager", PayloadJson = $"{{\"\":{avgRssi}}}" });
         }
 
-        // Only handle auto-unlock if the system was naturally locked by a proximity drop
         if (isLockedLocal && lockedByProximityLocal && avgRssi >= RSSI_GOOD)
         {
             _logger.Info($"Device returned within threshold parameters: {avgRssi:F0} dBm. Prompting Challenge Verification...");
@@ -791,7 +797,7 @@ public partial class BleManager : IDisposable
             if (identityReverified)
             {
                 _logger.Info("✅ Proximity Re-authentication passed successfully.");
-                lock (_lock) { _isWorkstationLocked = false; _unlockCooldown = true; _lockedByProximity = false; }
+                lock (_lock) { _isWorkstationLocked = false; _lockedByProximity = false; }
 
                 _appEvent?.Set();
                 _screenEvent?.Set();
@@ -809,7 +815,7 @@ public partial class BleManager : IDisposable
         if (!isLockedLocal && avgRssi <= RSSI_LOCK)
         {
             _logger.Error($"🔒 Signal below fallback bounds: {avgRssi:F0} dBm. Locking.");
-            lock (_lock) { _isWorkstationLocked = true; _unlockCooldown = false; _lockedByProximity = true; }
+            lock (_lock) { _isWorkstationLocked = true; _lockedByProximity = true; }
 
             ResetIPCHandles();
             _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
@@ -837,7 +843,6 @@ public partial class BleManager : IDisposable
         lock (_lock)
         {
             _isWorkstationLocked = true;
-            _unlockCooldown = false;
             _lockedByProximity = false;
             if (_isStopping)
             {
@@ -859,33 +864,42 @@ public partial class BleManager : IDisposable
 
     private void CleanupDevice()
     {
-        try
+        lock (_lock)
         {
-            if (_commandChar != null)
+            try
             {
-                _commandChar.ValueChanged -= OnCommandReceivedFromPhone;
-                _commandChar = null;
+                if (_commandChar != null)
+                {
+                    _commandChar.ValueChanged -= OnCommandReceivedFromPhone;
+                    _commandChar = null;
+                }
+
+                _challengeChar = null;
+                _signatureChar = null;
+                _publicKeyChar = null;
+
+                if (_service != null)
+                {
+                    _service.Dispose();
+                    _service = null;
+                }
+
+                if (_device != null)
+                {
+                    _device.ConnectionStatusChanged -= OnConnectionStatusChanged;
+                    _device.Dispose();
+                    _device = null;
+                }
             }
-            // 💡 CRITICAL FIX: Explicitly dispose of the service object handle.
-            // This prevents Windows from holding exclusive lock blocks and throwing AccessDenied errors on subsequent discovery cycles.
-            if (_service != null)
+            catch (Exception ex)
             {
-                _service.Dispose();
-                _service = null;
+                _logger.Error($"CleanupDevice error: {ex.Message}");
             }
-            if (_device != null)
+            finally
             {
-                _device.ConnectionStatusChanged -= OnConnectionStatusChanged;
-                _device.Dispose();
-                _device = null;
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
             }
-            _challengeChar = null;
-            _signatureChar = null;
-            _publicKeyChar = null;
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"CleanupDevice error: {ex.Message}");
         }
     }
 
@@ -973,6 +987,5 @@ public partial class BleManager : IDisposable
 
 internal static class TaskExtensions
 {
-    // Clean background executor wrapper to handle retries safely without breaking service context
     public static void KeepServiceAlive(this Task task, Action<Task> continuation) => task.ContinueWith(continuation);
 }
