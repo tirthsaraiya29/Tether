@@ -10,7 +10,7 @@ android {
     defaultConfig {
         applicationId = "com.tether.phone"
         minSdk = 27
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0"
 
@@ -22,7 +22,7 @@ android {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
             )
         }
     }
@@ -50,7 +50,6 @@ dependencies {
     implementation(libs.androidx.biometric)
     implementation(libs.androidx.appcompat)
     implementation(libs.google.material)
-    implementation(libs.androidx.core.ktx)
     implementation(libs.bouncycastle.bcprov)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

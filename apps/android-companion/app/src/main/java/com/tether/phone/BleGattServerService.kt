@@ -10,7 +10,6 @@ import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
-import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -18,7 +17,6 @@ import android.os.IBinder
 import android.os.ParcelUuid
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -35,6 +33,7 @@ class BleGattServerService : Service() {
     private val connectedDevicesMap = ConcurrentHashMap<String, BluetoothDevice>()
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val deviceChallenges = ConcurrentHashMap<String, ByteArray>()
+    private val notificationSubscriptions = ConcurrentHashMap<String, Boolean>()
 
     companion object {
         val SERVICE_UUID: UUID = UUID.fromString("0000FFE0-0000-1000-8000-00805F9B34FB")
@@ -84,22 +83,18 @@ class BleGattServerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
+        if (action == "ACTION_GET_STATUS") {
+            notifyStateToInterface()
+            return START_STICKY
+        }
+
         if (action != null && commandCharacteristic != null) {
             val value = action.toByteArray(Charsets.UTF_8)
             @Suppress("DEPRECATION")
             commandCharacteristic?.value = value
-
-            for (device in connectedDevicesMap.values) {
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        bluetoothGattServer?.notifyCharacteristicChanged(device, commandCharacteristic!!, false, value)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        bluetoothGattServer?.notifyCharacteristicChanged(device, commandCharacteristic, false)
-                    }
-                } catch (_: SecurityException) {}
-            }
+            pushCommandToSubscribedDevices(value)
         }
+
         return START_STICKY
     }
 
@@ -107,7 +102,9 @@ class BleGattServerService : Service() {
     private fun setupGattServer() {
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         try {
+            bluetoothGattServer?.close()
             bluetoothGattServer = bluetoothManager?.openGattServer(this, gattServerCallback)
+
             val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
 
             val challengeChar = BluetoothGattCharacteristic(
@@ -115,26 +112,30 @@ class BleGattServerService : Service() {
                 BluetoothGattCharacteristic.PROPERTY_WRITE,
                 BluetoothGattCharacteristic.PERMISSION_WRITE
             )
+
             val signatureChar = BluetoothGattCharacteristic(
                 SIGNATURE_CHAR_UUID,
                 BluetoothGattCharacteristic.PROPERTY_READ,
                 BluetoothGattCharacteristic.PERMISSION_READ
             )
+
             val commandChar = BluetoothGattCharacteristic(
                 COMMAND_CHAR_UUID,
                 BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
                 BluetoothGattCharacteristic.PERMISSION_READ
             )
+
+            val cccdDescriptor = BluetoothGattDescriptor(
+                CCCD_UUID,
+                BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE
+            )
+            commandChar.addDescriptor(cccdDescriptor)
+
             val publicKeyChar = BluetoothGattCharacteristic(
                 PUBLIC_KEY_CHAR_UUID,
                 BluetoothGattCharacteristic.PROPERTY_READ,
                 BluetoothGattCharacteristic.PERMISSION_READ
             )
-
-            commandChar.addDescriptor(BluetoothGattDescriptor(
-                CCCD_UUID,
-                BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE
-            ))
 
             service.addCharacteristic(challengeChar)
             service.addCharacteristic(signatureChar)
@@ -151,38 +152,35 @@ class BleGattServerService : Service() {
 
     private val gattServerCallback = object : BluetoothGattServerCallback() {
         override fun onConnectionStateChange(device: BluetoothDevice?, status: Int, newState: Int) {
-            super.onConnectionStateChange(device, status, newState)
             if (device == null) return
+            val address = device.address
+            Log.d(TAG, "Connection State Change: device=$address, status=$status, newState=$newState")
 
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                connectedDevicesMap.remove(device.address)
-                connectedDevicesMap[device.address] = device
-
-                try {
-                    val bluetoothManager = getSystemService(BluetoothManager::class.java)
-                    bluetoothManager?.adapter?.getRemoteDevice(device.address)
-                } catch (_: Exception) {}
-
+                connectedDevicesMap[address] = device
+                Log.d(TAG, "Device added to connected map: $address")
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                connectedDevicesMap.remove(device.address)
-                deviceChallenges.remove(device.address)
+                connectedDevicesMap.remove(address)
+                deviceChallenges.remove(address)
+                Log.d(TAG, "Device removed from connected map: $address")
             }
             notifyStateToInterface()
         }
 
         override fun onCharacteristicWriteRequest(device: BluetoothDevice?, requestId: Int, characteristic: BluetoothGattCharacteristic?, preparedWrite: Boolean, responseNeeded: Boolean, offset: Int, value: ByteArray?) {
-            super.onCharacteristicWriteRequest(device, requestId, characteristic, preparedWrite, responseNeeded, offset, value)
             if (characteristic?.uuid == CHALLENGE_CHAR_UUID && value != null && device != null) {
                 deviceChallenges[device.address] = value
                 if (responseNeeded) {
-                    try { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null) } catch (_: SecurityException) {}
+                    try { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null) } catch (e: SecurityException) {
+                        Log.e(TAG, "SecurityException in write response", e)
+                    }
                 }
             }
         }
 
         override fun onCharacteristicReadRequest(device: BluetoothDevice?, requestId: Int, offset: Int, characteristic: BluetoothGattCharacteristic?) {
-            super.onCharacteristicReadRequest(device, requestId, offset, characteristic)
             if (device == null) return
+            Log.d(TAG, "Read Request: device=${device.address}, char=${characteristic?.uuid}")
 
             try {
                 when (characteristic?.uuid) {
@@ -205,23 +203,116 @@ class BleGattServerService : Service() {
                         sendSlicedResponse(device, requestId, offset, publicKeyBytes)
                     }
                 }
-            } catch (_: SecurityException) {}
-        }
-
-        override fun onDescriptorWriteRequest(device: BluetoothDevice?, requestId: Int, descriptor: BluetoothGattDescriptor?, preparedWrite: Boolean, responseNeeded: Boolean, offset: Int, value: ByteArray?) {
-            super.onDescriptorWriteRequest(device, requestId, descriptor, preparedWrite, responseNeeded, offset, value)
-            if (responseNeeded && device != null) {
-                try { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null) } catch (_: SecurityException) {}
+            } catch (e: SecurityException) {
+                Log.e(TAG, "SecurityException in read response", e)
             }
         }
 
-        override fun onDescriptorReadRequest(device: BluetoothDevice?, requestId: Int, offset: Int, descriptor: BluetoothGattDescriptor?) {
-            super.onDescriptorReadRequest(device, requestId, offset, descriptor)
+        override fun onDescriptorWriteRequest(
+            device: BluetoothDevice?,
+            requestId: Int,
+            descriptor: BluetoothGattDescriptor?,
+            preparedWrite: Boolean,
+            responseNeeded: Boolean,
+            offset: Int,
+            value: ByteArray?
+        ) {
+            Log.d(TAG, "Descriptor Write Request: device=${device?.address}, descriptor=${descriptor?.uuid}")
+
+            if (device == null || descriptor == null) return
+
+            if (descriptor.uuid != CCCD_UUID) {
+                if (responseNeeded) {
+                    try {
+                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
+                    } catch (e: SecurityException) {
+                        Log.e(TAG, "SecurityException in descriptor response", e)
+                    }
+                }
+                return
+            }
+
+            if (preparedWrite || offset != 0) {
+                if (responseNeeded) {
+                    try {
+                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_INVALID_OFFSET, offset, null)
+                    } catch (e: SecurityException) {
+                        Log.e(TAG, "SecurityException in descriptor response", e)
+                    }
+                }
+                return
+            }
+
+            val newValue = value ?: byteArrayOf()
+            val accepted = when {
+                newValue.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) -> {
+                    notificationSubscriptions[device.address] = true
+                    descriptor.value = newValue
+                    true
+                }
+                newValue.contentEquals(BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE) -> {
+                    notificationSubscriptions.remove(device.address)
+                    descriptor.value = newValue
+                    true
+                }
+                else -> false
+            }
+
+            if (responseNeeded) {
+                try {
+                    bluetoothGattServer?.sendResponse(
+                        device,
+                        requestId,
+                        if (accepted) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED,
+                        offset,
+                        null
+                    )
+                } catch (e: SecurityException) {
+                    Log.e(TAG, "SecurityException in descriptor response", e)
+                }
+            }
+        }
+
+        override fun onDescriptorReadRequest(
+            device: BluetoothDevice?,
+            requestId: Int,
+            offset: Int,
+            descriptor: BluetoothGattDescriptor?
+        ) {
+            Log.d(TAG, "Descriptor Read Request: device=${device?.address}, descriptor=${descriptor?.uuid}")
             if (device != null) {
                 try {
-                    val value = if (descriptor?.uuid == CCCD_UUID) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else byteArrayOf(0, 0)
+                    val value = if (descriptor?.uuid == CCCD_UUID && notificationSubscriptions[device.address] == true) {
+                        BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    } else if (descriptor?.uuid == CCCD_UUID) {
+                        BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+                    } else {
+                        byteArrayOf(0, 0)
+                    }
                     sendSlicedResponse(device, requestId, offset, value)
-                } catch (_: SecurityException) {}
+                } catch (e: SecurityException) {
+                    Log.e(TAG, "SecurityException in descriptor read response", e)
+                }
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun pushCommandToSubscribedDevices(value: ByteArray) {
+        for (device in connectedDevicesMap.values) {
+            if (notificationSubscriptions[device.address] != true) continue
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    bluetoothGattServer?.notifyCharacteristicChanged(device, commandCharacteristic!!, false, value)
+                } else {
+                    @Suppress("DEPRECATION")
+                    bluetoothGattServer?.notifyCharacteristicChanged(device, commandCharacteristic, false)
+                }
+            } catch (e: SecurityException) {
+                Log.e(TAG, "SecurityException while notifying device ${device.address}", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to notify device ${device.address}", e)
             }
         }
     }
@@ -238,8 +329,11 @@ class BleGattServerService : Service() {
     }
 
     private fun notifyStateToInterface() {
+        val count = connectedDevicesMap.size
+        Log.d(TAG, "Notifying interface: connection_count=$count")
         val intent = Intent(ACTION_GATT_STATE_CHANGED).apply {
-            putExtra(EXTRA_CONNECTION_COUNT, connectedDevicesMap.size)
+            putExtra(EXTRA_CONNECTION_COUNT, count)
+            setPackage(packageName)
         }
         sendBroadcast(intent)
     }
@@ -268,10 +362,8 @@ class BleGattServerService : Service() {
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "Tether Proximity Services", NotificationManager.IMPORTANCE_LOW)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        }
+        val channel = NotificationChannel(CHANNEL_ID, "Tether Proximity Services", NotificationManager.IMPORTANCE_LOW)
+        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     private fun createNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
