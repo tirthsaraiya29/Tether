@@ -16,11 +16,11 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelUuid
-import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 class BleGattServerService : Service() {
 
@@ -30,20 +30,11 @@ class BleGattServerService : Service() {
     private var isAdvertising = false
 
     private lateinit var securityEngine: ProductionSecurityEngine
-    private var activeChallenge: ByteArray? = null
     private var commandCharacteristic: BluetoothGattCharacteristic? = null
 
-    private val connectedDevicesMap = java.util.concurrent.ConcurrentHashMap<String, BluetoothDevice>()
+    private val connectedDevicesMap = ConcurrentHashMap<String, BluetoothDevice>()
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-
-    private val advWatchdogRunnable = object : Runnable {
-        override fun run() {
-            if (connectedDevicesMap.isEmpty()) {
-                startAdvertising()
-            }
-            mainHandler.postDelayed(this, 60000)
-        }
-    }
+    private val deviceChallenges = ConcurrentHashMap<String, ByteArray>()
 
     companion object {
         val SERVICE_UUID: UUID = UUID.fromString("0000FFE0-0000-1000-8000-00805F9B34FB")
@@ -92,9 +83,6 @@ class BleGattServerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        mainHandler.removeCallbacks(advWatchdogRunnable)
-        mainHandler.postDelayed(advWatchdogRunnable, 60000)
-
         val action = intent?.action
         if (action != null && commandCharacteristic != null) {
             val value = action.toByteArray(Charsets.UTF_8)
@@ -122,10 +110,26 @@ class BleGattServerService : Service() {
             bluetoothGattServer = bluetoothManager?.openGattServer(this, gattServerCallback)
             val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
 
-            val challengeChar = BluetoothGattCharacteristic(CHALLENGE_CHAR_UUID, BluetoothGattCharacteristic.PROPERTY_WRITE, BluetoothGattCharacteristic.PERMISSION_WRITE_ENCRYPTED)
-            val signatureChar = BluetoothGattCharacteristic(SIGNATURE_CHAR_UUID, BluetoothGattCharacteristic.PROPERTY_READ, BluetoothGattCharacteristic.PERMISSION_READ_ENCRYPTED)
-            val commandChar = BluetoothGattCharacteristic(COMMAND_CHAR_UUID, BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY, BluetoothGattCharacteristic.PERMISSION_READ_ENCRYPTED)
-            val publicKeyChar = BluetoothGattCharacteristic(PUBLIC_KEY_CHAR_UUID, BluetoothGattCharacteristic.PROPERTY_READ, BluetoothGattCharacteristic.PERMISSION_READ_ENCRYPTED)
+            val challengeChar = BluetoothGattCharacteristic(
+                CHALLENGE_CHAR_UUID,
+                BluetoothGattCharacteristic.PROPERTY_WRITE,
+                BluetoothGattCharacteristic.PERMISSION_WRITE
+            )
+            val signatureChar = BluetoothGattCharacteristic(
+                SIGNATURE_CHAR_UUID,
+                BluetoothGattCharacteristic.PROPERTY_READ,
+                BluetoothGattCharacteristic.PERMISSION_READ
+            )
+            val commandChar = BluetoothGattCharacteristic(
+                COMMAND_CHAR_UUID,
+                BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+                BluetoothGattCharacteristic.PERMISSION_READ
+            )
+            val publicKeyChar = BluetoothGattCharacteristic(
+                PUBLIC_KEY_CHAR_UUID,
+                BluetoothGattCharacteristic.PROPERTY_READ,
+                BluetoothGattCharacteristic.PERMISSION_READ
+            )
 
             commandChar.addDescriptor(BluetoothGattDescriptor(
                 CCCD_UUID,
@@ -161,15 +165,16 @@ class BleGattServerService : Service() {
 
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connectedDevicesMap.remove(device.address)
+                deviceChallenges.remove(device.address)
             }
             notifyStateToInterface()
         }
 
         override fun onCharacteristicWriteRequest(device: BluetoothDevice?, requestId: Int, characteristic: BluetoothGattCharacteristic?, preparedWrite: Boolean, responseNeeded: Boolean, offset: Int, value: ByteArray?) {
             super.onCharacteristicWriteRequest(device, requestId, characteristic, preparedWrite, responseNeeded, offset, value)
-            if (characteristic?.uuid == CHALLENGE_CHAR_UUID && value != null) {
-                activeChallenge = value
-                if (responseNeeded && device != null) {
+            if (characteristic?.uuid == CHALLENGE_CHAR_UUID && value != null && device != null) {
+                deviceChallenges[device.address] = value
+                if (responseNeeded) {
                     try { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null) } catch (_: SecurityException) {}
                 }
             }
@@ -182,11 +187,10 @@ class BleGattServerService : Service() {
             try {
                 when (characteristic?.uuid) {
                     SIGNATURE_CHAR_UUID -> {
-                        val challenge = activeChallenge
+                        val challenge = deviceChallenges.remove(device.address)
                         if (challenge != null) {
                             val signatureBytes = securityEngine.signChallenge(challenge)
                             sendSlicedResponse(device, requestId, offset, signatureBytes)
-                            activeChallenge = null
                         } else {
                             bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
                         }
@@ -280,7 +284,7 @@ class BleGattServerService : Service() {
 
     @SuppressLint("MissingPermission")
     override fun onDestroy() {
-        mainHandler.removeCallbacks(advWatchdogRunnable)
+        mainHandler.removeCallbacksAndMessages(null)
         try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) {}
         bluetoothGattServer?.close()
         super.onDestroy()
