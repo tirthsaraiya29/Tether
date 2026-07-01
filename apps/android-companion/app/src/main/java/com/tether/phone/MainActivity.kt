@@ -19,6 +19,8 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import android.net.Uri
+import android.os.PowerManager
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.setContent
@@ -41,6 +43,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
@@ -81,6 +84,7 @@ import java.io.File
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
+import android.util.Log
 
 val EaseInOutSans = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
@@ -242,6 +246,9 @@ class MainActivity : FragmentActivity() {
                     if (isBiometricSettingEnabled.value) {
                         isAppLocked.value = true
                         authenticateForAppUnlock()
+                    } else {
+                        // Safe to inspect Assistant intent routing on standard pipeline startup
+                        handleVoiceIntent(intent)
                     }
                 }
             }
@@ -386,6 +393,38 @@ class MainActivity : FragmentActivity() {
         )
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (!isEnvironmentRestricted.value && !isAppLocked.value) {
+            handleVoiceIntent(intent)
+        }
+    }
+
+    private fun handleVoiceIntent(intent: Intent?) {
+        if (intent == null) return
+        // Support both shortcut extras and capability parameter mappings
+        val commandType = intent.getStringExtra("command_type") ?: intent.getStringExtra("action_command")
+        val action = intent.action
+
+        if (commandType != null || action == "com.tether.phone.ACTION_VOICE_COMMAND") {
+            val command = commandType ?: "unknown"
+            if (!isEnvironmentRestricted.value && !isAppLocked.value) {
+                val (bleCommand, toastMsg) = when (command) {
+                    "lock_now" -> "lock_now" to "🔒 VOICE SHORTCUT: EXECUTING LOCK"
+                    "unlock" -> "unlock" to "🔓 VOICE SHORTCUT: EXECUTING UNLOCK"
+                    "shutdown" -> "shutdown" to "🛑 VOICE SHORTCUT: EXECUTING SHUTDOWN"
+                    "sleep" -> "sleep" to "💤 VOICE SHORTCUT: EXECUTING SLEEP"
+                    "reboot" -> "reboot" to "🔄 VOICE SHORTCUT: EXECUTING REBOOT"
+                    else -> return
+                }
+                triggerBleAction(bleCommand, toastMsg)
+                // Gracefully finish activity tracking so it returns back to the Assistant interface cleanly
+                finish()
+            }
+        }
+    }
+
     private fun applyWindowSecurityFlags() {
         runOnUiThread {
             val shouldProtectScreen = isPrivacyMaskEnabled.value && isBlockScreenReadingEnabled.value
@@ -409,15 +448,23 @@ class MainActivity : FragmentActivity() {
         super.onStart()
         if (isEnvironmentRestricted.value) return
 
-        // Request current status from service
-        val statusIntent = Intent(this, BleGattServerService::class.java).apply {
-            action = "ACTION_GET_STATUS"
+        if (checkPermissions()) {
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                val statusIntent = Intent(this, BleGattServerService::class.java).apply {
+                    action = "ACTION_GET_STATUS"
+                }
+                try {
+                    startForegroundService(statusIntent)
+                } catch (e: Exception) {
+                    Log.e("TetherActivity", "Failed pulling background service status", e)
+                }
+            }, 300)
         }
-        startForegroundService(statusIntent)
 
         if (isPrivacyMaskEnabled.value && isBlockScreenReadingEnabled.value) {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
+
         if (isBiometricSettingEnabled.value && !isAppLocked.value) {
             val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
             val leftBackgroundAt = prefs.getLong(appLockBackgroundTimestampKey, 0L)
@@ -448,7 +495,7 @@ class MainActivity : FragmentActivity() {
     override fun onDestroy() {
         try { unregisterReceiver(gattStateReceiver) } catch (_: Exception) {}
         super.onDestroy()
-        unregisterReceiver(screenUnlockReceiver)
+        try { unregisterReceiver(screenUnlockReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(bluetoothStateReceiver) } catch (_: Exception) {}
     }
 
@@ -469,6 +516,8 @@ class MainActivity : FragmentActivity() {
                     } else {
                         requestPermissions()
                     }
+                    // Handle pending shortcuts context elements deferred by system lock screen constraints
+                    handleVoiceIntent(intent)
                 }
             } else {
                 runOnUiThread {
@@ -617,14 +666,18 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun triggerBleAction(action: String, toastMessage: String) {
-        if (isEnvironmentRestricted.value || isAppLocked.value) return
+        if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
         if (toastMessage.isNotEmpty()) {
             Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
         }
         val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
             this.action = action
         }
-        startForegroundService(serviceIntent)
+        try {
+            startForegroundService(serviceIntent)
+        } catch (e: Exception) {
+            Log.e("TetherActivity", "Failed to start BLE service for action: $action", e)
+        }
     }
 
     private fun checkPermissions(): Boolean {
@@ -694,12 +747,16 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun startBleService() {
-        if (isPanicActive.value || isEnvironmentRestricted.value || isAppLocked.value) return
+        if (isPanicActive.value || isEnvironmentRestricted.value) return
         val bleIntent = Intent(this, BleGattServerService::class.java)
-        startForegroundService(bleIntent)
-        uiStatusText.value = "BROADCAST ACTIVE"
-        uiStatusColor.value = LiquidCyan
-        uiConnectionStatusText.value = "WAITING FOR HOST NODES"
+        try {
+            startForegroundService(bleIntent)
+            uiStatusText.value = "BROADCAST ACTIVE"
+            uiStatusColor.value = LiquidCyan
+            uiConnectionStatusText.value = "WAITING FOR HOST NODES"
+        } catch (e: Exception) {
+            Log.e("TetherActivity", "Failed to start BLE service", e)
+        }
     }
 }
 
@@ -765,7 +822,7 @@ fun LiquidSurface(
 fun BackgroundGrid() {
     val density = LocalDensity.current
     val gridTargetPx = remember(density) { with(density) { 60.dp.toPx() } }
-    
+
     val infiniteTransition = rememberInfiniteTransition(label = "Atmosphere")
     val gridShift by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -787,7 +844,7 @@ fun BackgroundGrid() {
     Canvas(modifier = Modifier.fillMaxSize()) {
         val gridSize = 60.dp.toPx()
         val gridColor = LiquidCyan.copy(alpha = 0.03f)
-        
+
         var x = (gridShift % gridSize) - gridSize
         while (x < size.width + gridSize) {
             drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), 0.5.dp.toPx())
@@ -835,7 +892,7 @@ fun PremiumControlAction(
 
     Box(
         modifier = modifier
-            .graphicsLayer { 
+            .graphicsLayer {
                 scaleX = animatedScale
                 scaleY = animatedScale
                 alpha = if (enabled) animatedAlpha else 0.4f
@@ -933,7 +990,7 @@ fun TetherNavigationShell(
                         Spacer(modifier = Modifier.height(48.dp))
                         Text("COMMAND INTERFACE", style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
                         Spacer(modifier = Modifier.height(32.dp))
-                        
+
                         val navItems = listOf(
                             Triple("DASHBOARD", Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
                             Triple("HARDWARE", Icons.Default.Info, AppScreen.LAPTOP_CONTROL),
@@ -1072,7 +1129,7 @@ fun TetherAppScreen(
 fun ScanningVisualizer(color: Color, status: String, subStatus: String) {
     val density = LocalDensity.current
     val radiusTargetPx = remember(density) { with(density) { 160.dp.toPx() } }
-    
+
     val infiniteTransition = rememberInfiniteTransition(label = "Scanning")
     val radius by infiniteTransition.animateFloat(0f, radiusTargetPx, infiniteRepeatable(tween(3000, easing = LinearOutSlowInEasing)), label = "R")
     val alpha by infiniteTransition.animateFloat(1f, 0f, infiniteRepeatable(tween(3000, easing = LinearOutSlowInEasing)), label = "A")
@@ -1095,7 +1152,7 @@ fun ScanningVisualizer(color: Color, status: String, subStatus: String) {
 fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
     val infiniteTransition = rememberInfiniteTransition(label = "Active")
     val rotation by infiniteTransition.animateFloat(0f, 360f, infiniteRepeatable(tween(20000, easing = LinearEasing)), label = "Rot")
-    
+
     Box(contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.size(300.dp)) {
             drawCircle(Brush.radialGradient(listOf(color.copy(alpha = 0.15f), Color.Transparent), radius = size.width / 2))
@@ -1151,11 +1208,15 @@ fun SettingsScreen(
     onTimeoutChanged: (Long) -> Unit,
     onPrivacyMaskToggled: (Boolean) -> Unit
 ) {
+    val context = LocalContext.current
+    val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
+    var isBatteryOptimized by remember { mutableStateOf(!powerManager.isIgnoringBatteryOptimizations(context.packageName)) }
+
     val scrollState = rememberScrollState()
     Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(24.dp)) {
         Text("SYSTEM CONFIG", style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         LiquidSurface {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -1178,7 +1239,7 @@ fun SettingsScreen(
                 }
             }
         }
-        
+
         Spacer(modifier = Modifier.height(24.dp))
         LiquidSurface {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1189,7 +1250,33 @@ fun SettingsScreen(
                 Switch(isPrivacyMaskEnabled, onPrivacyMaskToggled, colors = SwitchDefaults.colors(checkedTrackColor = LiquidCyan))
             }
         }
-        
+
+        Spacer(modifier = Modifier.height(24.dp))
+        LiquidSurface {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("BATTERY PERSISTENCE", style = MaterialTheme.typography.titleLarge, color = TextPrimary)
+                    Text(if (isBatteryOptimized) "System may kill background mesh." else "Unrestricted background access active.", 
+                        style = MaterialTheme.typography.bodyMedium, 
+                        color = if (isBatteryOptimized) MatrixGold else IntegrityGreen)
+                }
+                if (isBatteryOptimized) {
+                    Button(
+                        onClick = {
+                            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                            context.startActivity(intent)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan.copy(0.1f)),
+                        border = BorderStroke(0.5.dp, LiquidCyan)
+                    ) {
+                        Text("FIX", color = LiquidCyan)
+                    }
+                } else {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = IntegrityGreen)
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
         DeviceAttestationCard(LocalContext.current)
     }
@@ -1201,7 +1288,7 @@ fun DeviceAttestationCard(context: Context) {
     val report by produceState(IntegrityReport(100, TrustTier.TRUSTED, true, true, true, true, true, true)) {
         withContext(Dispatchers.IO) { value = evaluator.runAttestationPipeline() }
     }
-    
+
     LiquidSurface {
         Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column {

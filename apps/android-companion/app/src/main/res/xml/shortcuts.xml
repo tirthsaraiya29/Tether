@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- LOCK -->
+    <capability android:name="custom.intents.LOCK_DEVICE">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.tether.phone"
+            android:targetClass="com.tether.phone.MainActivity">
+            <parameter
+                android:name="action_command"
+                android:key="command"/>
+        </intent>
+    </capability>
+
+    <shortcut
+        android:shortcutId="lock_tether_device"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_lock"
+        android:shortcutShortLabel="@string/shortcut_lock_short_label"
+        android:shortcutLongLabel="@string/shortcut_lock_long_label">
+        <capability-binding android:key="custom.intents.LOCK_DEVICE">
+            <parameter-binding
+                android:key="action_command"
+                android:value="lock_now"/>
+        </capability-binding>
+        <intent
+            android:action="com.tether.phone.ACTION_VOICE_COMMAND"
+            android:targetPackage="com.tether.phone"
+            android:targetClass="com.tether.phone.MainActivity">
+            <extra android:name="command_type" android:value="lock_now"/>
+        </intent>
+    </shortcut>
+
+    <!-- UNLOCK -->
+    <capability android:name="custom.intents.UNLOCK_DEVICE">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.tether.phone"
+            android:targetClass="com.tether.phone.MainActivity">
+            <parameter
+                android:name="action_command"
+                android:key="command"/>
+        </intent>
+    </capability>
+
+    <shortcut
+        android:shortcutId="unlock_tether_device"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_unlock"
+        android:shortcutShortLabel="@string/shortcut_unlock_short_label"
+        android:shortcutLongLabel="@string/shortcut_unlock_long_label">
+        <capability-binding android:key="custom.intents.UNLOCK_DEVICE">
+            <parameter-binding
+                android:key="action_command"
+                android:value="unlock"/>
+        </capability-binding>
+        <intent
+            android:action="com.tether.phone.ACTION_VOICE_COMMAND"
+            android:targetPackage="com.tether.phone"
+            android:targetClass="com.tether.phone.MainActivity">
+            <extra android:name="command_type" android:value="unlock"/>
+        </intent>
+    </shortcut>
+
+    <!-- SHUTDOWN -->
+    <capability android:name="custom.intents.SHUTDOWN_DEVICE">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.tether.phone"
+            android:targetClass="com.tether.phone.MainActivity">
+            <parameter
+                android:name="action_command"
+                android:key="command"/>
+        </intent>
+    </capability>
+
+    <shortcut
+        android:shortcutId="shutdown_tether_device"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_shutdown"
+        android:shortcutShortLabel="@string/shortcut_shutdown_short_label"
+        android:shortcutLongLabel="@string/shortcut_shutdown_long_label">
+        <capability-binding android:key="custom.intents.SHUTDOWN_DEVICE">
+            <parameter-binding
+                android:key="action_command"
+                android:value="shutdown"/>
+        </capability-binding>
+        <intent
+            android:action="com.tether.phone.ACTION_VOICE_COMMAND"
+            android:targetPackage="com.tether.phone"
+            android:targetClass="com.tether.phone.MainActivity">
+            <extra android:name="command_type" android:value="shutdown"/>
+        </intent>
+    </shortcut>
+
+    <!-- SLEEP -->
+    <capability android:name="custom.intents.SLEEP_DEVICE">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.tether.phone"
+            android:targetClass="com.tether.phone.MainActivity">
+            <parameter
+                android:name="action_command"
+                android:key="command"/>
+        </intent>
+    </capability>
+
+    <shortcut
+        android:shortcutId="sleep_tether_device"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_sleep"
+        android:shortcutShortLabel="@string/shortcut_sleep_short_label"
+        android:shortcutLongLabel="@string/shortcut_sleep_long_label">
+        <capability-binding android:key="custom.intents.SLEEP_DEVICE">
+            <parameter-binding
+                android:key="action_command"
+                android:value="sleep"/>
+        </capability-binding>
+        <intent
+            android:action="com.tether.phone.ACTION_VOICE_COMMAND"
+            android:targetPackage="com.tether.phone"
+            android:targetClass="com.tether.phone.MainActivity">
+            <extra android:name="command_type" android:value="sleep"/>
+        </intent>
+    </shortcut>
+
+    <!-- REBOOT -->
+    <capability android:name="custom.intents.REBOOT_DEVICE">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.tether.phone"
+            android:targetClass="com.tether.phone.MainActivity">
+            <parameter
+                android:name="action_command"
+                android:key="command"/>
+        </intent>
+    </capability>
+
+    <shortcut
+        android:shortcutId="reboot_tether_device"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_reboot"
+        android:shortcutShortLabel="@string/shortcut_reboot_short_label"
+        android:shortcutLongLabel="@string/shortcut_reboot_long_label">
+        <capability-binding android:key="custom.intents.REBOOT_DEVICE">
+            <parameter-binding
+                android:key="action_command"
+                android:value="reboot"/>
+        </capability-binding>
+        <intent
+            android:action="com.tether.phone.ACTION_VOICE_COMMAND"
+            android:targetPackage="com.tether.phone"
+            android:targetClass="com.tether.phone.MainActivity">
+            <extra android:name="command_type" android:value="reboot"/>
+        </intent>
+    </shortcut>
+
+</shortcuts>
