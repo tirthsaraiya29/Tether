@@ -13,4 +13,14 @@
     <string name="toast_permissions_required">Bluetooth permissions required for Tether to work</string>
     <string name="action_lock">INITIATE LOCK SYSTEM</string>
     <string name="action_panic">FORCE TERMINATE LINK</string>
+    <string name="shortcut_lock_short_label">Lock Laptop</string>
+    <string name="shortcut_lock_long_label">Send secure lock protocol over Tether</string>
+    <string name="shortcut_unlock_short_label">Unlock Laptop</string>
+    <string name="shortcut_unlock_long_label">Send secure unlock protocol over Tether</string>
+    <string name="shortcut_shutdown_short_label">Shut Down</string>
+    <string name="shortcut_shutdown_long_label">Execute system shutdown on target host</string>
+    <string name="shortcut_sleep_short_label">Sleep Laptop</string>
+    <string name="shortcut_sleep_long_label">Put target host into low power sleep mode</string>
+    <string name="shortcut_reboot_short_label">Reboot Laptop</string>
+    <string name="shortcut_reboot_long_label">Execute system restart on target host</string>
 </resources>
