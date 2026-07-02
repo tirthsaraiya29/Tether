@@ -34,66 +34,93 @@ class BleGattServerService : Service() {
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val deviceChallenges = ConcurrentHashMap<String, ByteArray>()
     private val notificationSubscriptions = ConcurrentHashMap<String, Boolean>()
+    private val computedSignaturesMap = ConcurrentHashMap<String, ByteArray>()
 
     private val selfHealingHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
-    // Watchdog task to cycle BLE advertising space when disconnected to bypass firmware hangs
+    private val gattLock = Any()
+
+    @Volatile
+    private var activeCommandPayload = byteArrayOf()
+
     private val advertisementWatchdog = object : Runnable {
-        @SuppressLint("MissingPermission")
         override fun run() {
             try {
-                Log.d(TAG, "Watchdog: Initiating mandatory 45-minute total BLE stack clean cycle.")
+                Log.d(TAG, "Watchdog: Initiating scheduled 45-minute total BLE stack clean cycle.")
 
-                // 1. Inform connected hosts about the imminent reset sequence so they don't lock
                 val resetSignal = "reset_pending".toByteArray(Charsets.UTF_8)
                 pushCommandToSubscribedDevices(resetSignal)
 
-                // 2. Introduce a 1.5-second window for the packet transfer to settle before killing the radio
                 selfHealingHandler.postDelayed({
                     executeHardTeardown()
                 }, 1500)
 
             } catch (e: Exception) {
-                Log.e(TAG, "Watchdog hard recovery routine failed", e)
-                // Fallback: Ensure the loop keeps ticking regardless
+                Log.e(TAG, "Watchdog routine encountered initialization fault", e)
                 selfHealingHandler.postDelayed(this, 2700000)
             }
         }
 
         @SuppressLint("MissingPermission")
         private fun executeHardTeardown() {
-            try {
-                // 1. Terminate advertising cleanly
-                try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) {}
-                isAdvertising = false
+            synchronized(gattLock) {
+                try {
+                    try {
+                        advertiser?.stopAdvertising(advertiseCallback)
+                    } catch (_: Exception) {}
+                    isAdvertising = false
 
-                // 2. Disconnect and close existing GATT Server infrastructure
-                val bluetoothManager = getSystemService(BluetoothManager::class.java)
-                val devices = bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT_SERVER) ?: emptyList()
-                for (device in devices) {
-                    bluetoothGattServer?.cancelConnection(device)
+                    val bluetoothManager = getSystemService(BluetoothManager::class.java)
+                    val devices = try {
+                        bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT_SERVER)
+                    } catch (_: SecurityException) {
+                        null
+                    } ?: emptyList()
+
+                    for (device in devices) {
+                        try {
+                            bluetoothGattServer?.cancelConnection(device)
+                        } catch (_: SecurityException) {}
+                    }
+
+                    connectedDevicesMap.clear()
+                    deviceChallenges.clear()
+                    notificationSubscriptions.clear()
+                    computedSignaturesMap.clear()
+
+                    try {
+                        bluetoothGattServer?.close()
+                    } catch (_: Exception) {}
+                    bluetoothGattServer = null
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed cleaning up GATT Server components safely during cycle", e)
+                } finally {
+                    selfHealingHandler.postDelayed({
+                        reinitializeGattStack()
+                    }, 5000)
                 }
+            }
+        }
 
-                connectedDevicesMap.clear()
-                deviceChallenges.clear()
-                notificationSubscriptions.clear()
-                bluetoothGattServer?.close()
-                bluetoothGattServer = null
-
-                // 3. 5-second internal delay window for hardware controller layer to settle
-                selfHealingHandler.postDelayed({
+        @SuppressLint("MissingPermission")
+        private fun reinitializeGattStack() {
+            synchronized(gattLock) {
+                try {
                     if (bluetoothAdapter?.isEnabled == true) {
+                        val bluetoothManager = getSystemService(BluetoothManager::class.java)
+                        bluetoothGattServer = bluetoothManager?.openGattServer(this@BleGattServerService, gattServerCallback)
+
                         setupGattServer()
                         startAdvertising()
-                        notifyStateToInterface() // Sync the reset state back to the UI if open
+                        notifyStateToInterface()
                     }
-                }, 5000)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed cleaning up GATT Server during cycle", e)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Watchdog critical pipeline restoration failed", e)
+                } finally {
+                    selfHealingHandler.postDelayed(this, 2700000)
+                }
             }
-            // Execute periodic strict pass every 45 minutes (2,700,000 ms)
-            selfHealingHandler.postDelayed(this, 2700000)
         }
     }
 
@@ -118,7 +145,7 @@ class BleGattServerService : Service() {
         createNotificationChannel()
 
         if (!hasRequiredRuntimePermissions()) {
-            Log.e(TAG, "Missing runtime permissions for foreground service type connectedDevice. Stopping.")
+            Log.e(TAG, "Missing required runtime tracking permissions. Shutting down foreground stack.")
             stopSelf()
             return
         }
@@ -130,7 +157,7 @@ class BleGattServerService : Service() {
                 startForeground(NOTIFICATION_ID, createNotification())
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start foreground service", e)
+            Log.e(TAG, "Fatal restriction initializing foreground layer", e)
             stopSelf()
             return
         }
@@ -138,7 +165,7 @@ class BleGattServerService : Service() {
         try {
             securityEngine = ProductionSecurityEngine()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize security engine", e)
+            Log.e(TAG, "Cryptographic infrastructure startup aborted", e)
             stopSelf()
             return
         }
@@ -147,14 +174,17 @@ class BleGattServerService : Service() {
         bluetoothAdapter = bluetoothManager?.adapter
 
         if (bluetoothAdapter == null || bluetoothAdapter?.isEnabled == false) {
+            Log.e(TAG, "Bluetooth hardware adapter reference invalid or radio is powered down.")
             stopSelf()
             return
         }
 
-        setupGattServer()
-        startAdvertising()
+        synchronized(gattLock) {
+            bluetoothGattServer = bluetoothManager?.openGattServer(this, gattServerCallback)
+            setupGattServer()
+            startAdvertising()
+        }
 
-        // Initialize the proactive watchdog loop
         selfHealingHandler.postDelayed(advertisementWatchdog, 2700000)
     }
 
@@ -163,8 +193,7 @@ class BleGattServerService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        
-        // Re-assert foreground status to satisfy Android 14+ background start restrictions
+
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(NOTIFICATION_ID, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
@@ -172,7 +201,7 @@ class BleGattServerService : Service() {
                 startForeground(NOTIFICATION_ID, createNotification())
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to re-assert foreground status", e)
+            Log.e(TAG, "Failed re-asserting foreground runtime hierarchy validation state", e)
         }
 
         val action = intent?.action
@@ -181,10 +210,9 @@ class BleGattServerService : Service() {
             return START_STICKY
         }
 
-        if (action != null && commandCharacteristic != null) {
+        if (action != null) {
             val value = action.toByteArray(Charsets.UTF_8)
-            @Suppress("DEPRECATION")
-            commandCharacteristic?.value = value
+            activeCommandPayload = value
             pushCommandToSubscribedDevices(value)
         }
 
@@ -193,53 +221,51 @@ class BleGattServerService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun setupGattServer() {
-        val bluetoothManager = getSystemService(BluetoothManager::class.java)
+        val server = bluetoothGattServer ?: return
+        val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
+
+        commandCharacteristic = BluetoothGattCharacteristic(
+            COMMAND_CHAR_UUID,
+            BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_WRITE,
+            BluetoothGattCharacteristic.PERMISSION_READ or BluetoothGattCharacteristic.PERMISSION_WRITE
+        )
+
+        val cccdDescriptor = BluetoothGattDescriptor(
+            CCCD_UUID,
+            BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE
+        )
+        cccdDescriptor.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+
+        commandCharacteristic?.addDescriptor(cccdDescriptor)
+
+        val challengeChar = BluetoothGattCharacteristic(
+            CHALLENGE_CHAR_UUID,
+            BluetoothGattCharacteristic.PROPERTY_WRITE,
+            BluetoothGattCharacteristic.PERMISSION_WRITE
+        )
+
+        val signatureChar = BluetoothGattCharacteristic(
+            SIGNATURE_CHAR_UUID,
+            BluetoothGattCharacteristic.PROPERTY_READ,
+            BluetoothGattCharacteristic.PERMISSION_READ
+        )
+
+        val publicKeyChar = BluetoothGattCharacteristic(
+            PUBLIC_KEY_CHAR_UUID,
+            BluetoothGattCharacteristic.PROPERTY_READ,
+            BluetoothGattCharacteristic.PERMISSION_READ
+        )
+
+        commandCharacteristic?.let { service.addCharacteristic(it) }
+        service.addCharacteristic(challengeChar)
+        service.addCharacteristic(signatureChar)
+        service.addCharacteristic(publicKeyChar)
+
         try {
-            bluetoothGattServer?.close()
-            bluetoothGattServer = bluetoothManager?.openGattServer(this, gattServerCallback)
-
-            val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
-
-            val challengeChar = BluetoothGattCharacteristic(
-                CHALLENGE_CHAR_UUID,
-                BluetoothGattCharacteristic.PROPERTY_WRITE,
-                BluetoothGattCharacteristic.PERMISSION_WRITE
-            )
-
-            val signatureChar = BluetoothGattCharacteristic(
-                SIGNATURE_CHAR_UUID,
-                BluetoothGattCharacteristic.PROPERTY_READ,
-                BluetoothGattCharacteristic.PERMISSION_READ
-            )
-
-            val commandChar = BluetoothGattCharacteristic(
-                COMMAND_CHAR_UUID,
-                BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-                BluetoothGattCharacteristic.PERMISSION_READ
-            )
-
-            val cccdDescriptor = BluetoothGattDescriptor(
-                CCCD_UUID,
-                BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE
-            )
-            commandChar.addDescriptor(cccdDescriptor)
-
-            val publicKeyChar = BluetoothGattCharacteristic(
-                PUBLIC_KEY_CHAR_UUID,
-                BluetoothGattCharacteristic.PROPERTY_READ,
-                BluetoothGattCharacteristic.PERMISSION_READ
-            )
-
-            service.addCharacteristic(challengeChar)
-            service.addCharacteristic(signatureChar)
-            service.addCharacteristic(commandChar)
-            service.addCharacteristic(publicKeyChar)
-
-            commandCharacteristic = commandChar
-            bluetoothGattServer?.addService(service)
-        } catch (e: Exception) {
-            Log.e(TAG, "GATT Setup Critical Exception", e)
-            stopSelf()
+            server.addService(service)
+            Log.i(TAG, "GATT Database profile mapping injected successfully.")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Missing explicit connection permission to populate service database structures", e)
         }
     }
 
@@ -251,65 +277,141 @@ class BleGattServerService : Service() {
 
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 connectedDevicesMap[address] = device
-                Log.d(TAG, "Device added to connected map: $address")
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connectedDevicesMap.remove(address)
                 deviceChallenges.remove(address)
                 notificationSubscriptions.remove(address)
-                Log.d(TAG, "Device removed from connected map: $address")
+                computedSignaturesMap.remove(address)
             }
             notifyStateToInterface()
         }
 
-        override fun onCharacteristicWriteRequest(device: BluetoothDevice?, requestId: Int, characteristic: BluetoothGattCharacteristic?, preparedWrite: Boolean, responseNeeded: Boolean, offset: Int, value: ByteArray?) {
-            if (characteristic?.uuid == CHALLENGE_CHAR_UUID && value != null && device != null) {
-                deviceChallenges[device.address] = value
-                if (responseNeeded) {
-                    try { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null) } catch (e: SecurityException) {
-                        Log.e(TAG, "SecurityException in write response", e)
+        override fun onCharacteristicWriteRequest(
+            device: BluetoothDevice?,
+            requestId: Int,
+            characteristic: BluetoothGattCharacteristic?,
+            preparedWrite: Boolean,
+            responseNeeded: Boolean,
+            offset: Int,
+            value: ByteArray?
+        ) {
+            if (device == null || characteristic == null || value == null) {
+                if (responseNeeded && device != null) {
+                    try {
+                        synchronized(gattLock) {
+                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
+                        }
+                    } catch (_: SecurityException) {}
+                }
+                return
+            }
+
+            val address = device.address
+            val uuid = characteristic.uuid
+
+            try {
+                when (uuid) {
+                    CHALLENGE_CHAR_UUID -> {
+                        deviceChallenges[address] = value
+
+                        val signatureBytes = securityEngine.signChallenge(value)
+                        if (signatureBytes != null) {
+                            computedSignaturesMap[address] = signatureBytes
+                        }
+
+                        if (responseNeeded) {
+                            synchronized(gattLock) {
+                                bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+                            }
+                        }
+                    }
+
+                    COMMAND_CHAR_UUID -> {
+                        val payload = String(value, Charsets.UTF_8).trim()
+                        if (payload.startsWith("sync_levels:")) {
+                            val dataSegments = payload.removePrefix("sync_levels:").split(",")
+                            var parsedVolume = -1
+                            var parsedBrightness = -1
+
+                            for (segment in dataSegments) {
+                                val parameterPair = segment.split("=")
+                                if (parameterPair.size == 2) {
+                                    val key = parameterPair[0].trim()
+                                    val stringValue = parameterPair[1].trim()
+
+                                    if (key == "vol") parsedVolume = stringValue.toIntOrNull() ?: -1
+                                    if (key == "bri") parsedBrightness = stringValue.toIntOrNull() ?: -1
+                                }
+                            }
+
+                            if (parsedVolume != -1 || parsedBrightness != -1) {
+                                val stateUpdateBroadcast = Intent("com.tether.phone.ACTION_SYNC_HARDWARE_METRICS").apply {
+                                    if (parsedVolume != -1) putExtra("VOLUME_LEVEL", parsedVolume)
+                                    if (parsedBrightness != -1) putExtra("BRIGHTNESS_LEVEL", parsedBrightness)
+                                    setPackage(packageName)
+                                }
+                                sendBroadcast(stateUpdateBroadcast)
+                            }
+                        }
+
+                        if (responseNeeded) {
+                            synchronized(gattLock) {
+                                bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+                            }
+                        }
+                    }
+
+                    else -> {
+                        if (responseNeeded) {
+                            synchronized(gattLock) {
+                                bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
+                            }
+                        }
                     }
                 }
-            } else if (responseNeeded && device != null) {
-                try {
-                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
-                } catch (_: SecurityException) {}
+            } catch (e: SecurityException) {
+                Log.e(TAG, "Security exception tracing character write handler", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "Runtime crash caught inside characteristic write loop", e)
+                if (responseNeeded) {
+                    try {
+                        synchronized(gattLock) {
+                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
+                        }
+                    } catch (_: SecurityException) {}
+                }
             }
         }
 
         override fun onCharacteristicReadRequest(device: BluetoothDevice?, requestId: Int, offset: Int, characteristic: BluetoothGattCharacteristic?) {
             if (device == null) return
-            Log.d(TAG, "Read Request: device=${device.address}, char=${characteristic?.uuid}")
-
             try {
                 when (characteristic?.uuid) {
                     SIGNATURE_CHAR_UUID -> {
-                        val challenge = deviceChallenges.remove(device.address)
-                        if (challenge != null) {
-                            val signatureBytes = securityEngine.signChallenge(challenge)
-                            if (signatureBytes != null) {
-                                sendSlicedResponse(device, requestId, offset, signatureBytes)
-                            } else {
+                        val cachedSignature = computedSignaturesMap[device.address]
+                        if (cachedSignature != null) {
+                            sendSlicedResponse(device, requestId, offset, cachedSignature)
+                        } else {
+                            synchronized(gattLock) {
                                 bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
                             }
-                        } else {
-                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
                         }
                     }
                     COMMAND_CHAR_UUID -> {
-                        @Suppress("DEPRECATION")
-                        val currentCommand = commandCharacteristic?.value ?: byteArrayOf()
-                        sendSlicedResponse(device, requestId, offset, currentCommand)
+                        sendSlicedResponse(device, requestId, offset, activeCommandPayload)
                     }
                     PUBLIC_KEY_CHAR_UUID -> {
                         val publicKeyBytes = securityEngine.getPublicKeyBytes()
                         sendSlicedResponse(device, requestId, offset, publicKeyBytes)
                     }
                     else -> {
-                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
+                        synchronized(gattLock) {
+                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
+                        }
                     }
                 }
             } catch (e: SecurityException) {
-                Log.e(TAG, "SecurityException in read response", e)
+                Log.e(TAG, "Security permission check failure while compiling read tracking outputs", e)
             }
         }
 
@@ -322,90 +424,63 @@ class BleGattServerService : Service() {
             offset: Int,
             value: ByteArray?
         ) {
-            Log.d(TAG, "Descriptor Write Request: device=${device?.address}, descriptor=${descriptor?.uuid}")
-
             if (device == null || descriptor == null) return
 
-            if (descriptor.uuid != CCCD_UUID) {
-                if (responseNeeded) {
-                    try {
-                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
-                    } catch (e: SecurityException) {
-                        Log.e(TAG, "SecurityException in descriptor response", e)
+            try {
+                if (descriptor.uuid != CCCD_UUID || preparedWrite || offset != 0) {
+                    if (responseNeeded) {
+                        synchronized(gattLock) {
+                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
+                        }
                     }
+                    return
                 }
-                return
-            }
 
-            if (preparedWrite || offset != 0) {
-                if (responseNeeded) {
-                    try {
-                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_INVALID_OFFSET, offset, null)
-                    } catch (e: SecurityException) {
-                        Log.e(TAG, "SecurityException in descriptor response", e)
-                    }
-                }
-                return
-            }
+                val newValue = value ?: byteArrayOf()
+                var accepted = false
 
-            val newValue = value ?: byteArrayOf()
-
-            // Robust Bitwise Verification Pass: Extracts the core operational flag independently
-            // of the structural array sizing differences generated by alternative client OS platforms.
-            val accepted = if (newValue.isNotEmpty()) {
-                val controlByte = newValue[0].toInt()
-                when {
-                    (controlByte and 0x01) != 0 -> { // Bit 0 specifies Notification Active
+                if (newValue.isNotEmpty()) {
+                    val controlByte = newValue[0].toInt()
+                    if ((controlByte and 0x01) != 0) {
                         notificationSubscriptions[device.address] = true
                         descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                        true
-                    }
-                    controlByte == 0 -> { // Null properties flag total subscription cancellation
+                        accepted = true
+                    } else if (controlByte == 0) {
                         notificationSubscriptions.remove(device.address)
                         descriptor.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-                        true
+                        accepted = true
                     }
-                    else -> false
                 }
-            } else {
-                false
-            }
 
-            if (responseNeeded) {
-                try {
-                    bluetoothGattServer?.sendResponse(
-                        device,
-                        requestId,
-                        if (accepted) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED,
-                        offset,
-                        null
-                    )
-                } catch (e: SecurityException) {
-                    Log.e(TAG, "SecurityException in descriptor response", e)
+                if (responseNeeded) {
+                    synchronized(gattLock) {
+                        bluetoothGattServer?.sendResponse(
+                            device,
+                            requestId,
+                            if (accepted) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED,
+                            offset,
+                            null
+                        )
+                    }
                 }
+            } catch (e: SecurityException) {
+                Log.e(TAG, "Descriptor write response security exception occurred", e)
             }
         }
 
-        override fun onDescriptorReadRequest(
-            device: BluetoothDevice?,
-            requestId: Int,
-            offset: Int,
-            descriptor: BluetoothGattDescriptor?
-        ) {
-            Log.d(TAG, "Descriptor Read Request: device=${device?.address}, descriptor=${descriptor?.uuid}")
-            if (device != null) {
-                try {
-                    val value = if (descriptor?.uuid == CCCD_UUID && notificationSubscriptions[device.address] == true) {
-                        BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                    } else if (descriptor?.uuid == CCCD_UUID) {
-                        BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-                    } else {
-                        byteArrayOf(0, 0)
-                    }
-                    sendSlicedResponse(device, requestId, offset, value)
-                } catch (e: SecurityException) {
-                    Log.e(TAG, "SecurityException in descriptor read response", e)
+        override fun onDescriptorReadRequest(device: BluetoothDevice?, requestId: Int, offset: Int, descriptor: BluetoothGattDescriptor?) {
+            if (device == null || descriptor == null) return
+            try {
+                val value = if (descriptor.uuid == CCCD_UUID && notificationSubscriptions[device.address] == true) {
+                    BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                } else if (descriptor.uuid == CCCD_UUID) {
+                    BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+                } else {
+                    byteArrayOf(0, 0)
                 }
+                sendSlicedResponse(device, requestId, offset, value)
+            } catch (e: SecurityException) {
+                Log.e(TAG, "Descriptor read response verification halted", e)
             }
         }
     }
@@ -414,39 +489,40 @@ class BleGattServerService : Service() {
     private fun pushCommandToSubscribedDevices(value: ByteArray) {
         val characteristic = commandCharacteristic ?: return
         val server = bluetoothGattServer ?: return
-        
+
         for (device in connectedDevicesMap.values) {
             if (notificationSubscriptions[device.address] != true) continue
 
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    server.notifyCharacteristicChanged(device, characteristic, false, value)
-                } else {
-                    @Suppress("DEPRECATION")
-                    characteristic.value = value
-                    server.notifyCharacteristicChanged(device, characteristic, false)
+                synchronized(gattLock) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        server.notifyCharacteristicChanged(device, characteristic, false, value)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        characteristic.value = value
+                        server.notifyCharacteristicChanged(device, characteristic, false)
+                    }
                 }
-            } catch (e: SecurityException) {
-                Log.e(TAG, "SecurityException while notifying device ${device.address}", e)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to notify device ${device.address}", e)
-            }
+            } catch (_: SecurityException) {
+            } catch (_: Exception) {}
         }
     }
 
     private fun sendSlicedResponse(device: BluetoothDevice, requestId: Int, offset: Int, fullValue: ByteArray) {
-        try {
-            if (offset >= fullValue.size) {
-                bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, byteArrayOf())
-                return
-            }
-            val slicedValue = fullValue.copyOfRange(offset, fullValue.size)
-            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, slicedValue)
-        } catch (_: SecurityException) {}
+        synchronized(gattLock) {
+            try {
+                if (bluetoothGattServer == null) return
+                if (offset >= fullValue.size) {
+                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, byteArrayOf())
+                    return
+                }
+                val slicedValue = fullValue.copyOfRange(offset, fullValue.size)
+                bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, slicedValue)
+            } catch (_: SecurityException) {} catch (_: Exception) {}
+        }
     }
 
     private fun notifyStateToInterface() {
-        // Query BluetoothManager for actual connected devices to prevent state desync
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         val connectedDevices = try {
             bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT_SERVER) ?: emptyList()
@@ -455,7 +531,6 @@ class BleGattServerService : Service() {
         }
 
         val count = connectedDevices.size
-        Log.d(TAG, "Notifying interface: connection_count=$count")
         val intent = Intent(ACTION_GATT_STATE_CHANGED).apply {
             putExtra(EXTRA_CONNECTION_COUNT, count)
             setPackage(packageName)
@@ -463,8 +538,15 @@ class BleGattServerService : Service() {
         sendBroadcast(intent)
     }
 
+    @SuppressLint("MissingPermission")
     private fun startAdvertising() {
-        advertiser = bluetoothAdapter?.bluetoothLeAdvertiser ?: return
+        val serverAdvertiser = bluetoothAdapter?.bluetoothLeAdvertiser
+        if (serverAdvertiser == null) {
+            Log.w(TAG, "Advertising call deferred: Bluetooth low-energy execution subsystem missing or uninitialized.")
+            return
+        }
+
+        advertiser = serverAdvertiser
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
@@ -488,24 +570,23 @@ class BleGattServerService : Service() {
 
     private fun hasRequiredRuntimePermissions(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
-        
+
         val advertise = checkSelfPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
         val connect = checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
         val scan = checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN)
-        
-        return advertise == android.content.pm.PackageManager.PERMISSION_GRANTED ||
-               connect == android.content.pm.PackageManager.PERMISSION_GRANTED ||
-               scan == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        return advertise == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                connect == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                scan == android.content.pm.PackageManager.PERMISSION_GRANTED
     }
 
     private fun createNotificationChannel() {
-        // Importance set to HIGH to prevent process degradation by the Android Kernel Task Scheduler
         val channel = NotificationChannel(CHANNEL_ID, "Tether Proximity Services", NotificationManager.IMPORTANCE_HIGH)
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     private fun createNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("🔒 Tether Shield Active")
+        .setContentTitle("Tether Shield Active")
         .setContentText("Maintaining local cryptographically continuous background radio mesh links...")
         .setSmallIcon(android.R.drawable.ic_lock_lock)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -516,9 +597,24 @@ class BleGattServerService : Service() {
     @SuppressLint("MissingPermission")
     override fun onDestroy() {
         mainHandler.removeCallbacksAndMessages(null)
-        selfHealingHandler.removeCallbacksAndMessages(null) // Cancel all pending restarts
-        try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) {}
-        try { bluetoothGattServer?.close() } catch (_: Exception) {}
+        selfHealingHandler.removeCallbacksAndMessages(null)
+
+        synchronized(gattLock) {
+            try {
+                advertiser?.stopAdvertising(advertiseCallback)
+            } catch (_: Exception) {}
+            isAdvertising = false
+
+            connectedDevicesMap.clear()
+            deviceChallenges.clear()
+            notificationSubscriptions.clear()
+            computedSignaturesMap.clear()
+
+            try {
+                bluetoothGattServer?.close()
+            } catch (_: Exception) {}
+            bluetoothGattServer = null
+        }
         super.onDestroy()
     }
 }

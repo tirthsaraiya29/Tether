@@ -222,7 +222,7 @@ public partial class BleManager : IDisposable
 
                 _logger.Info($"BLE device transport link connected (Attempt {attempt}/{maxRetryAttempts}). Settling radio context...");
 
-                await Task.Delay(120);
+                await Task.Delay(250);
 
                 var servicesResult = await TryGetGattServicesAsync(device);
                 if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
@@ -339,7 +339,7 @@ public partial class BleManager : IDisposable
                     }
 
                     _logger.Warning($"Failed to configure GATT notifications (attempt {subAttempt}/3). Status: {cccdResult.Status}");
-                    await Task.Delay(100 * subAttempt);
+                    await Task.Delay(250 * subAttempt);
                 }
 
                 if (!subscriptionOk)
@@ -430,7 +430,13 @@ public partial class BleManager : IDisposable
 
     private async Task<byte[]?> ReadPublicKeyFromPhone()
     {
-        if (_publicKeyChar == null)
+        GattCharacteristic? localPublicKeyChar;
+        lock (_lock)
+        {
+            localPublicKeyChar = _publicKeyChar;
+        }
+
+        if (localPublicKeyChar == null)
         {
             _logger.Error("Public key characteristic is null.");
             return null;
@@ -440,7 +446,7 @@ public partial class BleManager : IDisposable
         {
             try
             {
-                var readResult = await _publicKeyChar.ReadValueAsync(cacheMode);
+                var readResult = await localPublicKeyChar.ReadValueAsync(cacheMode);
                 if (readResult.Status != GattCommunicationStatus.Success)
                 {
                     _logger.Warning($"Failed to read public key using {cacheMode}: {readResult.Status}");
@@ -451,6 +457,11 @@ public partial class BleManager : IDisposable
                 byte[] publicKeyBytes = new byte[reader.UnconsumedBufferLength];
                 reader.ReadBytes(publicKeyBytes);
                 return publicKeyBytes;
+            }
+            catch (ObjectDisposedException)
+            {
+                _logger.Warning("Public key characteristic reference was disposed during read execution operation.");
+                break;
             }
             catch (Exception ex)
             {
@@ -463,7 +474,16 @@ public partial class BleManager : IDisposable
 
     private async Task<bool> AuthenticateDeviceViaChallengeAsync(byte[] phonePublicKeyBytes)
     {
-        if (_challengeChar == null || _signatureChar == null || phonePublicKeyBytes == null)
+        GattCharacteristic? localChallengeChar;
+        GattCharacteristic? localSignatureChar;
+
+        lock (_lock)
+        {
+            localChallengeChar = _challengeChar;
+            localSignatureChar = _signatureChar;
+        }
+
+        if (localChallengeChar == null || localSignatureChar == null || phonePublicKeyBytes == null)
             return false;
 
         try
@@ -477,7 +497,7 @@ public partial class BleManager : IDisposable
             using (var writer = new DataWriter())
             {
                 writer.WriteBytes(challengeNonce);
-                var writeResult = await _challengeChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
+                var writeResult = await localChallengeChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
                 if (writeResult.Status != GattCommunicationStatus.Success)
                 {
                     _logger.Error($"Failed writing cryptographic challenge payload: {writeResult.Status}");
@@ -491,7 +511,7 @@ public partial class BleManager : IDisposable
             {
                 try
                 {
-                    var readResult = await _signatureChar.ReadValueAsync(cacheMode);
+                    var readResult = await localSignatureChar.ReadValueAsync(cacheMode);
                     if (readResult.Status != GattCommunicationStatus.Success)
                     {
                         _logger.Warning($"Failed reading verification signature using {cacheMode}: {readResult.Status}");
@@ -501,6 +521,10 @@ public partial class BleManager : IDisposable
                     using var reader = DataReader.FromBuffer(readResult.Value);
                     phoneSignature = new byte[reader.UnconsumedBufferLength];
                     reader.ReadBytes(phoneSignature);
+                    break;
+                }
+                catch (ObjectDisposedException)
+                {
                     break;
                 }
                 catch (Exception ex)
@@ -517,6 +541,11 @@ public partial class BleManager : IDisposable
                 rsa.ImportSubjectPublicKeyInfo(phonePublicKeyBytes, out _);
                 return rsa.VerifyData(challengeNonce, phoneSignature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             }
+        }
+        catch (ObjectDisposedException)
+        {
+            _logger.Warning("GATT peripheral context registers vanished during active challenge transaction phase processing iteration routine loop step pass execution.");
+            return false;
         }
         catch (Exception ex)
         {
@@ -575,9 +604,10 @@ public partial class BleManager : IDisposable
     {
         try
         {
+            _logger.Info($"📬 Intercepted Mobile Telemetry Payload: {command}");
+
             switch (command)
             {
-
                 case "reset_pending":
                     lock (_lock)
                     {
@@ -634,13 +664,26 @@ public partial class BleManager : IDisposable
                     _appEvent?.Set();
                     _screenEvent?.Set();
                     _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
-                    await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager" });
+                    await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager", PayloadJson = "{\"Action\":\"wake_and_unlock\"}" });
                     break;
 
                 case "screen_unlock":
                     _logger.Info("📱 Phone screen unlock detected.");
                     _screenEvent?.Set();
                     _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_UNLOCKED, Source = "BleManager" });
+                    await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager", PayloadJson = "{\"Action\":\"wake_display\"}" });
+                    break;
+
+                case "volume_up":
+                case "volume_down":
+                case "brightness_up":
+                case "brightness_down":
+                    await SendUiEventAsync(new TetherEvent
+                    {
+                        EventType = TetherEventType.TRUST_DEGRADED,
+                        Source = "BleManager",
+                        PayloadJson = $"{{\"HardwareAction\":\"{command}\"}}"
+                    });
                     break;
 
                 case "sleep":
@@ -655,7 +698,7 @@ public partial class BleManager : IDisposable
                     break;
 
                 case "reboot":
-                    _logger.Info("🔄 Executing reboot...");
+                    _logger.Info("🔄 Executing reboot... ");
                     await Task.Run(() => Process.Start(new ProcessStartInfo
                     {
                         FileName = "shutdown",
@@ -674,26 +717,6 @@ public partial class BleManager : IDisposable
                         UseShellExecute = false,
                         CreateNoWindow = true
                     }));
-                    break;
-
-                case "volume_up":
-                    _logger.Info("🔊 Increasing volume...");
-                    AdjustVolumeNative(1);
-                    break;
-
-                case "volume_down":
-                    _logger.Info("🔉 Decreasing volume...");
-                    AdjustVolumeNative(-1);
-                    break;
-
-                case "brightness_up":
-                    _logger.Info("☀️ Increasing brightness...");
-                    await AdjustBrightnessNativeAsync(5);
-                    break;
-
-                case "brightness_down":
-                    _logger.Info("🌙 Decreasing brightness...");
-                    await AdjustBrightnessNativeAsync(-5);
                     break;
 
                 default:
@@ -784,6 +807,48 @@ public partial class BleManager : IDisposable
         }
     }
 
+    private async Task SampleRssi()
+    {
+        BluetoothLEDevice? device;
+        bool connected;
+        bool stopping;
+
+        lock (_lock)
+        {
+            device = _device;
+            connected = _isConnected;
+            stopping = _isStopping;
+        }
+
+        if (device == null || !connected || stopping)
+            return;
+
+        try
+        {
+            var info = await DeviceInformation.CreateFromIdAsync(
+                device.DeviceId,
+                new[] { "System.Devices.Aep.SignalStrength" },
+                DeviceInformationKind.AssociationEndpoint);
+
+            if (info.Properties.TryGetValue("System.Devices.Aep.SignalStrength", out object? rssi))
+            {
+                lock (_lock)
+                {
+                    _rssiSamples.Add(Convert.ToInt32(rssi));
+                    if (_rssiSamples.Count >= SAMPLES_PER_AVERAGE)
+                    {
+                        double avg = _rssiSamples.Average();
+                        _rssiSamples.Clear();
+                        EvaluateProximity(avg);
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+    }
+
     private async void EvaluateProximity(double avgRssi)
     {
         bool isLockedLocal;
@@ -804,7 +869,12 @@ public partial class BleManager : IDisposable
         {
             _logger.Info($"Device returned within threshold parameters: {avgRssi:F0} dBm. Prompting Challenge Verification...");
 
-            string addressHex = _device?.BluetoothAddress.ToString("X") ?? "";
+            string addressHex;
+            lock (_lock)
+            {
+                addressHex = _device?.BluetoothAddress.ToString("X") ?? "";
+            }
+
             string? storedKey = GetStoredPublicKey(addressHex);
             byte[]? publicKeyBytes = null;
 
@@ -864,7 +934,7 @@ public partial class BleManager : IDisposable
                 _isWorkstationLocked = true;
             }
             _lockedByProximity = false;
-            _isPlannedResetActive = false; 
+            _isPlannedResetActive = false;
         }
 
         StopRssiMonitoring();
@@ -941,48 +1011,6 @@ public partial class BleManager : IDisposable
     {
         _rssiTimer?.Dispose();
         _rssiTimer = new System.Threading.Timer(async _ => await SampleRssi(), null, 0, SAMPLE_INTERVAL_MS);
-    }
-
-    private async Task SampleRssi()
-    {
-        BluetoothLEDevice? device;
-        bool connected;
-        bool stopping;
-
-        lock (_lock)
-        {
-            device = _device;
-            connected = _isConnected;
-            stopping = _isStopping;
-        }
-
-        if (device == null || !connected || stopping)
-            return;
-
-        try
-        {
-            var info = await DeviceInformation.CreateFromIdAsync(
-                device.DeviceId,
-                new[] { "System.Devices.Aep.SignalStrength" },
-                DeviceInformationKind.AssociationEndpoint);
-
-            if (info.Properties.TryGetValue("System.Devices.Aep.SignalStrength", out object? rssi))
-            {
-                lock (_lock)
-                {
-                    _rssiSamples.Add(Convert.ToInt32(rssi));
-                    if (_rssiSamples.Count >= SAMPLES_PER_AVERAGE)
-                    {
-                        double avg = _rssiSamples.Average();
-                        _rssiSamples.Clear();
-                        EvaluateProximity(avg);
-                    }
-                }
-            }
-        }
-        catch
-        {
-        }
     }
 
     private void StopRssiMonitoring() => _rssiTimer?.Dispose();
