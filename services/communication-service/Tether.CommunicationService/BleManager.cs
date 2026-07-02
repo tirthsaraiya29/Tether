@@ -29,6 +29,7 @@ public partial class BleManager : IDisposable
     private bool _isConnected = false;
     private bool _lockedByProximity = false;
     private bool _isStopping = false;
+    private bool _isPlannedResetActive = false;
 
     private const int RSSI_GOOD = -55;
     private const int RSSI_LOCK = -80;
@@ -576,6 +577,15 @@ public partial class BleManager : IDisposable
         {
             switch (command)
             {
+
+                case "reset_pending":
+                    lock (_lock)
+                    {
+                        _isPlannedResetActive = true;
+                    }
+                    _logger.Info("🔄 Received 'reset_pending' command pipeline notice. Suppressing proximity lock alerts for upcoming self-healing routine.");
+                    break;
+
                 case "panic":
                 case "lock_now":
                     lock (_lock)
@@ -841,13 +851,20 @@ public partial class BleManager : IDisposable
     private void HandleDisconnection()
     {
         bool wasConnected;
+        bool isPlannedReset;
 
         lock (_lock)
         {
             wasConnected = _isConnected;
             _isConnected = false;
-            _isWorkstationLocked = true;
+            isPlannedReset = _isPlannedResetActive;
+
+            if (!isPlannedReset)
+            {
+                _isWorkstationLocked = true;
+            }
             _lockedByProximity = false;
+            _isPlannedResetActive = false; 
         }
 
         StopRssiMonitoring();
@@ -858,16 +875,26 @@ public partial class BleManager : IDisposable
             return;
         }
 
+        if (isPlannedReset)
+        {
+            _logger.Info("🔄 Connection dropped via expected phone radio reset loop. Workstation status preserved; restarting background mesh scanning.");
+            CleanupDevice();
+            StartScanning();
+            return;
+        }
+
         if (!wasConnected)
         {
+            _logger.Warning("⚠️ Connection dropped prior to completing full validation framework setup loops. Restarting scan loop.");
             CleanupDevice();
+            StartScanning();
             return;
         }
 
         ResetIPCHandles();
 
         _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_DISCONNECTED, Source = "BleManager" });
-        _logger.Error("🔒 LOCKING: Device disconnected.");
+        _logger.Error("🔒 LOCKING: Device disconnected unexpectedly.");
 
         _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
 
