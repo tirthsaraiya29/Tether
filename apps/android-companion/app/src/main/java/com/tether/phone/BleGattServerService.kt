@@ -42,29 +42,43 @@ class BleGattServerService : Service() {
         @SuppressLint("MissingPermission")
         override fun run() {
             try {
-                Log.d(TAG, "Watchdog: Executing mandatory 45-minute total BLE stack clean cycle.")
+                Log.d(TAG, "Watchdog: Initiating mandatory 45-minute total BLE stack clean cycle.")
 
+                // 1. Inform connected hosts about the imminent reset sequence so they don't lock
+                val resetSignal = "reset_pending".toByteArray(Charsets.UTF_8)
+                pushCommandToSubscribedDevices(resetSignal)
+
+                // 2. Introduce a 1.5-second window for the packet transfer to settle before killing the radio
+                selfHealingHandler.postDelayed({
+                    executeHardTeardown()
+                }, 1500)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Watchdog hard recovery routine failed", e)
+                // Fallback: Ensure the loop keeps ticking regardless
+                selfHealingHandler.postDelayed(this, 2700000)
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        private fun executeHardTeardown() {
+            try {
                 // 1. Terminate advertising cleanly
                 try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) {}
                 isAdvertising = false
 
                 // 2. Disconnect and close existing GATT Server infrastructure
-                try {
-                    // Forcefully disconnect all known devices at the system level
-                    val bluetoothManager = getSystemService(BluetoothManager::class.java)
-                    val devices = bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT_SERVER) ?: emptyList()
-                    for (device in devices) {
-                        bluetoothGattServer?.cancelConnection(device)
-                    }
-                    
-                    connectedDevicesMap.clear()
-                    deviceChallenges.clear()
-                    notificationSubscriptions.clear()
-                    bluetoothGattServer?.close()
-                    bluetoothGattServer = null
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed cleaning up GATT Server during cycle", e)
+                val bluetoothManager = getSystemService(BluetoothManager::class.java)
+                val devices = bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT_SERVER) ?: emptyList()
+                for (device in devices) {
+                    bluetoothGattServer?.cancelConnection(device)
                 }
+
+                connectedDevicesMap.clear()
+                deviceChallenges.clear()
+                notificationSubscriptions.clear()
+                bluetoothGattServer?.close()
+                bluetoothGattServer = null
 
                 // 3. 5-second internal delay window for hardware controller layer to settle
                 selfHealingHandler.postDelayed({
@@ -76,7 +90,7 @@ class BleGattServerService : Service() {
                 }, 5000)
 
             } catch (e: Exception) {
-                Log.e(TAG, "Watchdog hard recovery routine failed", e)
+                Log.e(TAG, "Failed cleaning up GATT Server during cycle", e)
             }
             // Execute periodic strict pass every 45 minutes (2,700,000 ms)
             selfHealingHandler.postDelayed(this, 2700000)
