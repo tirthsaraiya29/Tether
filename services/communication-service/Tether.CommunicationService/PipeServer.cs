@@ -1,6 +1,12 @@
-﻿using System.IO.Pipes;
+﻿using System;
+using System.IO;
+using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using Tether.EventBus;
 using Tether.Shared.Events;
 using Tether.Shared.IPC;
@@ -35,18 +41,26 @@ public class PipeServer : IDisposable
         {
             try
             {
-                using var pipeServer = new NamedPipeServerStream(
+                var pipeSecurity = new PipeSecurity();
+                pipeSecurity.AddAccessRule(new PipeAccessRule(
+                    new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
+                    PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
+                    AccessControlType.Allow));
+
+                using var pipeServer = NamedPipeServerStreamAcl.Create(
                     IpcConstants.PipeName,
                     PipeDirection.InOut,
-                    1, // Allow ONE instance at a time
+                    1,
                     PipeTransmissionMode.Message,
-                    PipeOptions.Asynchronous);
+                    PipeOptions.Asynchronous,
+                    0,
+                    0,
+                    pipeSecurity);
 
                 _logger.Info($"Named pipe server waiting for connection on {IpcConstants.PipeName}...");
                 await pipeServer.WaitForConnectionAsync(_cts.Token);
                 _logger.Info("Desktop UI connected to pipe.");
 
-                // Handle client messages
                 await HandleClientMessages(pipeServer);
 
                 _logger.Info("Desktop UI disconnected.");

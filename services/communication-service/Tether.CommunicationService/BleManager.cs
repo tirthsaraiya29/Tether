@@ -1,8 +1,14 @@
 using Microsoft.Win32;
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Tether.EventBus;
 using Tether.Shared.Events;
 using Tether.Shared.Logging;
@@ -30,6 +36,7 @@ public partial class BleManager : IDisposable
     private bool _lockedByProximity = false;
     private bool _isStopping = false;
     private bool _isPlannedResetActive = false;
+    private byte[]? _sessionKey;
 
     private const int RSSI_GOOD = -55;
     private const int RSSI_LOCK = -75;
@@ -222,7 +229,16 @@ public partial class BleManager : IDisposable
 
                 _logger.Info($"BLE device transport link connected (Attempt {attempt}/{maxRetryAttempts}). Settling radio context...");
 
-                await Task.Delay(250);
+                try
+                {
+                    var gattSession = await GattSession.FromDeviceIdAsync(device.BluetoothDeviceId);
+                    gattSession.MaintainConnection = true;
+                    _logger.Info($"GattSession max PDU size synchronized to: {gattSession.MaxPduSize} bytes.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"GattSession optimization bypass triggered: {ex.Message}");
+                }
 
                 var servicesResult = await TryGetGattServicesAsync(device);
                 if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
@@ -285,6 +301,16 @@ public partial class BleManager : IDisposable
                     continue;
                 }
 
+                try
+                {
+                    using var zeroWriter = new DataWriter();
+                    zeroWriter.WriteBytes(new byte[16]);
+                    await _challengeChar.WriteValueWithResultAsync(zeroWriter.DetachBuffer(), GattWriteOption.WriteWithResponse);
+                }
+                catch { }
+
+                await Task.Delay(150);
+
                 var publicKeyBytes = await ReadPublicKeyFromPhone();
                 if (publicKeyBytes == null || publicKeyBytes.Length < 64)
                 {
@@ -305,6 +331,32 @@ public partial class BleManager : IDisposable
                 var base64Key = Convert.ToBase64String(publicKeyBytes);
                 StorePublicKey(device.BluetoothAddress.ToString("X"), base64Key);
                 _logger.Info($"Identity parameters successfully recorded for target node {device.BluetoothAddress:X}");
+
+                byte[] generatedKey = new byte[32];
+                RandomNumberGenerator.Fill(generatedKey);
+                byte[] encryptedSessionKey;
+                using (var rsa = RSA.Create())
+                {
+                    rsa.ImportSubjectPublicKeyInfo(publicKeyBytes, out _);
+                    encryptedSessionKey = rsa.Encrypt(generatedKey, RSAEncryptionPadding.Pkcs1);
+                }
+
+                using (var writer = new DataWriter())
+                {
+                    writer.WriteBytes(encryptedSessionKey);
+                    var keyResult = await _challengeChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
+                    if (keyResult.Status != GattCommunicationStatus.Success)
+                    {
+                        CleanupDevice();
+                        if (attempt == maxRetryAttempts) { HandleDisconnection(); return; }
+                        await Task.Delay(delayMs); delayMs *= 2; continue;
+                    }
+                }
+
+                lock (_lock)
+                {
+                    _sessionKey = generatedKey;
+                }
 
                 var isAuthenticated = await AuthenticateDeviceViaChallengeAsync(publicKeyBytes);
                 if (!isAuthenticated)
@@ -407,9 +459,8 @@ public partial class BleManager : IDisposable
         {
             return await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
         }
-        catch (Exception ex) when (ex is COMException || ex is TaskCanceledException)
+        catch (Exception)
         {
-            _logger.Warning("WinRT profile discovery stalled or canceled. Falling back to cached layout pass...");
             await Task.Delay(100);
             return await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Cached);
         }
@@ -449,7 +500,6 @@ public partial class BleManager : IDisposable
                 var readResult = await localPublicKeyChar.ReadValueAsync(cacheMode);
                 if (readResult.Status != GattCommunicationStatus.Success)
                 {
-                    _logger.Warning($"Failed to read public key using {cacheMode}: {readResult.Status}");
                     continue;
                 }
 
@@ -460,12 +510,10 @@ public partial class BleManager : IDisposable
             }
             catch (ObjectDisposedException)
             {
-                _logger.Warning("Public key characteristic reference was disposed during read execution operation.");
                 break;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                _logger.Warning($"Error reading public key using {cacheMode}: {ex.Message}");
             }
         }
 
@@ -476,11 +524,13 @@ public partial class BleManager : IDisposable
     {
         GattCharacteristic? localChallengeChar;
         GattCharacteristic? localSignatureChar;
+        byte[]? currentKey;
 
         lock (_lock)
         {
             localChallengeChar = _challengeChar;
             localSignatureChar = _signatureChar;
+            currentKey = _sessionKey;
         }
 
         if (localChallengeChar == null || localSignatureChar == null || phonePublicKeyBytes == null)
@@ -489,10 +539,7 @@ public partial class BleManager : IDisposable
         try
         {
             byte[] challengeNonce = new byte[16];
-            using (var rng = RandomNumberGenerator.Create())
-            {
-                rng.GetBytes(challengeNonce);
-            }
+            RandomNumberGenerator.Fill(challengeNonce);
 
             using (var writer = new DataWriter())
             {
@@ -514,7 +561,6 @@ public partial class BleManager : IDisposable
                     var readResult = await localSignatureChar.ReadValueAsync(cacheMode);
                     if (readResult.Status != GattCommunicationStatus.Success)
                     {
-                        _logger.Warning($"Failed reading verification signature using {cacheMode}: {readResult.Status}");
                         continue;
                     }
 
@@ -527,24 +573,33 @@ public partial class BleManager : IDisposable
                 {
                     break;
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    _logger.Warning($"Signature read failed using {cacheMode}: {ex.Message}");
                 }
             }
 
             if (phoneSignature == null || phoneSignature.Length == 0)
                 return false;
 
-            using (var rsa = RSA.Create())
+            if (currentKey != null)
             {
-                rsa.ImportSubjectPublicKeyInfo(phonePublicKeyBytes, out _);
-                return rsa.VerifyData(challengeNonce, phoneSignature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                using (var hmac = new HMACSHA256(currentKey))
+                {
+                    byte[] computedHash = hmac.ComputeHash(challengeNonce);
+                    return CryptographicOperations.FixedTimeEquals(phoneSignature, computedHash);
+                }
+            }
+            else
+            {
+                using (var rsa = RSA.Create())
+                {
+                    rsa.ImportSubjectPublicKeyInfo(phonePublicKeyBytes, out _);
+                    return rsa.VerifyData(challengeNonce, phoneSignature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                }
             }
         }
         catch (ObjectDisposedException)
         {
-            _logger.Warning("GATT peripheral context registers vanished during active challenge transaction phase processing iteration routine loop step pass execution.");
             return false;
         }
         catch (Exception ex)
@@ -558,8 +613,8 @@ public partial class BleManager : IDisposable
     {
         try
         {
-            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider");
-            return key?.GetValue("MasterDeviceKeyHash") as string;
+            using var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider");
+            return key?.GetValue($"Key_{addressHex}") as string;
         }
         catch { return null; }
     }
@@ -568,11 +623,11 @@ public partial class BleManager : IDisposable
     {
         try
         {
-            using var key = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider");
-            if (key.GetValue("MasterDeviceKeyHash") == null)
+            using var key = Registry.CurrentUser.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider");
+            if (key.GetValue($"Key_{addressHex}") == null)
             {
-                key.SetValue("MasterDeviceKeyHash", base64Key);
-                _logger.Info("✨ Zero-Intervention Setup: Master device public key successfully pinned.");
+                key.SetValue($"Key_{addressHex}", base64Key);
+                _logger.Info($"Master identity token pinned successfully for target node: {addressHex}");
             }
         }
         catch (Exception ex)
@@ -613,7 +668,6 @@ public partial class BleManager : IDisposable
                     {
                         _isPlannedResetActive = true;
                     }
-                    _logger.Info("🔄 Received 'reset_pending' command pipeline notice. Suppressing proximity lock alerts for upcoming self-healing routine.");
                     break;
 
                 case "panic":
@@ -647,10 +701,6 @@ public partial class BleManager : IDisposable
                                 _logger.Info($"Successfully disconnected active console Session {activeSessionId}.");
                             }
                         }
-                        else
-                        {
-                            _logger.Warning("No active interactive console session detected to disconnect.");
-                        }
                     }
                     catch (Exception ex)
                     {
@@ -675,15 +725,16 @@ public partial class BleManager : IDisposable
                     break;
 
                 case "volume_up":
+                    AdjustVolumeNative(1);
+                    break;
                 case "volume_down":
+                    AdjustVolumeNative(-1);
+                    break;
                 case "brightness_up":
+                    await AdjustBrightnessNativeAsync(5);
+                    break;
                 case "brightness_down":
-                    await SendUiEventAsync(new TetherEvent
-                    {
-                        EventType = TetherEventType.TRUST_DEGRADED,
-                        Source = "BleManager",
-                        PayloadJson = $"{{\"HardwareAction\":\"{command}\"}}"
-                    });
+                    await AdjustBrightnessNativeAsync(-5);
                     break;
 
                 case "sleep":
@@ -718,10 +769,6 @@ public partial class BleManager : IDisposable
                         CreateNoWindow = true
                     }));
                     break;
-
-                default:
-                    _logger.Warning($"Unknown command: {command}");
-                    break;
             }
         }
         catch (Exception ex)
@@ -746,7 +793,6 @@ public partial class BleManager : IDisposable
                 IntPtr hMonitor = MonitorFromWindow(IntPtr.Zero, MONITOR_DEFAULTTOPRIMARY);
                 if (hMonitor == IntPtr.Zero)
                 {
-                    _logger.Warning("Failed to get primary monitor handle.");
                     return;
                 }
 
@@ -754,20 +800,17 @@ public partial class BleManager : IDisposable
                 var monitors = new PHYSICAL_MONITOR[physicalMonitorCount];
                 if (!GetPhysicalMonitorsFromHMONITOR(hMonitor, physicalMonitorCount, monitors))
                 {
-                    _logger.Warning("GetPhysicalMonitorsFromHMONITOR failed. Error: " + Marshal.GetLastWin32Error());
                     return;
                 }
 
                 IntPtr hPhysical = monitors[0].hPhysicalMonitor;
                 if (hPhysical == IntPtr.Zero)
                 {
-                    _logger.Warning("Physical monitor handle is zero.");
                     return;
                 }
 
                 if (!GetMonitorBrightness(hPhysical, out uint min, out uint current, out uint max))
                 {
-                    _logger.Warning("GetMonitorBrightness failed. Error: " + Marshal.GetLastWin32Error());
                     DestroyPhysicalMonitor(hPhysical);
                     return;
                 }
@@ -776,15 +819,7 @@ public partial class BleManager : IDisposable
                 int newBrightness = (int)(current + (deltaPercent * step));
                 newBrightness = Math.Clamp(newBrightness, (int)min, (int)max);
 
-                if (!SetMonitorBrightness(hPhysical, (uint)newBrightness))
-                {
-                    _logger.Warning($"SetMonitorBrightness failed. Error: {Marshal.GetLastWin32Error()}");
-                }
-                else
-                {
-                    _logger.Info($"Brightness set to {newBrightness} (range {min}-{max})");
-                }
-
+                SetMonitorBrightness(hPhysical, (uint)newBrightness);
                 DestroyPhysicalMonitor(hPhysical);
             }
             catch (Exception ex)
@@ -800,10 +835,6 @@ public partial class BleManager : IDisposable
         {
             _logger.Warning("BLE connection dropped.");
             HandleDisconnection();
-        }
-        else if (sender.ConnectionStatus == BluetoothConnectionStatus.Connected)
-        {
-            _logger.Info("BLE device connected.");
         }
     }
 
@@ -900,10 +931,6 @@ public partial class BleManager : IDisposable
                 _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
                 _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager" });
             }
-            else
-            {
-                _logger.Error("❌ Re-authentication challenge rejected during verification loop.");
-            }
             return;
         }
 
@@ -928,6 +955,7 @@ public partial class BleManager : IDisposable
             wasConnected = _isConnected;
             _isConnected = false;
             isPlannedReset = _isPlannedResetActive;
+            _sessionKey = null;
 
             if (!isPlannedReset)
             {
@@ -999,6 +1027,7 @@ public partial class BleManager : IDisposable
                 }
 
                 _rssiSamples.Clear();
+                _sessionKey = null;
             }
             catch (Exception ex)
             {
@@ -1043,7 +1072,6 @@ public partial class BleManager : IDisposable
             if (File.Exists(exactPath))
             {
                 Process.Start(new ProcessStartInfo { FileName = exactPath, UseShellExecute = true });
-                _logger.Info($"🚀 Launched overlay execution process vector: {exactPath}");
             }
         }
         catch (Exception ex) { _logger.Error($"Failed to spin up UI space execution layer: {ex.Message}"); }
@@ -1061,6 +1089,28 @@ public partial class BleManager : IDisposable
             await client.ConnectAsync(200);
             await client.WriteAsync(bytes, 0, bytes.Length);
             await client.FlushAsync();
+        }
+        catch { }
+    }
+
+    public async Task UpdateHardwareLevelsOnPhoneAsync(byte volume, byte brightness)
+    {
+        GattCharacteristic? localCommandChar;
+        lock (_lock)
+        {
+            localCommandChar = _commandChar;
+        }
+        if (localCommandChar == null) return;
+
+        try
+        {
+            using (var writer = new DataWriter())
+            {
+                writer.WriteByte(0x01);
+                writer.WriteByte(volume);
+                writer.WriteByte(brightness);
+                await localCommandChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithoutResponse);
+            }
         }
         catch { }
     }

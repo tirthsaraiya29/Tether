@@ -488,7 +488,9 @@ class MainActivity : FragmentActivity() {
         }
         if (isBiometricSettingEnabled.value) {
             val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
-            prefs.edit { putLong(appLockBackgroundTimestampKey, System.currentTimeMillis()) }
+            prefs.edit(commit = true) {
+                putLong(appLockBackgroundTimestampKey, System.currentTimeMillis())
+            }
         }
     }
 
