@@ -32,7 +32,7 @@ public partial class BleManager : IDisposable
     private bool _isPlannedResetActive = false;
 
     private const int RSSI_GOOD = -55;
-    private const int RSSI_LOCK = -80;
+    private const int RSSI_LOCK = -75;
     private const int SAMPLE_INTERVAL_MS = 500;
     private const int SAMPLES_PER_AVERAGE = 5;
 
