@@ -1,21 +1,9 @@
 ﻿<Application x:Class="Tether.DesktopUI.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:viewModels="clr-namespace:Tether.DesktopUI.ViewModels"
-             xmlns:views="clr-namespace:Tether.DesktopUI.Views"
+             xmlns:local="clr-namespace:Tether.DesktopUI"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <ResourceDictionary>
-            <!-- DataTemplates for automatic view resolution -->
-            <DataTemplate DataType="{x:Type viewModels:ConfigViewModel}">
-                <views:ConfigView />
-            </DataTemplate>
-            <DataTemplate DataType="{x:Type viewModels:StatusViewModel}">
-                <views:StatusView />
-            </DataTemplate>
-            <DataTemplate DataType="{x:Type viewModels:LogsViewModel}">
-                <views:LogsView />
-            </DataTemplate>
-        </ResourceDictionary>
+         
     </Application.Resources>
 </Application>
