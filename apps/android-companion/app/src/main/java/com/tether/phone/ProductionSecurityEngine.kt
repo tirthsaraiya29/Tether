@@ -25,7 +25,7 @@ class ProductionSecurityEngine {
         if (!keyStore.containsAlias(KEY_ALIAS)) {
             val kpg = KeyPairGenerator.getInstance(
                 KeyProperties.KEY_ALGORITHM_RSA,
-                ANDROID_KEYSTORE
+                ANDROID_KEYSTORE,
             )
 
             val parameterSpec = KeyGenParameterSpec.Builder(

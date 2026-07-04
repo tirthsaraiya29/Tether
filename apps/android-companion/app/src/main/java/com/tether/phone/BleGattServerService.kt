@@ -10,7 +10,6 @@ import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
-import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -38,7 +37,21 @@ class BleGattServerService : Service() {
     private val sessionKeysMap = ConcurrentHashMap<String, ByteArray>()
     private val deviceMtuMap = ConcurrentHashMap<String, Int>()
 
-    private data class WriteSession(val uuid: UUID, val payload: ByteArray)
+    private data class WriteSession(val uuid: UUID, val payload: ByteArray) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (javaClass != other?.javaClass) return false
+            other as WriteSession
+            if (uuid != other.uuid) return false
+            return payload.contentEquals(other.payload)
+        }
+
+        override fun hashCode(): Int {
+            var result = uuid.hashCode()
+            result = (31 * result) + payload.contentHashCode()
+            return result
+        }
+    }
     private val pendingExecuteWrites = ConcurrentHashMap<String, WriteSession>()
 
     private val selfHealingHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -67,10 +80,12 @@ class BleGattServerService : Service() {
                     } catch (_: Exception) {}
                     isAdvertising = false
 
-                    val bluetoothManager = getSystemService(BluetoothManager::class.java)
-                    val devices = try {
-                        bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT_SERVER)
-                    } catch (_: SecurityException) { null } ?: emptyList()
+        val bluetoothManager = getSystemService(BluetoothManager::class.java)
+        val devices = try {
+            bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT_SERVER)
+        } catch (_: SecurityException) {
+            null
+        } ?: emptyList()
 
                     for (device in devices) {
                         try {
@@ -162,14 +177,14 @@ class BleGattServerService : Service() {
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         bluetoothAdapter = bluetoothManager?.adapter
 
-        if (bluetoothAdapter == null || bluetoothAdapter?.isEnabled == false) {
+        if (bluetoothAdapter == null || (bluetoothAdapter?.isEnabled == false)) {
             stopSelf()
             return
         }
 
         synchronized(gattLock) {
-            try {
-                bluetoothGattServer = bluetoothManager?.openGattServer(this, gattServerCallback)
+            bluetoothGattServer = try {
+                bluetoothManager?.openGattServer(this, gattServerCallback)
             } catch (_: SecurityException) {
                 stopSelf()
                 return
@@ -219,10 +234,13 @@ class BleGattServerService : Service() {
             COMMAND_CHAR_UUID,
             BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY or
                     BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
-            BluetoothGattCharacteristic.PERMISSION_READ or BluetoothGattCharacteristic.PERMISSION_WRITE
+            BluetoothGattCharacteristic.PERMISSION_READ or BluetoothGattCharacteristic.PERMISSION_WRITE,
         )
 
-        val cccdDescriptor = BluetoothGattDescriptor(CCCD_UUID, BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE)
+        val cccdDescriptor = BluetoothGattDescriptor(
+            CCCD_UUID,
+            BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE,
+        )
         @Suppress("DEPRECATION")
         cccdDescriptor.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
         commandCharacteristic?.addDescriptor(cccdDescriptor)
@@ -265,8 +283,8 @@ class BleGattServerService : Service() {
         }
 
         override fun onMtuChanged(device: BluetoothDevice?, mtu: Int) {
-            if (device != null) {
-                deviceMtuMap[device.address] = mtu
+            device?.let {
+                deviceMtuMap[it.address] = mtu
             }
         }
 
@@ -324,13 +342,10 @@ class BleGattServerService : Service() {
             try {
                 when (characteristic?.uuid) {
                     SIGNATURE_CHAR_UUID -> {
-                        val cachedSignature = computedSignaturesMap[device.address]
-                        if (cachedSignature != null) {
-                            sendSlicedResponse(device, requestId, offset, cachedSignature)
-                        } else {
-                            synchronized(gattLock) {
-                                bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
-                            }
+                        computedSignaturesMap[device.address]?.let {
+                            sendSlicedResponse(device, requestId, offset, it)
+                        } ?: synchronized(gattLock) {
+                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
                         }
                     }
                     COMMAND_CHAR_UUID -> {

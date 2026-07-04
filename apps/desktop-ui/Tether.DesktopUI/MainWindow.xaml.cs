@@ -2,7 +2,7 @@
 using System;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
-using System.Runtime.Versioning; // Added for platform attribute enforcement
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -15,7 +15,6 @@ using Tether.Shared.IPC;
 
 namespace Tether.DesktopUI
 {
-    // Enforces to the compiler that this class is scoped strictly for Windows platforms, silencing CA1416 globally
     [SupportedOSPlatform("windows")]
     public partial class MainWindow : Window
     {
@@ -23,9 +22,6 @@ namespace Tether.DesktopUI
         private DispatcherTimer? _syncTimer;
         private bool _isInternalSliderChange = false;
 
-        // ========================================================================
-        // Native Win32 COM / PInvoke Architecture
-        // ========================================================================
         [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
         internal class MMDeviceEnumerator { }
 
@@ -121,14 +117,41 @@ namespace Tether.DesktopUI
             InitializeComponent();
             ResolveUserContext();
             LogTerminal("SYSTEM // Tether Telemetry Workspace loaded successfully.");
+            CheckProvisioningStatus();
 
             _ = RunTelemetryListenerAsync();
             InitializeHardwarePolling();
         }
 
-        // ========================================================================
-        // Distributed Telemetry Pipe Processing Engine
-        // ========================================================================
+        private void CheckProvisioningStatus()
+        {
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider");
+                if (key != null)
+                {
+                    var provisioned = key.GetValue("Provisioned") as int?;
+                    if (provisioned == 1)
+                    {
+                        var storedKey = key.GetValue("TrustedPhonePublicKey") as string;
+                        if (!string.IsNullOrEmpty(storedKey))
+                        {
+                            TxtProvisionStatus.Text = "✓ Phone paired";
+                            TxtProvisionStatus.Foreground = new SolidColorBrush(Color.FromRgb(0x00, 0xFF, 0x66));
+                            return;
+                        }
+                    }
+                }
+                TxtProvisionStatus.Text = "✗ Not paired";
+                TxtProvisionStatus.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0x00, 0x55));
+            }
+            catch
+            {
+                TxtProvisionStatus.Text = "✗ Error reading pairing status";
+                TxtProvisionStatus.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0x00, 0x55));
+            }
+        }
+
         private async Task RunTelemetryListenerAsync()
         {
             while (_isListening)
@@ -201,12 +224,13 @@ namespace Tether.DesktopUI
                         LogTerminal("✓ POWER // Interactive display wake sequence executed.");
                     }
                     break;
+
+                case TetherEventType.PROVISION_PHONE:
+                    CheckProvisioningStatus();
+                    break;
             }
         }
 
-        // ========================================================================
-        // Active Session Hardware Engine (Solves Session 0 Issues)
-        // ========================================================================
         private void InitializeHardwarePolling()
         {
             _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
@@ -354,9 +378,6 @@ namespace Tether.DesktopUI
             DispatchServiceBusPipe(syncEvent);
         }
 
-        // ========================================================================
-        // Common Core Cryptographic Operations & Logging Elements
-        // ========================================================================
         private void LogTerminal(string message)
         {
             TxtTerminal.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\n");
@@ -375,6 +396,37 @@ namespace Tether.DesktopUI
                 await client.FlushAsync();
             }
             catch { }
+        }
+
+        private void BtnProvision_Click(object sender, RoutedEventArgs e)
+        {
+            string key = TxtPublicKey.Text.Trim();
+            if (string.IsNullOrEmpty(key))
+            {
+                LogTerminal("❌ PAIRING // Public key cannot be empty.");
+                return;
+            }
+
+            try
+            {
+                Convert.FromBase64String(key);
+            }
+            catch
+            {
+                LogTerminal("❌ PAIRING // Invalid base64 public key format.");
+                return;
+            }
+
+            var evt = new TetherEvent
+            {
+                EventType = TetherEventType.PROVISION_PHONE,
+                Source = "DesktopUI",
+                PayloadJson = $"{{\"PublicKeyBase64\":\"{key}\"}}"
+            };
+            DispatchServiceBusPipe(evt);
+            LogTerminal("✓ PAIRING // Provisioning request sent to service.");
+            TxtPublicKey.Clear();
+            CheckProvisioningStatus();
         }
 
         private void BtnCommitVault_Click(object sender, RoutedEventArgs e)

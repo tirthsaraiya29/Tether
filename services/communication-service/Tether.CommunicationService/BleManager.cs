@@ -18,6 +18,7 @@ using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
 using Windows.Foundation;
 using Windows.Storage.Streams;
+using Tether.Shared.DTO;
 
 namespace Tether.CommunicationService;
 
@@ -37,6 +38,8 @@ public partial class BleManager : IDisposable
     private bool _isStopping = false;
     private bool _isPlannedResetActive = false;
     private byte[]? _sessionKey;
+    private bool _isProvisioned = false;
+    private byte[]? _trustedPublicKey = null;
 
     private const int RSSI_GOOD = -55;
     private const int RSSI_LOCK = -75;
@@ -100,6 +103,8 @@ public partial class BleManager : IDisposable
         _eventBus = eventBus;
         _logger = logger;
 
+        LoadTrustedKey();
+
         _eventBus.Subscribe(evt => {
             if (evt.EventType == TetherEventType.PHONE_UNLOCKED || evt.EventType == TetherEventType.TRUST_RESTORED)
             {
@@ -116,6 +121,119 @@ public partial class BleManager : IDisposable
                 }
             }
         });
+
+        _eventBus.Subscribe(evt => {
+            if (evt.EventType == TetherEventType.PROVISION_PHONE && !string.IsNullOrEmpty(evt.PayloadJson))
+            {
+                try
+                {
+                    var payload = System.Text.Json.JsonSerializer.Deserialize<ProvisionPayload>(evt.PayloadJson);
+                    if (payload != null && !string.IsNullOrEmpty(payload.PublicKeyBase64))
+                    {
+                        ProvisionPhone(payload.PublicKeyBase64);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"Failed to process provisioning event: {ex.Message}");
+                }
+            }
+        });
+    }
+
+    private void LoadTrustedKey()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider");
+            if (key != null)
+            {
+                var provisioned = key.GetValue("Provisioned") as int?;
+                var storedKey = key.GetValue("TrustedPhonePublicKey") as string;
+                _isProvisioned = provisioned == 1 && !string.IsNullOrEmpty(storedKey);
+                if (_isProvisioned && !string.IsNullOrEmpty(storedKey))
+                {
+                    _trustedPublicKey = Convert.FromBase64String(storedKey);
+                    _logger.Info("Trusted phone public key loaded from registry.");
+                }
+                else
+                {
+                    _trustedPublicKey = null;
+                    _logger.Info("No trusted phone key found; device is unprovisioned.");
+                }
+            }
+            else
+            {
+                _isProvisioned = false;
+                _trustedPublicKey = null;
+                _logger.Info("CredentialProvider registry key missing; device is unprovisioned.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to load trusted key: {ex.Message}");
+            _isProvisioned = false;
+            _trustedPublicKey = null;
+        }
+    }
+
+    private void MigrateOldKeys()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
+            if (key != null)
+            {
+                var valueNames = key.GetValueNames().Where(n => n.StartsWith("Key_")).ToList();
+                foreach (var name in valueNames)
+                {
+                    key.DeleteValue(name);
+                    _logger.Info($"Removed legacy key: {name}");
+                }
+                key.SetValue("Provisioned", 0, RegistryValueKind.DWord);
+                _logger.Info("Migration completed: old keys cleared, provisioned flag reset.");
+            }
+            LoadTrustedKey();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Migration failed: {ex.Message}");
+        }
+    }
+
+    private bool IsProvisioned()
+    {
+        return _isProvisioned && _trustedPublicKey != null && _trustedPublicKey.Length >= 64;
+    }
+
+    private string? GetTrustedPublicKey()
+    {
+        if (_trustedPublicKey == null) return null;
+        return Convert.ToBase64String(_trustedPublicKey);
+    }
+
+    public void ProvisionPhone(string base64PublicKey)
+    {
+        try
+        {
+            var keyBytes = Convert.FromBase64String(base64PublicKey);
+            if (keyBytes.Length < 64)
+            {
+                _logger.Error("Provisioning failed: public key is too short.");
+                return;
+            }
+
+            using var key = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider");
+            key.SetValue("TrustedPhonePublicKey", base64PublicKey, RegistryValueKind.String);
+            key.SetValue("Provisioned", 1, RegistryValueKind.DWord);
+            _logger.Info("Phone provisioned with new trusted public key.");
+
+            LoadTrustedKey();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Provisioning failed: {ex.Message}");
+        }
     }
 
     public void Start()
@@ -124,7 +242,18 @@ public partial class BleManager : IDisposable
         {
             _isStopping = false;
         }
-        _logger.Info($"Core BLE Management Stack listening for validated targets...");
+
+        MigrateOldKeys();
+
+        if (!IsProvisioned())
+        {
+            _logger.Warning("No trusted phone provisioned. Waiting for provisioning via IPC.");
+        }
+        else
+        {
+            _logger.Info("Provisioned phone detected. Starting BLE scanning.");
+        }
+
         StartScanning();
     }
 
@@ -170,6 +299,12 @@ public partial class BleManager : IDisposable
     {
         if (_isConnected) return;
 
+        if (!IsProvisioned())
+        {
+            _logger.Warning("Ignoring advertisement: device not provisioned.");
+            return;
+        }
+
         bool acquired = await _connectionSemaphore.WaitAsync(0);
         if (!acquired) return;
 
@@ -199,6 +334,12 @@ public partial class BleManager : IDisposable
             try
             {
                 CleanupDevice();
+
+                if (!IsProvisioned())
+                {
+                    _logger.Warning("Device unprovisioned; rejecting connection attempt.");
+                    return;
+                }
 
                 var device = await BluetoothLEDevice.FromBluetoothAddressAsync(bluetoothAddress);
                 if (device == null)
@@ -328,9 +469,24 @@ public partial class BleManager : IDisposable
                     continue;
                 }
 
-                var base64Key = Convert.ToBase64String(publicKeyBytes);
-                StorePublicKey(device.BluetoothAddress.ToString("X"), base64Key);
-                _logger.Info($"Identity parameters successfully recorded for target node {device.BluetoothAddress:X}");
+                var trustedKey = _trustedPublicKey;
+                if (trustedKey == null || !publicKeyBytes.SequenceEqual(trustedKey))
+                {
+                    _logger.Error($"Public key from {device.BluetoothAddress:X} does not match provisioned key. Rejecting connection.");
+                    CleanupDevice();
+
+                    if (attempt == maxRetryAttempts)
+                    {
+                        HandleDisconnection();
+                        return;
+                    }
+
+                    await Task.Delay(delayMs);
+                    delayMs *= 2;
+                    continue;
+                }
+
+                _logger.Info($"Provisioned phone verified: public key matches trusted anchor.");
 
                 byte[] generatedKey = new byte[32];
                 RandomNumberGenerator.Fill(generatedKey);

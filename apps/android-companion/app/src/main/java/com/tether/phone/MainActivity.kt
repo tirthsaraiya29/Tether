@@ -14,13 +14,12 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.os.VibrationAttributes
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
-import android.provider.Settings
-import android.net.Uri
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.widget.ImageView
+import androidx.appcompat.app.AlertDialog
 import android.os.PowerManager
+import android.provider.Settings
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.setContent
@@ -39,7 +38,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -83,8 +81,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
-import kotlin.math.roundToInt
 import android.util.Log
+import androidx.compose.material.icons.filled.QrCode
 
 val EaseInOutSans = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
@@ -97,7 +95,8 @@ enum class TrustVerificationStep {
 enum class AppScreen {
     TELEMETRY_DASHBOARD,
     SECURITY_SETTINGS,
-    LAPTOP_CONTROL
+    LAPTOP_CONTROL,
+    PAIRING
 }
 
 enum class TrustTier(val label: String, val color: Color) {
@@ -114,7 +113,7 @@ data class IntegrityReport(
     val isDevOptionsDisabled: Boolean,
     val isUsbDebuggingDisabled: Boolean,
     val isAppIntegrityValid: Boolean,
-    val isSecureLockscreenEnabled: Boolean
+    val isSecureLockscreenEnabled: Boolean,
 )
 
 class MainActivity : FragmentActivity() {
@@ -135,8 +134,8 @@ class MainActivity : FragmentActivity() {
     private var uiStatusColor = mutableStateOf(TextSecondary)
     private var uiConnectionStatusText = mutableStateOf("INITIALIZING SECURE STACK")
 
-    private var isConnected = mutableStateOf(false)
-    private var isPanicActive = mutableStateOf(false)
+    private var isConnected = mutableStateOf(value = false)
+    private var isPanicActive = mutableStateOf(value = false)
     private var currentVerificationStep = mutableStateOf(TrustVerificationStep.NOT_IN_PANIC)
 
     private var isAppLocked = mutableStateOf(false)
@@ -160,7 +159,7 @@ class MainActivity : FragmentActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == BleGattServerService.ACTION_GATT_STATE_CHANGED) {
                 val count = intent.getIntExtra(BleGattServerService.EXTRA_CONNECTION_COUNT, 0)
-                android.util.Log.d("TetherActivity", "GATT state changed broadcast received: connection_count=$count")
+                Log.d("TetherActivity", "GATT state changed broadcast received: connection_count=$count")
                 runOnUiThread {
                     isConnected.value = count > 0
                     if (count > 0) {
@@ -228,7 +227,7 @@ class MainActivity : FragmentActivity() {
             setPanicUiState()
         }
 
-        val shouldStartImmediately = !isBiometricSettingEnabled.value || selectedTimeoutMs.longValue > 0
+        val shouldStartImmediately = (!isBiometricSettingEnabled.value) || selectedTimeoutMs.longValue > 0
         if (checkPermissions() && shouldStartImmediately) {
             startBleService()
         }
@@ -258,7 +257,7 @@ class MainActivity : FragmentActivity() {
             TetherTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                    color = MaterialTheme.colorScheme.background,
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         BackgroundGrid()
@@ -345,7 +344,8 @@ class MainActivity : FragmentActivity() {
                                             triggerBleAction(command, toastMessage)
                                         }
                                     }
-                                }
+                                },
+                                onShowQR = { showPairingQRCode() }
                             )
 
                             pendingPowerAction.value?.let { action ->
@@ -449,16 +449,19 @@ class MainActivity : FragmentActivity() {
         if (isEnvironmentRestricted.value) return
 
         if (checkPermissions()) {
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                val statusIntent = Intent(this, BleGattServerService::class.java).apply {
-                    action = "ACTION_GET_STATUS"
-                }
-                try {
-                    startForegroundService(statusIntent)
-                } catch (e: Exception) {
-                    Log.e("TetherActivity", "Failed pulling background service status", e)
-                }
-            }, 300)
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                {
+                    val statusIntent = Intent(this, BleGattServerService::class.java).apply {
+                        action = "ACTION_GET_STATUS"
+                    }
+                    try {
+                        startForegroundService(statusIntent)
+                    } catch (e: Exception) {
+                        Log.e("TetherActivity", "Failed pulling background service status", e)
+                    }
+                },
+                300,
+            )
         }
 
         if (isPrivacyMaskEnabled.value && isBlockScreenReadingEnabled.value) {
@@ -549,6 +552,39 @@ class MainActivity : FragmentActivity() {
         isConnected.value = false
     }
 
+    private fun showPairingQRCode() {
+        try {
+            val publicKeyBytes = ProductionSecurityEngine().getPublicKeyBytes()
+            val base64Key = android.util.Base64.encodeToString(publicKeyBytes, android.util.Base64.NO_WRAP)
+
+            val qrContent = "TETHER:KEY:$base64Key"
+            val qrBitmap = QRCodeGenerator.generateQRCode(qrContent)
+
+            runOnUiThread {
+                val imageView = ImageView(this).apply {
+                    setImageBitmap(qrBitmap)
+                    setPadding(40, 40, 40, 40)
+                }
+
+                AlertDialog.Builder(this)
+                    .setTitle("🔐 PAIRING QR CODE")
+                    .setMessage("Scan this with Tether Desktop to pair")
+                    .setView(imageView)
+                    .setPositiveButton("DONE") { _, _ -> }
+                    .setNegativeButton("COPY KEY") { _, _ ->
+                        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("TetherPublicKey", base64Key))
+                        Toast.makeText(this, "Key copied to clipboard", Toast.LENGTH_SHORT).show()
+                    }
+                    .show()
+            }
+        } catch (e: Exception) {
+            runOnUiThread {
+                Toast.makeText(this, "Failed to generate QR code: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private fun executeVerificationPipeline(nextStep: TrustVerificationStep) {
         currentVerificationStep.value = nextStep
         if (nextStep == TrustVerificationStep.DEVICE_CREDENTIAL) {
@@ -595,16 +631,21 @@ class MainActivity : FragmentActivity() {
             if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
                 promptBuilder.setNegativeButtonText("ABORT")
             }
-            val biometricPrompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    super.onAuthenticationSucceeded(result)
-                    callback(true)
-                }
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    super.onAuthenticationError(errorCode, errString)
-                    callback(false)
-                }
-            })
+            val biometricPrompt = BiometricPrompt(
+                this,
+                executor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        super.onAuthenticationSucceeded(result)
+                        callback(true)
+                    }
+
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        super.onAuthenticationError(errorCode, errString)
+                        callback(false)
+                    }
+                },
+            )
             biometricPrompt.authenticate(promptBuilder.build())
         }
     }
@@ -651,7 +692,7 @@ class MainActivity : FragmentActivity() {
             }
             val deviceList = pairedDevices.map { "${it.name ?: "UNKNOWN"} (${it.address})" }.toTypedArray()
             val deviceAddresses = pairedDevices.map { it.address }.toTypedArray()
-            androidx.appcompat.app.AlertDialog.Builder(this)
+            AlertDialog.Builder(this)
                 .setTitle("SELECT TARGET HOST")
                 .setItems(deviceList) { _, which ->
                     val mac = deviceAddresses[which]
@@ -972,7 +1013,8 @@ fun TetherNavigationShell(
     onBiometricSettingToggled: (Boolean) -> Unit,
     onTimeoutChanged: (Long) -> Unit,
     onPrivacyMaskToggled: (Boolean) -> Unit,
-    onLaptopActionClick: (String, String) -> Unit
+    onLaptopActionClick: (String, String) -> Unit,
+    onShowQR: () -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -996,7 +1038,8 @@ fun TetherNavigationShell(
                         val navItems = listOf(
                             Triple("DASHBOARD", Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
                             Triple("HARDWARE", Icons.Default.Info, AppScreen.LAPTOP_CONTROL),
-                            Triple("SECURITY", Icons.Default.Settings, AppScreen.SECURITY_SETTINGS)
+                            Triple("SECURITY", Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
+                            Triple("PAIR", Icons.Default.QrCode, AppScreen.PAIRING)
                         )
 
                         navItems.forEach { (label, icon, screen) ->
@@ -1040,7 +1083,7 @@ fun TetherNavigationShell(
                             Icon(Icons.Default.Settings, contentDescription = null, tint = TextSecondary)
                         }
                     },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                 )
             },
             containerColor = Color.Transparent
@@ -1057,6 +1100,7 @@ fun TetherNavigationShell(
                         onBiometricSettingToggled, onTimeoutChanged, onPrivacyMaskToggled
                     )
                     AppScreen.LAPTOP_CONTROL -> LaptopControlScreen(onLaptopActionClick)
+                    AppScreen.PAIRING -> PairingScreen(onShowQR)
                 }
             }
         }
@@ -1086,7 +1130,7 @@ fun TetherAppScreen(
     ) {
         Box(modifier = Modifier.fillMaxWidth().height(360.dp), contentAlignment = Alignment.Center) {
             if (isConnected) ActiveLinkVisualizer(statusColor, statusText, connectionStatus)
-            else ScanningVisualizer(statusColor, statusText, connectionStatus)
+            else ScanningVisualizer(statusColor)
         }
 
         LiquidSurface(modifier = Modifier.fillMaxWidth()) {
@@ -1128,7 +1172,7 @@ fun TetherAppScreen(
 }
 
 @Composable
-fun ScanningVisualizer(color: Color, status: String, subStatus: String) {
+fun ScanningVisualizer(color: Color) {
     val density = LocalDensity.current
     val radiusTargetPx = remember(density) { with(density) { 160.dp.toPx() } }
 
@@ -1287,7 +1331,18 @@ fun SettingsScreen(
 @Composable
 fun DeviceAttestationCard(context: Context) {
     val evaluator = remember { DeviceIntegrityRegistry(context) }
-    val report by produceState(IntegrityReport(100, TrustTier.TRUSTED, true, true, true, true, true, true)) {
+    val report by produceState(
+        IntegrityReport(
+            score = 100,
+            tier = TrustTier.TRUSTED,
+            isBootloaderLocked = true,
+            isNotRooted = true,
+            isDevOptionsDisabled = true,
+            isUsbDebuggingDisabled = true,
+            isAppIntegrityValid = true,
+            isSecureLockscreenEnabled = true
+        )
+    ) {
         withContext(Dispatchers.IO) { value = evaluator.runAttestationPipeline() }
     }
 
@@ -1297,7 +1352,7 @@ fun DeviceAttestationCard(context: Context) {
                 Text("INTEGRITY CORE", style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
                 Text(report.tier.label, color = report.tier.color, style = MaterialTheme.typography.labelMedium)
             }
-            Text("${report.score}", style = MaterialTheme.typography.headlineMedium, color = report.tier.color)
+            Text(report.score.toString(), style = MaterialTheme.typography.headlineMedium, color = report.tier.color)
         }
         Spacer(modifier = Modifier.height(16.dp))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1337,6 +1392,47 @@ fun LaptopControlScreen(onBleActionRequested: (String, String) -> Unit) {
 }
 
 @Composable
+fun PairingScreen(onShowQR: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            "DEVICE PAIRING",
+            style = MaterialTheme.typography.headlineSmall,
+            color = LiquidCyan,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            "Show QR code on your phone to pair with Tether Desktop",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(48.dp))
+
+        LiquidSurface(modifier = Modifier.fillMaxWidth()) {
+            PremiumControlAction(
+                "SHOW PAIRING QR",
+                LiquidCyan,
+                onShowQR
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                "The QR code contains your phone's public key.\nScan it with Tether Desktop to establish a secure connection.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextMuted,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
 fun CyberConfirmationDialog(title: String, message: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, containerColor = SurfaceElevated, modifier = Modifier.border(0.5.dp, GlassBorder, RoundedCornerShape(24.dp)), shape = RoundedCornerShape(24.dp),
         title = { Text(title, color = AlertRed) },
@@ -1352,7 +1448,7 @@ fun CompromisedEnvironmentOverlay(score: Int) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("SECURITY LOCKDOWN", color = AlertRed, style = MaterialTheme.typography.labelLarge)
             Spacer(modifier = Modifier.height(48.dp))
-            Text("$score", style = MaterialTheme.typography.headlineLarge, color = AlertRed)
+            Text(score.toString(), style = MaterialTheme.typography.headlineLarge, color = AlertRed)
             Text("TRUST INDEX", color = TextSecondary)
         }
     }
