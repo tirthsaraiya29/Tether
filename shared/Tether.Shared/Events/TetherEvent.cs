@@ -18,7 +18,8 @@
         OVERLAY_DISABLED,
         AUTH_SUCCESS,
         AUTH_FAILURE,
-        LOCK_WORKSTATION
+        LOCK_WORKSTATION,
+        PROVISION_PHONE
     }
 
     public class TetherEvent

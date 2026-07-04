@@ -1,14 +1,17 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Tether.EventBus;
-using Tether.Shared.Logging;
-using Tether.TrustEngine;
+using System;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using Tether.EnforcementEngine;
+using Tether.EventBus;
 using Tether.PanicEngine;
 using Tether.RecoveryEngine;
+using Tether.Shared.DTO;
+using Tether.Shared.Events;
+using Tether.Shared.Logging;
+using Tether.TrustEngine;
 
 namespace Tether.CommunicationService
 {
@@ -20,7 +23,6 @@ namespace Tether.CommunicationService
         private readonly PipeServer _pipeServer;
         private readonly BleManager _bleManager;
 
-        // By injecting the state managers here, the DI container forces them to initialize
         private readonly TrustStateManager _trustStateManager;
         private readonly EnforcementManager _enforcementManager;
         private readonly PanicManager _panicManager;
@@ -54,18 +56,33 @@ namespace Tether.CommunicationService
             _tetherLogger.Info("Worker starting: Initializing background engines...");
             _logger.LogInformation("Tether Communication Service running at: {time}", DateTimeOffset.Now);
 
-            // Start the IPC pipe server for UI communication
             _pipeServer.Start();
 
-            // Initialize and start BLE manager
             _bleManager.InitializeIPCHandles();
             _bleManager.Start();
+
+            _eventBus.Subscribe(evt => {
+                if (evt.EventType == TetherEventType.PROVISION_PHONE && !string.IsNullOrEmpty(evt.PayloadJson))
+                {
+                    try
+                    {
+                        var payload = JsonSerializer.Deserialize<ProvisionPayload>(evt.PayloadJson);
+                        if (payload != null && !string.IsNullOrEmpty(payload.PublicKeyBase64))
+                        {
+                            _bleManager.ProvisionPhone(payload.PublicKeyBase64);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _tetherLogger.Error($"Failed to process provisioning event in Worker: {ex.Message}");
+                    }
+                }
+            });
 
             _tetherLogger.Info("All background engines, cross-session named pipes, and BLE stacks initialized successfully.");
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                // Keep service alive - heartbeat every 30 seconds
                 await Task.Delay(30000, stoppingToken);
                 _tetherLogger.Debug("Service heartbeat - alive and listening for BLE and IPC events");
             }
@@ -75,7 +92,6 @@ namespace Tether.CommunicationService
         {
             _tetherLogger.Info("Tether Communication Service is stopping");
 
-            // Clean up resources gracefully
             _pipeServer?.Dispose();
             _bleManager?.Stop();
 
