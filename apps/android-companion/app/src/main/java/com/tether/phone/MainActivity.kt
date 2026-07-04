@@ -62,6 +62,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -130,9 +132,9 @@ class MainActivity : FragmentActivity() {
     private val blockScreenReadingKey = "block_screen_reading"
     private val hideInRecentsKey = "hide_in_recents"
 
-    private var uiStatusText = mutableStateOf("SCANNING")
+    private var uiStatusText = mutableStateOf("")
     private var uiStatusColor = mutableStateOf(TextSecondary)
-    private var uiConnectionStatusText = mutableStateOf("INITIALIZING SECURE STACK")
+    private var uiConnectionStatusText = mutableStateOf("")
 
     private var isConnected = mutableStateOf(value = false)
     private var isPanicActive = mutableStateOf(value = false)
@@ -153,6 +155,8 @@ class MainActivity : FragmentActivity() {
     private var pendingPowerAction = mutableStateOf<PowerAction?>(null)
     private data class PowerAction(val command: String, val toastMessage: String, val title: String)
 
+    private var lastBiometricAuthTime = 0L
+
     private lateinit var executor: Executor
 
     private val gattStateReceiver = object : BroadcastReceiver() {
@@ -163,14 +167,14 @@ class MainActivity : FragmentActivity() {
                 runOnUiThread {
                     isConnected.value = count > 0
                     if (count > 0) {
-                        uiStatusText.value = "ENCRYPTED LINK ACTIVE"
+                        uiStatusText.value = getString(R.string.status_link_active)
                         uiStatusColor.value = IntegrityGreen
-                        uiConnectionStatusText.value = "SECURE NODES: $count"
+                        uiConnectionStatusText.value = getString(R.string.status_secure_nodes, count)
                     } else {
                         if (!isPanicActive.value) {
-                            uiStatusText.value = "BROADCASTING"
+                            uiStatusText.value = getString(R.string.status_broadcasting)
                             uiStatusColor.value = LiquidCyan
-                            uiConnectionStatusText.value = "SCANNING FOR HOST..."
+                            uiConnectionStatusText.value = getString(R.string.status_scanning_host)
                         }
                     }
                 }
@@ -184,9 +188,9 @@ class MainActivity : FragmentActivity() {
                 when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
                     BluetoothAdapter.STATE_OFF -> {
                         if (!isPanicActive.value) {
-                            uiStatusText.value = "HARDWARE OFFLINE"
+                            uiStatusText.value = getString(R.string.status_hardware_offline)
                             uiStatusColor.value = AlertRed
-                            uiConnectionStatusText.value = "BLUETOOTH LINK SEVERED"
+                            uiConnectionStatusText.value = getString(R.string.status_link_severed)
                         }
                         stopService(Intent(this@MainActivity, BleGattServerService::class.java))
                         isConnected.value = false
@@ -202,7 +206,7 @@ class MainActivity : FragmentActivity() {
     private val enableBluetoothLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) startBleService()
         else {
-            uiStatusText.value = "ACCESS DENIED"
+            uiStatusText.value = getString(R.string.status_access_denied)
             uiStatusColor.value = AlertRed
         }
     }
@@ -211,6 +215,9 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         executor = Executors.newSingleThreadExecutor()
+
+        uiStatusText.value = getString(R.string.status_scanning)
+        uiConnectionStatusText.value = getString(R.string.status_initializing_stack)
 
         val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
         isPanicActive.value = prefs.getBoolean(panicStateKey, false)
@@ -265,7 +272,7 @@ class MainActivity : FragmentActivity() {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(color = LiquidCyan, strokeWidth = 1.dp)
                                 Text(
-                                    "VERIFYING ENVIRONMENT...",
+                                    getString(R.string.status_verifying_environment),
                                     color = TextSecondary,
                                     style = MaterialTheme.typography.labelMedium,
                                     modifier = Modifier.padding(top = 48.dp)
@@ -284,11 +291,29 @@ class MainActivity : FragmentActivity() {
                                 isBiometricSettingEnabled = isBiometricSettingEnabled.value,
                                 selectedTimeoutMs = selectedTimeoutMs.longValue,
                                 isPrivacyMaskEnabled = isPrivacyMaskEnabled.value,
-                                onUnlockClick = { triggerBleAction("unlock", "🔓 UNLOCK COMMAND DISPATCHED") },
-                                onLockClick = { triggerBleAction("lock_now", "🔒 LOCK COMMAND DISPATCHED") },
+                                onUnlockClick = {
+                                    val currentTime = System.currentTimeMillis()
+                                    val needsAuth = !isBiometricSettingEnabled.value || (currentTime - lastBiometricAuthTime > 10000)
+
+                                    if (needsAuth) {
+                                        authenticateViaSystem(
+                                            title = getString(R.string.auth_unlock_title),
+                                            subtitle = getString(R.string.auth_unlock_subtitle),
+                                            allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+                                        ) { success ->
+                                            if (success) {
+                                                lastBiometricAuthTime = System.currentTimeMillis()
+                                                triggerBleAction("unlock", getString(R.string.toast_unlock_dispatched))
+                                            }
+                                        }
+                                    } else {
+                                        triggerBleAction("unlock", getString(R.string.toast_unlock_dispatched))
+                                    }
+                                },
+                                onLockClick = { triggerBleAction("lock_now", getString(R.string.toast_lock_dispatched)) },
                                 onPanicClick = {
                                     persistPanicState(true)
-                                    triggerBleAction("panic", "🚨 EMERGENCY DISCONNECT ACTIVE")
+                                    triggerBleAction("panic", getString(R.string.toast_panic_active))
                                 },
                                 onInitiateRestore = {
                                     executeVerificationPipeline(TrustVerificationStep.DEVICE_CREDENTIAL)
@@ -337,7 +362,7 @@ class MainActivity : FragmentActivity() {
                                             pendingPowerAction.value = PowerAction(
                                                 command = command,
                                                 toastMessage = toastMessage,
-                                                title = "CONFIRM ${command.uppercase()} PROTOCOL"
+                                                title = getString(R.string.dialog_confirm_protocol, command.uppercase())
                                             )
                                         }
                                         else -> {
@@ -351,7 +376,7 @@ class MainActivity : FragmentActivity() {
                             pendingPowerAction.value?.let { action ->
                                 CyberConfirmationDialog(
                                     title = action.title,
-                                    message = "Are you sure you want to execute the ${action.command} directive on the target host?",
+                                    message = getString(R.string.dialog_confirm_message, action.command),
                                     onConfirm = {
                                         triggerBleAction(action.command, action.toastMessage)
                                         pendingPowerAction.value = null
@@ -411,8 +436,8 @@ class MainActivity : FragmentActivity() {
             val command = commandType ?: "unknown"
             if (!isEnvironmentRestricted.value && !isAppLocked.value) {
                 val (bleCommand, toastMsg) = when (command) {
-                    "lock_now" -> "lock_now" to "🔒 VOICE SHORTCUT: EXECUTING LOCK"
-                    "unlock" -> "unlock" to "🔓 VOICE SHORTCUT: EXECUTING UNLOCK"
+                    "lock_now" -> "lock_now" to getString(R.string.toast_lock_dispatched)
+                    "unlock" -> "unlock" to getString(R.string.toast_unlock_dispatched)
                     "shutdown" -> "shutdown" to "🛑 VOICE SHORTCUT: EXECUTING SHUTDOWN"
                     "sleep" -> "sleep" to "💤 VOICE SHORTCUT: EXECUTING SLEEP"
                     "reboot" -> "reboot" to "🔄 VOICE SHORTCUT: EXECUTING REBOOT"
@@ -506,12 +531,13 @@ class MainActivity : FragmentActivity() {
 
     private fun authenticateForAppUnlock() {
         authenticateViaSystem(
-            title = "BIOMETRIC AUTHENTICATION",
-            subtitle = "Verify biological identity to decrypt vault",
+            title = getString(R.string.auth_title),
+            subtitle = getString(R.string.auth_subtitle),
             allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
         ) { success ->
             if (success) {
                 runOnUiThread {
+                    lastBiometricAuthTime = System.currentTimeMillis()
                     isAppLocked.value = false
                     getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
                         putLong(appLockBackgroundTimestampKey, 0L)
@@ -526,7 +552,7 @@ class MainActivity : FragmentActivity() {
                 }
             } else {
                 runOnUiThread {
-                    Toast.makeText(this, "UNAUTHORIZED ACCESS ATTEMPT", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.toast_unauthorized), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -546,9 +572,9 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun setPanicUiState() {
-        uiStatusText.value = "LOCKDOWN ACTIVE"
+        uiStatusText.value = getString(R.string.status_lockdown_active)
         uiStatusColor.value = AlertRed
-        uiConnectionStatusText.value = "TRUST REVOKED - HARDWARE ISOLATED"
+        uiConnectionStatusText.value = getString(R.string.status_trust_revoked)
         isConnected.value = false
     }
 
@@ -567,20 +593,20 @@ class MainActivity : FragmentActivity() {
                 }
 
                 AlertDialog.Builder(this)
-                    .setTitle("🔐 PAIRING QR CODE")
-                    .setMessage("Scan this with Tether Desktop to pair")
+                    .setTitle(getString(R.string.dialog_pairing_title))
+                    .setMessage(getString(R.string.dialog_pairing_message))
                     .setView(imageView)
-                    .setPositiveButton("DONE") { _, _ -> }
-                    .setNegativeButton("COPY KEY") { _, _ ->
+                    .setPositiveButton(getString(R.string.btn_done)) { _, _ -> }
+                    .setNegativeButton(getString(R.string.btn_copy_key)) { _, _ ->
                         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("TetherPublicKey", base64Key))
-                        Toast.makeText(this, "Key copied to clipboard", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, getString(R.string.toast_key_copied), Toast.LENGTH_SHORT).show()
                     }
                     .show()
             }
         } catch (e: Exception) {
             runOnUiThread {
-                Toast.makeText(this, "Failed to generate QR code: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, getString(R.string.error_qr_failed, e.message), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -596,21 +622,24 @@ class MainActivity : FragmentActivity() {
         when (step) {
             TrustVerificationStep.DEVICE_CREDENTIAL -> {
                 authenticateViaSystem(
-                    title = "SYSTEM TRUST RESTORATION",
-                    subtitle = "Confirm master security code",
+                    title = getString(R.string.auth_trust_restoration),
+                    subtitle = getString(R.string.auth_confirm_master_code),
                     allowedAuthenticators = BiometricManager.Authenticators.DEVICE_CREDENTIAL
                 ) { success ->
-                    if (success) executeVerificationPipeline(TrustVerificationStep.BIOMETRIC_FINGERPRINT)
-                    else handleVerificationFailure()
+                    if (success) {
+                        lastBiometricAuthTime = System.currentTimeMillis()
+                        executeVerificationPipeline(TrustVerificationStep.BIOMETRIC_FINGERPRINT)
+                    } else handleVerificationFailure()
                 }
             }
             TrustVerificationStep.BIOMETRIC_FINGERPRINT -> {
                 authenticateViaSystem(
-                    title = "BIOMETRIC VALIDATION",
-                    subtitle = "Scan registered fingerprint token",
+                    title = getString(R.string.auth_biometric_validation),
+                    subtitle = getString(R.string.auth_scan_fingerprint),
                     allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
                 ) { success ->
                     if (success) {
+                        lastBiometricAuthTime = System.currentTimeMillis()
                         dispatchTrustRestoredNotification()
                         persistPanicState(false)
                     } else {
@@ -629,7 +658,7 @@ class MainActivity : FragmentActivity() {
                 .setSubtitle(subtitle)
                 .setAllowedAuthenticators(allowedAuthenticators)
             if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
-                promptBuilder.setNegativeButtonText("ABORT")
+                promptBuilder.setNegativeButtonText(getString(R.string.btn_abort))
             }
             val biometricPrompt = BiometricPrompt(
                 this,
@@ -653,18 +682,18 @@ class MainActivity : FragmentActivity() {
     private fun handleVerificationFailure() {
         runOnUiThread {
             currentVerificationStep.value = TrustVerificationStep.NOT_IN_PANIC
-            Toast.makeText(this, "AUTHENTICATION CHAIN SEVERED", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.toast_auth_chain_severed), Toast.LENGTH_LONG).show()
             setPanicUiState()
         }
     }
 
     private fun dispatchTrustRestoredNotification() {
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        val channel = NotificationChannel(notificationRestoreChannelId, "System Trust", NotificationManager.IMPORTANCE_HIGH)
+        val channel = NotificationChannel(notificationRestoreChannelId, getString(R.string.notification_trust_restored_title), NotificationManager.IMPORTANCE_HIGH)
         manager.createNotificationChannel(channel)
         val notification = NotificationCompat.Builder(this, notificationRestoreChannelId)
-            .setContentTitle("TRUST RESTORED")
-            .setContentText("Local validation pipeline successful.")
+            .setContentTitle(getString(R.string.notification_trust_restored_title))
+            .setContentText(getString(R.string.notification_trust_restored_text))
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
@@ -682,29 +711,29 @@ class MainActivity : FragmentActivity() {
             val bluetoothManager = getSystemService(BluetoothManager::class.java)
             val adapter = bluetoothManager?.adapter
             if (adapter == null || !adapter.isEnabled) {
-                Toast.makeText(this, "BLUETOOTH OFFLINE", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.toast_bluetooth_offline), Toast.LENGTH_SHORT).show()
                 return
             }
             val pairedDevices = adapter.bondedDevices
             if (pairedDevices.isEmpty()) {
-                Toast.makeText(this, "NO PAIRED NODES FOUND", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, getString(R.string.toast_no_paired_nodes), Toast.LENGTH_LONG).show()
                 return
             }
             val deviceList = pairedDevices.map { "${it.name ?: "UNKNOWN"} (${it.address})" }.toTypedArray()
             val deviceAddresses = pairedDevices.map { it.address }.toTypedArray()
             AlertDialog.Builder(this)
-                .setTitle("SELECT TARGET HOST")
+                .setTitle(getString(R.string.dialog_select_host))
                 .setItems(deviceList) { _, which ->
                     val mac = deviceAddresses[which]
                     getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
                         putString("laptop_mac", mac)
                     }
-                    Toast.makeText(this, "TARGET ACQUIRED: ${deviceList[which]}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.toast_target_acquired, deviceList[which]), Toast.LENGTH_SHORT).show()
                 }
-                .setNegativeButton("CANCEL", null)
+                .setNegativeButton(getString(R.string.btn_cancel), null)
                 .show()
         } catch (e: Exception) {
-            Toast.makeText(this, "SYSTEM ERROR: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.error_system, e.message), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -753,9 +782,9 @@ class MainActivity : FragmentActivity() {
                     checkAndEnableBluetooth()
                 }
             } else {
-                uiStatusText.value = "PERMISSIONS REQUIRED"
+                uiStatusText.value = getString(R.string.status_permissions_required)
                 uiStatusColor.value = AlertRed
-                Toast.makeText(this, "SYSTEM ACCESS DENIED", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, getString(R.string.toast_system_access_denied), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -794,9 +823,9 @@ class MainActivity : FragmentActivity() {
         val bleIntent = Intent(this, BleGattServerService::class.java)
         try {
             startForegroundService(bleIntent)
-            uiStatusText.value = "BROADCAST ACTIVE"
+            uiStatusText.value = getString(R.string.status_broadcast_active)
             uiStatusColor.value = LiquidCyan
-            uiConnectionStatusText.value = "WAITING FOR HOST NODES"
+            uiConnectionStatusText.value = getString(R.string.status_waiting_nodes)
         } catch (e: Exception) {
             Log.e("TetherActivity", "Failed to start BLE service", e)
         }
@@ -1032,14 +1061,14 @@ fun TetherNavigationShell(
                     Box(modifier = Modifier.fillMaxSize().background(DeepSpace.copy(alpha = 0.92f)).blur(12.dp))
                     Column(modifier = Modifier.fillMaxSize().padding(32.dp)) {
                         Spacer(modifier = Modifier.height(48.dp))
-                        Text("COMMAND INTERFACE", style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
+                        Text(stringResource(R.string.nav_command_interface), style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
                         Spacer(modifier = Modifier.height(32.dp))
 
                         val navItems = listOf(
-                            Triple("DASHBOARD", Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
-                            Triple("HARDWARE", Icons.Default.Info, AppScreen.LAPTOP_CONTROL),
-                            Triple("SECURITY", Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
-                            Triple("PAIR", Icons.Default.QrCode, AppScreen.PAIRING)
+                            Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
+                            Triple(stringResource(R.string.nav_hardware), Icons.Default.Info, AppScreen.LAPTOP_CONTROL),
+                            Triple(stringResource(R.string.nav_security), Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
+                            Triple(stringResource(R.string.nav_pair), Icons.Default.QrCode, AppScreen.PAIRING)
                         )
 
                         navItems.forEach { (label, icon, screen) ->
@@ -1071,7 +1100,7 @@ fun TetherNavigationShell(
             topBar = {
                 CenterAlignedTopAppBar(
                     title = {
-                        Text("TETHER", style = MaterialTheme.typography.headlineSmall, color = TextPrimary)
+                        Text(stringResource(R.string.app_title), style = MaterialTheme.typography.headlineSmall, color = TextPrimary)
                     },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
@@ -1134,14 +1163,14 @@ fun TetherAppScreen(
         }
 
         LiquidSurface(modifier = Modifier.fillMaxWidth()) {
-            Text("HARDWARE DIRECTIVES", style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
+            Text(stringResource(R.string.header_hardware_directives), style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
             Spacer(modifier = Modifier.height(24.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                PremiumControlAction("SLEEP", MatrixGold, { onBleActionRequested("PWR_SLEEP", "DISPATCHED: SLEEP") }, Modifier.weight(1f), isConnected)
-                PremiumControlAction("REBOOT", TextPrimary, { onBleActionRequested("PWR_REBOOT", "DISPATCHED: REBOOT") }, Modifier.weight(1f), isConnected)
+                PremiumControlAction(stringResource(R.string.label_sleep), MatrixGold, { onBleActionRequested("PWR_SLEEP", "DISPATCHED: SLEEP") }, Modifier.weight(1f), isConnected)
+                PremiumControlAction(stringResource(R.string.label_reboot), TextPrimary, { onBleActionRequested("PWR_REBOOT", "DISPATCHED: REBOOT") }, Modifier.weight(1f), isConnected)
             }
             Spacer(modifier = Modifier.height(16.dp))
-            PremiumControlAction("HALT SYSTEM", AlertRed, { onBleActionRequested("PWR_SHUTDOWN", "DISPATCHED: SHUTDOWN") }, enabled = isConnected)
+            PremiumControlAction(stringResource(R.string.label_halt_system), AlertRed, { onBleActionRequested("PWR_SHUTDOWN", "DISPATCHED: SHUTDOWN") }, enabled = isConnected)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -1153,16 +1182,16 @@ fun TetherAppScreen(
                         if (isPanicActive) PanicRestoreCard(onInitiateRestore)
                         else {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                PremiumControlAction("UNLOCK", IntegrityGreen, onUnlockClick, Modifier.weight(1f), isConnected)
-                                PremiumControlAction("LOCK", LiquidCyan, onLockClick, Modifier.weight(1f), isConnected)
+                                PremiumControlAction(stringResource(R.string.label_unlock), IntegrityGreen, onUnlockClick, Modifier.weight(1f), isConnected)
+                                PremiumControlAction(stringResource(R.string.label_lock), LiquidCyan, onLockClick, Modifier.weight(1f), isConnected)
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                PremiumControlAction("TARGET", TextSecondary, onSelectLaptop, Modifier.weight(1f))
-                                PremiumControlAction("PANIC", AlertRed, onPanicClick, Modifier.weight(1f))
+                                PremiumControlAction(stringResource(R.string.label_target), TextSecondary, onSelectLaptop, Modifier.weight(1f))
+                                PremiumControlAction(stringResource(R.string.label_panic), AlertRed, onPanicClick, Modifier.weight(1f))
                             }
                         }
                     }
-                    TrustVerificationStep.DEVICE_CREDENTIAL -> LoadingSecurityStep("VERIFYING SECURITY CONTEXT...")
+                    TrustVerificationStep.DEVICE_CREDENTIAL -> LoadingSecurityStep(stringResource(R.string.status_verifying_security))
                     TrustVerificationStep.BIOMETRIC_FINGERPRINT -> BiometricVerificationStep { onTriggerStepVerification(step) }
                 }
             }
@@ -1186,10 +1215,10 @@ fun ScanningVisualizer(color: Color) {
             drawCircle(color.copy(alpha = alpha * 0.1f), radius * 0.7f, style = Stroke(1.dp.toPx()))
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("SCANNING", style = MaterialTheme.typography.labelMedium, color = color)
+            Text(stringResource(R.string.status_scanning), style = MaterialTheme.typography.labelMedium, color = color)
             Spacer(modifier = Modifier.height(16.dp))
-            Text("NO HOST", style = MaterialTheme.typography.headlineMedium, color = TextPrimary, fontWeight = FontWeight.Bold)
-            Text("BROADCASTING MESH", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            Text(stringResource(R.string.label_no_host), style = MaterialTheme.typography.headlineMedium, color = TextPrimary, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.label_broadcasting_mesh), style = MaterialTheme.typography.labelSmall, color = TextSecondary)
         }
     }
 }
@@ -1216,11 +1245,11 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
 @Composable
 fun PanicRestoreCard(onInitiateRestore: () -> Unit) {
     LiquidSurface(tint = IntegrityGreen) {
-        Text("TRUST REVOKED", style = MaterialTheme.typography.labelMedium, color = AlertRed)
+        Text(stringResource(R.string.status_lockdown_active), style = MaterialTheme.typography.labelMedium, color = AlertRed)
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Manual lockdown active. Verify identity to restore.", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+        Text(stringResource(R.string.panic_message), style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
         Spacer(modifier = Modifier.height(24.dp))
-        PremiumControlAction("RESTORE", IntegrityGreen, onInitiateRestore)
+        PremiumControlAction(stringResource(R.string.label_restore), IntegrityGreen, onInitiateRestore)
     }
 }
 
@@ -1236,11 +1265,11 @@ fun LoadingSecurityStep(msg: String) {
 @Composable
 fun BiometricVerificationStep(onVerify: () -> Unit) {
     LiquidSurface(tint = LiquidCyan) {
-        Text("IDENTITY REQUIRED", style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
+        Text(stringResource(R.string.header_identity_required), style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Scan registered biometric to decrypt link.", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+        Text(stringResource(R.string.identity_message), style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
         Spacer(modifier = Modifier.height(24.dp))
-        PremiumControlAction("VERIFY", LiquidCyan, onVerify)
+        PremiumControlAction(stringResource(R.string.btn_verify), LiquidCyan, onVerify)
     }
 }
 
@@ -1260,20 +1289,20 @@ fun SettingsScreen(
 
     val scrollState = rememberScrollState()
     Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(24.dp)) {
-        Text("SYSTEM CONFIG", style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
+        Text(stringResource(R.string.header_system_config), style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
         Spacer(modifier = Modifier.height(24.dp))
 
         LiquidSurface {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("BIOMETRIC GATEWAY", style = MaterialTheme.typography.titleLarge, color = TextPrimary)
-                    Text("Enforce validation on activation.", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                    Text(stringResource(R.string.label_biometric_gateway), style = MaterialTheme.typography.titleLarge, color = TextPrimary)
+                    Text(stringResource(R.string.desc_biometric_gateway), style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
                 }
                 Switch(isBiometricEnabled, onBiometricToggled, colors = SwitchDefaults.colors(checkedTrackColor = LiquidCyan))
             }
             if (isBiometricEnabled) {
                 Spacer(modifier = Modifier.height(24.dp))
-                Text("LOCK THRESHOLD", style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
+                Text(stringResource(R.string.label_lock_threshold), style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
                 Spacer(modifier = Modifier.height(16.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("IMM" to 0L, "1M" to 60000L, "5M" to 300000L).forEach { (l, v) ->
@@ -1290,8 +1319,8 @@ fun SettingsScreen(
         LiquidSurface {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("UI HARDENING", style = MaterialTheme.typography.titleLarge, color = TextPrimary)
-                    Text("Prevent capture and caching.", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                    Text(stringResource(R.string.label_ui_hardening), style = MaterialTheme.typography.titleLarge, color = TextPrimary)
+                    Text(stringResource(R.string.desc_ui_hardening), style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
                 }
                 Switch(isPrivacyMaskEnabled, onPrivacyMaskToggled, colors = SwitchDefaults.colors(checkedTrackColor = LiquidCyan))
             }
@@ -1301,8 +1330,8 @@ fun SettingsScreen(
         LiquidSurface {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("BATTERY PERSISTENCE", style = MaterialTheme.typography.titleLarge, color = TextPrimary)
-                    Text(if (isBatteryOptimized) "System may kill background mesh." else "Unrestricted background access active.", 
+                    Text(stringResource(R.string.label_battery_persistence), style = MaterialTheme.typography.titleLarge, color = TextPrimary)
+                    Text(if (isBatteryOptimized) stringResource(R.string.desc_battery_optimized) else stringResource(R.string.desc_battery_unrestricted), 
                         style = MaterialTheme.typography.bodyMedium, 
                         color = if (isBatteryOptimized) MatrixGold else IntegrityGreen)
                 }
@@ -1315,7 +1344,7 @@ fun SettingsScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan.copy(0.1f)),
                         border = BorderStroke(0.5.dp, LiquidCyan)
                     ) {
-                        Text("FIX", color = LiquidCyan)
+                        Text(stringResource(R.string.btn_fix), color = LiquidCyan)
                     }
                 } else {
                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = IntegrityGreen)
@@ -1349,17 +1378,17 @@ fun DeviceAttestationCard(context: Context) {
     LiquidSurface {
         Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column {
-                Text("INTEGRITY CORE", style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
+                Text(stringResource(R.string.header_integrity_core), style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
                 Text(report.tier.label, color = report.tier.color, style = MaterialTheme.typography.labelMedium)
             }
             Text(report.score.toString(), style = MaterialTheme.typography.headlineMedium, color = report.tier.color)
         }
         Spacer(modifier = Modifier.height(16.dp))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            MetricRow("BOOTLOADER", report.isBootloaderLocked)
-            MetricRow("ROOT", report.isNotRooted)
-            MetricRow("DEV MODULE", report.isDevOptionsDisabled)
-            MetricRow("ADB", report.isUsbDebuggingDisabled)
+            MetricRow(stringResource(R.string.label_bootloader), report.isBootloaderLocked)
+            MetricRow(stringResource(R.string.label_root), report.isNotRooted)
+            MetricRow(stringResource(R.string.label_dev_module), report.isDevOptionsDisabled)
+            MetricRow(stringResource(R.string.label_adb), report.isUsbDebuggingDisabled)
         }
     }
 }
@@ -1368,7 +1397,7 @@ fun DeviceAttestationCard(context: Context) {
 fun MetricRow(label: String, pass: Boolean) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, color = TextSecondary)
-        Text(if(pass) "SECURE" else "FAIL", color = if(pass) IntegrityGreen else AlertRed)
+        Text(if(pass) stringResource(R.string.label_secure) else stringResource(R.string.label_fail), color = if(pass) IntegrityGreen else AlertRed)
     }
 }
 
@@ -1377,15 +1406,15 @@ fun LaptopControlScreen(onBleActionRequested: (String, String) -> Unit) {
     var vol by remember { mutableFloatStateOf(50f) }
     var bri by remember { mutableFloatStateOf(50f) }
     Column(Modifier.fillMaxSize().padding(24.dp)) {
-        Text("HARDWARE INTERFACE", style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
+        Text(stringResource(R.string.header_hardware_interface), style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
         Spacer(modifier = Modifier.height(24.dp))
         LiquidSurface {
-            Text("VOLUME", style = MaterialTheme.typography.titleLarge, color = TextPrimary)
+            Text(stringResource(R.string.label_volume), style = MaterialTheme.typography.titleLarge, color = TextPrimary)
             Slider(vol, { vol = it; onBleActionRequested(if(it > vol) "VOL_UP" else "VOL_DOWN", "") }, colors = SliderDefaults.colors(thumbColor = TextPrimary, activeTrackColor = LiquidCyan))
         }
         Spacer(modifier = Modifier.height(24.dp))
         LiquidSurface {
-            Text("BRIGHTNESS", style = MaterialTheme.typography.titleLarge, color = TextPrimary)
+            Text(stringResource(R.string.label_brightness), style = MaterialTheme.typography.titleLarge, color = TextPrimary)
             Slider(bri, { bri = it; onBleActionRequested(if(it > bri) "BRIGHT_UP" else "BRIGHT_DOWN", "") }, colors = SliderDefaults.colors(thumbColor = TextPrimary, activeTrackColor = LiquidCyan))
         }
     }
@@ -1401,14 +1430,14 @@ fun PairingScreen(onShowQR: () -> Unit) {
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            "DEVICE PAIRING",
+            stringResource(R.string.header_device_pairing),
             style = MaterialTheme.typography.headlineSmall,
             color = LiquidCyan,
             fontWeight = FontWeight.Bold
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            "Show QR code on your phone to pair with Tether Desktop",
+            stringResource(R.string.desc_pairing),
             style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary,
             textAlign = TextAlign.Center
@@ -1417,13 +1446,13 @@ fun PairingScreen(onShowQR: () -> Unit) {
 
         LiquidSurface(modifier = Modifier.fillMaxWidth()) {
             PremiumControlAction(
-                "SHOW PAIRING QR",
+                stringResource(R.string.btn_show_pairing_qr),
                 LiquidCyan,
                 onShowQR
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                "The QR code contains your phone's public key.\nScan it with Tether Desktop to establish a secure connection.",
+                stringResource(R.string.desc_pairing_key),
                 style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
                 textAlign = TextAlign.Center
@@ -1437,8 +1466,8 @@ fun CyberConfirmationDialog(title: String, message: String, onConfirm: () -> Uni
     AlertDialog(onDismissRequest = onDismiss, containerColor = SurfaceElevated, modifier = Modifier.border(0.5.dp, GlassBorder, RoundedCornerShape(24.dp)), shape = RoundedCornerShape(24.dp),
         title = { Text(title, color = AlertRed) },
         text = { Text(message, color = TextSecondary) },
-        confirmButton = { Button(onConfirm, colors = ButtonDefaults.buttonColors(containerColor = AlertRed.copy(0.1f)), border = BorderStroke(0.5.dp, AlertRed)) { Text("EXECUTE", color = AlertRed) } },
-        dismissButton = { TextButton(onDismiss) { Text("ABORT", color = TextSecondary) } }
+        confirmButton = { Button(onConfirm, colors = ButtonDefaults.buttonColors(containerColor = AlertRed.copy(0.1f)), border = BorderStroke(0.5.dp, AlertRed)) { Text(stringResource(R.string.btn_execute), color = AlertRed) } },
+        dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.btn_abort), color = TextSecondary) } }
     )
 }
 
@@ -1446,10 +1475,10 @@ fun CyberConfirmationDialog(title: String, message: String, onConfirm: () -> Uni
 fun CompromisedEnvironmentOverlay(score: Int) {
     Box(Modifier.fillMaxSize().background(DeepSpace), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("SECURITY LOCKDOWN", color = AlertRed, style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.header_security_lockdown), color = AlertRed, style = MaterialTheme.typography.labelLarge)
             Spacer(modifier = Modifier.height(48.dp))
             Text(score.toString(), style = MaterialTheme.typography.headlineLarge, color = AlertRed)
-            Text("TRUST INDEX", color = TextSecondary)
+            Text(stringResource(R.string.label_trust_index), color = TextSecondary)
         }
     }
 }
@@ -1460,8 +1489,8 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("🔒", fontSize = 64.sp)
             Spacer(modifier = Modifier.height(32.dp))
-            Text("VAULT ENFORCED", color = LiquidCyan, style = MaterialTheme.typography.labelLarge)
-            Text("TAP TO DECRYPT", color = TextMuted, style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(R.string.label_vault_enforced), color = LiquidCyan, style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.label_tap_to_decrypt), color = TextMuted, style = MaterialTheme.typography.labelMedium)
         }
     }
 }
