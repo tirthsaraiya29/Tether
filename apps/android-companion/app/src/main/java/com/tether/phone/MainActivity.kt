@@ -62,7 +62,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -293,17 +293,20 @@ class MainActivity : FragmentActivity() {
                                 isPrivacyMaskEnabled = isPrivacyMaskEnabled.value,
                                 onUnlockClick = {
                                     val currentTime = System.currentTimeMillis()
-                                    val needsAuth = !isBiometricSettingEnabled.value || (currentTime - lastBiometricAuthTime > 10000)
+                                    // Fix: Only require auth if the setting is ENABLED and grace period expired
+                                    val needsAuth = isBiometricSettingEnabled.value && (currentTime - lastBiometricAuthTime > 10000)
 
                                     if (needsAuth) {
                                         authenticateViaSystem(
                                             title = getString(R.string.auth_unlock_title),
                                             subtitle = getString(R.string.auth_unlock_subtitle),
-                                            allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+                                            allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
                                         ) { success ->
                                             if (success) {
-                                                lastBiometricAuthTime = System.currentTimeMillis()
-                                                triggerBleAction("unlock", getString(R.string.toast_unlock_dispatched))
+                                                runOnUiThread {
+                                                    lastBiometricAuthTime = System.currentTimeMillis()
+                                                    triggerBleAction("unlock", getString(R.string.toast_unlock_dispatched))
+                                                }
                                             }
                                         }
                                     } else {
@@ -739,9 +742,14 @@ class MainActivity : FragmentActivity() {
 
     private fun triggerBleAction(action: String, toastMessage: String) {
         if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
-        if (toastMessage.isNotEmpty()) {
-            Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
+        
+        // Ensure Toast runs on Main Thread
+        runOnUiThread {
+            if (toastMessage.isNotEmpty()) {
+                Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
+            }
         }
+
         val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
             this.action = action
         }
@@ -839,19 +847,12 @@ fun LiquidSurface(
     modifier: Modifier = Modifier,
     alpha: Float = 0.05f,
     tint: Color = Color.White,
+    blur: Float = 20f,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(28.dp))
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        tint.copy(alpha = alpha),
-                        tint.copy(alpha = alpha * 0.4f)
-                    )
-                )
-            )
             .border(
                 width = 0.5.dp,
                 brush = Brush.linearGradient(
@@ -863,26 +864,65 @@ fun LiquidSurface(
                 ),
                 shape = RoundedCornerShape(28.dp)
             )
-            .drawBehind {
-                val strokeWidth = 1.dp.toPx()
-                val path = Path().apply {
-                    moveTo(0f, size.height * 0.2f)
-                    lineTo(0f, 28.dp.toPx())
-                    arcTo(
-                        rect = Rect(0f, 0f, 56.dp.toPx(), 56.dp.toPx()),
-                        startAngleDegrees = 180f,
-                        sweepAngleDegrees = 90f,
-                        forceMoveTo = false
-                    )
-                    lineTo(size.width * 0.2f, 0f)
-                }
-                drawPath(
-                    path = path,
-                    color = Color.White.copy(alpha = 0.2f),
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                )
-            }
     ) {
+        // Blurred background layer
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            tint.copy(alpha = alpha),
+                            tint.copy(alpha = alpha * 0.4f)
+                        )
+                    )
+                )
+                .graphicsLayer {
+                    renderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        android.graphics.RenderEffect.createBlurEffect(blur, blur, android.graphics.Shader.TileMode.CLAMP).asComposeRenderEffect()
+                    } else {
+                        null
+                    }
+                }
+                .drawBehind {
+                    val strokeWidth = 1.dp.toPx()
+                    // Dynamic specular highlight based on a virtual light source
+                    val specularPath = Path().apply {
+                        moveTo(0f, size.height * 0.3f)
+                        lineTo(0f, 28.dp.toPx())
+                        arcTo(
+                            rect = Rect(0f, 0f, 56.dp.toPx(), 56.dp.toPx()),
+                            startAngleDegrees = 180f,
+                            sweepAngleDegrees = 90f,
+                            forceMoveTo = false
+                        )
+                        lineTo(size.width * 0.3f, 0f)
+                    }
+                    drawPath(
+                        path = specularPath,
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.3f),
+                                Color.White.copy(alpha = 0.05f)
+                            ),
+                            start = Offset.Zero,
+                            end = Offset(size.width * 0.3f, size.height * 0.3f)
+                        ),
+                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                    )
+
+                    // Subsurface scattering simulation
+                    drawRect(
+                        brush = Brush.radialGradient(
+                            colors = listOf(tint.copy(alpha = 0.05f), Color.Transparent),
+                            center = Offset(size.width * 0.5f, size.height * 0.5f),
+                            radius = size.minDimension
+                        )
+                    )
+                }
+        )
+
+        // Sharp content layer
         Column(
             modifier = Modifier.padding(24.dp),
             content = content
@@ -906,31 +946,41 @@ fun BackgroundGrid() {
     )
     val nebulaAlpha by infiniteTransition.animateFloat(
         initialValue = 0.02f,
-        targetValue = 0.06f,
+        targetValue = 0.08f, // Slightly increased for more depth
         animationSpec = infiniteRepeatable(
-            animation = tween(10000, easing = EaseInOutSans),
+            animation = tween(12000, easing = EaseInOutSans),
             repeatMode = RepeatMode.Reverse
         ), label = "Nebula"
     )
 
     Canvas(modifier = Modifier.fillMaxSize()) {
         val gridSize = 60.dp.toPx()
-        val gridColor = LiquidCyan.copy(alpha = 0.03f)
+        val gridColor = LiquidCyan.copy(alpha = 0.04f)
 
+        // Draw distorted grid lines
+        // This is a simplified version of "refraction" - we could simulate it by shifting lines
+        // However, a true refraction requires knowledge of UI element positions.
+        // For a general background, we'll use a slightly varying grid density to simulate optical unevenness.
+        
         var x = (gridShift % gridSize) - gridSize
         while (x < size.width + gridSize) {
-            drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), 0.5.dp.toPx())
+            val distortionX = Math.sin((x + gridShift) / 100.0).toFloat() * 2f
+            drawLine(gridColor, Offset(x + distortionX, 0f), Offset(x + distortionX, size.height), 0.5.dp.toPx())
             x += gridSize
         }
         var y = (gridShift % gridSize) - gridSize
         while (y < size.height + gridSize) {
-            drawLine(gridColor, Offset(0f, y), Offset(size.width, y), 0.5.dp.toPx())
+            val distortionY = Math.cos((y + gridShift) / 100.0).toFloat() * 2f
+            drawLine(gridColor, Offset(0f, y + distortionY), Offset(size.width, y + distortionY), 0.5.dp.toPx())
             y += gridSize
         }
 
+        // Atmospheric nebulae with multi-stop radial gradients for "liquid" feel
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(LiquidCyan.copy(alpha = nebulaAlpha), Color.Transparent),
+                0.0f to LiquidCyan.copy(alpha = nebulaAlpha),
+                0.5f to LiquidCyan.copy(alpha = nebulaAlpha * 0.4f),
+                1.0f to Color.Transparent,
                 center = Offset(size.width * 0.2f, size.height * 0.3f),
                 radius = 800.dp.toPx()
             ),
@@ -939,7 +989,9 @@ fun BackgroundGrid() {
         )
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(IntegrityGreen.copy(alpha = nebulaAlpha * 0.8f), Color.Transparent),
+                0.0f to IntegrityGreen.copy(alpha = nebulaAlpha * 0.8f),
+                0.6f to IntegrityGreen.copy(alpha = nebulaAlpha * 0.2f),
+                1.0f to Color.Transparent,
                 center = Offset(size.width * 0.8f, size.height * 0.7f),
                 radius = 700.dp.toPx()
             ),
@@ -959,8 +1011,9 @@ fun PremiumControlAction(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val animatedScale by animateFloatAsState(if (isPressed) 0.96f else 1f, label = "Scale")
-    val animatedAlpha by animateFloatAsState(if (isPressed) 0.7f else 1f, label = "Alpha")
+    val animatedScale by animateFloatAsState(if (isPressed) 0.95f else 1f, label = "Scale")
+    val animatedAlpha by animateFloatAsState(if (isPressed) 0.8f else 1f, label = "Alpha")
+    val animatedGlow by animateFloatAsState(if (isPressed) 0.3f else 0.12f, label = "Glow")
 
     Box(
         modifier = modifier
@@ -968,6 +1021,9 @@ fun PremiumControlAction(
                 scaleX = animatedScale
                 scaleY = animatedScale
                 alpha = if (enabled) animatedAlpha else 0.4f
+                // Subtle tilt effect
+                rotationX = if (isPressed) 2f else 0f
+                cameraDistance = 12f * density
             }
             .fillMaxWidth()
             .height(60.dp)
@@ -975,8 +1031,8 @@ fun PremiumControlAction(
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        accentColor.copy(alpha = 0.12f),
-                        accentColor.copy(alpha = 0.04f)
+                        accentColor.copy(alpha = animatedGlow),
+                        accentColor.copy(alpha = animatedGlow * 0.3f)
                     )
                 )
             )
@@ -984,7 +1040,7 @@ fun PremiumControlAction(
                 width = 0.5.dp,
                 brush = Brush.linearGradient(
                     listOf(
-                        accentColor.copy(alpha = 0.5f),
+                        accentColor.copy(alpha = if (isPressed) 0.8f else 0.5f),
                         accentColor.copy(alpha = 0.1f)
                     )
                 ),
@@ -1005,17 +1061,29 @@ fun PremiumControlAction(
                     if (isPressed) {
                         drawRect(
                             brush = Brush.radialGradient(
-                                colors = listOf(accentColor.copy(alpha = 0.15f), Color.Transparent),
+                                colors = listOf(accentColor.copy(alpha = 0.2f), Color.Transparent),
+                                center = Offset(size.width / 2, size.height / 2),
                                 radius = size.width
                             )
                         )
                     }
+                    // Specular reflection on the button surface
+                    val strokeWidth = 1.dp.toPx()
+                    val reflectionPath = Path().apply {
+                        moveTo(10.dp.toPx(), 4.dp.toPx())
+                        lineTo(size.width - 20.dp.toPx(), 4.dp.toPx())
+                    }
+                    drawPath(
+                        path = reflectionPath,
+                        color = Color.White.copy(alpha = 0.15f),
+                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                    )
                 }
         )
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,
-            color = accentColor,
+            color = if (enabled) accentColor else TextMuted,
             fontWeight = FontWeight.Bold
         )
     }
@@ -1058,7 +1126,20 @@ fun TetherNavigationShell(
                 modifier = Modifier.width(320.dp).fillMaxHeight()
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    Box(modifier = Modifier.fillMaxSize().background(DeepSpace.copy(alpha = 0.92f)).blur(12.dp))
+                    // Drawer background with blur
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(DeepSpace.copy(alpha = 0.8f))
+                            .graphicsLayer {
+                                renderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    android.graphics.RenderEffect.createBlurEffect(30f, 30f, android.graphics.Shader.TileMode.CLAMP).asComposeRenderEffect()
+                                } else {
+                                    null
+                                }
+                            }
+                    )
+                    // Drawer content (sharp)
                     Column(modifier = Modifier.fillMaxSize().padding(32.dp)) {
                         Spacer(modifier = Modifier.height(48.dp))
                         Text(stringResource(R.string.nav_command_interface), style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
@@ -1118,18 +1199,29 @@ fun TetherNavigationShell(
             containerColor = Color.Transparent
         ) { paddingValues ->
             Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-                when (currentScreen) {
-                    AppScreen.TELEMETRY_DASHBOARD -> TetherAppScreen(
-                        statusText, statusColor, connectionStatus, isConnected, isPanicActive, verificationStep,
-                        onUnlockClick, onLockClick, onPanicClick, onInitiateRestore, onSelectLaptop,
-                        onTriggerStepVerification, onLaptopActionClick
-                    )
-                    AppScreen.SECURITY_SETTINGS -> SettingsScreen(
-                        isBiometricSettingEnabled, selectedTimeoutMs, isPrivacyMaskEnabled,
-                        onBiometricSettingToggled, onTimeoutChanged, onPrivacyMaskToggled
-                    )
-                    AppScreen.LAPTOP_CONTROL -> LaptopControlScreen(onLaptopActionClick)
-                    AppScreen.PAIRING -> PairingScreen(onShowQR)
+                AnimatedContent(
+                    targetState = currentScreen,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = tween(400, easing = EaseInOutSans)) + 
+                         scaleIn(initialScale = 0.98f, animationSpec = tween(400, easing = EaseInOutSans)))
+                            .togetherWith(fadeOut(animationSpec = tween(300, easing = EaseInOutSans)) + 
+                                         scaleOut(targetScale = 1.02f, animationSpec = tween(300, easing = EaseInOutSans)))
+                    },
+                    label = "ScreenTransition"
+                ) { screen ->
+                    when (screen) {
+                        AppScreen.TELEMETRY_DASHBOARD -> TetherAppScreen(
+                            statusText, statusColor, connectionStatus, isConnected, isPanicActive, verificationStep,
+                            onUnlockClick, onLockClick, onPanicClick, onInitiateRestore, onSelectLaptop,
+                            onTriggerStepVerification, onLaptopActionClick
+                        )
+                        AppScreen.SECURITY_SETTINGS -> SettingsScreen(
+                            isBiometricSettingEnabled, selectedTimeoutMs, isPrivacyMaskEnabled,
+                            onBiometricSettingToggled, onTimeoutChanged, onPrivacyMaskToggled
+                        )
+                        AppScreen.LAPTOP_CONTROL -> LaptopControlScreen(onLaptopActionClick)
+                        AppScreen.PAIRING -> PairingScreen(onShowQR)
+                    }
                 }
             }
         }
@@ -1375,7 +1467,7 @@ fun DeviceAttestationCard(context: Context) {
         withContext(Dispatchers.IO) { value = evaluator.runAttestationPipeline() }
     }
 
-    LiquidSurface {
+    LiquidSurface(tint = if (report.score >= 85) IntegrityGreen else AlertRed, blur = 15f) {
         Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column {
                 Text(stringResource(R.string.header_integrity_core), style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
@@ -1485,7 +1577,27 @@ fun CompromisedEnvironmentOverlay(score: Int) {
 
 @Composable
 fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
-    Box(Modifier.fillMaxSize().background(DeepSpace.copy(0.98f)).clickable { onAuthorizeRequested() }, contentAlignment = Alignment.Center) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .clickable { onAuthorizeRequested() },
+        contentAlignment = Alignment.Center
+    ) {
+        // Blurred background layer
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DeepSpace.copy(0.7f))
+                .graphicsLayer {
+                    renderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        android.graphics.RenderEffect.createBlurEffect(40f, 40f, android.graphics.Shader.TileMode.CLAMP).asComposeRenderEffect()
+                    } else {
+                        null
+                    }
+                }
+        )
+
+        // Sharp content layer
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("🔒", fontSize = 64.sp)
             Spacer(modifier = Modifier.height(32.dp))
