@@ -1069,6 +1069,10 @@ public partial class BleManager : IDisposable
             {
                 publicKeyBytes = Convert.FromBase64String(storedKey);
             }
+            else if (_trustedPublicKey != null)
+            {
+                publicKeyBytes = _trustedPublicKey;
+            }
             else
             {
                 _logger.Error("No stored public key available for proximity recovery authorization.");

@@ -15,6 +15,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelUuid
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -80,12 +81,12 @@ class BleGattServerService : Service() {
                     } catch (_: Exception) {}
                     isAdvertising = false
 
-        val bluetoothManager = getSystemService(BluetoothManager::class.java)
-        val devices = try {
-            bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT_SERVER)
-        } catch (_: SecurityException) {
-            null
-        } ?: emptyList()
+                    val bluetoothManager = getSystemService(BluetoothManager::class.java)
+                    val devices = try {
+                        bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT_SERVER)
+                    } catch (_: SecurityException) {
+                        null
+                    } ?: emptyList()
 
                     for (device in devices) {
                         try {
@@ -118,10 +119,19 @@ class BleGattServerService : Service() {
                 try {
                     if (bluetoothAdapter?.isEnabled == true) {
                         val bluetoothManager = getSystemService(BluetoothManager::class.java)
+
+                        try {
+                            bluetoothGattServer?.close()
+                        } catch (_: Exception) {}
+
                         bluetoothGattServer = bluetoothManager?.openGattServer(this@BleGattServerService, gattServerCallback)
-                        setupGattServer()
-                        startAdvertising()
-                        notifyStateToInterface()
+                        if (bluetoothGattServer != null) {
+                            setupGattServer()
+                            startAdvertising()
+                            notifyStateToInterface()
+                        } else {
+                            Log.e("TetherBle", "Hard Reinit: Failed to open GATT server")
+                        }
                     }
                 } catch (_: Exception) {
                 } finally {
@@ -189,6 +199,13 @@ class BleGattServerService : Service() {
                 stopSelf()
                 return
             }
+
+            if (bluetoothGattServer == null) {
+                Log.e("TetherBle", "Failed to open GATT server. Bluetooth might be busy or disabled.")
+                mainHandler.postDelayed({ stopSelf() }, 1000)
+                return
+            }
+
             setupGattServer()
             startAdvertising()
         }
@@ -198,6 +215,9 @@ class BleGattServerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (!hasRequiredRuntimePermissions()) {
+            try {
+                startForeground(NOTIFICATION_ID, createNotification())
+            } catch (_: Exception) {}
             stopSelf()
             return START_NOT_STICKY
         }
@@ -208,7 +228,12 @@ class BleGattServerService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, createNotification())
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.e("TetherBle", "Failed to start foreground: ${e.message}")
+            try {
+                startForeground(NOTIFICATION_ID, createNotification())
+            } catch (_: Exception) {}
+        }
 
         val action = intent?.action
         if (action == "ACTION_GET_STATUS") {
@@ -260,10 +285,15 @@ class BleGattServerService : Service() {
     }
 
     private val gattServerCallback = object : BluetoothGattServerCallback() {
+        override fun onServiceAdded(status: Int, service: BluetoothGattService?) {
+            Log.d("TetherBle", "onServiceAdded: status=$status, service=${service?.uuid}")
+        }
+
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(device: BluetoothDevice?, status: Int, newState: Int) {
             if (device == null) return
             val address = device.address
+            Log.d("TetherBle", "onConnectionStateChange: device=$address, status=$status, newState=$newState")
 
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 connectedDevicesMap[address] = device
@@ -277,7 +307,9 @@ class BleGattServerService : Service() {
                 computedSignaturesMap.remove(address)
                 sessionKeysMap.remove(address)
                 deviceMtuMap.remove(address)
-                pendingExecuteWrites.remove(address)
+                pendingExecuteWrites.remove("$address-$CHALLENGE_CHAR_UUID")
+                pendingExecuteWrites.remove("$address-$COMMAND_CHAR_UUID")
+                pendingExecuteWrites.remove("$address-$CCCD_UUID")
             }
             notifyStateToInterface()
         }
@@ -310,11 +342,12 @@ class BleGattServerService : Service() {
 
             val address = device.address
             val uuid = characteristic.uuid
+            val storageKey = "$address-$uuid"
 
             if (preparedWrite) {
-                val currentPayload = pendingExecuteWrites[address]?.payload ?: byteArrayOf()
+                val currentPayload = pendingExecuteWrites[storageKey]?.payload ?: byteArrayOf()
                 val assembledPayload = if (offset == 0) value else currentPayload + value
-                pendingExecuteWrites[address] = WriteSession(uuid, assembledPayload)
+                pendingExecuteWrites[storageKey] = WriteSession(uuid, assembledPayload)
 
                 if (responseNeeded) {
                     try {
@@ -373,42 +406,72 @@ class BleGattServerService : Service() {
             offset: Int,
             value: ByteArray?
         ) {
-            if (device == null || descriptor == null) return
-
-            try {
-                if (descriptor.uuid != CCCD_UUID || preparedWrite || offset != 0) {
-                    if (responseNeeded) {
+            if (device == null || descriptor == null || value == null) {
+                if (responseNeeded && device != null) {
+                    try {
                         synchronized(gattLock) {
-                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
+                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
                         }
-                    }
-                    return
+                    } catch (_: SecurityException) {}
                 }
+                return
+            }
 
-                val newValue = value ?: byteArrayOf()
+            val address = device.address
+            val uuid = descriptor.uuid
+            val storageKey = "$address-$uuid"
+            Log.d("TetherBle", "onDescriptorWriteRequest: device=$address, uuid=$uuid, prepared=$preparedWrite, value=${value.contentToString()}")
+
+            if (preparedWrite) {
+                val currentPayload = pendingExecuteWrites[storageKey]?.payload ?: byteArrayOf()
+                val assembledPayload = if (offset == 0) value else currentPayload + value
+                pendingExecuteWrites[storageKey] = WriteSession(uuid, assembledPayload)
+
+                if (responseNeeded) {
+                    try {
+                        synchronized(gattLock) {
+                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+                        }
+                    } catch (_: SecurityException) {}
+                }
+                return
+            }
+
+            if (uuid == CCCD_UUID) {
                 var accepted = false
-
-                if (newValue.isNotEmpty()) {
-                    val controlByte = newValue[0].toInt()
-                    if ((controlByte and 0x01) != 0) {
-                        notificationSubscriptions[device.address] = true
-                        @Suppress("DEPRECATION")
-                        descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                if (value.isNotEmpty()) {
+                    val controlByte = value[0].toInt()
+                    if ((controlByte and 0x03) != 0) {
+                        notificationSubscriptions[address] = true
                         accepted = true
                     } else if (controlByte == 0) {
-                        notificationSubscriptions.remove(device.address)
-                        @Suppress("DEPRECATION")
-                        descriptor.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+                        notificationSubscriptions.remove(address)
                         accepted = true
                     }
                 }
 
                 if (responseNeeded) {
-                    synchronized(gattLock) {
-                        bluetoothGattServer?.sendResponse(device, requestId, if (accepted) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
-                    }
+                    try {
+                        synchronized(gattLock) {
+                            bluetoothGattServer?.sendResponse(
+                                device,
+                                requestId,
+                                if (accepted) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_FAILURE,
+                                offset,
+                                value
+                            )
+                        }
+                    } catch (_: SecurityException) {}
                 }
-            } catch (_: SecurityException) {}
+            } else {
+                if (responseNeeded) {
+                    try {
+                        synchronized(gattLock) {
+                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
+                        }
+                    } catch (_: SecurityException) {}
+                }
+            }
         }
 
         override fun onDescriptorReadRequest(device: BluetoothDevice?, requestId: Int, offset: Int, descriptor: BluetoothGattDescriptor?) {
@@ -429,9 +492,14 @@ class BleGattServerService : Service() {
             super.onExecuteWrite(device, requestId, execute)
             if (device == null) return
 
-            val session = pendingExecuteWrites.remove(device.address)
-            if (execute && session != null) {
-                processCompletePayload(device.address, session.uuid, session.payload)
+            val address = device.address
+            val targetKeys = pendingExecuteWrites.keys().asSequence().filter { it.startsWith("$address-") }
+
+            for (storageKey in targetKeys) {
+                val session = pendingExecuteWrites.remove(storageKey)
+                if (execute && session != null) {
+                    processCompletePayload(address, session.uuid, session.payload)
+                }
             }
 
             try {
@@ -479,6 +547,17 @@ class BleGattServerService : Service() {
                                 }
                                 sendBroadcast(stateUpdateBroadcast)
                             }
+                        }
+                    }
+                }
+
+                CCCD_UUID -> {
+                    if (payload.isNotEmpty()) {
+                        val controlByte = payload[0].toInt()
+                        if ((controlByte and 0x03) != 0) {
+                            notificationSubscriptions[address] = true
+                        } else if (controlByte == 0) {
+                            notificationSubscriptions.remove(address)
                         }
                     }
                 }
