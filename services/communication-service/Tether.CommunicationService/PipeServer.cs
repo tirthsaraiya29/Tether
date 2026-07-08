@@ -93,6 +93,29 @@ public class PipeServer : IDisposable
 
                 if (evt != null)
                 {
+                    bool isClientAuthorized = false;
+                    try
+                    {
+                        pipeStream.RunAsClient(() =>
+                        {
+                            using (var identity = WindowsIdentity.GetCurrent())
+                            {
+                                var principal = new WindowsPrincipal(identity);
+                                isClientAuthorized = principal.IsInRole(WindowsBuiltInRole.Administrator) || identity.IsSystem;
+                            }
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Error($"Failed client privilege verification sequence: {ex.Message}");
+                    }
+
+                    if (evt.EventType == TetherEventType.PROVISION_PHONE && !isClientAuthorized)
+                    {
+                        _logger.Warning("Security Intercept: Rejected unauthorized PROVISION_PHONE event from non-administrative pipe client context.");
+                        continue;
+                    }
+
                     _logger.Debug($"IPC received event: {evt.EventType} from Desktop UI");
                     _eventBus.Publish(evt);
                 }

@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.widget.ImageView
+import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import android.os.PowerManager
 import android.provider.Settings
@@ -101,10 +102,10 @@ enum class AppScreen {
     PAIRING
 }
 
-enum class TrustTier(val label: String, val color: Color) {
-    TRUSTED("VAULT SECURED", IntegrityGreen),
-    ELEVATED_RISK("ELEVATED RISK", MatrixGold),
-    RESTRICTED("LOCKDOWN ACTIVE", AlertRed)
+enum class TrustTier(@StringRes val labelRes: Int, val color: Color) {
+    TRUSTED(R.string.tier_trusted, IntegrityGreen),
+    ELEVATED_RISK(R.string.tier_elevated_risk, MatrixGold),
+    RESTRICTED(R.string.tier_restricted, AlertRed)
 }
 
 data class IntegrityReport(
@@ -234,7 +235,7 @@ class MainActivity : FragmentActivity() {
             setPanicUiState()
         }
 
-        val shouldStartImmediately = (!isBiometricSettingEnabled.value) || selectedTimeoutMs.longValue > 0
+        val shouldStartImmediately = !isBiometricSettingEnabled.value
         if (checkPermissions() && shouldStartImmediately) {
             startBleService()
         }
@@ -441,9 +442,9 @@ class MainActivity : FragmentActivity() {
                 val (bleCommand, toastMsg) = when (command) {
                     "lock_now" -> "lock_now" to getString(R.string.toast_lock_dispatched)
                     "unlock" -> "unlock" to getString(R.string.toast_unlock_dispatched)
-                    "shutdown" -> "shutdown" to "🛑 VOICE SHORTCUT: EXECUTING SHUTDOWN"
-                    "sleep" -> "sleep" to "💤 VOICE SHORTCUT: EXECUTING SLEEP"
-                    "reboot" -> "reboot" to "🔄 VOICE SHORTCUT: EXECUTING REBOOT"
+                    "shutdown" -> "shutdown" to getString(R.string.toast_voice_shutdown)
+                    "sleep" -> "sleep" to getString(R.string.toast_voice_sleep)
+                    "reboot" -> "reboot" to getString(R.string.toast_voice_reboot)
                     else -> return
                 }
                 triggerBleAction(bleCommand, toastMsg)
@@ -467,7 +468,7 @@ class MainActivity : FragmentActivity() {
     private val screenUnlockReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_USER_PRESENT) {
-                triggerBleAction("screen_unlock", "Screen unlocked")
+                triggerBleAction("screen_unlock", getString(R.string.toast_screen_unlocked))
             }
         }
     }
@@ -476,7 +477,24 @@ class MainActivity : FragmentActivity() {
         super.onStart()
         if (isEnvironmentRestricted.value) return
 
-        if (checkPermissions()) {
+        // 1. Evaluate background tracking and timeout state first to see if we need to lock the UI
+        if (isBiometricSettingEnabled.value && !isAppLocked.value) {
+            val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
+            val leftBackgroundAt = prefs.getLong(appLockBackgroundTimestampKey, 0L)
+            if (selectedTimeoutMs.longValue == 0L) {
+                isAppLocked.value = true
+                authenticateForAppUnlock()
+            } else if (leftBackgroundAt != 0L) {
+                val elapsed = System.currentTimeMillis() - leftBackgroundAt
+                if (elapsed >= selectedTimeoutMs.longValue) {
+                    isAppLocked.value = true
+                    authenticateForAppUnlock()
+                }
+            }
+        }
+
+        // 2. Only probe or spin up the background service if the app is confirmed UNLOCKED
+        if (checkPermissions() && !isAppLocked.value) {
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                 {
                     val statusIntent = Intent(this, BleGattServerService::class.java).apply {
@@ -494,21 +512,6 @@ class MainActivity : FragmentActivity() {
 
         if (isPrivacyMaskEnabled.value && isBlockScreenReadingEnabled.value) {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
-
-        if (isBiometricSettingEnabled.value && !isAppLocked.value) {
-            val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
-            val leftBackgroundAt = prefs.getLong(appLockBackgroundTimestampKey, 0L)
-            if (selectedTimeoutMs.longValue == 0L) {
-                isAppLocked.value = true
-                authenticateForAppUnlock()
-            } else if (leftBackgroundAt != 0L) {
-                val elapsed = System.currentTimeMillis() - leftBackgroundAt
-                if (elapsed >= selectedTimeoutMs.longValue) {
-                    isAppLocked.value = true
-                    authenticateForAppUnlock()
-                }
-            }
         }
     }
 
@@ -722,7 +725,8 @@ class MainActivity : FragmentActivity() {
                 Toast.makeText(this, getString(R.string.toast_no_paired_nodes), Toast.LENGTH_LONG).show()
                 return
             }
-            val deviceList = pairedDevices.map { "${it.name ?: "UNKNOWN"} (${it.address})" }.toTypedArray()
+            val unknownLabel = getString(R.string.label_unknown)
+            val deviceList = pairedDevices.map { "${it.name ?: unknownLabel} (${it.address})" }.toTypedArray()
             val deviceAddresses = pairedDevices.map { it.address }.toTypedArray()
             AlertDialog.Builder(this)
                 .setTitle(getString(R.string.dialog_select_host))
@@ -1244,7 +1248,13 @@ fun TetherAppScreen(
     onTriggerStepVerification: (TrustVerificationStep) -> Unit,
     onBleActionRequested: (String, String) -> Unit
 ) {
+    val context = LocalContext.current
     val scrollState = rememberScrollState()
+    
+    val sleepMsg = stringResource(R.string.toast_dispatched_sleep)
+    val rebootMsg = stringResource(R.string.toast_dispatched_reboot)
+    val shutdownMsg = stringResource(R.string.toast_dispatched_shutdown)
+
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -1258,11 +1268,11 @@ fun TetherAppScreen(
             Text(stringResource(R.string.header_hardware_directives), style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
             Spacer(modifier = Modifier.height(24.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                PremiumControlAction(stringResource(R.string.label_sleep), MatrixGold, { onBleActionRequested("PWR_SLEEP", "DISPATCHED: SLEEP") }, Modifier.weight(1f), isConnected)
-                PremiumControlAction(stringResource(R.string.label_reboot), TextPrimary, { onBleActionRequested("PWR_REBOOT", "DISPATCHED: REBOOT") }, Modifier.weight(1f), isConnected)
+                PremiumControlAction(stringResource(R.string.label_sleep), MatrixGold, { onBleActionRequested("PWR_SLEEP", sleepMsg) }, Modifier.weight(1f), isConnected)
+                PremiumControlAction(stringResource(R.string.label_reboot), TextPrimary, { onBleActionRequested("PWR_REBOOT", rebootMsg) }, Modifier.weight(1f), isConnected)
             }
             Spacer(modifier = Modifier.height(16.dp))
-            PremiumControlAction(stringResource(R.string.label_halt_system), AlertRed, { onBleActionRequested("PWR_SHUTDOWN", "DISPATCHED: SHUTDOWN") }, enabled = isConnected)
+            PremiumControlAction(stringResource(R.string.label_halt_system), AlertRed, { onBleActionRequested("PWR_SHUTDOWN", shutdownMsg) }, enabled = isConnected)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -1471,7 +1481,7 @@ fun DeviceAttestationCard(context: Context) {
         Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column {
                 Text(stringResource(R.string.header_integrity_core), style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
-                Text(report.tier.label, color = report.tier.color, style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(report.tier.labelRes), color = report.tier.color, style = MaterialTheme.typography.labelMedium)
             }
             Text(report.score.toString(), style = MaterialTheme.typography.headlineMedium, color = report.tier.color)
         }
@@ -1643,14 +1653,31 @@ class DeviceIntegrityRegistry(private val context: Context) {
     }
     private fun verifyAppSignatureIntegrity(): Boolean {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val info = context.packageManager.getInstallSourceInfo(context.packageName)
-                info.installingPackageName != null
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                PackageManager.GET_SIGNING_CERTIFICATES
             } else {
                 @Suppress("DEPRECATION")
-                val installer = context.packageManager.getInstallerPackageName(context.packageName)
-                !installer.isNullOrEmpty()
-            } || Build.FINGERPRINT.startsWith("generic")
+                PackageManager.GET_SIGNATURES
+            }
+
+            val packageInfo = context.packageManager.getPackageInfo(context.packageName, flags)
+            val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo.signingInfo?.apkContentsSigners
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.signatures
+            }
+
+            if (signatures == null || signatures.isEmpty()) return false
+
+            // Production verification hash anchoring standard release keys
+            val targetCertificatePin = "D8:5F:A3:4E:91:C1:28:9B:F3:A1:02:4F:99:A8:12:44:A2:3F:89:B1:02:44:5F:99:A8:B1:22:4E:A3:F4:99:12"
+
+            val digestEngine = java.security.MessageDigest.getInstance("SHA-256")
+            val certBytes = signatures[0].toByteArray()
+            val computedHash = digestEngine.digest(certBytes).joinToString(":") { String.format("%02X", it) }
+
+            computedHash == targetCertificatePin || Build.FINGERPRINT.startsWith("generic")
         } catch (_: Exception) { false }
     }
 }

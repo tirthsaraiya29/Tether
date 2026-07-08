@@ -263,24 +263,32 @@ public partial class BleManager : IDisposable
         {
             if (_isStopping) return;
 
+            // Strict Teardown: Completely nullify and unbind the old watcher instance 
+            // to release underlying kernel events and avoid ghost state locks.
             if (_advWatcher != null)
             {
-                try { _advWatcher.Stop(); } catch { }
+                try
+                {
+                    _advWatcher.Stop();
+                }
+                catch { }
                 _advWatcher.Received -= OnDeviceAdvertised;
+                _advWatcher = null;
             }
 
+            // Fresh Allocation: Re-allocate from scratch on every initialization phase
             _advWatcher = new BluetoothLEAdvertisementWatcher
             {
                 ScanningMode = BluetoothLEScanningMode.Active
             };
 
-            _advWatcher.AdvertisementFilter.Advertisement.ServiceUuids.Add(SERVICE_UUID);
+            // Software Filtering Hook: Bind the callback directly to the clean stream.
             _advWatcher.Received += OnDeviceAdvertised;
 
             try
             {
                 _advWatcher.Start();
-                _logger.Info("📡 Active over-the-air advertisement listener established.");
+                _logger.Info("📡 Unfiltered Software-Level BLE Watcher safely instantiated and listening.");
             }
             catch (COMException ex) when ((uint)ex.HResult == 0x800710DF)
             {
@@ -298,6 +306,11 @@ public partial class BleManager : IDisposable
     private async void OnDeviceAdvertised(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
     {
         if (_isConnected) return;
+
+        // Software Filter: Evaluate the 128-bit Guid out-of-band. This intercepts the packet 
+        // regardless of whether the phone puts the UUID in the main advert or the scan response packet.
+        if (!args.Advertisement.ServiceUuids.Contains(SERVICE_UUID))
+            return;
 
         if (!IsProvisioned())
         {
@@ -374,6 +387,13 @@ public partial class BleManager : IDisposable
                 {
                     var gattSession = await GattSession.FromDeviceIdAsync(device.BluetoothDeviceId);
                     gattSession.MaintainConnection = true;
+
+                    int stabilityChecks = 0;
+                    while (gattSession.MaxPduSize <= 23 && stabilityChecks < 15)
+                    {
+                        await Task.Delay(100);
+                        stabilityChecks++;
+                    }
                     _logger.Info($"GattSession max PDU size synchronized to: {gattSession.MaxPduSize} bytes.");
                 }
                 catch (Exception ex)
@@ -494,7 +514,7 @@ public partial class BleManager : IDisposable
                 using (var rsa = RSA.Create())
                 {
                     rsa.ImportSubjectPublicKeyInfo(publicKeyBytes, out _);
-                    encryptedSessionKey = rsa.Encrypt(generatedKey, RSAEncryptionPadding.Pkcs1);
+                    encryptedSessionKey = rsa.Encrypt(generatedKey, RSAEncryptionPadding.OaepSHA1);
                 }
 
                 using (var writer = new DataWriter())
@@ -692,6 +712,12 @@ public partial class BleManager : IDisposable
         if (localChallengeChar == null || localSignatureChar == null || phonePublicKeyBytes == null)
             return false;
 
+        if (currentKey == null || currentKey.Length == 0)
+        {
+            _logger.Error("Crypto Intercept: Authentication aborted. Missing established symmetric session key context.");
+            return false;
+        }
+
         try
         {
             byte[] challengeNonce = new byte[16];
@@ -737,21 +763,10 @@ public partial class BleManager : IDisposable
             if (phoneSignature == null || phoneSignature.Length == 0)
                 return false;
 
-            if (currentKey != null)
+            using (var hmac = new HMACSHA256(currentKey))
             {
-                using (var hmac = new HMACSHA256(currentKey))
-                {
-                    byte[] computedHash = hmac.ComputeHash(challengeNonce);
-                    return CryptographicOperations.FixedTimeEquals(phoneSignature, computedHash);
-                }
-            }
-            else
-            {
-                using (var rsa = RSA.Create())
-                {
-                    rsa.ImportSubjectPublicKeyInfo(phonePublicKeyBytes, out _);
-                    return rsa.VerifyData(challengeNonce, phoneSignature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-                }
+                byte[] computedHash = hmac.ComputeHash(challengeNonce);
+                return CryptographicOperations.FixedTimeEquals(phoneSignature, computedHash);
             }
         }
         catch (ObjectDisposedException)

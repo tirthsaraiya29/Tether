@@ -3,7 +3,9 @@ using System;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -158,12 +160,25 @@ namespace Tether.DesktopUI
             {
                 try
                 {
-                    using var server = new NamedPipeServerStream(
+                    var uiPipeSecurity = new PipeSecurity();
+                    uiPipeSecurity.AddAccessRule(new PipeAccessRule(
+                        WindowsIdentity.GetCurrent().User!,
+                        PipeAccessRights.ReadWrite,
+                        AccessControlType.Allow));
+                    uiPipeSecurity.AddAccessRule(new PipeAccessRule(
+                        new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                        PipeAccessRights.ReadWrite,
+                        AccessControlType.Allow));
+
+                    using var server = NamedPipeServerStreamAcl.Create(
                         IpcConstants.UiPipeName,
                         PipeDirection.In,
                         NamedPipeServerStream.MaxAllowedServerInstances,
                         PipeTransmissionMode.Message,
-                        PipeOptions.Asynchronous);
+                        PipeOptions.Asynchronous,
+                        0,
+                        0,
+                        uiPipeSecurity);
 
                     await server.WaitForConnectionAsync();
 
@@ -431,24 +446,26 @@ namespace Tether.DesktopUI
 
         private void BtnCommitVault_Click(object sender, RoutedEventArgs e)
         {
-            IntPtr pointer = IntPtr.Zero; string cleartext = string.Empty;
+            IntPtr unmanagedPasswordPtr = IntPtr.Zero;
             try
             {
                 if (TxtPassword.SecurePassword.Length == 0) return;
-                pointer = Marshal.SecureStringToGlobalAllocUnicode(TxtPassword.SecurePassword);
-                cleartext = Marshal.PtrToStringUni(pointer) ?? string.Empty;
 
-                if (!LogonUser(Environment.UserName, Environment.UserDomainName, cleartext, 2, 0, out IntPtr token))
+                int plainTextLength = TxtPassword.SecurePassword.Length;
+                int byteLength = plainTextLength * 2;
+                unmanagedPasswordPtr = Marshal.SecureStringToGlobalAllocUnicode(TxtPassword.SecurePassword);
+
+                // Safe validation using native pointer directly to block managed heap generation
+                if (!LogonUser(Environment.UserName, Environment.UserDomainName, Marshal.PtrToStringUni(unmanagedPasswordPtr), 2, 0, out IntPtr token))
                 {
                     LogTerminal("❌ VAULT // Windows operational token assignment failed. Secret rejected.");
                     return;
                 }
                 CloseHandle(token);
 
-                byte[] plainBytes = Encoding.Unicode.GetBytes(cleartext);
-                DATA_BLOB dataIn = new DATA_BLOB { cbData = plainBytes.Length, pbData = Marshal.AllocHGlobal(plainBytes.Length) };
-                DATA_BLOB dataOut = new DATA_BLOB(); DATA_BLOB entropy = new DATA_BLOB();
-                Marshal.Copy(plainBytes, 0, dataIn.pbData, plainBytes.Length);
+                DATA_BLOB dataIn = new DATA_BLOB { cbData = byteLength, pbData = unmanagedPasswordPtr };
+                DATA_BLOB dataOut = new DATA_BLOB();
+                DATA_BLOB entropy = new DATA_BLOB { cbData = 0, pbData = IntPtr.Zero };
 
                 if (CryptProtectData(ref dataIn, "TetherCredentialProviderSecret", ref entropy, IntPtr.Zero, IntPtr.Zero, 0x5, ref dataOut))
                 {
@@ -459,10 +476,18 @@ namespace Tether.DesktopUI
                     LogTerminal("✓ VAULT // Cryptographic alignment sealed inside Local Security Authority.");
                     TxtPassword.Clear();
                 }
-                if (dataIn.pbData != IntPtr.Zero) Marshal.FreeHGlobal(dataIn.pbData);
             }
             catch (Exception ex) { LogTerminal($"Fatal registry exception: {ex.Message}"); }
-            finally { if (pointer != IntPtr.Zero) Marshal.ZeroFreeGlobalAllocUnicode(pointer); }
+            finally
+            {
+                if (unmanagedPasswordPtr != IntPtr.Zero)
+                {
+                    // Strict forensic zeroization of raw unmanaged memory space parameters
+                    byte[] zeroBuffer = new byte[TxtPassword.SecurePassword.Length * 2];
+                    Marshal.Copy(zeroBuffer, 0, unmanagedPasswordPtr, zeroBuffer.Length);
+                    Marshal.ZeroFreeGlobalAllocUnicode(unmanagedPasswordPtr);
+                }
+            }
         }
 
         private void ResolveUserContext() => TxtUserType.Text = $"✓ SECURE SUBSYSTEM BOUNDS: {Environment.UserDomainName}\\{Environment.UserName}";

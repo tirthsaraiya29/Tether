@@ -298,6 +298,11 @@ class BleGattServerService : Service() {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 connectedDevicesMap[address] = device
                 try {
+                    // Turn off active advertisements once matched to release peripheral radio context slots
+                    advertiser?.stopAdvertising(this@BleGattServerService.advertiseCallback)
+                    isAdvertising = false
+                } catch (_: Exception) {}
+                try {
                     bluetoothGattServer?.setPreferredPhy(device, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_OPTION_NO_PREFERRED)
                 } catch (_: Exception) {}
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
@@ -310,6 +315,12 @@ class BleGattServerService : Service() {
                 pendingExecuteWrites.remove("$address-$CHALLENGE_CHAR_UUID")
                 pendingExecuteWrites.remove("$address-$COMMAND_CHAR_UUID")
                 pendingExecuteWrites.remove("$address-$CCCD_UUID")
+
+                // Strategic Self-Healing Hook: Automatically redeploy advertisements on drops
+                // to eliminate the requirement of manually toggling system Bluetooth.
+                mainHandler.post {
+                    startAdvertising()
+                }
             }
             notifyStateToInterface()
         }
@@ -317,6 +328,7 @@ class BleGattServerService : Service() {
         override fun onMtuChanged(device: BluetoothDevice?, mtu: Int) {
             device?.let {
                 deviceMtuMap[it.address] = mtu
+                Log.i("TetherBle", "MTU state established natively for context address ${it.address}: $mtu bytes")
             }
         }
 
@@ -526,8 +538,8 @@ class BleGattServerService : Service() {
                         if (sessionKey != null) {
                             computedSignaturesMap[address] = securityEngine.computeHmac(payload, sessionKey)
                         } else {
-                            val signatureBytes = securityEngine.signChallenge(payload)
-                            computedSignaturesMap[address] = signatureBytes
+                            Log.e("TetherBle", "Handshake Refused: Attempt to read signature prior to establishing safe symmetric session keys.")
+                            computedSignaturesMap[address] = byteArrayOf()
                         }
                     }
                 }
@@ -603,6 +615,9 @@ class BleGattServerService : Service() {
                 return
             }
 
+            // Defend Against Asynchronous Race Conditions: Default to baseline '23' bytes if
+            // the exchange occurs before the MTU handshake completes. This enforces specification-compliant
+            // multi-part chunking and allows the Windows client to execute subsequent ATT_READ_BLOB_REQ passes.
             val currentMtu = deviceMtuMap[device.address] ?: 23
             val maxPayloadSize = currentMtu - 1
             val remainingLength = fullValue.size - offset
@@ -635,22 +650,40 @@ class BleGattServerService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun startAdvertising() {
+        if (isAdvertising) return
         val serverAdvertiser = bluetoothAdapter?.bluetoothLeAdvertiser ?: return
         advertiser = serverAdvertiser
+
+        // Force explicit low-latency, high-power connectable flags
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-            .setConnectable(true)
+            .setConnectable(true) // CRITICAL: Must be explicitly true
+            .setTimeout(0)
             .build()
 
+        // Packet 1: Core Advertisement Payload (Kept ultra-lean to prevent 31-byte overflow)
         val advertiseData = AdvertiseData.Builder()
-            .setIncludeDeviceName(false)
+            .setIncludeDeviceName(false) // CRITICAL: Stop OS from injecting long names that cause 31-byte overflow
+            .setIncludeTxPowerLevel(false)
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
 
+        // Packet 2: Scan Response Payload (Windows Active Scan requests this to finalize discovery metadata)
+        val scanResponseData = AdvertiseData.Builder()
+            .setIncludeDeviceName(true) // Safe to put here because it handles a separate 31-byte buffer limit
+            .build()
+
         try {
-            advertiser?.startAdvertising(settings, advertiseData, null, advertiseCallback)
+            advertiser?.stopAdvertising(advertiseCallback) // Pre-emptive cleanup
         } catch (_: Exception) {}
+
+        try {
+            advertiser?.startAdvertising(settings, advertiseData, scanResponseData, advertiseCallback)
+            Log.i("TetherBle", "🚀 Advanced Dual-Packet Advertisement Array deployed successfully.")
+        } catch (e: Exception) {
+            Log.e("TetherBle", "Failed to initialize advertiser array: ${e.message}")
+        }
     }
 
     private val advertiseCallback = object : AdvertiseCallback() {
@@ -669,13 +702,13 @@ class BleGattServerService : Service() {
     }
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(CHANNEL_ID, "Tether Proximity Services", NotificationManager.IMPORTANCE_HIGH)
+        val channel = NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel_name), NotificationManager.IMPORTANCE_HIGH)
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     private fun createNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("Tether Shield Active")
-        .setContentText("Maintaining local cryptographically continuous background radio mesh links...")
+        .setContentTitle(getString(R.string.notification_title))
+        .setContentText(getString(R.string.notification_text))
         .setSmallIcon(android.R.drawable.ic_lock_lock)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .build()
