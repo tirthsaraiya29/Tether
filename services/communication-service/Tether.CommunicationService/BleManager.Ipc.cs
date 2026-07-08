@@ -49,8 +49,8 @@ namespace Tether.CommunicationService
 
                     // Allow SYSTEM full control
                     security.AddAccessRule(new EventWaitHandleAccessRule(
-                        new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
-                        EventWaitHandleRights.FullControl,
+                        new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
+                        EventWaitHandleRights.Synchronize,
                         AccessControlType.Allow));
 
                     // Allow the current service account (NETWORK SERVICE or LOCAL SERVICE)
