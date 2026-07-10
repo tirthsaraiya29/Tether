@@ -1,4 +1,3 @@
-// CSampleCredential.cpp
 #ifndef WIN32_NO_STATUS
 #include <ntstatus.h>
 #define WIN32_NO_STATUS
@@ -21,10 +20,6 @@
 static bool g_isClassRegistered = false;
 void WriteDebugLog(const wchar_t* format, ...);
 
-
-// -------------------------------------------------------------------
-// Constructor / Destructor
-// -------------------------------------------------------------------
 CSampleCredential::CSampleCredential() :
     _cRef(1),
     _pCredProvCredentialEvents(nullptr),
@@ -56,8 +51,14 @@ CSampleCredential::~CSampleCredential()
 {
     _isValid.store(false);
 
-    if (_hWaitApp) { UnregisterWait(_hWaitApp); _hWaitApp = nullptr; }
-    if (_hWaitScreen) { UnregisterWait(_hWaitScreen); _hWaitScreen = nullptr; }
+    if (_hWaitApp) {
+        BOOL result = UnregisterWait(_hWaitApp);
+        _hWaitApp = nullptr;
+    }
+    if (_hWaitScreen) {
+        BOOL result = UnregisterWait(_hWaitScreen);
+        _hWaitScreen = nullptr;
+    }
     Sleep(100);
 
     if (_hAppEvent) CloseHandle(_hAppEvent);
@@ -80,9 +81,6 @@ CSampleCredential::~CSampleCredential()
     DllRelease();
 }
 
-// -------------------------------------------------------------------
-// Window procedure
-// -------------------------------------------------------------------
 LRESULT CALLBACK CSampleCredential::WebAuthMsgProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     if (uMsg == WM_SIGNAL_CREDENTIALS_CHANGED)
@@ -95,9 +93,6 @@ LRESULT CALLBACK CSampleCredential::WebAuthMsgProc(HWND hWnd, UINT uMsg, WPARAM 
     return DefWindowProcW(hWnd, uMsg, wParam, lParam);
 }
 
-// -------------------------------------------------------------------
-// Initialize – FIX #3: null check
-// -------------------------------------------------------------------
 HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* rgcpfd,
     const FIELD_STATE_PAIR* rgfsp,
@@ -145,9 +140,6 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     return hr;
 }
 
-// -------------------------------------------------------------------
-// Load stored hash (kept for compatibility, but not used for verification)
-// -------------------------------------------------------------------
 HRESULT CSampleCredential::LoadStoredPasswordHashFromTpm()
 {
     HRESULT hr = S_FALSE;
@@ -165,9 +157,6 @@ HRESULT CSampleCredential::LoadStoredPasswordHashFromTpm()
     return hr;
 }
 
-// -------------------------------------------------------------------
-// Standard COM methods (Advise, UnAdvise, SetSelected, SetDeselected...)
-// -------------------------------------------------------------------
 HRESULT CSampleCredential::Advise(ICredentialProviderCredentialEvents* pcpce)
 {
     if (_pCredProvCredentialEvents) _pCredProvCredentialEvents->Release();
@@ -289,7 +278,6 @@ HRESULT CSampleCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD dwSel
 
         if (_pCredProvCredentialEvents)
         {
-            // Removed Begin/EndFieldUpdates (not needed)
             CREDENTIAL_PROVIDER_FIELD_STATE cpfsPassword = (_dwSelectedMethod == 2) ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
             CREDENTIAL_PROVIDER_FIELD_STATE cpfsBypass = (_dwSelectedMethod == 3) ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
             _pCredProvCredentialEvents->SetFieldState(this, SFI_PASSWORD, cpfsPassword);
@@ -304,9 +292,6 @@ HRESULT CSampleCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD dwSel
     return E_INVALIDARG;
 }
 
-// -------------------------------------------------------------------
-// Password packing helpers
-// -------------------------------------------------------------------
 HRESULT CSampleCredential::_PackActualPasswordCredential(
     CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
     CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
@@ -318,16 +303,14 @@ HRESULT CSampleCredential::_PackActualPasswordCredential(
     PWSTR pszDomain = nullptr;
     PWSTR pszUsername = nullptr;
 
-    // Robust self-contained parsing engine to resolve explicit routing tokens for LSA
     if (_pszQualifiedUserName)
     {
         if (wcsstr(_pszQualifiedUserName, L"MicrosoftAccount\\") == _pszQualifiedUserName)
         {
-            // 1) Microsoft Account format routing (Domain must be explicit, username is the raw email)
             hr = SHStrDupW(L"MicrosoftAccount", &pszDomain);
             if (SUCCEEDED(hr))
             {
-                hr = SHStrDupW(_pszQualifiedUserName + 17, &pszUsername); // Skip "MicrosoftAccount\" (17 chars)
+                hr = SHStrDupW(_pszQualifiedUserName + 17, &pszUsername);
             }
         }
         else
@@ -335,7 +318,6 @@ HRESULT CSampleCredential::_PackActualPasswordCredential(
             const wchar_t* pchWhack = wcschr(_pszQualifiedUserName, L'\\');
             if (pchWhack)
             {
-                // 2) Standard Local or Domain format (Domain\User)
                 size_t lenDomain = pchWhack - _pszQualifiedUserName;
                 pszDomain = (PWSTR)CoTaskMemAlloc((lenDomain + 1) * sizeof(WCHAR));
                 if (pszDomain)
@@ -350,7 +332,6 @@ HRESULT CSampleCredential::_PackActualPasswordCredential(
                 const wchar_t* pchAt = wcschr(_pszQualifiedUserName, L'@');
                 if (pchAt)
                 {
-                    // 3) Pure UPN format (User@Domain)
                     size_t lenUser = pchAt - _pszQualifiedUserName;
                     pszUsername = (PWSTR)CoTaskMemAlloc((lenUser + 1) * sizeof(WCHAR));
                     if (pszUsername)
@@ -362,7 +343,6 @@ HRESULT CSampleCredential::_PackActualPasswordCredential(
                 }
                 else
                 {
-                    // 4) Isolated Username Fallback - Fetch active machine profile context
                     WCHAR computerName[MAX_COMPUTERNAME_LENGTH + 1];
                     DWORD size = ARRAYSIZE(computerName);
                     if (!GetComputerNameW(computerName, &size))
@@ -428,7 +408,6 @@ HRESULT CSampleCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SER
             if (CryptUnprotectData(&dataIn, nullptr, nullptr, nullptr, nullptr,
                 CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, &dataOut))
             {
-                // Calculate length strictly based on non-zero WCHARs to drop any padding artifacts
                 size_t passwordLen = 0;
                 const WCHAR* pChars = reinterpret_cast<const WCHAR*>(dataOut.pbData);
                 size_t maxChars = dataOut.cbData / sizeof(WCHAR);
@@ -442,9 +421,8 @@ HRESULT CSampleCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SER
                 if (pszDecryptedPassword)
                 {
                     CopyMemory(pszDecryptedPassword, dataOut.pbData, passwordLen * sizeof(WCHAR));
-                    pszDecryptedPassword[passwordLen] = L'\0'; // Hard null-termination
+                    pszDecryptedPassword[passwordLen] = L'\0';
 
-                    // Pack the completely sanitized password string
                     hr = _PackActualPasswordCredential(pcpgsr, pcpcs, pszDecryptedPassword);
 
                     SecureZeroMemory(pszDecryptedPassword, (passwordLen + 1) * sizeof(WCHAR));
@@ -459,6 +437,26 @@ HRESULT CSampleCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SER
     return hr;
 }
 
+HRESULT CSampleCredential::_GetManualPasswordAndPack(
+    CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
+    CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs)
+{
+    if (!_rgFieldStrings[SFI_PASSWORD] || wcslen(_rgFieldStrings[SFI_PASSWORD]) == 0)
+    {
+        return S_FALSE;
+    }
+
+    HRESULT hrPack = _PackActualPasswordCredential(pcpgsr, pcpcs, _rgFieldStrings[SFI_PASSWORD]);
+    size_t len = wcslen(_rgFieldStrings[SFI_PASSWORD]);
+    SecureZeroMemory(_rgFieldStrings[SFI_PASSWORD], len * sizeof(WCHAR));
+    if (SUCCEEDED(hrPack) && *pcpgsr == CPGSR_RETURN_CREDENTIAL_FINISHED)
+    {
+        g_fAutoLogonReady.store(false);
+        return S_OK;
+    }
+    return E_FAIL;
+}
+
 bool CSampleCredential::_IsEncryptedPasswordBlobPresent()
 {
     HKEY hKey;
@@ -470,9 +468,6 @@ bool CSampleCredential::_IsEncryptedPasswordBlobPresent()
     return (res == ERROR_SUCCESS && dwType == REG_BINARY);
 }
 
-// -------------------------------------------------------------------
-// GetSerialization – FIX #1, #7
-// -------------------------------------------------------------------
 HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
     CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
     PWSTR* ppwszOptionalStatusText,
@@ -486,12 +481,16 @@ HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
     *pcpsiOptionalStatusIcon = CPSI_NONE;
     ZeroMemory(pcpcs, sizeof(*pcpcs));
 
-    if (!_IsEncryptedPasswordBlobPresent())
+    bool blobPresent = _IsEncryptedPasswordBlobPresent();
+    if (!blobPresent)
     {
-        SHStrDupW(L"Tether not configured. Run Tether.Configuration.exe as Administrator.",
-            ppwszOptionalStatusText);
-        *pcpsiOptionalStatusIcon = CPSI_ERROR;
-        return S_FALSE;
+        _dwSelectedMethod = 3;
+        g_dwSelectedMethod.store(3);
+        if (_pCredProvCredentialEvents)
+        {
+            _pCredProvCredentialEvents->SetFieldState(this, SFI_PASSWORD, CPFS_DISPLAY_IN_SELECTED_TILE);
+            _pCredProvCredentialEvents->SetFieldString(this, SFI_LOGONSTATUS_TEXT, L"Enter your password manually.");
+        }
     }
 
     PWSTR pszCurrentTileSid = nullptr;
@@ -505,7 +504,7 @@ HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
     }
     CoTaskMemFree(pszCurrentTileSid);
 
-    if (_dwSelectedMethod == 0)   // phone app
+    if (_dwSelectedMethod == 0)
     {
         if (!g_fPhoneAppTriggered.load())
         {
@@ -524,7 +523,7 @@ HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
         *pcpsiOptionalStatusIcon = CPSI_ERROR;
         return S_FALSE;
     }
-    else if (_dwSelectedMethod == 1)   // phone screen
+    else if (_dwSelectedMethod == 1)
     {
         if (!g_fPhoneScreenTriggered.load())
         {
@@ -543,7 +542,7 @@ HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
         *pcpsiOptionalStatusIcon = CPSI_ERROR;
         return S_FALSE;
     }
-    else if (_dwSelectedMethod == 2)   // TPM password
+    else if (_dwSelectedMethod == 2)
     {
         if (!_rgFieldStrings[SFI_PASSWORD] || wcslen(_rgFieldStrings[SFI_PASSWORD]) == 0)
         {
@@ -577,13 +576,32 @@ HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
         *pcpsiOptionalStatusIcon = CPSI_ERROR;
         return S_FALSE;
     }
+    else if (_dwSelectedMethod == 3)
+    {
+        if (!_rgFieldStrings[SFI_PASSWORD] || wcslen(_rgFieldStrings[SFI_PASSWORD]) == 0)
+        {
+            SHStrDupW(L"Please enter your local security credential.",
+                ppwszOptionalStatusText);
+            *pcpsiOptionalStatusIcon = CPSI_WARNING;
+            return S_FALSE;
+        }
+        HRESULT hrPack = _PackActualPasswordCredential(pcpgsr, pcpcs, _rgFieldStrings[SFI_PASSWORD]);
+        size_t len = wcslen(_rgFieldStrings[SFI_PASSWORD]);
+        SecureZeroMemory(_rgFieldStrings[SFI_PASSWORD], len * sizeof(WCHAR));
+        if (SUCCEEDED(hrPack) && *pcpgsr == CPGSR_RETURN_CREDENTIAL_FINISHED)
+        {
+            g_fAutoLogonReady.store(false);
+            return S_OK;
+        }
+        SHStrDupW(L"System packaging fault encountered during interactive serialization.",
+            ppwszOptionalStatusText);
+        *pcpsiOptionalStatusIcon = CPSI_ERROR;
+        return S_FALSE;
+    }
 
     return E_UNEXPECTED;
 }
 
-// -------------------------------------------------------------------
-// ReportResult
-// -------------------------------------------------------------------
 HRESULT CSampleCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatus,
     PWSTR* ppwszOptionalStatusText,
     CREDENTIAL_PROVIDER_STATUS_ICON* pcpsiOptionalStatusIcon)
@@ -613,12 +631,8 @@ HRESULT CSampleCredential::GetUserSid(PWSTR* ppszSid)
     return SHStrDupW(_pszUserSid, ppszSid);
 }
 
-// -------------------------------------------------------------------
-// Password verification – FIX #11: salted hash using CryptHashData
-// -------------------------------------------------------------------
 HRESULT CSampleCredential::_VerifySaltedPassword(PCWSTR pwzEnteredPassword)
 {
-    // Read stored hash and salt from registry
     HKEY hKey;
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
         return E_FAIL;
@@ -641,7 +655,6 @@ HRESULT CSampleCredential::_VerifySaltedPassword(PCWSTR pwzEnteredPassword)
     }
     RegCloseKey(hKey);
 
-    // Convert password to UTF-8 bytes (Passing wcslen instead of -1 excludes the null terminator)
     int cchPassword = (int)wcslen(pwzEnteredPassword);
     int cbNeeded = WideCharToMultiByte(CP_UTF8, 0, pwzEnteredPassword, cchPassword, nullptr, 0, nullptr, nullptr);
     if (cbNeeded <= 0) return E_FAIL;
@@ -650,13 +663,11 @@ HRESULT CSampleCredential::_VerifySaltedPassword(PCWSTR pwzEnteredPassword)
     if (WideCharToMultiByte(CP_UTF8, 0, pwzEnteredPassword, cchPassword, (LPSTR)passwordBytes.data(), (int)passwordBytes.size(), nullptr, nullptr) == 0)
         return E_FAIL;
 
-    // Combine salt + password cleanly (No need to subtract 1 anymore!)
     std::vector<BYTE> combined;
     combined.reserve(dwSize + cbNeeded);
     combined.insert(combined.end(), salt, salt + dwSize);
     combined.insert(combined.end(), passwordBytes.begin(), passwordBytes.end());
 
-    // Compute SHA-256 using CryptoAPI
     HCRYPTPROV hProv;
     if (!CryptAcquireContextW(&hProv, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
         return E_FAIL;
@@ -683,30 +694,24 @@ HRESULT CSampleCredential::_VerifySaltedPassword(PCWSTR pwzEnteredPassword)
     CryptDestroyHash(hHash);
     CryptReleaseContext(hProv, 0);
 
-    // Convert to hex string
     WCHAR computedHex[65];
     for (int i = 0; i < 32; i++)
         swprintf_s(&computedHex[i * 2], 3, L"%02x", hash[i]);
     computedHex[64] = 0;
     WriteDebugLog(L"Stored hash: %s", szStoredHash);
     WriteDebugLog(L"Computed hex: %s", computedHex);
-    return (_wcsicmp(computedHex, szStoredHash) == 0) ? S_OK : E_FAIL;
-
+    return (wcscmp(computedHex, szStoredHash) == 0) ? S_OK : E_FAIL;
 
     WriteDebugLog(L"Stored hash: %s", szStoredHash);
     WriteDebugLog(L"Computed hex: %s", computedHex);
 }
 
-// Old method kept for compatibility (not used)
 HRESULT CSampleCredential::_VerifyTpmPassword(PCWSTR) { return E_NOTIMPL; }
 HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
 {
-    // No command links are used in this credential provider.
     return E_INVALIDARG;
 }
-// -------------------------------------------------------------------
-// Field options
-// -------------------------------------------------------------------
+
 HRESULT CSampleCredential::GetFieldOptions(DWORD dwFieldID, CREDENTIAL_PROVIDER_CREDENTIAL_FIELD_OPTIONS* pcpcfo)
 {
     *pcpcfo = CPCFO_NONE;
@@ -717,9 +722,6 @@ HRESULT CSampleCredential::GetFieldOptions(DWORD dwFieldID, CREDENTIAL_PROVIDER_
     return S_OK;
 }
 
-// -------------------------------------------------------------------
-// Event callbacks – FIX #12
-// -------------------------------------------------------------------
 void CALLBACK CSampleCredential::_OnAppEventSignaled(PVOID lpParameter, BOOLEAN)
 {
     CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lpParameter);
@@ -755,6 +757,14 @@ void CSampleCredential::_StartBackgroundIPCListeners()
         return;
 
     _hAppEvent = OpenEventW(EVENT_MODIFY_STATE | SYNCHRONIZE, FALSE, L"Global\\TetherPhoneAppUnlocked");
+    if (_hAppEvent == nullptr)
+    {
+        SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE };
+        _hAppEvent = CreateEventW(&sa, TRUE, FALSE, L"Global\\TetherPhoneAppUnlocked");
+        if (_hAppEvent)
+            WriteDebugLog(L"Created missing global event: TetherPhoneAppUnlocked");
+    }
+
     if (_hAppEvent)
     {
         RegisterWaitForSingleObject(&_hWaitApp, _hAppEvent,
@@ -763,6 +773,14 @@ void CSampleCredential::_StartBackgroundIPCListeners()
     }
 
     _hScreenEvent = OpenEventW(EVENT_MODIFY_STATE | SYNCHRONIZE, FALSE, L"Global\\TetherPhoneScreenUnlocked");
+    if (_hScreenEvent == nullptr)
+    {
+        SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE };
+        _hScreenEvent = CreateEventW(&sa, TRUE, FALSE, L"Global\\TetherPhoneScreenUnlocked");
+        if (_hScreenEvent)
+            WriteDebugLog(L"Created missing global event: TetherPhoneScreenUnlocked");
+    }
+
     if (_hScreenEvent)
     {
         RegisterWaitForSingleObject(&_hWaitScreen, _hScreenEvent,

@@ -61,82 +61,28 @@ class BleGattServerService : Service() {
     @Volatile
     private var activeCommandPayload = byteArrayOf()
 
-    private val advertisementWatchdog = object : Runnable {
+    // Watchdog interval increased from 45 min to 2 hours (7,200,000 ms)
+    // Replace the entire advertisementWatchdog object with this:
+    private val healthCheckRunnable = object : Runnable {
         override fun run() {
             try {
-                val resetSignal = "reset_pending".toByteArray(Charsets.UTF_8)
-                pushCommandToSubscribedDevices(resetSignal)
-                selfHealingHandler.postDelayed({ executeHardTeardown() }, 1500)
-            } catch (_: Exception) {
-                selfHealingHandler.postDelayed(this, 2700000)
-            }
-        }
-
-        @SuppressLint("MissingPermission")
-        private fun executeHardTeardown() {
-            synchronized(gattLock) {
-                try {
-                    try {
-                        advertiser?.stopAdvertising(advertiseCallback)
-                    } catch (_: Exception) {}
-                    isAdvertising = false
-
-                    val bluetoothManager = getSystemService(BluetoothManager::class.java)
-                    val devices = try {
-                        bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT_SERVER)
-                    } catch (_: SecurityException) {
-                        null
-                    } ?: emptyList()
-
-                    for (device in devices) {
-                        try {
-                            bluetoothGattServer?.cancelConnection(device)
-                        } catch (_: SecurityException) {}
-                    }
-
-                    connectedDevicesMap.clear()
-                    deviceChallenges.clear()
-                    notificationSubscriptions.clear()
-                    computedSignaturesMap.clear()
-                    sessionKeysMap.clear()
-                    deviceMtuMap.clear()
-                    pendingExecuteWrites.clear()
-
-                    try {
-                        bluetoothGattServer?.close()
-                    } catch (_: Exception) {}
-                    bluetoothGattServer = null
-                } catch (_: Exception) {
-                } finally {
-                    selfHealingHandler.postDelayed({ reinitializeGattStack() }, 5000)
+                // Only act if we have no connected devices and advertising is not active
+                if (connectedDevicesMap.isEmpty() && !isAdvertising) {
+                    Log.i("TetherBle", "Health check: no connections, restarting advertising.")
+                    startAdvertisingWithRetry(3)
+                } else if (connectedDevicesMap.isNotEmpty() && !isAdvertising) {
+                    // If we have connections but advertising stopped (should not happen), restart it
+                    Log.w("TetherBle", "Health check: connections exist but advertising stopped. Restarting.")
+                    startAdvertisingWithRetry(3)
+                } else if (connectedDevicesMap.isNotEmpty()) {
+                    // Everything is healthy - log at debug level if needed
+                    Log.d("TetherBle", "Health check: ${connectedDevicesMap.size} connections, advertising active.")
                 }
-            }
-        }
-
-        @SuppressLint("MissingPermission")
-        private fun reinitializeGattStack() {
-            synchronized(gattLock) {
-                try {
-                    if (bluetoothAdapter?.isEnabled == true) {
-                        val bluetoothManager = getSystemService(BluetoothManager::class.java)
-
-                        try {
-                            bluetoothGattServer?.close()
-                        } catch (_: Exception) {}
-
-                        bluetoothGattServer = bluetoothManager?.openGattServer(this@BleGattServerService, gattServerCallback)
-                        if (bluetoothGattServer != null) {
-                            setupGattServer()
-                            startAdvertising()
-                            notifyStateToInterface()
-                        } else {
-                            Log.e("TetherBle", "Hard Reinit: Failed to open GATT server")
-                        }
-                    }
-                } catch (_: Exception) {
-                } finally {
-                    selfHealingHandler.postDelayed(this, 2700000)
-                }
+            } catch (e: Exception) {
+                Log.e("TetherBle", "Health check error: ${e.message}")
+            } finally {
+                // Reschedule every 5 minutes instead of 2 hours
+                selfHealingHandler.postDelayed(this, 300000) // 5 minutes
             }
         }
     }
@@ -210,7 +156,7 @@ class BleGattServerService : Service() {
             startAdvertising()
         }
 
-        selfHealingHandler.postDelayed(advertisementWatchdog, 2700000)
+        selfHealingHandler.postDelayed(healthCheckRunnable, 300000)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -289,7 +235,6 @@ class BleGattServerService : Service() {
             Log.d("TetherBle", "onServiceAdded: status=$status, service=${service?.uuid}")
         }
 
-        @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(device: BluetoothDevice?, status: Int, newState: Int) {
             if (device == null) return
             val address = device.address
@@ -297,11 +242,12 @@ class BleGattServerService : Service() {
 
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 connectedDevicesMap[address] = device
-                try {
-                    // Turn off active advertisements once matched to release peripheral radio context slots
-                    advertiser?.stopAdvertising(this@BleGattServerService.advertiseCallback)
-                    isAdvertising = false
-                } catch (_: Exception) {}
+                if (hasRequiredRuntimePermissions()) {
+                    try {
+                        advertiser?.stopAdvertising(this@BleGattServerService.advertiseCallback)
+                        isAdvertising = false
+                    } catch (_: Exception) {}
+                }
                 try {
                     bluetoothGattServer?.setPreferredPhy(device, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_OPTION_NO_PREFERRED)
                 } catch (_: Exception) {}
@@ -316,11 +262,9 @@ class BleGattServerService : Service() {
                 pendingExecuteWrites.remove("$address-$COMMAND_CHAR_UUID")
                 pendingExecuteWrites.remove("$address-$CCCD_UUID")
 
-                // Strategic Self-Healing Hook: Automatically redeploy advertisements on drops
-                // to eliminate the requirement of manually toggling system Bluetooth.
-                mainHandler.post {
-                    startAdvertising()
-                }
+                mainHandler.postDelayed({
+                    startAdvertisingWithRetry(3)
+                }, 500)
             }
             notifyStateToInterface()
         }
@@ -356,11 +300,11 @@ class BleGattServerService : Service() {
             val uuid = characteristic.uuid
             val storageKey = "$address-$uuid"
 
-            if (preparedWrite) {
-                val currentPayload = pendingExecuteWrites[storageKey]?.payload ?: byteArrayOf()
-                val assembledPayload = if (offset == 0) value else currentPayload + value
-                pendingExecuteWrites[storageKey] = WriteSession(uuid, assembledPayload)
+            val currentSession = pendingExecuteWrites[storageKey]
+            val accumulatedPayload = if (offset == 0) value else (currentSession?.payload ?: byteArrayOf()) + value
+            pendingExecuteWrites[storageKey] = WriteSession(uuid, accumulatedPayload)
 
+            if (preparedWrite) {
                 if (responseNeeded) {
                     try {
                         synchronized(gattLock) {
@@ -371,7 +315,20 @@ class BleGattServerService : Service() {
                 return
             }
 
-            processCompletePayload(address, uuid, value)
+            var shouldProcessImmediately = true
+            if (uuid == CHALLENGE_CHAR_UUID) {
+                val hasSessionKey = sessionKeysMap.containsKey(address)
+                if (!hasSessionKey && accumulatedPayload.size < 256) {
+                    shouldProcessImmediately = false
+                } else if (hasSessionKey && accumulatedPayload.size < 16) {
+                    shouldProcessImmediately = false
+                }
+            }
+
+            if (shouldProcessImmediately) {
+                val finalPayload = pendingExecuteWrites.remove(storageKey)?.payload ?: accumulatedPayload
+                processCompletePayload(address, uuid, finalPayload)
+            }
 
             if (responseNeeded) {
                 try {
@@ -615,9 +572,6 @@ class BleGattServerService : Service() {
                 return
             }
 
-            // Defend Against Asynchronous Race Conditions: Default to baseline '23' bytes if
-            // the exchange occurs before the MTU handshake completes. This enforces specification-compliant
-            // multi-part chunking and allows the Windows client to execute subsequent ATT_READ_BLOB_REQ passes.
             val currentMtu = deviceMtuMap[device.address] ?: 23
             val maxPayloadSize = currentMtu - 1
             val remainingLength = fullValue.size - offset
@@ -654,28 +608,24 @@ class BleGattServerService : Service() {
         val serverAdvertiser = bluetoothAdapter?.bluetoothLeAdvertiser ?: return
         advertiser = serverAdvertiser
 
-        // Force explicit low-latency, high-power connectable flags
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-            .setConnectable(true) // CRITICAL: Must be explicitly true
+            .setConnectable(true)
             .setTimeout(0)
             .build()
 
-        // Packet 1: Core Advertisement Payload (Kept ultra-lean to prevent 31-byte overflow)
         val advertiseData = AdvertiseData.Builder()
-            .setIncludeDeviceName(false) // CRITICAL: Stop OS from injecting long names that cause 31-byte overflow
-            .setIncludeTxPowerLevel(false)
+            .setIncludeDeviceName(true)
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
 
-        // Packet 2: Scan Response Payload (Windows Active Scan requests this to finalize discovery metadata)
         val scanResponseData = AdvertiseData.Builder()
-            .setIncludeDeviceName(true) // Safe to put here because it handles a separate 31-byte buffer limit
+            .setIncludeTxPowerLevel(true)
             .build()
 
         try {
-            advertiser?.stopAdvertising(advertiseCallback) // Pre-emptive cleanup
+            advertiser?.stopAdvertising(advertiseCallback)
         } catch (_: Exception) {}
 
         try {
@@ -686,9 +636,31 @@ class BleGattServerService : Service() {
         }
     }
 
+    // Retry advertising with exponential backoff
+    private fun startAdvertisingWithRetry(retries: Int) {
+        if (retries <= 0) {
+            Log.e("TetherBle", "Advertisement start failed after all retries.")
+            return
+        }
+        startAdvertising()
+        // Check if advertising started successfully; if not, schedule retry
+        mainHandler.postDelayed({
+            if (!isAdvertising) {
+                Log.w("TetherBle", "Advertising not active, retrying (${retries-1} retries left)")
+                startAdvertisingWithRetry(retries - 1)
+            }
+        }, 1000)
+    }
+
     private val advertiseCallback = object : AdvertiseCallback() {
-        override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) { isAdvertising = true }
-        override fun onStartFailure(errorCode: Int) { isAdvertising = false }
+        override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
+            isAdvertising = true
+            Log.i("TetherBle", "Advertising started successfully.")
+        }
+        override fun onStartFailure(errorCode: Int) {
+            isAdvertising = false
+            Log.e("TetherBle", "Advertising start failed with error: $errorCode")
+        }
     }
 
     private fun hasRequiredRuntimePermissions(): Boolean {

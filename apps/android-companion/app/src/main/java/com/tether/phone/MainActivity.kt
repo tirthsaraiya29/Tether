@@ -236,8 +236,12 @@ class MainActivity : FragmentActivity() {
         }
 
         val shouldStartImmediately = !isBiometricSettingEnabled.value
-        if (checkPermissions() && shouldStartImmediately) {
-            startBleService()
+        if (shouldStartImmediately) {
+            if (checkPermissions()) {
+                startBleService()
+            } else {
+                requestPermissions()
+            }
         }
 
         lifecycleScope.launch(Dispatchers.IO) {

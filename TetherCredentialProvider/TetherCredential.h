@@ -1,4 +1,3 @@
-// CSampleCredential.h
 #pragma once
 
 #include <windows.h>
@@ -17,7 +16,6 @@ class CSampleCredential : public ICredentialProviderCredential2,
     public ICredentialProviderCredentialWithFieldOptions
 {
 public:
-    // IUnknown
     IFACEMETHODIMP_(ULONG) AddRef() { return ++_cRef; }
     IFACEMETHODIMP_(ULONG) Release()
     {
@@ -38,7 +36,6 @@ public:
 
     void SetProvider(CSampleProvider* pProvider) { _pProvider = pProvider; }
 
-    // ICredentialProviderCredential
     IFACEMETHODIMP Advise(ICredentialProviderCredentialEvents* pcpce);
     IFACEMETHODIMP UnAdvise();
     IFACEMETHODIMP SetSelected(BOOL* pbAutoLogon);
@@ -62,10 +59,8 @@ public:
         PWSTR* ppwszOptionalStatusText,
         CREDENTIAL_PROVIDER_STATUS_ICON* pcpsiOptionalStatusIcon);
 
-    // ICredentialProviderCredential2
     IFACEMETHODIMP GetUserSid(PWSTR* ppszSid);
 
-    // ICredentialProviderCredentialWithFieldOptions
     IFACEMETHODIMP GetFieldOptions(DWORD dwFieldID, CREDENTIAL_PROVIDER_CREDENTIAL_FIELD_OPTIONS* pcpcfo);
 
 public:
@@ -91,6 +86,8 @@ private:
         CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
         PCWSTR pszPassword);
     HRESULT _GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
+        CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs);
+    HRESULT _GetManualPasswordAndPack(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
         CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs);
     HRESULT _VerifySaltedPassword(PCWSTR pwzEnteredPassword);
     bool _IsEncryptedPasswordBlobPresent();
@@ -122,5 +119,5 @@ private:
     HANDLE                                  _hWaitScreen;
     HWND                                    _hWndMessage;
 
-    std::atomic<bool>                       _isValid;   // FIX #12
+    std::atomic<bool>                       _isValid;
 };

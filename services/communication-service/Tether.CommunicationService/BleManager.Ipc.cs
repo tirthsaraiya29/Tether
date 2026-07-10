@@ -47,13 +47,11 @@ namespace Tether.CommunicationService
 
                     var security = new EventWaitHandleSecurity();
 
-                    // Allow SYSTEM full control
                     security.AddAccessRule(new EventWaitHandleAccessRule(
                         new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
                         EventWaitHandleRights.Synchronize,
                         AccessControlType.Allow));
 
-                    // Allow the current service account (NETWORK SERVICE or LOCAL SERVICE)
                     var selfSid = WindowsIdentity.GetCurrent().User;
                     if (selfSid != null)
                     {
@@ -62,14 +60,6 @@ namespace Tether.CommunicationService
                             EventWaitHandleRights.FullControl,
                             AccessControlType.Allow));
                     }
-
-                    // Allow Authenticated Users to only modify/signal (no full control)
-                    security.AddAccessRule(new EventWaitHandleAccessRule(
-                        new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
-                        EventWaitHandleRights.Synchronize | EventWaitHandleRights.Modify,
-                        AccessControlType.Allow));
-
-                    // Do NOT add WorldSid – prevents spoofing
 
                     _appEvent = EventWaitHandleAcl.Create(
                         false,
