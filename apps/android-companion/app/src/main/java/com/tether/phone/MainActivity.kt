@@ -153,6 +153,9 @@ class MainActivity : FragmentActivity() {
     private var currentIntegrityScore = mutableIntStateOf(100)
     private var isLoading = mutableStateOf(true)
 
+    private var activePendingCommand = mutableStateOf<String?>(null)
+    private var isCommandConfirmed = mutableStateOf(false)
+
     private var pendingPowerAction = mutableStateOf<PowerAction?>(null)
     private data class PowerAction(val command: String, val toastMessage: String, val title: String)
 
@@ -177,6 +180,23 @@ class MainActivity : FragmentActivity() {
                             uiStatusColor.value = LiquidCyan
                             uiConnectionStatusText.value = getString(R.string.status_scanning_host)
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    private val commandConfirmedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.tether.phone.ACTION_COMMAND_CONFIRMED") {
+                val confirmedCommand = intent.getStringExtra("confirmed_command")
+                Log.d("TetherActivity", "Direct command confirmation intercepted: $confirmedCommand")
+                runOnUiThread {
+                    isCommandConfirmed.value = true
+                    lifecycleScope.launch {
+                        kotlinx.coroutines.delay(2000)
+                        activePendingCommand.value = null
+                        isCommandConfirmed.value = false
                     }
                 }
             }
@@ -298,8 +318,8 @@ class MainActivity : FragmentActivity() {
                                 isPrivacyMaskEnabled = isPrivacyMaskEnabled.value,
                                 onUnlockClick = {
                                     val currentTime = System.currentTimeMillis()
-                                    // Fix: Only require auth if the setting is ENABLED and grace period expired
-                                    val needsAuth = isBiometricSettingEnabled.value && (currentTime - lastBiometricAuthTime > 10000)
+                                    // FORCE biometric if last auth > 10s, regardless of structural lock settings
+                                    val needsAuth = (currentTime - lastBiometricAuthTime > 10000)
 
                                     if (needsAuth) {
                                         authenticateViaSystem(
@@ -404,6 +424,14 @@ class MainActivity : FragmentActivity() {
                                     }
                                 )
                             }
+
+                            activePendingCommand.value?.let { command ->
+                                CommandConfirmationDialog(
+                                    command = command,
+                                    isConfirmed = isCommandConfirmed.value,
+                                    onDismiss = { activePendingCommand.value = null }
+                                )
+                            }
                         }
                     }
                 }
@@ -422,6 +450,12 @@ class MainActivity : FragmentActivity() {
             this,
             gattStateReceiver,
             IntentFilter(BleGattServerService.ACTION_GATT_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        ContextCompat.registerReceiver(
+            this,
+            commandConfirmedReceiver,
+            IntentFilter("com.tether.phone.ACTION_COMMAND_CONFIRMED"),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
     }
@@ -534,6 +568,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onDestroy() {
         try { unregisterReceiver(gattStateReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(commandConfirmedReceiver) } catch (_: Exception) {}
         super.onDestroy()
         try { unregisterReceiver(screenUnlockReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(bluetoothStateReceiver) } catch (_: Exception) {}
@@ -650,7 +685,6 @@ class MainActivity : FragmentActivity() {
                 ) { success ->
                     if (success) {
                         lastBiometricAuthTime = System.currentTimeMillis()
-                        dispatchTrustRestoredNotification()
                         persistPanicState(false)
                     } else {
                         handleVerificationFailure()
@@ -697,24 +731,6 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun dispatchTrustRestoredNotification() {
-        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        val channel = NotificationChannel(notificationRestoreChannelId, getString(R.string.notification_trust_restored_title), NotificationManager.IMPORTANCE_HIGH)
-        manager.createNotificationChannel(channel)
-        val notification = NotificationCompat.Builder(this, notificationRestoreChannelId)
-            .setContentTitle(getString(R.string.notification_trust_restored_title))
-            .setContentText(getString(R.string.notification_trust_restored_text))
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setColor(IntegrityGreen.toArgb())
-            .build()
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-            manager.notify(2, notification)
-        }
-    }
-
     @SuppressLint("MissingPermission")
     private fun showLaptopSelectionDialog() {
         try {
@@ -751,6 +767,9 @@ class MainActivity : FragmentActivity() {
     private fun triggerBleAction(action: String, toastMessage: String) {
         if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
         
+        activePendingCommand.value = action
+        isCommandConfirmed.value = false
+
         // Ensure Toast runs on Main Thread
         runOnUiThread {
             if (toastMessage.isNotEmpty()) {
@@ -1590,6 +1609,75 @@ fun CompromisedEnvironmentOverlay(score: Int) {
 }
 
 @Composable
+fun CommandConfirmationDialog(
+    command: String,
+    isConfirmed: Boolean,
+    onDismiss: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(DeepSpace.copy(alpha = 0.85f))
+            .clickable(enabled = false) {},
+        contentAlignment = Alignment.Center
+    ) {
+        LiquidSurface(
+            modifier = Modifier.width(320.dp),
+            tint = if (isConfirmed) IntegrityGreen else LiquidCyan,
+            alpha = 0.2f,
+            blur = 40f
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (isConfirmed) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = IntegrityGreen,
+                        modifier = Modifier.size(64.dp)
+                    )
+                } else {
+                    CircularProgressIndicator(
+                        color = LiquidCyan,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(64.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = if (isConfirmed) "Handshake Verified" else "Transmitting Cryptographic Token...",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (isConfirmed) IntegrityGreen else LiquidCyan,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val displayName = command.uppercase().replace("_", " ")
+                Text(
+                    text = if (isConfirmed)
+                        "Execution link established successfully for $displayName."
+                    else
+                        "Awaiting execution handshake link for $displayName...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                PremiumControlAction(
+                    label = "Dismiss",
+                    accentColor = TextSecondary,
+                    onClick = onDismiss
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
     Box(
         Modifier
@@ -1601,10 +1689,10 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(DeepSpace.copy(0.7f))
+                .background(DeepSpace.copy(0.9f))
                 .graphicsLayer {
                     renderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        android.graphics.RenderEffect.createBlurEffect(40f, 40f, android.graphics.Shader.TileMode.CLAMP).asComposeRenderEffect()
+                        android.graphics.RenderEffect.createBlurEffect(60f, 60f, android.graphics.Shader.TileMode.CLAMP).asComposeRenderEffect()
                     } else {
                         null
                     }
