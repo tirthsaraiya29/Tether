@@ -99,6 +99,58 @@ public partial class BleManager : IDisposable
         public uint dwPhysicalMonitorHandleCount;
     }
 
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSQueryUserToken(uint SessionId, out IntPtr phToken);
+
+    [DllImport("kernel32.dll", SetLastError = false)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool CreateProcessAsUser(
+        IntPtr hToken,
+        string? lpApplicationName,
+        string lpCommandLine,
+        IntPtr lpProcessAttributes,
+        IntPtr lpThreadAttributes,
+        bool bInheritHandles,
+        uint dwCreationFlags,
+        IntPtr lpEnvironment,
+        string? lpCurrentDirectory,
+        ref STARTUPINFO lpStartupInfo,
+        out PROCESS_INFORMATION lpProcessInformation);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct STARTUPINFO
+    {
+        public int cb;
+        public string? lpReserved;
+        public string? lpDesktop;
+        public string? lpTitle;
+        public int dwX;
+        public int dwY;
+        public int dwXSize;
+        public int dwYSize;
+        public int dwXCountChars;
+        public int dwYCountChars;
+        public int dwFillAttribute;
+        public int dwFlags;
+        public short wShowWindow;
+        public short cbReserved2;
+        public IntPtr lpReserved2;
+        public IntPtr hStdInput;
+        public IntPtr hStdOutput;
+        public IntPtr hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_INFORMATION
+    {
+        public IntPtr hProcess;
+        public IntPtr hThread;
+        public int dwProcessId;
+        public int dwThreadId;
+    }
+
     private const uint MONITOR_DEFAULTTOPRIMARY = 0x00000001;
 
     public BleManager(IEventBus eventBus, ITetherLogger logger)
@@ -631,7 +683,6 @@ public partial class BleManager : IDisposable
         }
     }
 
-
     private async Task<GattDeviceServicesResult> TryGetGattServicesAsync(BluetoothLEDevice device, CancellationToken token)
     {
         try
@@ -865,25 +916,49 @@ public partial class BleManager : IDisposable
                     await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
                     await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.LOCK_WORKSTATION, Source = "BleManager" });
 
+                    IntPtr userToken = IntPtr.Zero;
                     try
                     {
                         uint activeSessionId = WTSGetActiveConsoleSessionId();
                         if (activeSessionId != 0xFFFFFFFF)
                         {
-                            if (!WTSDisconnectSession(IntPtr.Zero, activeSessionId, false))
+                            if (WTSQueryUserToken(activeSessionId, out userToken))
                             {
-                                int errorCode = Marshal.GetLastWin32Error();
-                                _logger.Warning($"WTSDisconnectSession failed for Session {activeSessionId}. Win32 Error: {errorCode}");
-                            }
-                            else
-                            {
-                                _logger.Info($"Successfully disconnected active console Session {activeSessionId}.");
+                                var si = new STARTUPINFO();
+                                si.cb = Marshal.SizeOf(si);
+                                si.lpDesktop = @"Winsta0\Default";
+
+                                string cmd = "rundll32.exe user32.dll,LockWorkStation";
+
+                                bool success = CreateProcessAsUser(
+                                    userToken,
+                                    null,
+                                    cmd,
+                                    IntPtr.Zero,
+                                    IntPtr.Zero,
+                                    false,
+                                    0,
+                                    IntPtr.Zero,
+                                    null,
+                                    ref si,
+                                    out var pi);
+
+                                if (success)
+                                {
+                                    CloseHandle(pi.hProcess);
+                                    CloseHandle(pi.hThread);
+                                    _logger.Info("Workstation lock pipeline routed seamlessly via user session context.");
+                                }
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.Error($"Failed to execute WTS session lock primitive: {ex.Message}");
+                        _logger.Error($"Failed to execute cross-session lock proxy: {ex.Message}");
+                    }
+                    finally
+                    {
+                        if (userToken != IntPtr.Zero) CloseHandle(userToken);
                     }
                     break;
 
