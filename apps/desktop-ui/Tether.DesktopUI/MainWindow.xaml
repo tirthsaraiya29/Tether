@@ -1,18 +1,122 @@
 ﻿<Window x:Class="Tether.DesktopUI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="TETHER // SECURE DESKTOP MANAGER" Height="750" Width="950" 
-        Background="#060913" WindowStartupLocation="CenterScreen"
-        BorderBrush="#00F0FF" BorderThickness="1.5" SnapsToDevicePixels="True">
+        Title="TETHER // SECURE DESKTOP MANAGER" 
+        Height="780" Width="1000" 
+        MinHeight="700" MinWidth="950"
+        Background="#050811" 
+        WindowStartupLocation="CenterScreen"
+        BorderBrush="#00F0FF" BorderThickness="1" 
+        SnapsToDevicePixels="True">
 
     <Window.Resources>
         <Style x:Key="CyberCard" TargetType="Border">
             <Setter Property="Background" Value="#0D1527"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="BorderBrush" Value="#1A294A"/>
+            <Setter Property="CornerRadius" Value="6"/>
             <Setter Property="Padding" Value="20"/>
             <Setter Property="Margin" Value="0,0,0,16"/>
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#00F0FF"/>
+            <Setter Property="Foreground" Value="#060913"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="BtnBorder" 
+                                Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="4" 
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Opacity" Value="0.85"/>
+                                <Setter TargetName="BtnBorder" Property="Effect">
+                                    <Setter.Value>
+                                        <DropShadowEffect Color="{Binding Background.Color, RelativeSource={RelativeSource TemplatedParent}}" BlurRadius="8" ShadowDepth="0"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Background" Value="#1A294A"/>
+                                <Setter Property="Foreground" Value="#526685"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="CyberInputBase" TargetType="Control">
+            <Setter Property="Background" Value="#060A12"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
             <Setter Property="BorderBrush" Value="#1A294A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        </Style>
+
+        <Style TargetType="TextBox" BasedOn="{StaticResource CyberInputBase}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="InputBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
+                            <ScrollViewer x:Name="PART_ContentHost" Focusable="False" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="InputBorder" Property="BorderBrush" Value="#00F0FF"/>
+                            </Trigger>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="InputBorder" Property="BorderBrush" Value="#00F0FF"/>
+                                <Setter TargetName="InputBorder" Property="Effect">
+                                    <Setter.Value>
+                                        <DropShadowEffect Color="#00F0FF" BlurRadius="6" ShadowDepth="0"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="PasswordBox" BasedOn="{StaticResource CyberInputBase}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
+                        <Border x:Name="InputBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
+                            <ScrollViewer x:Name="PART_ContentHost" Focusable="False" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="InputBorder" Property="BorderBrush" Value="#00F0FF"/>
+                            </Trigger>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="InputBorder" Property="BorderBrush" Value="#00F0FF"/>
+                                <Setter TargetName="InputBorder" Property="Effect">
+                                    <Setter.Value>
+                                        <DropShadowEffect Color="#00F0FF" BlurRadius="6" ShadowDepth="0"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="Slider">
@@ -21,6 +125,48 @@
             <Setter Property="TickFrequency" Value="1"/>
             <Setter Property="IsSnapToTickEnabled" Value="True"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid>
+                            <Border Name="TrackBackground" Background="#141F36" Height="6" CornerRadius="3" VerticalAlignment="Center" Margin="5,0"/>
+                            <Track Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="Slider.DecreaseLarge">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate>
+                                                <Border Background="Transparent"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="Slider.IncreaseLarge">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate>
+                                                <Border Background="Transparent"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Width="14" Height="14">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Ellipse Fill="#00FF66" Stroke="#FFFFFF" StrokeThickness="1">
+                                                    <Ellipse.Effect>
+                                                        <DropShadowEffect Color="#00FF66" BlurRadius="6" ShadowDepth="0"/>
+                                                    </Ellipse.Effect>
+                                                </Ellipse>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Window.Resources>
 
@@ -30,66 +176,73 @@
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <StackPanel Grid.Column="0" Margin="0,0,16,0">
-            <Border Style="{StaticResource CyberCard}" BorderBrush="#00F0FF">
-                <StackPanel>
-                    <TextBlock Text="TETHER CORE NETWORKING" FontSize="20" FontWeight="Black" Foreground="#FFFFFF"/>
-                    <TextBlock x:Name="TxtUserType" Text="AUTHENTICATING SESSION DOMAIN..." FontSize="11" Foreground="#00F0FF" FontWeight="Bold" Margin="0,4,0,0"/>
-                    <Separator Background="#1A294A" Margin="0,12,0,12"/>
-                    <Grid>
-                        <StackPanel>
-                            <TextBlock x:Name="TxtStatus" Text="WAITING FOR SERVICE PIPELINE..." FontSize="14" FontWeight="Bold" Foreground="#8A99AD"/>
-                            <TextBlock x:Name="TxtRssi" Text="RSSI NODE: -- dBm" FontSize="11" Foreground="#526685" Margin="0,2,0,0"/>
+        <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,0,16,0">
+            <StackPanel>
+
+                <Border Style="{StaticResource CyberCard}" BorderBrush="#00F0FF">
+                    <StackPanel>
+                        <TextBlock Text="◈ TETHER CORE NETWORKING" FontSize="16" FontWeight="Black" Foreground="#FFFFFF"/>
+                        <TextBlock x:Name="TxtUserType" Text="AUTHENTICATING SESSION DOMAIN..." FontSize="11" Foreground="#00F0FF" FontWeight="Bold" Margin="0,6,0,0"/>
+
+                        <Separator Background="#1A294A" Margin="0,14,0,14"/>
+
+                        <Grid>
+                            <StackPanel>
+                                <TextBlock x:Name="TxtStatus" Text="WAITING FOR SERVICE PIPELINE..." FontSize="13" FontWeight="Bold" Foreground="#8A99AD"/>
+                                <TextBlock x:Name="TxtRssi" Text="RSSI NODE: -- dBm" FontSize="11" Foreground="#526685" Margin="0,4,0,0"/>
+                            </StackPanel>
+                            <Ellipse x:Name="IndicatorNode" Width="14" Height="14" Fill="#FF0055" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <Ellipse.Effect>
+                                    <DropShadowEffect Color="#FF0055" BlurRadius="12" ShadowDepth="0"/>
+                                </Ellipse.Effect>
+                            </Ellipse>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CyberCard}">
+                    <StackPanel>
+                        <TextBlock Text="▲ HARDWARE NODE REGISTRY" FontSize="11" FontWeight="Bold" Foreground="#00F0FF" Margin="0,0,0,16"/>
+
+                        <StackPanel Margin="0,0,0,18">
+                            <Grid Margin="0,0,0,8">
+                                <TextBlock Text="SYSTEM MASTER VOLUME" FontSize="11" FontWeight="Bold" Foreground="#8A99AD"/>
+                                <TextBlock x:Name="TxtVolumeValue" Text="0%" FontSize="11" Foreground="#00FF66" HorizontalAlignment="Right" FontWeight="Bold"/>
+                            </Grid>
+                            <Slider x:Name="SliderVolume" ValueChanged="SliderVolume_ValueChanged"/>
                         </StackPanel>
-                        <Ellipse x:Name="IndicatorNode" Width="16" Height="16" Fill="#FF0055" HorizontalAlignment="Right" VerticalAlignment="Center">
-                            <Ellipse.Effect>
-                                <DropShadowEffect Color="#FF0055" BlurRadius="10" ShadowDepth="0"/>
-                            </Ellipse.Effect>
-                        </Ellipse>
-                    </Grid>
-                </StackPanel>
-            </Border>
 
-            <Border Style="{StaticResource CyberCard}">
-                <StackPanel>
-                    <TextBlock Text="HARDWARE NODE REGISTRY" FontSize="12" FontWeight="Bold" Foreground="#00F0FF" Margin="0,0,0,16"/>
-
-                    <StackPanel Margin="0,0,0,16">
-                        <Grid Margin="0,0,0,6">
-                            <TextBlock Text="SYSTEM MASTER VOLUME" FontSize="11" FontWeight="Bold" Foreground="#FFFFFF"/>
-                            <TextBlock x:Name="TxtVolumeValue" Text="0%" FontSize="11" Foreground="#00FF66" HorizontalAlignment="Right" FontWeight="Bold"/>
-                        </Grid>
-                        <Slider x:Name="SliderVolume" ValueChanged="SliderVolume_ValueChanged"/>
+                        <StackPanel Margin="0,0,0,4">
+                            <Grid Margin="0,0,0,8">
+                                <TextBlock Text="HARDWARE MATRIX BRIGHTNESS" FontSize="11" FontWeight="Bold" Foreground="#8A99AD"/>
+                                <TextBlock x:Name="TxtBrightnessValue" Text="0%" FontSize="11" Foreground="#00FF66" HorizontalAlignment="Right" FontWeight="Bold"/>
+                            </Grid>
+                            <Slider x:Name="SliderBrightness" ValueChanged="SliderBrightness_ValueChanged"/>
+                        </StackPanel>
                     </StackPanel>
+                </Border>
 
-                    <StackPanel Margin="0,0,0,8">
-                        <Grid Margin="0,0,0,6">
-                            <TextBlock Text="HARDWARE MATRIX BRIGHTNESS" FontSize="11" FontWeight="Bold" Foreground="#FFFFFF"/>
-                            <TextBlock x:Name="TxtBrightnessValue" Text="0%" FontSize="11" Foreground="#00FF66" HorizontalAlignment="Right" FontWeight="Bold"/>
-                        </Grid>
-                        <Slider x:Name="SliderBrightness" ValueChanged="SliderBrightness_ValueChanged"/>
+                <Border Style="{StaticResource CyberCard}">
+                    <StackPanel>
+                        <TextBlock Text="▼ PHONE PAIRING PROFILE" FontSize="11" FontWeight="Bold" Foreground="#00F0FF" Margin="0,0,0,12"/>
+                        <TextBlock Text="Enter the public key payload from your Tether companion device:" FontSize="10" Foreground="#526685" Margin="0,0,0,10" TextWrapping="Wrap"/>
+
+                        <TextBox x:Name="TxtPublicKey" Height="36" Margin="0,0,0,12" TextWrapping="NoWrap"/>
+                        <Button Content="PAIR PROVISIONED PHONE" Height="38" Click="BtnProvision_Click" Cursor="Hand"/>
+                        <TextBlock x:Name="TxtProvisionStatus" Text="Not paired" FontSize="11" Foreground="#526685" Margin="0,10,0,0" FontWeight="SemiBold"/>
                     </StackPanel>
-                </StackPanel>
-            </Border>
+                </Border>
 
-            <Border Style="{StaticResource CyberCard}">
-                <StackPanel>
-                    <TextBlock Text="PHONE PAIRING" FontSize="12" FontWeight="Bold" Foreground="#00F0FF" Margin="0,0,0,12"/>
-                    <TextBlock Text="Enter the public key from your Tether phone app:" FontSize="10" Foreground="#8A99AD" Margin="0,0,0,8"/>
-                    <TextBox x:Name="TxtPublicKey" Height="34" Background="#060A12" Foreground="#FFFFFF" BorderBrush="#1A294A" VerticalContentAlignment="Center" Padding="8,0" Margin="0,0,0,12" TextWrapping="NoWrap"/>
-                    <Button Content="PAIR PROVISIONED PHONE" Height="38" Background="#00F0FF" Foreground="#060913" FontWeight="Bold" Click="BtnProvision_Click" Cursor="Hand"/>
-                    <TextBlock x:Name="TxtProvisionStatus" Text="Not paired" FontSize="10" Foreground="#526685" Margin="0,8,0,0"/>
-                </StackPanel>
-            </Border>
+                <Border Style="{StaticResource CyberCard}">
+                    <StackPanel>
+                        <TextBlock Text="■ CRYPTOGRAPHIC VAULT CONFIGURATION" FontSize="11" FontWeight="Bold" Foreground="#00F0FF" Margin="0,0,0,12"/>
+                        <PasswordBox x:Name="TxtPassword" Height="36" Margin="0,0,0,12"/>
+                        <Button Content="COMMIT CRYPTOGRAPHIC LSA VAULT" Height="38" Click="BtnCommitVault_Click" Cursor="Hand"/>
+                    </StackPanel>
+                </Border>
 
-            <Border Style="{StaticResource CyberCard}">
-                <StackPanel>
-                    <TextBlock Text="CRYPTOGRAPHIC VAULT CONFIGURATION" FontSize="12" FontWeight="Bold" Foreground="#00F0FF" Margin="0,0,0,6"/>
-                    <PasswordBox x:Name="TxtPassword" Height="34" Background="#060A12" Foreground="#FFFFFF" BorderBrush="#1A294A" VerticalContentAlignment="Center" Padding="8,0" Margin="0,8,0,12"/>
-                    <Button Content="COMMIT CRYPTOGRAPHIC LSA VAULT" Height="38" Background="#00F0FF" Foreground="#060913" FontWeight="Bold" Click="BtnCommitVault_Click" Cursor="Hand"/>
-                </StackPanel>
-            </Border>
-        </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
 
         <Grid Grid.Column="1">
             <Grid.RowDefinitions>
@@ -97,22 +250,61 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <Border Grid.Row="0" Style="{StaticResource CyberCard}" Margin="0,0,0,12">
+            <Border Grid.Row="0" Style="{StaticResource CyberCard}" BorderBrush="#33FF0055" Margin="0,0,0,16">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Text="NATIVE SECURITY LOGS MATRIX" FontSize="12" FontWeight="Bold" Foreground="#FF0055" Margin="0,0,0,12"/>
-                    <ScrollViewer x:Name="TerminalScroll" Grid.Row="1" Background="#050811" VerticalScrollBarVisibility="Auto">
-                        <TextBox x:Name="TxtTerminal" Background="Transparent" Foreground="#00FF66" BorderThickness="0" FontFamily="Consolas" FontSize="11" IsReadOnly="True" TextWrapping="Wrap" VerticalAlignment="Stretch" Padding="10"/>
+
+                    <TextBlock Grid.Row="0" Text="[//] NATIVE SECURITY LOGS MATRIX" FontSize="11" FontWeight="Bold" Foreground="#FF0055" Margin="0,0,0,12"/>
+
+                    <ScrollViewer x:Name="TerminalScroll" Grid.Row="1" Background="#03050A" VerticalScrollBarVisibility="Auto">
+                        <TextBox x:Name="TxtTerminal" 
+                                 Background="Transparent" 
+                                 Foreground="#00FF66" 
+                                 BorderThickness="0" 
+                                 FontFamily="Consolas" 
+                                 FontSize="11.5" 
+                                 IsReadOnly="True" 
+                                 TextWrapping="Wrap" 
+                                 VerticalAlignment="Stretch" 
+                                 Padding="12"
+                                 SelectionBrush="#1A00FF66">
+                            <TextBox.Style>
+                                <Style TargetType="TextBox">
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="TextBox">
+                                                <ScrollViewer x:Name="PART_ContentHost"/>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </TextBox.Style>
+                        </TextBox>
                     </ScrollViewer>
                 </Grid>
             </Border>
 
             <UniformGrid Grid.Row="1" Columns="2" Rows="1">
-                <Button Content="MANUAL UNLOCK INTERLOCK" Height="42" Margin="0,0,6,0" Background="#0A2214" Foreground="#00FF66" BorderBrush="#00FF66" BorderThickness="1" FontWeight="Bold" Click="BtnUnlockOverride_Click"/>
-                <Button Content="EXECUTE PANIC LOCKDOWN" Height="42" Margin="6,0,0,0" Background="#260914" Foreground="#FF0055" BorderBrush="#FF0055" BorderThickness="1" FontWeight="Bold" Click="BtnLockdownOverride_Click"/>
+                <Button Content="MANUAL UNLOCK INTERLOCK" 
+                        Height="44" 
+                        Margin="0,0,8,0" 
+                        Background="#0A2214" 
+                        Foreground="#00FF66" 
+                        BorderBrush="#00FF66" 
+                        BorderThickness="1" 
+                        Click="BtnUnlockOverride_Click"/>
+
+                <Button Content="EXECUTE PANIC LOCKDOWN" 
+                        Height="44" 
+                        Margin="8,0,0,0" 
+                        Background="#260914" 
+                        Foreground="#FF0055" 
+                        BorderBrush="#FF0055" 
+                        BorderThickness="1" 
+                        Click="BtnLockdownOverride_Click"/>
             </UniformGrid>
         </Grid>
     </Grid>
