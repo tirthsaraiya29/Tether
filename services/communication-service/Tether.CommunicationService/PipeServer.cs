@@ -107,12 +107,12 @@ public class PipeServer : IDisposable
                     }
                     catch (Exception ex)
                     {
-                        _logger.Error($"Failed client privilege verification sequence: {ex.Message}");
+                        _logger.Error($"Failed client privilege verification: {ex.Message}");
                     }
 
                     if (evt.EventType == TetherEventType.PROVISION_PHONE && !isClientAuthorized)
                     {
-                        _logger.Warning("Security Intercept: Rejected unauthorized PROVISION_PHONE event from non-administrative pipe client context.");
+                        _logger.Warning("Rejected unauthorized PROVISION_PHONE event.");
                         continue;
                     }
 
@@ -120,9 +120,14 @@ public class PipeServer : IDisposable
                     _eventBus.Publish(evt);
                 }
             }
+            catch (IOException ex) when (ex.Message.Contains("pipe") || ex.Message.Contains("broken"))
+            {
+                _logger.Warning("Pipe client disconnected abruptly.");
+                break;  // exit loop, outer listener will re‑create the pipe
+            }
             catch (Exception ex)
             {
-                _logger.Error($"Failed to handle pipe message: {ex.Message}", ex);
+                _logger.Error($"Failed to handle pipe message: {ex.Message}");
                 break;
             }
         }

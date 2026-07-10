@@ -401,16 +401,37 @@ namespace Tether.DesktopUI
 
         private async void DispatchServiceBusPipe(TetherEvent evt)
         {
-            try
+            // Check if the service process is running (optional: use ServiceController).
+            // For simplicity, we'll just attempt to connect with a short timeout and retry.
+            const int maxAttempts = 3;
+            const int retryDelayMs = 500;
+
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
             {
-                string json = JsonSerializer.Serialize(evt);
-                byte[] bytes = Encoding.UTF8.GetBytes(json);
-                using var client = new NamedPipeClientStream(".", IpcConstants.PipeName, PipeDirection.Out);
-                await client.ConnectAsync(150);
-                await client.WriteAsync(bytes, 0, bytes.Length);
-                await client.FlushAsync();
+                try
+                {
+                    string json = JsonSerializer.Serialize(evt);
+                    byte[] bytes = Encoding.UTF8.GetBytes(json);
+                    using var client = new NamedPipeClientStream(".", IpcConstants.PipeName, PipeDirection.Out);
+                    await client.ConnectAsync(200);  // 200 ms timeout
+                    await client.WriteAsync(bytes, 0, bytes.Length);
+                    await client.FlushAsync();
+                    return; // success
+                }
+                catch (TimeoutException)
+                {
+                    // The service might not be running yet.
+                    if (attempt < maxAttempts - 1)
+                        await Task.Delay(retryDelayMs);
+                }
+                catch (Exception ex)
+                {
+                    LogTerminal($"⚠ PIPE // Failed to send event: {ex.Message}");
+                    break;
+                }
             }
-            catch { }
+            if (!_isListening) return;
+            LogTerminal("⚠ PIPE // Could not reach Tether service – is it running?");
         }
 
         private void BtnProvision_Click(object sender, RoutedEventArgs e)
