@@ -403,6 +403,7 @@ class BleGattServerService : Service() {
                 if (responseNeeded) {
                     try {
                         synchronized(gattLock) {
+                            // Long writes require echoing back the current offset and value segment
                             bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
                         }
                     } catch (_: SecurityException) {}
@@ -426,12 +427,14 @@ class BleGattServerService : Service() {
                 if (responseNeeded) {
                     try {
                         synchronized(gattLock) {
+                            // PRODUCTION FIX: Standard Attribute Write Responses must NEVER echo offset or value.
+                            // Passing offset/value on standard writes causes strict client stacks (like Windows WinRT) to fail with ProtocolError.
                             bluetoothGattServer?.sendResponse(
                                 device,
                                 requestId,
                                 if (accepted) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_FAILURE,
-                                offset,
-                                value
+                                0,
+                                null
                             )
                         }
                     } catch (_: SecurityException) {}
@@ -440,7 +443,7 @@ class BleGattServerService : Service() {
                 if (responseNeeded) {
                     try {
                         synchronized(gattLock) {
-                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
+                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, 0, null)
                         }
                     } catch (_: SecurityException) {}
                 }
