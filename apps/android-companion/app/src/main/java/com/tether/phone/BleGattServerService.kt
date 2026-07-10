@@ -19,6 +19,9 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class BleGattServerService : Service() {
 
@@ -96,6 +99,7 @@ class BleGattServerService : Service() {
         private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
         const val ACTION_GATT_STATE_CHANGED = "com.tether.phone.ACTION_GATT_STATE_CHANGED"
+        const val ACTION_COMMAND_CONFIRMED = "com.tether.phone.ACTION_COMMAND_CONFIRMED"
         const val EXTRA_CONNECTION_COUNT = "extra_connection_count"
 
         private const val CHANNEL_ID = "tether_proximity_channel"
@@ -502,7 +506,7 @@ class BleGattServerService : Service() {
                 }
 
                 COMMAND_CHAR_UUID -> {
-                    if (payload.size >= 3) {
+                    if (payload.size >= 3 && payload.size < 16) {
                         val opcode = payload[0].toInt()
                         val dataA = payload[1].toInt()
                         val dataB = payload[2].toInt()
@@ -515,6 +519,33 @@ class BleGattServerService : Service() {
                                     setPackage(packageName)
                                 }
                                 sendBroadcast(stateUpdateBroadcast)
+                            }
+                        }
+                    } else if (payload.size > 16) {
+                        val sessionKey = sessionKeysMap[address]
+                        if (sessionKey != null) {
+                            try {
+                                val iv = payload.copyOfRange(0, 16)
+                                val ciphertext = payload.copyOfRange(16, payload.size)
+                                
+                                val cipher = Cipher.getInstance("AES/CBC/PKCS7Padding")
+                                val keySpec = SecretKeySpec(sessionKey, "AES")
+                                val ivSpec = IvParameterSpec(iv)
+                                
+                                cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec)
+                                val decrypted = cipher.doFinal(ciphertext)
+                                val decryptedString = String(decrypted, Charsets.UTF_8)
+                                
+                                if (decryptedString.startsWith("confirm_")) {
+                                    val confirmedCommand = decryptedString.substringAfter("confirm_")
+                                    val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
+                                        putExtra("confirmed_command", confirmedCommand)
+                                        setPackage(packageName)
+                                    }
+                                    sendBroadcast(intent)
+                                }
+                            } catch (e: Exception) {
+                                Log.e("TetherBle", "Handshake decryption failure: ${e.message}")
                             }
                         }
                     }

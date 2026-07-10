@@ -993,6 +993,8 @@ public partial class BleManager : IDisposable
 
                 case "sleep":
                     _logger.Info("💤 Executing sleep...");
+                    // Transmit confirmation framework BEFORE underlying system enters low-power state
+                    await SendCommandConfirmationAsync(command);
                     await Task.Run(() => Process.Start(new ProcessStartInfo
                     {
                         FileName = "rundll32.exe",
@@ -1000,10 +1002,11 @@ public partial class BleManager : IDisposable
                         UseShellExecute = false,
                         CreateNoWindow = true
                     }));
-                    break;
+                    return;
 
                 case "reboot":
                     _logger.Info("🔄 Executing reboot... ");
+                    await SendCommandConfirmationAsync(command);
                     await Task.Run(() => Process.Start(new ProcessStartInfo
                     {
                         FileName = "shutdown",
@@ -1011,10 +1014,11 @@ public partial class BleManager : IDisposable
                         UseShellExecute = false,
                         CreateNoWindow = true
                     }));
-                    break;
+                    return;
 
                 case "shutdown":
                     _logger.Info("⏻ Executing shutdown...");
+                    await SendCommandConfirmationAsync(command);
                     await Task.Run(() => Process.Start(new ProcessStartInfo
                     {
                         FileName = "shutdown",
@@ -1022,12 +1026,79 @@ public partial class BleManager : IDisposable
                         UseShellExecute = false,
                         CreateNoWindow = true
                     }));
-                    break;
+                    return;
             }
+
+            // Route standard non-power confirmation routing downstream
+            await SendCommandConfirmationAsync(command);
         }
         catch (Exception ex)
         {
             _logger.Error($"Command execution error: {ex.Message}");
+        }
+    }
+
+    private async Task SendCommandConfirmationAsync(string command)
+    {
+        byte[]? sessionKey;
+        GattCharacteristic? commandChar;
+
+        lock (_lock)
+        {
+            sessionKey = _sessionKey;
+            commandChar = _commandChar;
+        }
+
+        if (sessionKey == null || commandChar == null)
+        {
+            _logger.Warning($"Symmetric link uninitialized. Skipping confirmation framing transmission for execution context: {command}");
+            return;
+        }
+
+        try
+        {
+            string plainText = $"confirm_{command}";
+            byte[] plainBytes = Encoding.UTF8.GetBytes(plainText);
+            byte[] encryptedBuffer;
+
+            using (Aes aes = Aes.Create())
+            {
+                aes.Key = sessionKey;
+                aes.Mode = CipherMode.CBC;
+                aes.Padding = PaddingMode.PKCS7;
+                aes.GenerateIV();
+                byte[] iv = aes.IV;
+
+                using (var encryptor = aes.CreateEncryptor(aes.Key, iv))
+                using (var ms = new MemoryStream())
+                {
+                    // Prepend the initialization vector onto the payload segment
+                    ms.Write(iv, 0, iv.Length);
+                    using (var cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
+                    {
+                        cs.Write(plainBytes, 0, plainBytes.Length);
+                    }
+                    encryptedBuffer = ms.ToArray();
+                }
+            }
+
+            using (var writer = new DataWriter())
+            {
+                writer.WriteBytes(encryptedBuffer);
+                var result = await commandChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
+                if (result.Status == GattCommunicationStatus.Success)
+                {
+                    _logger.Info($"Secure encrypted execution confirmation transmitted for payload: {command}");
+                }
+                else
+                {
+                    _logger.Error($"Failed transmitting command confirmation packet over BLE. Status: {result.Status}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error constructing secure confirmation frame: {ex.Message}");
         }
     }
 
