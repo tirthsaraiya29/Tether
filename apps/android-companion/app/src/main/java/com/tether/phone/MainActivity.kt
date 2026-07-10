@@ -3,8 +3,6 @@ package com.tether.phone
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.KeyguardManager
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.BroadcastReceiver
@@ -22,7 +20,6 @@ import androidx.appcompat.app.AlertDialog
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -51,7 +48,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -62,7 +58,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
@@ -72,7 +67,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
-import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
@@ -102,7 +96,7 @@ enum class AppScreen {
     PAIRING
 }
 
-enum class TrustTier(@StringRes val labelRes: Int, val color: Color) {
+enum class TrustTier(@param:StringRes val labelRes: Int, val color: Color) {
     TRUSTED(R.string.tier_trusted, IntegrityGreen),
     ELEVATED_RISK(R.string.tier_elevated_risk, MatrixGold),
     RESTRICTED(R.string.tier_restricted, AlertRed)
@@ -123,7 +117,6 @@ class MainActivity : FragmentActivity() {
     private val requestPermissionsCode = 101
     private val preferenceName = "tether_secure_prefs"
     private val panicStateKey = "is_panic_active"
-    private val notificationRestoreChannelId = "tether_restore_channel"
 
     private val appLockEnabledKey = "app_lock_biometrics_enabled"
     private val appLockTimeoutKey = "app_lock_timeout_ms"
@@ -157,7 +150,7 @@ class MainActivity : FragmentActivity() {
     private var isCommandConfirmed = mutableStateOf(false)
 
     private var pendingPowerAction = mutableStateOf<PowerAction?>(null)
-    private data class PowerAction(val command: String, val toastMessage: String, val title: String)
+    private data class PowerAction(val command: String, val title: String)
 
     private var lastBiometricAuthTime = 0L
 
@@ -194,7 +187,7 @@ class MainActivity : FragmentActivity() {
                 runOnUiThread {
                     isCommandConfirmed.value = true
                     lifecycleScope.launch {
-                        kotlinx.coroutines.delay(2000)
+                        kotlinx.coroutines.delay(2000L)
                         activePendingCommand.value = null
                         isCommandConfirmed.value = false
                     }
@@ -330,18 +323,18 @@ class MainActivity : FragmentActivity() {
                                             if (success) {
                                                 runOnUiThread {
                                                     lastBiometricAuthTime = System.currentTimeMillis()
-                                                    triggerBleAction("unlock", getString(R.string.toast_unlock_dispatched))
+                                                    triggerBleAction("unlock")
                                                 }
                                             }
                                         }
                                     } else {
-                                        triggerBleAction("unlock", getString(R.string.toast_unlock_dispatched))
+                                        triggerBleAction("unlock")
                                     }
                                 },
-                                onLockClick = { triggerBleAction("lock_now", getString(R.string.toast_lock_dispatched)) },
+                                onLockClick = { triggerBleAction("lock_now") },
                                 onPanicClick = {
                                     persistPanicState(true)
-                                    triggerBleAction("panic", getString(R.string.toast_panic_active))
+                                    triggerBleAction("panic")
                                 },
                                 onInitiateRestore = {
                                     executeVerificationPipeline(TrustVerificationStep.DEVICE_CREDENTIAL)
@@ -373,7 +366,7 @@ class MainActivity : FragmentActivity() {
                                     }
                                     applyWindowSecurityFlags()
                                 },
-                                onLaptopActionClick = { action, toastMessage ->
+                                onLaptopActionClick = { action ->
                                     val command = when (action) {
                                         "PWR_SLEEP" -> "sleep"
                                         "PWR_REBOOT" -> "reboot"
@@ -389,12 +382,11 @@ class MainActivity : FragmentActivity() {
                                         "shutdown", "sleep", "reboot" -> {
                                             pendingPowerAction.value = PowerAction(
                                                 command = command,
-                                                toastMessage = toastMessage,
                                                 title = getString(R.string.dialog_confirm_protocol, command.uppercase())
                                             )
                                         }
                                         else -> {
-                                            triggerBleAction(command, toastMessage)
+                                            triggerBleAction(command)
                                         }
                                     }
                                 },
@@ -406,7 +398,7 @@ class MainActivity : FragmentActivity() {
                                     title = action.title,
                                     message = getString(R.string.dialog_confirm_message, action.command),
                                     onConfirm = {
-                                        triggerBleAction(action.command, action.toastMessage)
+                                        triggerBleAction(action.command)
                                         pendingPowerAction.value = null
                                     },
                                     onDismiss = { pendingPowerAction.value = null }
@@ -477,15 +469,15 @@ class MainActivity : FragmentActivity() {
         if (commandType != null || action == "com.tether.phone.ACTION_VOICE_COMMAND") {
             val command = commandType ?: "unknown"
             if (!isEnvironmentRestricted.value && !isAppLocked.value) {
-                val (bleCommand, toastMsg) = when (command) {
-                    "lock_now" -> "lock_now" to getString(R.string.toast_lock_dispatched)
-                    "unlock" -> "unlock" to getString(R.string.toast_unlock_dispatched)
-                    "shutdown" -> "shutdown" to getString(R.string.toast_voice_shutdown)
-                    "sleep" -> "sleep" to getString(R.string.toast_voice_sleep)
-                    "reboot" -> "reboot" to getString(R.string.toast_voice_reboot)
+                val bleCommand = when (command) {
+                    "lock_now" -> "lock_now"
+                    "unlock" -> "unlock"
+                    "shutdown" -> "shutdown"
+                    "sleep" -> "sleep"
+                    "reboot" -> "reboot"
                     else -> return
                 }
-                triggerBleAction(bleCommand, toastMsg)
+                triggerBleAction(bleCommand)
                 // Gracefully finish activity tracking so it returns back to the Assistant interface cleanly
                 finish()
             }
@@ -506,7 +498,7 @@ class MainActivity : FragmentActivity() {
     private val screenUnlockReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_USER_PRESENT) {
-                triggerBleAction("screen_unlock", getString(R.string.toast_screen_unlocked))
+                triggerBleAction("screen_unlock")
             }
         }
     }
@@ -597,7 +589,7 @@ class MainActivity : FragmentActivity() {
                 }
             } else {
                 runOnUiThread {
-                    Toast.makeText(this, getString(R.string.toast_unauthorized), Toast.LENGTH_SHORT).show()
+                    Log.w("TetherActivity", "App unlock failed: Unauthorized")
                 }
             }
         }
@@ -645,13 +637,12 @@ class MainActivity : FragmentActivity() {
                     .setNegativeButton(getString(R.string.btn_copy_key)) { _, _ ->
                         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("TetherPublicKey", base64Key))
-                        Toast.makeText(this, getString(R.string.toast_key_copied), Toast.LENGTH_SHORT).show()
                     }
                     .show()
             }
         } catch (e: Exception) {
             runOnUiThread {
-                Toast.makeText(this, getString(R.string.error_qr_failed, e.message), Toast.LENGTH_LONG).show()
+                Log.e("TetherActivity", "QR Generation failed", e)
             }
         }
     }
@@ -726,7 +717,6 @@ class MainActivity : FragmentActivity() {
     private fun handleVerificationFailure() {
         runOnUiThread {
             currentVerificationStep.value = TrustVerificationStep.NOT_IN_PANIC
-            Toast.makeText(this, getString(R.string.toast_auth_chain_severed), Toast.LENGTH_LONG).show()
             setPanicUiState()
         }
     }
@@ -737,12 +727,10 @@ class MainActivity : FragmentActivity() {
             val bluetoothManager = getSystemService(BluetoothManager::class.java)
             val adapter = bluetoothManager?.adapter
             if (adapter == null || !adapter.isEnabled) {
-                Toast.makeText(this, getString(R.string.toast_bluetooth_offline), Toast.LENGTH_SHORT).show()
                 return
             }
             val pairedDevices = adapter.bondedDevices
             if (pairedDevices.isEmpty()) {
-                Toast.makeText(this, getString(R.string.toast_no_paired_nodes), Toast.LENGTH_LONG).show()
                 return
             }
             val unknownLabel = getString(R.string.label_unknown)
@@ -755,27 +743,20 @@ class MainActivity : FragmentActivity() {
                     getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
                         putString("laptop_mac", mac)
                     }
-                    Toast.makeText(this, getString(R.string.toast_target_acquired, deviceList[which]), Toast.LENGTH_SHORT).show()
                 }
                 .setNegativeButton(getString(R.string.btn_cancel), null)
                 .show()
         } catch (e: Exception) {
-            Toast.makeText(this, getString(R.string.error_system, e.message), Toast.LENGTH_SHORT).show()
+            Log.e("TetherActivity", "Laptop selection error", e)
         }
     }
 
-    private fun triggerBleAction(action: String, toastMessage: String) {
+    private fun triggerBleAction(action: String) {
         if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
         
+        Log.d("TetherActivity", "Triggering BLE action: $action")
         activePendingCommand.value = action
         isCommandConfirmed.value = false
-
-        // Ensure Toast runs on Main Thread
-        runOnUiThread {
-            if (toastMessage.isNotEmpty()) {
-                Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
-            }
-        }
 
         val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
             this.action = action
@@ -819,7 +800,6 @@ class MainActivity : FragmentActivity() {
             } else {
                 uiStatusText.value = getString(R.string.status_permissions_required)
                 uiStatusColor.value = AlertRed
-                Toast.makeText(this, getString(R.string.toast_system_access_denied), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -991,13 +971,13 @@ fun BackgroundGrid() {
         
         var x = (gridShift % gridSize) - gridSize
         while (x < size.width + gridSize) {
-            val distortionX = Math.sin((x + gridShift) / 100.0).toFloat() * 2f
+            val distortionX = kotlin.math.sin((x + gridShift) / 100.0).toFloat() * 2f
             drawLine(gridColor, Offset(x + distortionX, 0f), Offset(x + distortionX, size.height), 0.5.dp.toPx())
             x += gridSize
         }
         var y = (gridShift % gridSize) - gridSize
         while (y < size.height + gridSize) {
-            val distortionY = Math.cos((y + gridShift) / 100.0).toFloat() * 2f
+            val distortionY = kotlin.math.cos((y + gridShift) / 100.0).toFloat() * 2f
             drawLine(gridColor, Offset(0f, y + distortionY), Offset(size.width, y + distortionY), 0.5.dp.toPx())
             y += gridSize
         }
@@ -1137,7 +1117,7 @@ fun TetherNavigationShell(
     onBiometricSettingToggled: (Boolean) -> Unit,
     onTimeoutChanged: (Long) -> Unit,
     onPrivacyMaskToggled: (Boolean) -> Unit,
-    onLaptopActionClick: (String, String) -> Unit,
+    onLaptopActionClick: (String) -> Unit,
     onShowQR: () -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -1269,14 +1249,9 @@ fun TetherAppScreen(
     onInitiateRestore: () -> Unit,
     onSelectLaptop: () -> Unit,
     onTriggerStepVerification: (TrustVerificationStep) -> Unit,
-    onBleActionRequested: (String, String) -> Unit
+    onBleActionRequested: (String) -> Unit
 ) {
-    val context = LocalContext.current
     val scrollState = rememberScrollState()
-    
-    val sleepMsg = stringResource(R.string.toast_dispatched_sleep)
-    val rebootMsg = stringResource(R.string.toast_dispatched_reboot)
-    val shutdownMsg = stringResource(R.string.toast_dispatched_shutdown)
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(horizontal = 24.dp),
@@ -1291,11 +1266,11 @@ fun TetherAppScreen(
             Text(stringResource(R.string.header_hardware_directives), style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
             Spacer(modifier = Modifier.height(24.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                PremiumControlAction(stringResource(R.string.label_sleep), MatrixGold, { onBleActionRequested("PWR_SLEEP", sleepMsg) }, Modifier.weight(1f), isConnected)
-                PremiumControlAction(stringResource(R.string.label_reboot), TextPrimary, { onBleActionRequested("PWR_REBOOT", rebootMsg) }, Modifier.weight(1f), isConnected)
+                PremiumControlAction(stringResource(R.string.label_sleep), MatrixGold, { onBleActionRequested("PWR_SLEEP") }, Modifier.weight(1f), isConnected)
+                PremiumControlAction(stringResource(R.string.label_reboot), TextPrimary, { onBleActionRequested("PWR_REBOOT") }, Modifier.weight(1f), isConnected)
             }
             Spacer(modifier = Modifier.height(16.dp))
-            PremiumControlAction(stringResource(R.string.label_halt_system), AlertRed, { onBleActionRequested("PWR_SHUTDOWN", shutdownMsg) }, enabled = isConnected)
+            PremiumControlAction(stringResource(R.string.label_halt_system), AlertRed, { onBleActionRequested("PWR_SHUTDOWN") }, enabled = isConnected)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -1527,7 +1502,7 @@ fun MetricRow(label: String, pass: Boolean) {
 }
 
 @Composable
-fun LaptopControlScreen(onBleActionRequested: (String, String) -> Unit) {
+fun LaptopControlScreen(onBleActionRequested: (String) -> Unit) {
     var vol by remember { mutableFloatStateOf(50f) }
     var bri by remember { mutableFloatStateOf(50f) }
     Column(Modifier.fillMaxSize().padding(24.dp)) {
@@ -1535,12 +1510,12 @@ fun LaptopControlScreen(onBleActionRequested: (String, String) -> Unit) {
         Spacer(modifier = Modifier.height(24.dp))
         LiquidSurface {
             Text(stringResource(R.string.label_volume), style = MaterialTheme.typography.titleLarge, color = TextPrimary)
-            Slider(vol, { vol = it; onBleActionRequested(if(it > vol) "VOL_UP" else "VOL_DOWN", "") }, colors = SliderDefaults.colors(thumbColor = TextPrimary, activeTrackColor = LiquidCyan))
+            Slider(vol, { vol = it; onBleActionRequested(if(it > vol) "VOL_UP" else "VOL_DOWN") }, colors = SliderDefaults.colors(thumbColor = TextPrimary, activeTrackColor = LiquidCyan))
         }
         Spacer(modifier = Modifier.height(24.dp))
         LiquidSurface {
             Text(stringResource(R.string.label_brightness), style = MaterialTheme.typography.titleLarge, color = TextPrimary)
-            Slider(bri, { bri = it; onBleActionRequested(if(it > bri) "BRIGHT_UP" else "BRIGHT_DOWN", "") }, colors = SliderDefaults.colors(thumbColor = TextPrimary, activeTrackColor = LiquidCyan))
+            Slider(bri, { bri = it; onBleActionRequested(if(it > bri) "BRIGHT_UP" else "BRIGHT_DOWN") }, colors = SliderDefaults.colors(thumbColor = TextPrimary, activeTrackColor = LiquidCyan))
         }
     }
 }
@@ -1760,7 +1735,7 @@ class DeviceIntegrityRegistry(private val context: Context) {
                 packageInfo.signatures
             }
 
-            if (signatures == null || signatures.isEmpty()) return false
+            if (signatures.isNullOrEmpty()) return false
 
             // Production verification hash anchoring standard release keys
             val targetCertificatePin = "D8:5F:A3:4E:91:C1:28:9B:F3:A1:02:4F:99:A8:12:44:A2:3F:89:B1:02:44:5F:99:A8:B1:22:4E:A3:F4:99:12"

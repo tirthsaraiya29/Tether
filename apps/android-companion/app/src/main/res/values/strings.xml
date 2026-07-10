@@ -127,10 +127,6 @@
     <string name="toast_voice_shutdown">🛑 VOICE SHORTCUT: EXECUTING SHUTDOWN</string>
     <string name="toast_voice_sleep">💤 VOICE SHORTCUT: EXECUTING SLEEP</string>
     <string name="toast_voice_reboot">🔄 VOICE SHORTCUT: EXECUTING REBOOT</string>
-    <string name="toast_screen_unlocked">Screen unlocked</string>
-    <string name="toast_dispatched_sleep">DISPATCHED: SLEEP</string>
-    <string name="toast_dispatched_reboot">DISPATCHED: REBOOT</string>
-    <string name="toast_dispatched_shutdown">DISPATCHED: SHUTDOWN</string>
 
     <string name="notification_title">Tether Shield Active</string>
     <string name="notification_text">Maintaining local cryptographically continuous background radio mesh links...</string>
