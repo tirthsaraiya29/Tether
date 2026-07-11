@@ -54,13 +54,19 @@ fun TetherTheme(
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as Activity).window
+            val activity = view.context as Activity
+            val window = activity.window
+            
+            // Set true dark mode background for status and nav bars
             window.statusBarColor = colorScheme.background.toArgb()
             window.navigationBarColor = colorScheme.background.toArgb()
 
             val insetsController = WindowCompat.getInsetsController(window, view)
             insetsController.isAppearanceLightStatusBars = false
             insetsController.isAppearanceLightNavigationBars = false
+            
+            // Ensure content draws under system bars for edge-to-edge glass feel
+            WindowCompat.setDecorFitsSystemWindows(window, false)
         }
     }
 
