@@ -48,6 +48,10 @@ public partial class BleManager : IDisposable
     private const int SAMPLE_INTERVAL_MS = 500;
     private const int SAMPLES_PER_AVERAGE = 10;            // Increased from 5 for better smoothing
 
+    private System.Threading.Timer? _healthCheckTimer;
+    private readonly object _reconnectLock = new object();
+    private bool _reconnectPending = false;
+
     private readonly Guid SERVICE_UUID = new Guid("0000FFE0-0000-1000-8000-00805F9B34FB");
     private readonly Guid CHALLENGE_CHAR_UUID = new Guid("0000FFE3-0000-1000-8000-00805F9B34FB");
     private readonly Guid SIGNATURE_CHAR_UUID = new Guid("0000FFE4-0000-1000-8000-00805F9B34FB");
@@ -159,6 +163,7 @@ public partial class BleManager : IDisposable
         _logger = logger;
 
         LoadTrustedKey();
+        _healthCheckTimer = new System.Threading.Timer(HealthCheckCallback, null, Timeout.Infinite, Timeout.Infinite);
 
         _eventBus.Subscribe(evt => {
             if (evt.EventType == TetherEventType.PHONE_UNLOCKED || evt.EventType == TetherEventType.TRUST_RESTORED)
@@ -317,7 +322,6 @@ public partial class BleManager : IDisposable
 
     private void StartScanning()
     {
-        // Prevent concurrent scan start/stop races
         if (!_scanLock.Wait(0))
             return;
         try
@@ -329,7 +333,6 @@ public partial class BleManager : IDisposable
                 _isScanning = true;
             }
 
-            // Strict Teardown
             if (_advWatcher != null)
             {
                 try { _advWatcher.Stop(); } catch { }
@@ -364,7 +367,6 @@ public partial class BleManager : IDisposable
         }
         finally
         {
-            // Release the lock if we haven't already set _isScanning false inside the try
             if (_scanLock.CurrentCount == 0)
                 _scanLock.Release();
         }
@@ -481,29 +483,33 @@ public partial class BleManager : IDisposable
                     _logger.Warning($"GattSession optimization skipped: {ex.Message}");
                 }
 
-                GattCommunicationStatus serviceStatus = GattCommunicationStatus.Unreachable;
+                // ---- Service discovery with robust retries ----
                 GattDeviceServicesResult? servicesResult = null;
+                bool serviceFound = false;
+                for (int serviceAttempt = 1; serviceAttempt <= 3; serviceAttempt++)
+                {
+                    try
+                    {
+                        servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
+                    }
+                    catch
+                    {
+                        servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Cached);
+                    }
 
-                try
-                {
-                    servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Cached);
-                    serviceStatus = servicesResult.Status;
-                }
-                catch
-                {
-                    servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
-                    serviceStatus = servicesResult?.Status ?? GattCommunicationStatus.Unreachable;
+                    if (servicesResult != null && servicesResult.Status == GattCommunicationStatus.Success && servicesResult.Services.Count > 0)
+                    {
+                        serviceFound = true;
+                        break;
+                    }
+
+                    _logger.Warning($"Service discovery attempt {serviceAttempt}/3 failed. Status: {servicesResult?.Status}, Count: {servicesResult?.Services.Count ?? 0}");
+                    await Task.Delay(300 * serviceAttempt, token);
                 }
 
-                if (servicesResult == null || serviceStatus != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
+                if (!serviceFound)
                 {
-                    servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
-                    serviceStatus = servicesResult?.Status ?? GattCommunicationStatus.Unreachable;
-                }
-
-                if (servicesResult == null || serviceStatus != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
-                {
-                    _logger.Error($"Failed to resolve GATT service: status={serviceStatus}");
+                    _logger.Error("Failed to resolve GATT service after retries.");
                     CleanupDevice();
                     if (attempt == maxRetryAttempts) { HandleDisconnection(); return; }
                     await Task.Delay(delayMs, token);
@@ -511,31 +517,34 @@ public partial class BleManager : IDisposable
                     continue;
                 }
 
-                lock (_lock) { _service = servicesResult.Services.First(); }
+                lock (_lock) { _service = servicesResult!.Services.First(); }
 
-                GattCommunicationStatus charStatus = GattCommunicationStatus.Unreachable;
+                // ---- Characteristic discovery with fallback ----
                 GattCharacteristicsResult? charsResult = null;
+                bool charsFound = false;
+                for (int charAttempt = 1; charAttempt <= 3; charAttempt++)
+                {
+                    try
+                    {
+                        charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
+                    }
+                    catch
+                    {
+                        charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Cached);
+                    }
 
-                try
-                {
-                    charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Cached);
-                    charStatus = charsResult.Status;
-                }
-                catch
-                {
-                    charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
-                    charStatus = charsResult?.Status ?? GattCommunicationStatus.Unreachable;
+                    if (charsResult != null && charsResult.Status == GattCommunicationStatus.Success && charsResult.Characteristics.Count > 0)
+                    {
+                        charsFound = true;
+                        break;
+                    }
+                    _logger.Warning($"Characteristic discovery attempt {charAttempt}/3 failed.");
+                    await Task.Delay(300 * charAttempt, token);
                 }
 
-                if (charsResult == null || charStatus != GattCommunicationStatus.Success || charsResult.Characteristics.Count == 0)
+                if (!charsFound)
                 {
-                    charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
-                    charStatus = charsResult?.Status ?? GattCommunicationStatus.Unreachable;
-                }
-
-                if (charsResult == null || charStatus != GattCommunicationStatus.Success || charsResult.Characteristics.Count == 0)
-                {
-                    _logger.Error($"Failed to map characteristics: {charStatus}");
+                    _logger.Error("Failed to discover characteristics after retries.");
                     CleanupDevice();
                     if (attempt == maxRetryAttempts) { HandleDisconnection(); return; }
                     await Task.Delay(delayMs, token);
@@ -543,7 +552,7 @@ public partial class BleManager : IDisposable
                     continue;
                 }
 
-                var characteristicsList = charsResult.Characteristics;
+                var characteristicsList = charsResult!.Characteristics;
                 _challengeChar = characteristicsList.FirstOrDefault(c => c.Uuid == CHALLENGE_CHAR_UUID);
                 _signatureChar = characteristicsList.FirstOrDefault(c => c.Uuid == SIGNATURE_CHAR_UUID);
                 _commandChar = characteristicsList.FirstOrDefault(c => c.Uuid == COMMAND_CHAR_UUID);
@@ -611,17 +620,25 @@ public partial class BleManager : IDisposable
                 _commandChar.ValueChanged += OnCommandReceivedFromPhone;
 
                 bool subscriptionOk = false;
-                for (int subAttempt = 1; subAttempt <= 3 && !subscriptionOk; subAttempt++)
+                for (int subAttempt = 1; subAttempt <= 5 && !subscriptionOk; subAttempt++)
                 {
-                    var cccdResult = await _commandChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
-                        GattClientCharacteristicConfigurationDescriptorValue.Notify);
-                    if (cccdResult.Status == GattCommunicationStatus.Success)
+                    try
                     {
-                        subscriptionOk = true;
-                        break;
+                        var cccdResult = await _commandChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
+                            GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                        if (cccdResult.Status == GattCommunicationStatus.Success)
+                        {
+                            subscriptionOk = true;
+                            break;
+                        }
+                        _logger.Warning($"Failed to configure GATT notifications (attempt {subAttempt}/5). Status: {cccdResult.Status}");
+                        await Task.Delay(200 * subAttempt, token);
                     }
-                    _logger.Warning($"Failed to configure GATT notifications (attempt {subAttempt}/3). Status: {cccdResult.Status}");
-                    await Task.Delay(100 * subAttempt, token);
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"CCCD write exception (attempt {subAttempt}): {ex.Message}");
+                        await Task.Delay(200 * subAttempt, token);
+                    }
                 }
 
                 if (!subscriptionOk)
@@ -644,10 +661,12 @@ public partial class BleManager : IDisposable
                         return;
                     }
                     _isConnected = true;
+                    _reconnectPending = false; // reset pending flag
                 }
 
                 _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_CONNECTED, Source = "BleManager" });
                 StartRssiMonitoring();
+                StartHealthCheck(); // start periodic health check
                 return;
             }
             catch (TaskCanceledException ex)
@@ -657,9 +676,6 @@ public partial class BleManager : IDisposable
             catch (OperationCanceledException)
             {
                 _logger.Warning($"Connection attempt {attempt} cancelled.");
-                CleanupDevice();
-                if (attempt == maxRetryAttempts) { HandleDisconnection(); return; }
-                continue;
             }
             catch (COMException ex)
             {
@@ -1154,7 +1170,6 @@ public partial class BleManager : IDisposable
         {
             lock (_lock)
             {
-                // Ignore if this is not the current device (stale event from a previous connection)
                 if (_device != sender)
                 {
                     _logger.Debug("Ignoring disconnection from stale device.");
@@ -1294,7 +1309,6 @@ public partial class BleManager : IDisposable
         lock (_lock)
         {
             wasConnected = _isConnected;
-            // If we are already disconnected, avoid reentrancy
             if (!wasConnected)
             {
                 _logger.Debug("HandleDisconnection called but already disconnected.");
@@ -1311,7 +1325,7 @@ public partial class BleManager : IDisposable
         }
 
         StopRssiMonitoring();
-        // Cancel any ongoing GATT operations – only if we have a token
+        StopHealthCheck();
         _cts?.Cancel();
 
         if (_isStopping)
@@ -1328,19 +1342,20 @@ public partial class BleManager : IDisposable
             return;
         }
 
-        // If we never fully connected (wasConnected was true but we are here means it's a full disconnect)
-        // Actually, we already set wasConnected to true if we were connected, so this path is for unexpected drops.
         ResetIPCHandles();
         _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_DISCONNECTED, Source = "BleManager" });
         _logger.Error("🔒 LOCKING: Device disconnected unexpectedly.");
         _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
 
         CleanupDevice();
-        StartScanning();
+
+        // Delay before restarting scan to avoid rapid cycling
+        Task.Delay(1000).ContinueWith(_ => StartScanning());
     }
 
     private void CleanupDevice()
     {
+        StopHealthCheck();
         lock (_lock)
         {
             try
@@ -1390,8 +1405,59 @@ public partial class BleManager : IDisposable
 
     private void StopRssiMonitoring() => _rssiTimer?.Dispose();
 
+    private void StartHealthCheck()
+    {
+        lock (_lock)
+        {
+            _healthCheckTimer?.Change(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30));
+        }
+    }
+
+    private void StopHealthCheck()
+    {
+        lock (_lock)
+        {
+            _healthCheckTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        }
+    }
+
+    private async void HealthCheckCallback(object? state)
+    {
+        bool connected;
+        bool stopping;
+        BluetoothLEDevice? device;
+        lock (_lock)
+        {
+            connected = _isConnected;
+            stopping = _isStopping;
+            device = _device;
+        }
+
+        if (stopping) return;
+
+        // If we think we are connected but the device is null or disconnected, force recovery
+        if (connected && (device == null || device.ConnectionStatus == BluetoothConnectionStatus.Disconnected))
+        {
+            _logger.Warning("Health check: device lost while connection flag was true. Forcing disconnection handling.");
+            HandleDisconnection();
+            return;
+        }
+
+        // If not connected but device is null (scanning), nothing to do
+        if (!connected && device == null) return;
+
+        // If not connected but we have a device reference (should not happen), clean it up
+        if (!connected && device != null)
+        {
+            _logger.Warning("Health check: device reference exists but not connected; cleaning up.");
+            CleanupDevice();
+            StartScanning();
+        }
+    }
+
     public void Stop()
     {
+        StopHealthCheck();
         lock (_lock) { _isStopping = true; }
         _cts?.Cancel();
         _advWatcher?.Stop();

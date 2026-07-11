@@ -4,7 +4,6 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import java.security.KeyPairGenerator
 import java.security.KeyStore
-import java.security.Signature
 import java.security.spec.MGF1ParameterSpec
 import javax.crypto.Cipher
 import javax.crypto.Mac
@@ -33,7 +32,7 @@ class ProductionSecurityEngine {
 
             val parameterSpec = KeyGenParameterSpec.Builder(
                 KEY_ALIAS,
-                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY or KeyProperties.PURPOSE_DECRYPT
+                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY or KeyProperties.PURPOSE_DECRYPT,
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_ECB)
                 // Both digests enabled to support cross-platform handshake variations
@@ -47,18 +46,6 @@ class ProductionSecurityEngine {
             kpg.initialize(parameterSpec)
             kpg.generateKeyPair()
         }
-    }
-
-    fun signChallenge(challengeBytes: ByteArray): ByteArray {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        val privateKeyEntry = keyStore.getEntry(KEY_ALIAS, null) as KeyStore.PrivateKeyEntry
-        val privateKey = privateKeyEntry.privateKey
-
-        val signer = Signature.getInstance("SHA256withRSA")
-        signer.initSign(privateKey)
-        signer.update(challengeBytes)
-
-        return signer.sign()
     }
 
     fun getPublicKeyBytes(): ByteArray {
