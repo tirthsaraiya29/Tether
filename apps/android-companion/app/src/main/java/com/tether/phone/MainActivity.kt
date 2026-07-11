@@ -156,6 +156,15 @@ class MainActivity : FragmentActivity() {
 
     private lateinit var executor: Executor
 
+    private val batteryOptimizationLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+        if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+            Log.w("TetherActivity", "Battery optimization exemption NOT granted.")
+        } else {
+            Log.i("TetherActivity", "Battery optimization exemption granted.")
+        }
+    }
+
     private val gattStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == BleGattServerService.ACTION_GATT_STATE_CHANGED) {
@@ -247,6 +256,8 @@ class MainActivity : FragmentActivity() {
         if (isPanicActive.value) {
             setPanicUiState()
         }
+
+        requestBatteryOptimizationExemption()
 
         val shouldStartImmediately = !isBiometricSettingEnabled.value
         if (shouldStartImmediately) {
@@ -507,6 +518,12 @@ class MainActivity : FragmentActivity() {
         super.onStart()
         if (isEnvironmentRestricted.value) return
 
+        // Check if permissions were revoked while app was in background
+        if (!isAppLocked.value && !checkPermissions()) {
+            requestPermissions()
+            return
+        }
+
         // 1. Evaluate background tracking and timeout state first to see if we need to lock the UI
         if (isBiometricSettingEnabled.value && !isAppLocked.value) {
             val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
@@ -604,7 +621,24 @@ class MainActivity : FragmentActivity() {
             setPanicUiState()
         } else {
             currentVerificationStep.value = TrustVerificationStep.NOT_IN_PANIC
-            startBleService()
+            if (checkPermissions()) {
+                startBleService()
+            }
+        }
+    }
+
+    private fun requestBatteryOptimizationExemption() {
+        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+        if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+            try {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = android.net.Uri.parse("package:$packageName")
+                }
+                batteryOptimizationLauncher.launch(intent)
+            } catch (e: Exception) {
+                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                batteryOptimizationLauncher.launch(intent)
+            }
         }
     }
 
