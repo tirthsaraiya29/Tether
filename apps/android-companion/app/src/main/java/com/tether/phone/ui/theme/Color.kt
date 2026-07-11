@@ -41,6 +41,12 @@ val GlassBorderBright = Color(0x40FFFFFF) // For highlights
 val GlassReflection = Color(0x0DFFFFFF)
 val GlassHighlight = Color(0x26FFFFFF)
 val GlassTint = Color(0x0A00E5FF)       // Subtle cyan tint for the glass
+val GlassNoise = Color(0x05FFFFFF)      // For legacy blur fallback texture
+
+// --- Specular & Refraction Tokens ---
+val SpecularHighlight = Color(0x4DFFFFFF)
+val RefractionBlue = Color(0x1A00E5FF)
+val RefractionGreen = Color(0x1A00FF9D)
 
 // --- Typographic Surfaces (Optimized for Contrast) ---
 val TextPrimary = Color(0xFFF8F8FF)     // Ghost White

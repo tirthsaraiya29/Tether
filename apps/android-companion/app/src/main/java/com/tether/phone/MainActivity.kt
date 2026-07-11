@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -79,7 +80,6 @@ import java.io.File
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import android.util.Log
-import androidx.compose.material.icons.filled.QrCode
 
 val EaseInOutSans = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
@@ -282,7 +282,6 @@ class MainActivity : FragmentActivity() {
                         isAppLocked.value = true
                         authenticateForAppUnlock()
                     } else {
-                        // Safe to inspect Assistant intent routing on standard pipeline startup
                         handleVoiceIntent(intent)
                     }
                 }
@@ -296,7 +295,7 @@ class MainActivity : FragmentActivity() {
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        BackgroundGrid()
+                        AtmosphericBackground()
                         if (isLoading.value) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(color = LiquidCyan, strokeWidth = 1.dp)
@@ -322,7 +321,6 @@ class MainActivity : FragmentActivity() {
                                 isPrivacyMaskEnabled = isPrivacyMaskEnabled.value,
                                 onUnlockClick = {
                                     val currentTime = System.currentTimeMillis()
-                                    // FORCE biometric if last auth > 10s, regardless of structural lock settings
                                     val needsAuth = (currentTime - lastBiometricAuthTime > 10000)
 
                                     if (needsAuth) {
@@ -473,7 +471,6 @@ class MainActivity : FragmentActivity() {
 
     private fun handleVoiceIntent(intent: Intent?) {
         if (intent == null) return
-        // Support both shortcut extras and capability parameter mappings
         val commandType = intent.getStringExtra("command_type") ?: intent.getStringExtra("action_command")
         val action = intent.action
 
@@ -489,7 +486,6 @@ class MainActivity : FragmentActivity() {
                     else -> return
                 }
                 triggerBleAction(bleCommand)
-                // Gracefully finish activity tracking so it returns back to the Assistant interface cleanly
                 finish()
             }
         }
@@ -518,13 +514,11 @@ class MainActivity : FragmentActivity() {
         super.onStart()
         if (isEnvironmentRestricted.value) return
 
-        // Check if permissions were revoked while app was in background
         if (!isAppLocked.value && !checkPermissions()) {
             requestPermissions()
             return
         }
 
-        // 1. Evaluate background tracking and timeout state first to see if we need to lock the UI
         if (isBiometricSettingEnabled.value && !isAppLocked.value) {
             val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
             val leftBackgroundAt = prefs.getLong(appLockBackgroundTimestampKey, 0L)
@@ -540,7 +534,6 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        // 2. Only probe or spin up the background service if the app is confirmed UNLOCKED
         if (checkPermissions() && !isAppLocked.value) {
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                 {
@@ -601,7 +594,6 @@ class MainActivity : FragmentActivity() {
                     } else {
                         requestPermissions()
                     }
-                    // Handle pending shortcuts context elements deferred by system lock screen constraints
                     handleVoiceIntent(intent)
                 }
             } else {
@@ -886,9 +878,9 @@ class MainActivity : FragmentActivity() {
 @Composable
 fun LiquidSurface(
     modifier: Modifier = Modifier,
-    alpha: Float = 0.05f,
+    alpha: Float = 0.08f,
     tint: Color = Color.White,
-    blur: Float = 20f,
+    blur: Float = 24f,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Box(
@@ -898,9 +890,9 @@ fun LiquidSurface(
                 width = 0.5.dp,
                 brush = Brush.linearGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.2f),
+                        Color.White.copy(alpha = 0.25f),
                         Color.White.copy(alpha = 0.05f),
-                        Color.White.copy(alpha = 0.15f)
+                        Color.White.copy(alpha = 0.2f)
                     )
                 ),
                 shape = RoundedCornerShape(28.dp)
@@ -914,7 +906,7 @@ fun LiquidSurface(
                     Brush.verticalGradient(
                         listOf(
                             tint.copy(alpha = alpha),
-                            tint.copy(alpha = alpha * 0.4f)
+                            tint.copy(alpha = alpha * 0.5f)
                         )
                     )
                 )
@@ -926,10 +918,26 @@ fun LiquidSurface(
                     }
                 }
                 .drawBehind {
-                    val strokeWidth = 1.dp.toPx()
-                    // Dynamic specular highlight based on a virtual light source
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                        // Legacy fallback: Add a subtle noise texture to simulate glass granularity
+                        val noiseStep = 4f
+                        for (x in 0 until size.width.toInt() step noiseStep.toInt()) {
+                            for (y in 0 until size.height.toInt() step noiseStep.toInt()) {
+                                if ((x + y) % 7 == 0) {
+                                    drawCircle(
+                                        color = Color.White.copy(alpha = 0.03f),
+                                        radius = 1f,
+                                        center = Offset(x.toFloat(), y.toFloat())
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    val strokeWidth = 1.2.dp.toPx()
+                    // Refined Specular highlight
                     val specularPath = Path().apply {
-                        moveTo(0f, size.height * 0.3f)
+                        moveTo(0f, size.height * 0.4f)
                         lineTo(0f, 28.dp.toPx())
                         arcTo(
                             rect = Rect(0f, 0f, 56.dp.toPx(), 56.dp.toPx()),
@@ -937,28 +945,19 @@ fun LiquidSurface(
                             sweepAngleDegrees = 90f,
                             forceMoveTo = false
                         )
-                        lineTo(size.width * 0.3f, 0f)
+                        lineTo(size.width * 0.4f, 0f)
                     }
                     drawPath(
                         path = specularPath,
                         brush = Brush.linearGradient(
                             colors = listOf(
-                                Color.White.copy(alpha = 0.3f),
-                                Color.White.copy(alpha = 0.05f)
+                                Color.White.copy(alpha = 0.4f),
+                                Color.White.copy(alpha = 0.0f)
                             ),
                             start = Offset.Zero,
-                            end = Offset(size.width * 0.3f, size.height * 0.3f)
+                            end = Offset(size.width * 0.4f, size.height * 0.4f)
                         ),
                         style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                    )
-
-                    // Subsurface scattering simulation
-                    drawRect(
-                        brush = Brush.radialGradient(
-                            colors = listOf(tint.copy(alpha = 0.05f), Color.Transparent),
-                            center = Offset(size.width * 0.5f, size.height * 0.5f),
-                            radius = size.minDimension
-                        )
                     )
                 }
         )
@@ -972,7 +971,7 @@ fun LiquidSurface(
 }
 
 @Composable
-fun BackgroundGrid() {
+fun AtmosphericBackground() {
     val density = LocalDensity.current
     val gridTargetPx = remember(density) { with(density) { 60.dp.toPx() } }
 
@@ -981,63 +980,72 @@ fun BackgroundGrid() {
         initialValue = 0f,
         targetValue = gridTargetPx,
         animationSpec = infiniteRepeatable(
-            animation = tween(15000, easing = LinearEasing),
+            animation = tween(20000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ), label = "Grid"
     )
     val nebulaAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.02f,
-        targetValue = 0.08f, // Slightly increased for more depth
+        initialValue = 0.03f,
+        targetValue = 0.12f,
         animationSpec = infiniteRepeatable(
-            animation = tween(12000, easing = EaseInOutSans),
+            animation = tween(15000, easing = EaseInOutSans),
             repeatMode = RepeatMode.Reverse
         ), label = "Nebula"
     )
 
     Canvas(modifier = Modifier.fillMaxSize()) {
         val gridSize = 60.dp.toPx()
-        val gridColor = LiquidCyan.copy(alpha = 0.04f)
-
-        // Draw distorted grid lines
-        // This is a simplified version of "refraction" - we could simulate it by shifting lines
-        // However, a true refraction requires knowledge of UI element positions.
-        // For a general background, we'll use a slightly varying grid density to simulate optical unevenness.
+        val gridColor = LiquidCyan.copy(alpha = 0.05f)
         
+        // Base abyss
+        drawRect(DeepSpace)
+
+        // Distortion-aware grid
         var x = (gridShift % gridSize) - gridSize
         while (x < size.width + gridSize) {
-            val distortionX = kotlin.math.sin((x + gridShift) / 100.0).toFloat() * 2f
+            val distortionX = kotlin.math.sin((x + gridShift) / 120.0).toFloat() * 4f
             drawLine(gridColor, Offset(x + distortionX, 0f), Offset(x + distortionX, size.height), 0.5.dp.toPx())
             x += gridSize
         }
         var y = (gridShift % gridSize) - gridSize
         while (y < size.height + gridSize) {
-            val distortionY = kotlin.math.cos((y + gridShift) / 100.0).toFloat() * 2f
+            val distortionY = kotlin.math.cos((y + gridShift) / 120.0).toFloat() * 4f
             drawLine(gridColor, Offset(0f, y + distortionY), Offset(size.width, y + distortionY), 0.5.dp.toPx())
             y += gridSize
         }
 
-        // Atmospheric nebulae with multi-stop radial gradients for "liquid" feel
+        // Multi-layered fluid nebulae
         drawCircle(
             brush = Brush.radialGradient(
                 0.0f to LiquidCyan.copy(alpha = nebulaAlpha),
-                0.5f to LiquidCyan.copy(alpha = nebulaAlpha * 0.4f),
+                0.4f to LiquidCyan.copy(alpha = nebulaAlpha * 0.5f),
                 1.0f to Color.Transparent,
-                center = Offset(size.width * 0.2f, size.height * 0.3f),
-                radius = 800.dp.toPx()
+                center = Offset(size.width * 0.3f, size.height * 0.2f),
+                radius = 1000.dp.toPx()
             ),
-            center = Offset(size.width * 0.2f, size.height * 0.3f),
-            radius = 800.dp.toPx()
+            center = Offset(size.width * 0.3f, size.height * 0.2f),
+            radius = 1000.dp.toPx()
         )
         drawCircle(
             brush = Brush.radialGradient(
-                0.0f to IntegrityGreen.copy(alpha = nebulaAlpha * 0.8f),
-                0.6f to IntegrityGreen.copy(alpha = nebulaAlpha * 0.2f),
+                0.0f to IntegrityGreen.copy(alpha = nebulaAlpha * 0.7f),
+                0.5f to IntegrityGreen.copy(alpha = nebulaAlpha * 0.2f),
                 1.0f to Color.Transparent,
-                center = Offset(size.width * 0.8f, size.height * 0.7f),
-                radius = 700.dp.toPx()
+                center = Offset(size.width * 0.8f, size.height * 0.8f),
+                radius = 900.dp.toPx()
             ),
-            center = Offset(size.width * 0.8f, size.height * 0.7f),
-            radius = 700.dp.toPx()
+            center = Offset(size.width * 0.8f, size.height * 0.8f),
+            radius = 900.dp.toPx()
+        )
+        drawCircle(
+            brush = Brush.radialGradient(
+                0.0f to AlertRed.copy(alpha = nebulaAlpha * 0.4f),
+                0.6f to Color.Transparent,
+                center = Offset(size.width * 0.5f, size.height * 0.5f),
+                radius = 1200.dp.toPx()
+            ),
+            center = Offset(size.width * 0.5f, size.height * 0.5f),
+            radius = 1200.dp.toPx()
         )
     }
 }
@@ -1052,28 +1060,40 @@ fun PremiumControlAction(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val animatedScale by animateFloatAsState(if (isPressed) 0.95f else 1f, label = "Scale")
-    val animatedAlpha by animateFloatAsState(if (isPressed) 0.8f else 1f, label = "Alpha")
-    val animatedGlow by animateFloatAsState(if (isPressed) 0.3f else 0.12f, label = "Glow")
+    
+    val animatedScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+        label = "Scale"
+    )
+    val animatedTilt by animateFloatAsState(
+        targetValue = if (isPressed) 4f else 0f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 300f),
+        label = "Tilt"
+    )
+    val animatedGlow by animateFloatAsState(
+        targetValue = if (isPressed) 0.35f else 0.15f,
+        animationSpec = tween(300),
+        label = "Glow"
+    )
 
     Box(
         modifier = modifier
             .graphicsLayer {
                 scaleX = animatedScale
                 scaleY = animatedScale
-                alpha = if (enabled) animatedAlpha else 0.4f
-                // Subtle tilt effect
-                rotationX = if (isPressed) 2f else 0f
-                cameraDistance = 12f * density
+                rotationX = animatedTilt
+                cameraDistance = 16f * density
+                alpha = if (enabled) 1f else 0.4f
             }
             .fillMaxWidth()
-            .height(60.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .height(64.dp)
+            .clip(RoundedCornerShape(20.dp))
             .background(
                 Brush.verticalGradient(
                     listOf(
                         accentColor.copy(alpha = animatedGlow),
-                        accentColor.copy(alpha = animatedGlow * 0.3f)
+                        accentColor.copy(alpha = animatedGlow * 0.4f)
                     )
                 )
             )
@@ -1081,11 +1101,11 @@ fun PremiumControlAction(
                 width = 0.5.dp,
                 brush = Brush.linearGradient(
                     listOf(
-                        accentColor.copy(alpha = if (isPressed) 0.8f else 0.5f),
-                        accentColor.copy(alpha = 0.1f)
+                        accentColor.copy(alpha = if (isPressed) 0.9f else 0.4f),
+                        accentColor.copy(alpha = 0.05f)
                     )
                 ),
-                shape = RoundedCornerShape(18.dp)
+                shape = RoundedCornerShape(20.dp)
             )
             .clickable(
                 interactionSource = interactionSource,
@@ -1095,29 +1115,18 @@ fun PremiumControlAction(
             ),
         contentAlignment = Alignment.Center
     ) {
+        // Specular overlay
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind {
-                    if (isPressed) {
-                        drawRect(
-                            brush = Brush.radialGradient(
-                                colors = listOf(accentColor.copy(alpha = 0.2f), Color.Transparent),
-                                center = Offset(size.width / 2, size.height / 2),
-                                radius = size.width
-                            )
-                        )
-                    }
-                    // Specular reflection on the button surface
-                    val strokeWidth = 1.dp.toPx()
-                    val reflectionPath = Path().apply {
-                        moveTo(10.dp.toPx(), 4.dp.toPx())
-                        lineTo(size.width - 20.dp.toPx(), 4.dp.toPx())
-                    }
-                    drawPath(
-                        path = reflectionPath,
-                        color = Color.White.copy(alpha = 0.15f),
-                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                    val strokeWidth = 1.2.dp.toPx()
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.2f),
+                        start = Offset(12.dp.toPx(), 4.dp.toPx()),
+                        end = Offset(size.width - 24.dp.toPx(), 4.dp.toPx()),
+                        strokeWidth = strokeWidth,
+                        cap = StrokeCap.Round
                     )
                 }
         )
@@ -1125,7 +1134,8 @@ fun PremiumControlAction(
             text = label,
             style = MaterialTheme.typography.labelLarge,
             color = if (enabled) accentColor else TextMuted,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 3.sp
         )
     }
 }
@@ -1167,24 +1177,22 @@ fun TetherNavigationShell(
                 modifier = Modifier.width(320.dp).fillMaxHeight()
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    // Drawer background with blur
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(DeepSpace.copy(alpha = 0.8f))
+                            .background(DeepSpace.copy(alpha = 0.85f))
                             .graphicsLayer {
                                 renderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    android.graphics.RenderEffect.createBlurEffect(30f, 30f, android.graphics.Shader.TileMode.CLAMP).asComposeRenderEffect()
+                                    android.graphics.RenderEffect.createBlurEffect(40f, 40f, android.graphics.Shader.TileMode.CLAMP).asComposeRenderEffect()
                                 } else {
                                     null
                                 }
                             }
                     )
-                    // Drawer content (sharp)
                     Column(modifier = Modifier.fillMaxSize().padding(32.dp)) {
-                        Spacer(modifier = Modifier.height(48.dp))
+                        Spacer(modifier = Modifier.height(64.dp))
                         Text(stringResource(R.string.nav_command_interface), style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
-                        Spacer(modifier = Modifier.height(32.dp))
+                        Spacer(modifier = Modifier.height(48.dp))
 
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
@@ -1199,19 +1207,20 @@ fun TetherNavigationShell(
                                 selected = currentScreen == screen,
                                 icon = { Icon(icon, contentDescription = null) },
                                 colors = NavigationDrawerItemDefaults.colors(
-                                    selectedContainerColor = LiquidCyan.copy(alpha = 0.1f),
+                                    selectedContainerColor = LiquidCyan.copy(alpha = 0.12f),
                                     unselectedContainerColor = Color.Transparent,
                                     selectedIconColor = LiquidCyan,
                                     unselectedIconColor = TextSecondary,
                                     selectedTextColor = LiquidCyan,
                                     unselectedTextColor = TextSecondary
                                 ),
-                                shape = RoundedCornerShape(16.dp),
+                                shape = RoundedCornerShape(20.dp),
                                 onClick = {
                                     currentScreen = screen
                                     scope.launch { drawerState.close() }
                                 }
                             )
+                            Spacer(modifier = Modifier.height(8.dp))
                         }
                     }
                 }
@@ -1243,10 +1252,10 @@ fun TetherNavigationShell(
                 AnimatedContent(
                     targetState = currentScreen,
                     transitionSpec = {
-                        (fadeIn(animationSpec = tween(400, easing = EaseInOutSans)) + 
-                         scaleIn(initialScale = 0.98f, animationSpec = tween(400, easing = EaseInOutSans)))
-                            .togetherWith(fadeOut(animationSpec = tween(300, easing = EaseInOutSans)) + 
-                                         scaleOut(targetScale = 1.02f, animationSpec = tween(300, easing = EaseInOutSans)))
+                        (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessLow)) + 
+                         scaleIn(initialScale = 0.96f, animationSpec = spring(stiffness = Spring.StiffnessLow)))
+                            .togetherWith(fadeOut(animationSpec = spring(stiffness = Spring.StiffnessLow)) + 
+                                         scaleOut(targetScale = 1.04f, animationSpec = spring(stiffness = Spring.StiffnessLow)))
                     },
                     label = "ScreenTransition"
                 ) { screen ->
@@ -1298,28 +1307,28 @@ fun TetherAppScreen(
 
         LiquidSurface(modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.header_hardware_directives), style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
-            Spacer(modifier = Modifier.height(24.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Spacer(modifier = Modifier.height(28.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 PremiumControlAction(stringResource(R.string.label_sleep), MatrixGold, { onBleActionRequested("PWR_SLEEP") }, Modifier.weight(1f), isConnected)
                 PremiumControlAction(stringResource(R.string.label_reboot), TextPrimary, { onBleActionRequested("PWR_REBOOT") }, Modifier.weight(1f), isConnected)
             }
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
             PremiumControlAction(stringResource(R.string.label_halt_system), AlertRed, { onBleActionRequested("PWR_SHUTDOWN") }, enabled = isConnected)
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
 
         AnimatedContent(targetState = verificationStep, label = "Security") { step ->
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 when (step) {
                     TrustVerificationStep.NOT_IN_PANIC -> {
                         if (isPanicActive) PanicRestoreCard(onInitiateRestore)
                         else {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                                 PremiumControlAction(stringResource(R.string.label_unlock), IntegrityGreen, onUnlockClick, Modifier.weight(1f), isConnected)
                                 PremiumControlAction(stringResource(R.string.label_lock), LiquidCyan, onLockClick, Modifier.weight(1f), isConnected)
                             }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                                 PremiumControlAction(stringResource(R.string.label_target), TextSecondary, onSelectLaptop, Modifier.weight(1f))
                                 PremiumControlAction(stringResource(R.string.label_panic), AlertRed, onPanicClick, Modifier.weight(1f))
                             }
@@ -1330,7 +1339,7 @@ fun TetherAppScreen(
                 }
             }
         }
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(64.dp))
     }
 }
 
@@ -1340,17 +1349,29 @@ fun ScanningVisualizer(color: Color) {
     val radiusTargetPx = remember(density) { with(density) { 160.dp.toPx() } }
 
     val infiniteTransition = rememberInfiniteTransition(label = "Scanning")
-    val radius by infiniteTransition.animateFloat(0f, radiusTargetPx, infiniteRepeatable(tween(3000, easing = LinearOutSlowInEasing)), label = "R")
-    val alpha by infiniteTransition.animateFloat(1f, 0f, infiniteRepeatable(tween(3000, easing = LinearOutSlowInEasing)), label = "A")
+    val radius by infiniteTransition.animateFloat(0f, radiusTargetPx, infiniteRepeatable(tween(3500, easing = LinearOutSlowInEasing)), label = "R")
+    val alpha by infiniteTransition.animateFloat(1f, 0f, infiniteRepeatable(tween(3500, easing = LinearOutSlowInEasing)), label = "A")
+    val pulseScale by infiniteTransition.animateFloat(1f, 1.1f, infiniteRepeatable(tween(2000, easing = EaseInOutSans), repeatMode = RepeatMode.Reverse), label = "P")
 
     Box(contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.size(320.dp)) {
-            drawCircle(color.copy(alpha = alpha * 0.3f), radius, style = Stroke(2.dp.toPx()))
-            drawCircle(color.copy(alpha = alpha * 0.1f), radius * 0.7f, style = Stroke(1.dp.toPx()))
+        Canvas(modifier = Modifier.size(320.dp).graphicsLayer { scaleX = pulseScale; scaleY = pulseScale }) {
+            drawCircle(color.copy(alpha = alpha * 0.4f), radius, style = Stroke(2.5.dp.toPx()))
+            drawCircle(color.copy(alpha = alpha * 0.15f), radius * 0.7f, style = Stroke(1.5.dp.toPx()))
+            
+            // Refractive glint
+            drawArc(
+                color = Color.White.copy(alpha = alpha * 0.2f),
+                startAngle = -45f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(center.x - radius, center.y - radius),
+                size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
+                style = Stroke(4.dp.toPx(), cap = StrokeCap.Round)
+            )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(stringResource(R.string.status_scanning), style = MaterialTheme.typography.labelMedium, color = color)
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
             Text(stringResource(R.string.label_no_host), style = MaterialTheme.typography.headlineMedium, color = TextPrimary, fontWeight = FontWeight.Bold)
             Text(stringResource(R.string.label_broadcasting_mesh), style = MaterialTheme.typography.labelSmall, color = TextSecondary)
         }
@@ -1360,17 +1381,29 @@ fun ScanningVisualizer(color: Color) {
 @Composable
 fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
     val infiniteTransition = rememberInfiniteTransition(label = "Active")
-    val rotation by infiniteTransition.animateFloat(0f, 360f, infiniteRepeatable(tween(20000, easing = LinearEasing)), label = "Rot")
+    val rotation by infiniteTransition.animateFloat(0f, 360f, infiniteRepeatable(tween(25000, easing = LinearEasing)), label = "Rot")
+    val orbitRotation by infiniteTransition.animateFloat(360f, 0f, infiniteRepeatable(tween(15000, easing = LinearEasing)), label = "Orbit")
 
     Box(contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.size(300.dp)) {
-            drawCircle(Brush.radialGradient(listOf(color.copy(alpha = 0.15f), Color.Transparent), radius = size.width / 2))
+        Canvas(modifier = Modifier.size(320.dp)) {
+            drawCircle(Brush.radialGradient(listOf(color.copy(alpha = 0.2f), Color.Transparent), radius = size.width / 2))
         }
-        Canvas(modifier = Modifier.size(260.dp).graphicsLayer { rotationZ = rotation }) {
-            drawArc(color, 0f, 120f, false, style = Stroke(4.dp.toPx(), cap = StrokeCap.Round))
+        
+        // Outer complex ring
+        Canvas(modifier = Modifier.size(280.dp).graphicsLayer { rotationZ = rotation }) {
+            drawArc(color, 0f, 160f, false, style = Stroke(5.dp.toPx(), cap = StrokeCap.Round))
+            drawArc(color.copy(alpha = 0.3f), 180f, 90f, false, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
         }
+
+        // Inner orbit nodes
+        Canvas(modifier = Modifier.size(200.dp).graphicsLayer { rotationZ = orbitRotation }) {
+            drawCircle(color, radius = 6.dp.toPx(), center = Offset(size.width, size.height/2))
+            drawCircle(color.copy(alpha = 0.5f), radius = 4.dp.toPx(), center = Offset(0f, size.height/2))
+        }
+
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(status, style = MaterialTheme.typography.headlineSmall, color = color, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(4.dp))
             Text(subStatus, style = MaterialTheme.typography.labelMedium, color = TextSecondary)
         }
     }
@@ -1378,31 +1411,31 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
 
 @Composable
 fun PanicRestoreCard(onInitiateRestore: () -> Unit) {
-    LiquidSurface(tint = IntegrityGreen) {
+    LiquidSurface(tint = IntegrityGreen, alpha = 0.12f) {
         Text(stringResource(R.string.status_lockdown_active), style = MaterialTheme.typography.labelMedium, color = AlertRed)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Text(stringResource(R.string.panic_message), style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
         PremiumControlAction(stringResource(R.string.label_restore), IntegrityGreen, onInitiateRestore)
     }
 }
 
 @Composable
 fun LoadingSecurityStep(msg: String) {
-    Column(modifier = Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        CircularProgressIndicator(color = LiquidCyan, strokeWidth = 1.dp)
-        Spacer(modifier = Modifier.height(16.dp))
+    Column(modifier = Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        CircularProgressIndicator(color = LiquidCyan, strokeWidth = 1.5.dp, modifier = Modifier.size(48.dp))
+        Spacer(modifier = Modifier.height(20.dp))
         Text(msg, style = MaterialTheme.typography.labelMedium, color = TextSecondary)
     }
 }
 
 @Composable
 fun BiometricVerificationStep(onVerify: () -> Unit) {
-    LiquidSurface(tint = LiquidCyan) {
+    LiquidSurface(tint = LiquidCyan, alpha = 0.12f) {
         Text(stringResource(R.string.header_identity_required), style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Text(stringResource(R.string.identity_message), style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
         PremiumControlAction(stringResource(R.string.btn_verify), LiquidCyan, onVerify)
     }
 }
@@ -1423,8 +1456,8 @@ fun SettingsScreen(
 
     val scrollState = rememberScrollState()
     Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(24.dp)) {
-        Text(stringResource(R.string.header_system_config), style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
-        Spacer(modifier = Modifier.height(24.dp))
+        Text(stringResource(R.string.header_system_config), style = MaterialTheme.typography.labelLarge, color = LiquidCyan, letterSpacing = 4.sp)
+        Spacer(modifier = Modifier.height(28.dp))
 
         LiquidSurface {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1435,21 +1468,21 @@ fun SettingsScreen(
                 Switch(isBiometricEnabled, onBiometricToggled, colors = SwitchDefaults.colors(checkedTrackColor = LiquidCyan))
             }
             if (isBiometricEnabled) {
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(28.dp))
                 Text(stringResource(R.string.label_lock_threshold), style = MaterialTheme.typography.labelMedium, color = LiquidCyan)
-                Spacer(modifier = Modifier.height(16.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Spacer(modifier = Modifier.height(18.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), maxItemsInEachRow = 3) {
                     listOf("IMM" to 0L, "1M" to 60000L, "5M" to 300000L).forEach { (l, v) ->
                         val sel = selectedTimeoutMs == v
-                        Box(Modifier.height(40.dp).weight(1f).clip(RoundedCornerShape(12.dp)).background(if(sel) LiquidCyan.copy(0.1f) else Color.White.copy(0.03f)).clickable { onTimeoutChanged(v) }.border(0.5.dp, if(sel) LiquidCyan else GlassBorder, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                            Text(l, color = if(sel) LiquidCyan else TextSecondary)
+                        Box(Modifier.height(44.dp).weight(1f).clip(RoundedCornerShape(14.dp)).background(if(sel) LiquidCyan.copy(0.15f) else Color.White.copy(0.04f)).clickable { onTimeoutChanged(v) }.border(0.5.dp, if(sel) LiquidCyan else GlassBorder, RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+                            Text(l, color = if(sel) LiquidCyan else TextSecondary, style = MaterialTheme.typography.labelLarge)
                         }
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
         LiquidSurface {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -1460,7 +1493,7 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
         LiquidSurface {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -1475,18 +1508,19 @@ fun SettingsScreen(
                             val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                             context.startActivity(intent)
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan.copy(0.1f)),
-                        border = BorderStroke(0.5.dp, LiquidCyan)
+                        colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan.copy(0.12f)),
+                        border = BorderStroke(0.5.dp, LiquidCyan),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(stringResource(R.string.btn_fix), color = LiquidCyan)
                     }
                 } else {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = IntegrityGreen)
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = IntegrityGreen, modifier = Modifier.size(32.dp))
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
         DeviceAttestationCard(LocalContext.current)
     }
 }
@@ -1509,16 +1543,16 @@ fun DeviceAttestationCard(context: Context) {
         withContext(Dispatchers.IO) { value = evaluator.runAttestationPipeline() }
     }
 
-    LiquidSurface(tint = if (report.score >= 85) IntegrityGreen else AlertRed, blur = 15f) {
+    LiquidSurface(tint = if (report.score >= 85) IntegrityGreen else AlertRed, blur = 20f) {
         Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column {
-                Text(stringResource(R.string.header_integrity_core), style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
+                Text(stringResource(R.string.header_integrity_core), style = MaterialTheme.typography.labelLarge, color = LiquidCyan, letterSpacing = 2.sp)
                 Text(stringResource(report.tier.labelRes), color = report.tier.color, style = MaterialTheme.typography.labelMedium)
             }
-            Text(report.score.toString(), style = MaterialTheme.typography.headlineMedium, color = report.tier.color)
+            Text(report.score.toString(), style = MaterialTheme.typography.headlineLarge, color = report.tier.color)
         }
-        Spacer(modifier = Modifier.height(16.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(modifier = Modifier.height(24.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             MetricRow(stringResource(R.string.label_bootloader), report.isBootloaderLocked)
             MetricRow(stringResource(R.string.label_root), report.isNotRooted)
             MetricRow(stringResource(R.string.label_dev_module), report.isDevOptionsDisabled)
@@ -1530,8 +1564,13 @@ fun DeviceAttestationCard(context: Context) {
 @Composable
 fun MetricRow(label: String, pass: Boolean) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = TextSecondary)
-        Text(if(pass) stringResource(R.string.label_secure) else stringResource(R.string.label_fail), color = if(pass) IntegrityGreen else AlertRed)
+        Text(label, color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            if(pass) stringResource(R.string.label_secure) else stringResource(R.string.label_fail), 
+            color = if(pass) IntegrityGreen else AlertRed,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.bodyMedium
+        )
     }
 }
 
@@ -1539,16 +1578,19 @@ fun MetricRow(label: String, pass: Boolean) {
 fun LaptopControlScreen(onBleActionRequested: (String) -> Unit) {
     var vol by remember { mutableFloatStateOf(50f) }
     var bri by remember { mutableFloatStateOf(50f) }
-    Column(Modifier.fillMaxSize().padding(24.dp)) {
-        Text(stringResource(R.string.header_hardware_interface), style = MaterialTheme.typography.labelLarge, color = LiquidCyan)
-        Spacer(modifier = Modifier.height(24.dp))
+    val scrollState = rememberScrollState()
+    Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(24.dp)) {
+        Text(stringResource(R.string.header_hardware_interface), style = MaterialTheme.typography.labelLarge, color = LiquidCyan, letterSpacing = 4.sp)
+        Spacer(modifier = Modifier.height(28.dp))
         LiquidSurface {
             Text(stringResource(R.string.label_volume), style = MaterialTheme.typography.titleLarge, color = TextPrimary)
+            Spacer(modifier = Modifier.height(16.dp))
             Slider(vol, { vol = it; onBleActionRequested(if(it > vol) "VOL_UP" else "VOL_DOWN") }, colors = SliderDefaults.colors(thumbColor = TextPrimary, activeTrackColor = LiquidCyan))
         }
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
         LiquidSurface {
             Text(stringResource(R.string.label_brightness), style = MaterialTheme.typography.titleLarge, color = TextPrimary)
+            Spacer(modifier = Modifier.height(16.dp))
             Slider(bri, { bri = it; onBleActionRequested(if(it > bri) "BRIGHT_UP" else "BRIGHT_DOWN") }, colors = SliderDefaults.colors(thumbColor = TextPrimary, activeTrackColor = LiquidCyan))
         }
     }
@@ -1567,16 +1609,17 @@ fun PairingScreen(onShowQR: () -> Unit) {
             stringResource(R.string.header_device_pairing),
             style = MaterialTheme.typography.headlineSmall,
             color = LiquidCyan,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 4.sp
         )
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
         Text(
             stringResource(R.string.desc_pairing),
             style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary,
             textAlign = TextAlign.Center
         )
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(56.dp))
 
         LiquidSurface(modifier = Modifier.fillMaxWidth()) {
             PremiumControlAction(
@@ -1584,7 +1627,7 @@ fun PairingScreen(onShowQR: () -> Unit) {
                 LiquidCyan,
                 onShowQR
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
             Text(
                 stringResource(R.string.desc_pairing_key),
                 style = MaterialTheme.typography.bodySmall,
@@ -1597,10 +1640,10 @@ fun PairingScreen(onShowQR: () -> Unit) {
 
 @Composable
 fun CyberConfirmationDialog(title: String, message: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, containerColor = SurfaceElevated, modifier = Modifier.border(0.5.dp, GlassBorder, RoundedCornerShape(24.dp)), shape = RoundedCornerShape(24.dp),
-        title = { Text(title, color = AlertRed) },
-        text = { Text(message, color = TextSecondary) },
-        confirmButton = { Button(onConfirm, colors = ButtonDefaults.buttonColors(containerColor = AlertRed.copy(0.1f)), border = BorderStroke(0.5.dp, AlertRed)) { Text(stringResource(R.string.btn_execute), color = AlertRed) } },
+    AlertDialog(onDismissRequest = onDismiss, containerColor = SurfaceElevated, modifier = Modifier.border(0.5.dp, GlassBorder, RoundedCornerShape(28.dp)), shape = RoundedCornerShape(28.dp),
+        title = { Text(title, color = AlertRed, style = MaterialTheme.typography.titleLarge) },
+        text = { Text(message, color = TextSecondary, style = MaterialTheme.typography.bodyLarge) },
+        confirmButton = { Button(onConfirm, colors = ButtonDefaults.buttonColors(containerColor = AlertRed.copy(0.12f)), border = BorderStroke(0.5.dp, AlertRed), shape = RoundedCornerShape(12.dp)) { Text(stringResource(R.string.btn_execute), color = AlertRed, fontWeight = FontWeight.Bold) } },
         dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.btn_abort), color = TextSecondary) } }
     )
 }
@@ -1608,11 +1651,12 @@ fun CyberConfirmationDialog(title: String, message: String, onConfirm: () -> Uni
 @Composable
 fun CompromisedEnvironmentOverlay(score: Int) {
     Box(Modifier.fillMaxSize().background(DeepSpace), contentAlignment = Alignment.Center) {
+        AtmosphericBackground() // Distorted background under lockdown
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(stringResource(R.string.header_security_lockdown), color = AlertRed, style = MaterialTheme.typography.labelLarge)
-            Spacer(modifier = Modifier.height(48.dp))
-            Text(score.toString(), style = MaterialTheme.typography.headlineLarge, color = AlertRed)
-            Text(stringResource(R.string.label_trust_index), color = TextSecondary)
+            Text(stringResource(R.string.header_security_lockdown), color = AlertRed, style = MaterialTheme.typography.labelLarge, letterSpacing = 8.sp)
+            Spacer(modifier = Modifier.height(56.dp))
+            Text(score.toString(), style = MaterialTheme.typography.headlineLarge, color = AlertRed, fontSize = 80.sp)
+            Text(stringResource(R.string.label_trust_index), color = TextSecondary, style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -1626,15 +1670,15 @@ fun CommandConfirmationDialog(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(DeepSpace.copy(alpha = 0.85f))
+            .background(DeepSpace.copy(alpha = 0.9f))
             .clickable(enabled = false) {},
         contentAlignment = Alignment.Center
     ) {
         LiquidSurface(
-            modifier = Modifier.width(320.dp),
+            modifier = Modifier.width(340.dp),
             tint = if (isConfirmed) IntegrityGreen else LiquidCyan,
-            alpha = 0.2f,
-            blur = 40f
+            alpha = 0.25f,
+            blur = 50f
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 if (isConfirmed) {
@@ -1642,26 +1686,27 @@ fun CommandConfirmationDialog(
                         Icons.Default.CheckCircle,
                         contentDescription = null,
                         tint = IntegrityGreen,
-                        modifier = Modifier.size(64.dp)
+                        modifier = Modifier.size(72.dp)
                     )
                 } else {
                     CircularProgressIndicator(
                         color = LiquidCyan,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(64.dp)
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(72.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(28.dp))
 
                 Text(
                     text = if (isConfirmed) "Handshake Verified" else "Transmitting Cryptographic Token...",
                     style = MaterialTheme.typography.titleMedium,
                     color = if (isConfirmed) IntegrityGreen else LiquidCyan,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    fontWeight = FontWeight.Bold
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 val displayName = command.uppercase().replace("_", " ")
                 Text(
@@ -1674,7 +1719,7 @@ fun CommandConfirmationDialog(
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(36.dp))
 
                 PremiumControlAction(
                     label = "Dismiss",
@@ -1694,25 +1739,24 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
             .clickable { onAuthorizeRequested() },
         contentAlignment = Alignment.Center
     ) {
-        // Blurred background layer
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(DeepSpace.copy(0.9f))
+                .background(DeepSpace.copy(0.92f))
                 .graphicsLayer {
                     renderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        android.graphics.RenderEffect.createBlurEffect(60f, 60f, android.graphics.Shader.TileMode.CLAMP).asComposeRenderEffect()
+                        android.graphics.RenderEffect.createBlurEffect(80f, 80f, android.graphics.Shader.TileMode.CLAMP).asComposeRenderEffect()
                     } else {
                         null
                     }
                 }
         )
 
-        // Sharp content layer
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("🔒", fontSize = 64.sp)
-            Spacer(modifier = Modifier.height(32.dp))
-            Text(stringResource(R.string.label_vault_enforced), color = LiquidCyan, style = MaterialTheme.typography.labelLarge)
+            Text("🔒", fontSize = 80.sp)
+            Spacer(modifier = Modifier.height(40.dp))
+            Text(stringResource(R.string.label_vault_enforced), color = LiquidCyan, style = MaterialTheme.typography.labelLarge, letterSpacing = 6.sp)
+            Spacer(modifier = Modifier.height(8.dp))
             Text(stringResource(R.string.label_tap_to_decrypt), color = TextMuted, style = MaterialTheme.typography.labelMedium)
         }
     }
@@ -1771,7 +1815,6 @@ class DeviceIntegrityRegistry(private val context: Context) {
 
             if (signatures.isNullOrEmpty()) return false
 
-            // Production verification hash anchoring standard release keys
             val targetCertificatePin = "D8:5F:A3:4E:91:C1:28:9B:F3:A1:02:4F:99:A8:12:44:A2:3F:89:B1:02:44:5F:99:A8:B1:22:4E:A3:F4:99:12"
 
             val digestEngine = java.security.MessageDigest.getInstance("SHA-256")

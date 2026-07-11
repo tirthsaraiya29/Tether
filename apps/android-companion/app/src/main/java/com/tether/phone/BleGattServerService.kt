@@ -676,6 +676,7 @@ class BleGattServerService : Service() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         server.notifyCharacteristicChanged(device, characteristic, false, value)
                     } else {
+                        // Suppress deprecation for older APIs as we provide a T+ alternative above
                         @Suppress("DEPRECATION")
                         characteristic.value = value
                         @Suppress("DEPRECATION")
