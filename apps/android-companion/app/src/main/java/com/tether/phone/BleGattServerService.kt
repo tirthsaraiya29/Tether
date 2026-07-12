@@ -40,7 +40,10 @@ class BleGattServerService : Service() {
     private lateinit var securityEngine: ProductionSecurityEngine
     private var commandCharacteristic: BluetoothGattCharacteristic? = null
 
-    private val connectedDevicesMap = ConcurrentHashMap<String, BluetoothDevice>()
+    // Track authenticated vs unauthenticated nodes to prevent unauthenticated GATT hijacking
+    private val authenticatedDevicesMap = ConcurrentHashMap<String, BluetoothDevice>()
+    private val unauthenticatedConnections = ConcurrentHashMap<String, Long>()
+
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val deviceChallenges = ConcurrentHashMap<String, ByteArray>()
     private val notificationSubscriptions = ConcurrentHashMap<String, Boolean>()
@@ -104,14 +107,14 @@ class BleGattServerService : Service() {
                     }
                 }
                 Intent.ACTION_SCREEN_ON -> {
-                    if (connectedDevicesMap.isEmpty() && !isAdvertising) {
+                    if (authenticatedDevicesMap.isEmpty() && !isAdvertising) {
                         startAdvertisingWithRetry(3)
                     }
                 }
                 PowerManager.ACTION_POWER_SAVE_MODE_CHANGED -> {
                     val isPowerSaveMode = powerManager.isPowerSaveMode
                     Log.i("TetherBle", "Power Save Mode Changed: $isPowerSaveMode")
-                    if (!isPowerSaveMode && !isAdvertising && connectedDevicesMap.isEmpty()) {
+                    if (!isPowerSaveMode && !isAdvertising && authenticatedDevicesMap.isEmpty()) {
                         startAdvertisingWithRetry(3)
                     }
                 }
@@ -127,38 +130,38 @@ class BleGattServerService : Service() {
         }
     }
 
-    private val healthCheckRunnable = object : Runnable {
-        override fun run() {
-            try {
-                val bluetoothManager = getSystemService(BluetoothManager::class.java)
-                val adapter = bluetoothManager?.adapter
-                if (adapter?.isEnabled != true) {
-                    Log.w("TetherBle", "Health check: Bluetooth adapter disabled. Waiting for enable.")
-                    return
-                }
+    private val healthCheckRunnable = Runnable {
+        try {
+            val bluetoothManager = getSystemService(BluetoothManager::class.java)
+            val adapter = bluetoothManager?.adapter
+            if (adapter?.isEnabled != true) return@Runnable
 
-                val now = SystemClock.elapsedRealtime()
-                if (now - lastStackRefreshTime > 3600000L) {
-                    Log.i("TetherBle", "Forced stack refresh: 1 hour elapsed since last reset.")
-                    lastStackRefreshTime = now
-                    mainHandler.post { restartGattServer() }
-                    return
-                }
+            val now = SystemClock.elapsedRealtime()
 
-                if (connectedDevicesMap.isEmpty() && !isAdvertising) {
-                    Log.i("TetherBle", "Health check: no connections, restarting advertising.")
-                    startAdvertisingWithRetry(3)
-                } else if (connectedDevicesMap.isNotEmpty() && !isAdvertising) {
-                    Log.w("TetherBle", "Health check: connections exist but advertising stopped. Restarting.")
-                    startAdvertisingWithRetry(3)
-                } else if (connectedDevicesMap.isNotEmpty()) {
-                    Log.d("TetherBle", "Health check: ${connectedDevicesMap.size} connections, advertising active.")
+            // Evict connections hanging inside the initialization barrier
+            unauthenticatedConnections.forEach { (address, connectionTime) ->
+                if ((now - connectionTime) > 4000L) {
+                    unauthenticatedConnections.remove(address)
+                    synchronized(gattLock) {
+                        val device = bluetoothGattServer?.connectedDevices?.find { it.address == address }
+                        if (device != null) {
+                            try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
+                        }
+                    }
                 }
-            } catch (e: Exception) {
-                Log.e("TetherBle", "Health check error: ${e.message}")
-            } finally {
-                selfHealingHandler.postDelayed(this, 300000)
             }
+
+            if ((now - lastStackRefreshTime) > 3600000L) {
+                lastStackRefreshTime = now
+                mainHandler.post { restartGattServer() }
+                return@Runnable
+            }
+
+            if (authenticatedDevicesMap.isEmpty() && !isAdvertising) {
+                startAdvertisingWithRetry(3)
+            }
+        } catch (e: Exception) {
+            Log.e("TetherBle", "Health check error: ${e.message}")
         }
     }
 
@@ -178,7 +181,7 @@ class BleGattServerService : Service() {
         private const val NOTIFICATION_ID = 1
 
         private const val ALARM_ACTION = "com.tether.phone.ALARM_HEALTH_CHECK"
-        private const val HEALTH_CHECK_INTERVAL_MS = 300000L
+        private const val HEALTH_CHECK_INTERVAL_MS = 60000L
         private const val WAKE_LOCK_TAG = "tether:BleWakeLock"
     }
 
@@ -295,7 +298,7 @@ class BleGattServerService : Service() {
             }
 
             if (action == Intent.ACTION_SCREEN_ON || action == Intent.ACTION_SCREEN_OFF) {
-                if (connectedDevicesMap.isEmpty() && !isAdvertising) {
+                if (authenticatedDevicesMap.isEmpty() && !isAdvertising) {
                     startAdvertisingWithRetry(3)
                 }
                 return START_STICKY
@@ -348,32 +351,33 @@ class BleGattServerService : Service() {
     }
 
     private val gattServerCallback = object : BluetoothGattServerCallback() {
-        override fun onServiceAdded(status: Int, service: BluetoothGattService?) {
-            Log.d("TetherBle", "onServiceAdded: status=$status, service=${service?.uuid}")
-        }
+        override fun onServiceAdded(status: Int, service: BluetoothGattService?) {}
 
         override fun onConnectionStateChange(device: BluetoothDevice?, status: Int, newState: Int) {
             if (device == null) return
             val address = device.address
-            Log.d("TetherBle", "onConnectionStateChange: device=$address, status=$status, newState=$newState")
 
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                connectedDevicesMap[address] = device
+                // Place device under verification block; do not cease advertising yet
+                unauthenticatedConnections[address] = SystemClock.elapsedRealtime()
+
+                // Set up temporary validation drop window
+                mainHandler.postDelayed({
+                    if (!authenticatedDevicesMap.containsKey(address) && unauthenticatedConnections.containsKey(address)) {
+                        android.util.Log.w("TetherBle", "Validation window expired. Purging drop-in node: $address")
+                        unauthenticatedConnections.remove(address)
+                        synchronized(gattLock) {
+                            try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
+                        }
+                    }
+                }, 4000L)
 
                 try {
                     bluetoothGattServer?.setPreferredPhy(device, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_OPTION_NO_PREFERRED)
-                } catch (_: SecurityException) {
                 } catch (_: Exception) {}
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
-                val isStale = status != BluetoothGatt.GATT_SUCCESS && status != 19 && status != 62 && status != 8
-                if (isStale) {
-                    Log.w("TetherBle", "Connection error status=$status, possible stale state.")
-                    if (connectedDevicesMap.size <= 1) {
-                         mainHandler.post { restartGattServer() }
-                    }
-                }
-
-                connectedDevicesMap.remove(address)
+                authenticatedDevicesMap.remove(address)
+                unauthenticatedConnections.remove(address)
                 deviceChallenges.remove(address)
                 notificationSubscriptions.remove(address)
                 computedSignaturesMap.remove(address)
@@ -383,21 +387,15 @@ class BleGattServerService : Service() {
                 pendingExecuteWrites.remove("$address-$COMMAND_CHAR_UUID")
                 pendingExecuteWrites.remove("$address-$CCCD_UUID")
 
-                // If no more connections, resume advertising
-                if (connectedDevicesMap.isEmpty()) {
-                    mainHandler.postDelayed({
-                        startAdvertisingWithRetry(3)
-                    }, 500)
+                if (authenticatedDevicesMap.isEmpty()) {
+                    mainHandler.postDelayed({ startAdvertisingWithRetry(3) }, 300)
                 }
             }
             notifyStateToInterface()
         }
 
         override fun onMtuChanged(device: BluetoothDevice?, mtu: Int) {
-            device?.let {
-                deviceMtuMap[it.address] = mtu
-                Log.i("TetherBle", "MTU state established natively for context address ${it.address}: $mtu bytes")
-            }
+            device?.let { deviceMtuMap[it.address] = mtu }
         }
 
         override fun onCharacteristicWriteRequest(
@@ -412,9 +410,7 @@ class BleGattServerService : Service() {
             if ((device == null) || (characteristic == null) || (value == null)) {
                 if (responseNeeded && device != null) {
                     try {
-                        synchronized(gattLock) {
-                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
-                        }
+                        synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null) }
                     } catch (_: SecurityException) {}
                 }
                 return
@@ -431,9 +427,7 @@ class BleGattServerService : Service() {
             if (preparedWrite) {
                 if (responseNeeded) {
                     try {
-                        synchronized(gattLock) {
-                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
-                        }
+                        synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value) }
                     } catch (_: SecurityException) {}
                 }
                 return
@@ -451,14 +445,12 @@ class BleGattServerService : Service() {
 
             if (shouldProcessImmediately) {
                 val finalPayload = pendingExecuteWrites.remove(storageKey)?.payload ?: accumulatedPayload
-                processCompletePayload(address, uuid, finalPayload)
+                processCompletePayload(device, uuid, finalPayload)
             }
 
             if (responseNeeded) {
                 try {
-                    synchronized(gattLock) {
-                        bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
-                    }
+                    synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null) }
                 } catch (_: SecurityException) {}
             }
         }
@@ -474,39 +466,19 @@ class BleGattServerService : Service() {
                             bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
                         }
                     }
-                    COMMAND_CHAR_UUID -> {
-                        sendSlicedResponse(device, requestId, offset, activeCommandPayload)
-                    }
-                    PUBLIC_KEY_CHAR_UUID -> {
-                        val publicKeyBytes = securityEngine.getPublicKeyBytes()
-                        sendSlicedResponse(device, requestId, offset, publicKeyBytes)
-                    }
+                    COMMAND_CHAR_UUID -> { sendSlicedResponse(device, requestId, offset, activeCommandPayload) }
+                    PUBLIC_KEY_CHAR_UUID -> { sendSlicedResponse(device, requestId, offset, securityEngine.getPublicKeyBytes()) }
                     else -> {
-                        synchronized(gattLock) {
-                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
-                        }
+                        synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null) }
                     }
                 }
             } catch (_: SecurityException) {}
         }
 
-        override fun onDescriptorWriteRequest(
-            device: BluetoothDevice?,
-            requestId: Int,
-            descriptor: BluetoothGattDescriptor?,
-            preparedWrite: Boolean,
-            responseNeeded: Boolean,
-            offset: Int,
-            value: ByteArray?,
-        ) {
+        override fun onDescriptorWriteRequest(device: BluetoothDevice?, requestId: Int, descriptor: BluetoothGattDescriptor?, preparedWrite: Boolean, responseNeeded: Boolean, offset: Int, value: ByteArray?) {
             if ((device == null) || (descriptor == null) || (value == null)) {
                 if (responseNeeded && (device != null)) {
-                    try {
-                        synchronized(gattLock) {
-                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
-                        }
-                    } catch (_: SecurityException) {
-                    } catch (_: Exception) {}
+                    try { synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null) } } catch (_: Exception) {}
                 }
                 return
             }
@@ -514,19 +486,12 @@ class BleGattServerService : Service() {
             val address = device.address
             val uuid = descriptor.uuid
             val storageKey = "$address-$uuid"
-            Log.d("TetherBle", "onDescriptorWriteRequest: device=$address, uuid=$uuid, prepared=$preparedWrite, value=${value.contentToString()}")
 
             if (preparedWrite) {
                 val currentPayload = pendingExecuteWrites[storageKey]?.payload ?: byteArrayOf()
-                val assembledPayload = if (offset == 0) value else currentPayload + value
-                pendingExecuteWrites[storageKey] = WriteSession(uuid, assembledPayload)
-
+                pendingExecuteWrites[storageKey] = WriteSession(uuid, if (offset == 0) value else currentPayload + value)
                 if (responseNeeded) {
-                    try {
-                        synchronized(gattLock) {
-                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
-                        }
-                    } catch (_: SecurityException) {}
+                    try { synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value) } } catch (_: SecurityException) {}
                 }
                 return
             }
@@ -543,25 +508,10 @@ class BleGattServerService : Service() {
                         accepted = true
                     }
                 }
-
                 if (responseNeeded) {
                     try {
                         synchronized(gattLock) {
-                            bluetoothGattServer?.sendResponse(
-                                device,
-                                requestId,
-                                if (accepted) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_FAILURE,
-                                0,
-                                null
-                            )
-                        }
-                    } catch (_: SecurityException) {}
-                }
-            } else {
-                if (responseNeeded) {
-                    try {
-                        synchronized(gattLock) {
-                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, 0, null)
+                            bluetoothGattServer?.sendResponse(device, requestId, if (accepted) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_FAILURE, 0, null)
                         }
                     } catch (_: SecurityException) {}
                 }
@@ -573,38 +523,32 @@ class BleGattServerService : Service() {
             try {
                 val value = if (descriptor.uuid == CCCD_UUID && notificationSubscriptions[device.address] == true) {
                     BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                } else if (descriptor.uuid == CCCD_UUID) {
-                    BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
                 } else {
-                    byteArrayOf(0, 0)
+                    BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
                 }
                 sendSlicedResponse(device, requestId, offset, value)
             } catch (_: SecurityException) {}
         }
 
         override fun onExecuteWrite(device: BluetoothDevice?, requestId: Int, execute: Boolean) {
-            super.onExecuteWrite(device, requestId, execute)
             if (device == null) return
-
             val address = device.address
             val targetKeys = pendingExecuteWrites.keys().asSequence().filter { it.startsWith("$address-") }
 
             for (storageKey in targetKeys) {
                 val session = pendingExecuteWrites.remove(storageKey)
                 if (execute && (session != null)) {
-                    processCompletePayload(address, session.uuid, session.payload)
+                    processCompletePayload(device, session.uuid, session.payload)
                 }
             }
-
             try {
-                synchronized(gattLock) {
-                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
-                }
+                synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null) }
             } catch (_: SecurityException) {}
         }
     }
 
-    private fun processCompletePayload(address: String, uuid: UUID, payload: ByteArray) {
+    private fun processCompletePayload(device: BluetoothDevice, uuid: UUID, payload: ByteArray) {
+        val address = device.address
         try {
             when (uuid) {
                 CHALLENGE_CHAR_UUID -> {
@@ -619,67 +563,47 @@ class BleGattServerService : Service() {
 
                         if (sessionKey != null) {
                             computedSignaturesMap[address] = securityEngine.computeHmac(payload, sessionKey)
+
+                            // Elevate trust status only after explicit handshake validation passes
+                            unauthenticatedConnections.remove(address)
+                            authenticatedDevicesMap[address] = device
+                            stopAdvertising()
+                            notifyStateToInterface()
                         } else {
-                            Log.e("TetherBle", "Handshake Refused: Attempt to read signature prior to establishing safe symmetric session keys.")
                             computedSignaturesMap[address] = byteArrayOf()
                         }
                     }
                 }
 
                 COMMAND_CHAR_UUID -> {
+                    if (!authenticatedDevicesMap.containsKey(address)) return
                     if (payload.size in 3..15) {
                         val opcode = payload[0].toInt()
-                        val dataA = payload[1].toInt()
-                        val dataB = payload[2].toInt()
-
-                        when (opcode) {
-                            0x01 -> {
-                                val stateUpdateBroadcast = Intent("com.tether.phone.ACTION_SYNC_HARDWARE_METRICS").apply {
-                                    putExtra("VOLUME_LEVEL", dataA)
-                                    putExtra("BRIGHTNESS_LEVEL", dataB)
-                                    setPackage(packageName)
-                                }
-                                sendBroadcast(stateUpdateBroadcast)
+                        if (opcode == 0x01) {
+                            val stateUpdateBroadcast = Intent("com.tether.phone.ACTION_SYNC_HARDWARE_METRICS").apply {
+                                putExtra("VOLUME_LEVEL", payload[1].toInt())
+                                putExtra("BRIGHTNESS_LEVEL", payload[2].toInt())
+                                setPackage(packageName)
                             }
+                            sendBroadcast(stateUpdateBroadcast)
                         }
                     } else if (payload.size > 16) {
-                        val sessionKey = sessionKeysMap[address]
-                        if (sessionKey != null) {
-                            try {
-                                val iv = payload.copyOfRange(0, 16)
-                                val ciphertext = payload.copyOfRange(16, payload.size)
+                        val sessionKey = sessionKeysMap[address] ?: return
+                        try {
+                            val iv = payload.copyOfRange(0, 16)
+                            val ciphertext = payload.copyOfRange(16, payload.size)
+                            val cipher = Cipher.getInstance("AES/CBC/PKCS7Padding")
+                            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(sessionKey, "AES"), IvParameterSpec(iv))
 
-                                val cipher = Cipher.getInstance("AES/CBC/PKCS7Padding")
-                                val keySpec = SecretKeySpec(sessionKey, "AES")
-                                val ivSpec = IvParameterSpec(iv)
-
-                                cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec)
-                                val decrypted = cipher.doFinal(ciphertext)
-                                val decryptedString = String(decrypted, Charsets.UTF_8)
-
-                                if (decryptedString.startsWith("confirm_")) {
-                                    val confirmedCommand = decryptedString.substringAfter("confirm_")
-                                    val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
-                                        putExtra("confirmed_command", confirmedCommand)
-                                        setPackage(packageName)
-                                    }
-                                    sendBroadcast(intent)
+                            val decryptedString = String(cipher.doFinal(ciphertext), Charsets.UTF_8)
+                            if (decryptedString.startsWith("confirm_")) {
+                                val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
+                                    putExtra("confirmed_command", decryptedString.substringAfter("confirm_"))
+                                    setPackage(packageName)
                                 }
-                            } catch (e: Exception) {
-                                Log.e("TetherBle", "Handshake decryption failure: ${e.message}")
+                                sendBroadcast(intent)
                             }
-                        }
-                    }
-                }
-
-                CCCD_UUID -> {
-                    if (payload.isNotEmpty()) {
-                        val controlByte = payload[0].toInt()
-                        if ((controlByte and 0x03) != 0) {
-                            notificationSubscriptions[address] = true
-                        } else if (controlByte == 0) {
-                            notificationSubscriptions.remove(address)
-                        }
+                        } catch (_: Exception) {}
                     }
                 }
             }
@@ -691,7 +615,7 @@ class BleGattServerService : Service() {
         val characteristic = commandCharacteristic ?: return
         val server = bluetoothGattServer ?: return
 
-        for (device in connectedDevicesMap.values) {
+        for (device in authenticatedDevicesMap.values) {
             if (notificationSubscriptions[device.address] != true) continue
             try {
                 synchronized(gattLock) {
@@ -740,7 +664,7 @@ class BleGattServerService : Service() {
     }
 
     private fun notifyStateToInterface() {
-        val count = connectedDevicesMap.size
+        val count = authenticatedDevicesMap.size
         val intent = Intent(ACTION_GATT_STATE_CHANGED).apply {
             putExtra(EXTRA_CONNECTION_COUNT, count)
             setPackage(packageName)
@@ -818,14 +742,6 @@ class BleGattServerService : Service() {
         }
     }
 
-    private fun acquireWakeLock() {
-        wakeLock?.acquire(30 * 1000L)
-    }
-
-    private fun releaseWakeLock() {
-        wakeLock?.let { if (it.isHeld) it.release() }
-    }
-
     private fun scheduleAlarmForHealthCheck() {
         alarmManager = getSystemService(ALARM_SERVICE) as AlarmManager
         val intent = Intent(ALARM_ACTION)
@@ -863,7 +779,7 @@ class BleGattServerService : Service() {
         lastStackRefreshTime = SystemClock.elapsedRealtime()
         
         // Clear all states
-        connectedDevicesMap.clear()
+        authenticatedDevicesMap.clear()
         deviceChallenges.clear()
         notificationSubscriptions.clear()
         computedSignaturesMap.clear()
@@ -944,7 +860,7 @@ class BleGattServerService : Service() {
                 advertiser?.stopAdvertising(advertiseCallback)
             } catch (_: Exception) {}
             isAdvertising = false
-            connectedDevicesMap.clear()
+            authenticatedDevicesMap.clear()
             deviceChallenges.clear()
             notificationSubscriptions.clear()
             computedSignaturesMap.clear()
