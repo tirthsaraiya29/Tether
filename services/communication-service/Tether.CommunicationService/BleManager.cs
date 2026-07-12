@@ -389,10 +389,8 @@ public partial class BleManager : IDisposable
 
     private async void OnDeviceAdvertised(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
     {
-
         _logger.Debug($"BLE advert received from {args.BluetoothAddress:X}, UUIDs: {string.Join(",", args.Advertisement.ServiceUuids)}");
 
-        if (_isConnected) return;
         if (_isStopping) return;
 
         if (!args.Advertisement.ServiceUuids.Contains(SERVICE_UUID))
@@ -401,6 +399,23 @@ public partial class BleManager : IDisposable
         if (!IsProvisioned())
         {
             _logger.Warning("Ignoring advertisement: device not provisioned.");
+            return;
+        }
+
+        if (_isConnected)
+        {
+            lock (_lock)
+            {
+                if (_device != null && _device.BluetoothAddress == args.BluetoothAddress)
+                {
+                    _logger.Warning("🎯 Received fresh advertisement from connected device. Remote host lost state. Force resetting session...");
+                }
+                else
+                {
+                    return; 
+                }
+            }
+            HandleDisconnection();
             return;
         }
 
@@ -764,7 +779,7 @@ public partial class BleManager : IDisposable
                 outputStream.Write(chunkBytes, 0, chunkBytes.Length);
                 currentOffset += (uint)chunkBytes.Length;
 
-                if (chunkBytes.Length < 22)
+                if (chunkBytes.Length == 0)
                 {
                     break;
                 }

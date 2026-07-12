@@ -20,6 +20,7 @@ import androidx.appcompat.app.AlertDialog
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
+import java.util.concurrent.ExecutorService
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -77,9 +78,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.concurrent.Executor
-import java.util.concurrent.Executors
 import android.util.Log
+import java.util.concurrent.Executors
 
 val EaseInOutSans = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
@@ -148,13 +148,14 @@ class MainActivity : FragmentActivity() {
 
     private var activePendingCommand = mutableStateOf<String?>(null)
     private var isCommandConfirmed = mutableStateOf(false)
+    private var dismissalJob: kotlinx.coroutines.Job? = null
 
     private var pendingPowerAction = mutableStateOf<PowerAction?>(null)
     private data class PowerAction(val command: String, val title: String)
 
     private var lastBiometricAuthTime = 0L
 
-    private lateinit var executor: Executor
+    private lateinit var executor: ExecutorService
 
     private val batteryOptimizationLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
@@ -195,7 +196,8 @@ class MainActivity : FragmentActivity() {
                 Log.d("TetherActivity", "Direct command confirmation intercepted: $confirmedCommand")
                 runOnUiThread {
                     isCommandConfirmed.value = true
-                    lifecycleScope.launch {
+                    dismissalJob?.cancel()
+                    dismissalJob = lifecycleScope.launch {
                         kotlinx.coroutines.delay(2000L)
                         activePendingCommand.value = null
                         isCommandConfirmed.value = false
@@ -459,6 +461,15 @@ class MainActivity : FragmentActivity() {
             IntentFilter("com.tether.phone.ACTION_COMMAND_CONFIRMED"),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+
+        val statusIntent = Intent(this, BleGattServerService::class.java).apply {
+            action = "ACTION_GET_STATUS"
+        }
+        try {
+            startForegroundService(statusIntent)
+        } catch (e: Exception) {
+            Log.e("TetherActivity", "Failed pulling background service status", e)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -534,22 +545,6 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        if (checkPermissions() && !isAppLocked.value) {
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                {
-                    val statusIntent = Intent(this, BleGattServerService::class.java).apply {
-                        action = "ACTION_GET_STATUS"
-                    }
-                    try {
-                        startForegroundService(statusIntent)
-                    } catch (e: Exception) {
-                        Log.e("TetherActivity", "Failed pulling background service status", e)
-                    }
-                },
-                300,
-            )
-        }
-
         if (isPrivacyMaskEnabled.value && isBlockScreenReadingEnabled.value) {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
@@ -571,9 +566,11 @@ class MainActivity : FragmentActivity() {
     override fun onDestroy() {
         try { unregisterReceiver(gattStateReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(commandConfirmedReceiver) } catch (_: Exception) {}
-        super.onDestroy()
         try { unregisterReceiver(screenUnlockReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(bluetoothStateReceiver) } catch (_: Exception) {}
+        
+        executor.shutdown()
+        super.onDestroy()
     }
 
     private fun authenticateForAppUnlock() {
@@ -622,6 +619,7 @@ class MainActivity : FragmentActivity() {
     private fun requestBatteryOptimizationExemption() {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+            Log.w("TetherUI", "App is not exempted from battery optimizations. Requesting exemption.")
             try {
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                     data = android.net.Uri.parse("package:$packageName")
@@ -631,6 +629,8 @@ class MainActivity : FragmentActivity() {
                 val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                 batteryOptimizationLauncher.launch(intent)
             }
+        } else {
+            Log.i("TetherUI", "App is already exempted from battery optimizations.")
         }
     }
 
@@ -781,6 +781,7 @@ class MainActivity : FragmentActivity() {
         if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
         
         Log.d("TetherActivity", "Triggering BLE action: $action")
+        dismissalJob?.cancel()
         activePendingCommand.value = action
         isCommandConfirmed.value = false
 
