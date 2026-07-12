@@ -83,18 +83,35 @@ class BleGattServerService : Service() {
             when (intent?.action) {
                 BluetoothAdapter.ACTION_STATE_CHANGED -> {
                     when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
-                    BluetoothAdapter.STATE_ON -> {
-                            if (connectedDevicesMap.isEmpty() && !isAdvertising) {
-                                startAdvertisingWithRetry(3)
+                        BluetoothAdapter.STATE_ON -> {
+                            Log.i("TetherBle", "Bluetooth Adapter ON - Restarting stack")
+                            mainHandler.post { restartGattServer() }
+                        }
+                        BluetoothAdapter.STATE_TURNING_OFF -> {
+                            Log.i("TetherBle", "Bluetooth Adapter TURNING OFF - Closing GATT server")
+                            synchronized(gattLock) {
+                                try {
+                                    bluetoothGattServer?.close()
+                                } catch (_: Exception) {}
+                                bluetoothGattServer = null
+                                isAdvertising = false
                             }
                         }
                         BluetoothAdapter.STATE_OFF -> {
+                            Log.i("TetherBle", "Bluetooth Adapter OFF")
                             stopAdvertising()
                         }
                     }
                 }
                 Intent.ACTION_SCREEN_ON -> {
                     if (connectedDevicesMap.isEmpty() && !isAdvertising) {
+                        startAdvertisingWithRetry(3)
+                    }
+                }
+                PowerManager.ACTION_POWER_SAVE_MODE_CHANGED -> {
+                    val isPowerSaveMode = powerManager.isPowerSaveMode
+                    Log.i("TetherBle", "Power Save Mode Changed: $isPowerSaveMode")
+                    if (!isPowerSaveMode && !isAdvertising && connectedDevicesMap.isEmpty()) {
                         startAdvertisingWithRetry(3)
                     }
                 }
@@ -195,12 +212,14 @@ class BleGattServerService : Service() {
 
         powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
-        wakeLock?.acquire(10 * 60 * 1000L)
+        // Keep WakeLock for the lifetime of the service to prevent Doze mode throttling
+        wakeLock?.acquire()
 
         val filter = IntentFilter().apply {
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
         }
         registerReceiver(bluetoothStateReceiver, filter)
         androidx.core.content.ContextCompat.registerReceiver(
@@ -240,6 +259,7 @@ class BleGattServerService : Service() {
         selfHealingHandler.postDelayed(healthCheckRunnable, 300000)
     }
 
+    @SuppressLint("MissingPermission")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (!hasRequiredRuntimePermissions()) {
             try {
@@ -262,7 +282,11 @@ class BleGattServerService : Service() {
             } catch (_: Exception) {}
         }
 
-        acquireWakeLock()
+        // Keep service alive
+        if (wakeLock?.isHeld == false) {
+            wakeLock?.acquire()
+        }
+
         try {
             val action = intent?.action
             if (action == "ACTION_GET_STATUS") {
@@ -283,7 +307,7 @@ class BleGattServerService : Service() {
                 pushCommandToSubscribedDevices(value)
             }
         } finally {
-            releaseWakeLock()
+            // Do not release wakeLock here, we want it for the service lifetime
         }
 
         return START_STICKY
@@ -335,19 +359,14 @@ class BleGattServerService : Service() {
 
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 connectedDevicesMap[address] = device
-                if (hasRequiredRuntimePermissions()) {
-                    try {
-                        advertiser?.stopAdvertising(this@BleGattServerService.advertiseCallback)
-                        isAdvertising = false
-                    } catch (_: SecurityException) {
-                    } catch (_: Exception) {}
-                }
+
                 try {
                     bluetoothGattServer?.setPreferredPhy(device, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_OPTION_NO_PREFERRED)
                 } catch (_: SecurityException) {
                 } catch (_: Exception) {}
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
-                if (status != BluetoothGatt.GATT_SUCCESS && status != 19 && status != 62) {
+                val isStale = status != BluetoothGatt.GATT_SUCCESS && status != 19 && status != 62 && status != 8
+                if (isStale) {
                     Log.w("TetherBle", "Connection error status=$status, possible stale state.")
                     if (connectedDevicesMap.size <= 1) {
                          mainHandler.post { restartGattServer() }
@@ -364,9 +383,12 @@ class BleGattServerService : Service() {
                 pendingExecuteWrites.remove("$address-$COMMAND_CHAR_UUID")
                 pendingExecuteWrites.remove("$address-$CCCD_UUID")
 
-                mainHandler.postDelayed({
-                    startAdvertisingWithRetry(3)
-                }, 500)
+                // If no more connections, resume advertising
+                if (connectedDevicesMap.isEmpty()) {
+                    mainHandler.postDelayed({
+                        startAdvertisingWithRetry(3)
+                    }, 500)
+                }
             }
             notifyStateToInterface()
         }
@@ -718,14 +740,7 @@ class BleGattServerService : Service() {
     }
 
     private fun notifyStateToInterface() {
-        val bluetoothManager = getSystemService(BluetoothManager::class.java)
-        val connectedDevices = try {
-            bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT_SERVER) ?: emptyList()
-        } catch (_: SecurityException) {
-            connectedDevicesMap.values.toList()
-        }
-
-        val count = connectedDevices.size
+        val count = connectedDevicesMap.size
         val intent = Intent(ACTION_GATT_STATE_CHANGED).apply {
             putExtra(EXTRA_CONNECTION_COUNT, count)
             setPackage(packageName)
@@ -844,8 +859,18 @@ class BleGattServerService : Service() {
 
     @Synchronized
     private fun restartGattServer() {
-        Log.w("TetherBle", "Restarting GATT server due to stale state")
+        Log.w("TetherBle", "Restarting GATT server due to stale state or adapter cycle")
         lastStackRefreshTime = SystemClock.elapsedRealtime()
+        
+        // Clear all states
+        connectedDevicesMap.clear()
+        deviceChallenges.clear()
+        notificationSubscriptions.clear()
+        computedSignaturesMap.clear()
+        sessionKeysMap.clear()
+        deviceMtuMap.clear()
+        pendingExecuteWrites.clear()
+
         try {
             bluetoothGattServer?.close()
         } catch (_: SecurityException) {
@@ -889,6 +914,16 @@ class BleGattServerService : Service() {
         .setSmallIcon(android.R.drawable.ic_lock_lock)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .build()
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        Log.w("TetherBle", "onTrimMemory level=$level")
+        if (level >= TRIM_MEMORY_RUNNING_LOW) {
+            // Clear computed signatures as they can be re-generated
+            computedSignaturesMap.clear()
+            deviceChallenges.clear()
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
