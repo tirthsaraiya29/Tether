@@ -27,6 +27,7 @@ import android.os.PowerManager
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
+import android.content.ComponentCallbacks2
 import android.content.IntentFilter
 import android.os.SystemClock
 
@@ -40,7 +41,6 @@ class BleGattServerService : Service() {
     private lateinit var securityEngine: ProductionSecurityEngine
     private var commandCharacteristic: BluetoothGattCharacteristic? = null
 
-    // Track authenticated vs unauthenticated nodes to prevent unauthenticated GATT hijacking
     private val authenticatedDevicesMap = ConcurrentHashMap<String, BluetoothDevice>()
     private val unauthenticatedConnections = ConcurrentHashMap<String, Long>()
 
@@ -95,7 +95,7 @@ class BleGattServerService : Service() {
                             synchronized(gattLock) {
                                 try {
                                     bluetoothGattServer?.close()
-                                } catch (_: Exception) {}
+                                } catch (_: SecurityException) {} catch (_: Exception) {}
                                 bluetoothGattServer = null
                                 isAdvertising = false
                             }
@@ -125,35 +125,54 @@ class BleGattServerService : Service() {
     private val alarmReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == ALARM_ACTION) {
-                Thread { healthCheckRunnable.run() }.start()
+                mainHandler.post { healthCheckRunnable.run() }
             }
         }
     }
 
     private val healthCheckRunnable = Runnable {
         try {
-            val bluetoothManager = getSystemService(BluetoothManager::class.java)
-            val adapter = bluetoothManager?.adapter
+            val bluetoothManager = getSystemService(BluetoothManager::class.java) ?: return@Runnable
+            val adapter = bluetoothManager.adapter
             if (adapter?.isEnabled != true) return@Runnable
 
             val now = SystemClock.elapsedRealtime()
 
-            // Evict connections hanging inside the initialization barrier
             unauthenticatedConnections.forEach { (address, connectionTime) ->
                 if ((now - connectionTime) > 4000L) {
                     unauthenticatedConnections.remove(address)
+                    // Already executing within mainHandler context; evaluate directly to close the eviction window
                     synchronized(gattLock) {
-                        val device = bluetoothGattServer?.connectedDevices?.find { it.address == address }
-                        if (device != null) {
-                            try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
-                        }
+                        try {
+                            val connectedDevices = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT_SERVER)
+                            val device = connectedDevices.find { it.address == address }
+                            if (device != null) {
+                                bluetoothGattServer?.cancelConnection(device)
+                            }
+                        } catch (_: Exception) {}
                     }
                 }
             }
 
+            synchronized(gattLock) {
+                try {
+                    val actualConnectedDevices = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT_SERVER)
+                    if (actualConnectedDevices.isEmpty() && authenticatedDevicesMap.isNotEmpty()) {
+                        Log.w("TetherBle", "Hardware state drift detected. Performing clean stack recovery reset.")
+                        restartGattServer()
+                        return@Runnable
+                    }
+                } catch (_: Exception) {}
+            }
+
             if ((now - lastStackRefreshTime) > 3600000L) {
-                lastStackRefreshTime = now
-                mainHandler.post { restartGattServer() }
+                if (authenticatedDevicesMap.isEmpty()) {
+                    Log.i("TetherBle", "Hourly health check: Idle stack refresh initiated.")
+                    restartGattServer()
+                } else {
+                    lastStackRefreshTime = now - 1800000L
+                    Log.i("TetherBle", "Hourly health check postponed: Active connection detected.")
+                }
                 return@Runnable
             }
 
@@ -215,8 +234,9 @@ class BleGattServerService : Service() {
 
         powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
-        // Keep WakeLock for the lifetime of the service to prevent Doze mode throttling
-        wakeLock?.acquire()
+        try { 
+            wakeLock?.acquire() 
+        } catch (_: Exception) {}
 
         val filter = IntentFilter().apply {
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
@@ -259,7 +279,6 @@ class BleGattServerService : Service() {
         }
 
         scheduleAlarmForHealthCheck()
-        selfHealingHandler.postDelayed(healthCheckRunnable, 300000)
     }
 
     @SuppressLint("MissingPermission")
@@ -285,9 +304,10 @@ class BleGattServerService : Service() {
             } catch (_: Exception) {}
         }
 
-        // Keep service alive
         if (wakeLock?.isHeld == false) {
-            wakeLock?.acquire()
+            try { 
+                wakeLock?.acquire() 
+            } catch (_: Exception) {}
         }
 
         try {
@@ -310,7 +330,6 @@ class BleGattServerService : Service() {
                 pushCommandToSubscribedDevices(value)
             }
         } finally {
-            // Do not release wakeLock here, we want it for the service lifetime
         }
 
         return START_STICKY
@@ -358,13 +377,11 @@ class BleGattServerService : Service() {
             val address = device.address
 
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                // Place device under verification block; do not cease advertising yet
                 unauthenticatedConnections[address] = SystemClock.elapsedRealtime()
 
-                // Set up temporary validation drop window
                 mainHandler.postDelayed({
                     if (!authenticatedDevicesMap.containsKey(address) && unauthenticatedConnections.containsKey(address)) {
-                        android.util.Log.w("TetherBle", "Validation window expired. Purging drop-in node: $address")
+                        Log.w("TetherBle", "Validation window expired. Purging drop-in node: $address")
                         unauthenticatedConnections.remove(address)
                         synchronized(gattLock) {
                             try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
@@ -374,7 +391,7 @@ class BleGattServerService : Service() {
 
                 try {
                     bluetoothGattServer?.setPreferredPhy(device, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_OPTION_NO_PREFERRED)
-                } catch (_: Exception) {}
+                } catch (_: SecurityException) {} catch (_: Exception) {}
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
                 authenticatedDevicesMap.remove(address)
                 unauthenticatedConnections.remove(address)
@@ -383,9 +400,11 @@ class BleGattServerService : Service() {
                 computedSignaturesMap.remove(address)
                 sessionKeysMap.remove(address)
                 deviceMtuMap.remove(address)
-                pendingExecuteWrites.remove("$address-$CHALLENGE_CHAR_UUID")
-                pendingExecuteWrites.remove("$address-$COMMAND_CHAR_UUID")
-                pendingExecuteWrites.remove("$address-$CCCD_UUID")
+                
+                // CRITICAL FIX: Purge ALL pending write payloads linked to this MAC address 
+                // to prevent malicious MTU buffer flooding OOM leaks.
+                val keysToRemove = pendingExecuteWrites.keys().toList().filter { it.startsWith("$address-") }
+                keysToRemove.forEach { pendingExecuteWrites.remove(it) }
 
                 if (authenticatedDevicesMap.isEmpty()) {
                     mainHandler.postDelayed({ startAdvertisingWithRetry(3) }, 300)
@@ -478,7 +497,7 @@ class BleGattServerService : Service() {
         override fun onDescriptorWriteRequest(device: BluetoothDevice?, requestId: Int, descriptor: BluetoothGattDescriptor?, preparedWrite: Boolean, responseNeeded: Boolean, offset: Int, value: ByteArray?) {
             if ((device == null) || (descriptor == null) || (value == null)) {
                 if (responseNeeded && (device != null)) {
-                    try { synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null) } } catch (_: Exception) {}
+                    try { synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null) } } catch (_: SecurityException) {} catch (_: Exception) {}
                 }
                 return
             }
@@ -564,7 +583,6 @@ class BleGattServerService : Service() {
                         if (sessionKey != null) {
                             computedSignaturesMap[address] = securityEngine.computeHmac(payload, sessionKey)
 
-                            // Elevate trust status only after explicit handshake validation passes
                             unauthenticatedConnections.remove(address)
                             authenticatedDevicesMap[address] = device
                             stopAdvertising()
@@ -622,14 +640,13 @@ class BleGattServerService : Service() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         server.notifyCharacteristicChanged(device, characteristic, false, value)
                     } else {
-                        // Suppress deprecation for older APIs as we provide a T+ alternative above
                         @Suppress("DEPRECATION")
                         characteristic.value = value
                         @Suppress("DEPRECATION")
                         server.notifyCharacteristicChanged(device, characteristic, false)
                     }
                 }
-            } catch (_: Exception) {}
+            } catch (_: SecurityException) {} catch (_: Exception) {}
         }
     }
 
@@ -696,7 +713,7 @@ class BleGattServerService : Service() {
 
         try {
             advertiser?.stopAdvertising(advertiseCallback)
-        } catch (_: Exception) {}
+        } catch (_: SecurityException) {} catch (_: Exception) {}
 
         try {
             advertiser?.startAdvertising(settings, advertiseData, scanResponseData, advertiseCallback)
@@ -773,40 +790,48 @@ class BleGattServerService : Service() {
         isAdvertising = false
     }
 
-    @Synchronized
     private fun restartGattServer() {
-        Log.w("TetherBle", "Restarting GATT server due to stale state or adapter cycle")
-        lastStackRefreshTime = SystemClock.elapsedRealtime()
-        
-        // Clear all states
-        authenticatedDevicesMap.clear()
-        deviceChallenges.clear()
-        notificationSubscriptions.clear()
-        computedSignaturesMap.clear()
-        sessionKeysMap.clear()
-        deviceMtuMap.clear()
-        pendingExecuteWrites.clear()
+        // Enforce lock symmetry with the binder thread pools to avoid null mutations mid-handshake
+        synchronized(gattLock) {
+            Log.w("TetherBle", "Purging GATT server infrastructure to reclaim leaked OS resource handles.")
+            lastStackRefreshTime = SystemClock.elapsedRealtime()
 
-        try {
-            bluetoothGattServer?.close()
-        } catch (_: SecurityException) {
-        } catch (_: Exception) {}
-        bluetoothGattServer = null
+            try {
+                bluetoothGattServer?.clearServices()
+            } catch (_: SecurityException) {} catch (_: Exception) {}
 
-        val bluetoothManager = getSystemService(BluetoothManager::class.java)
-        bluetoothGattServer = try {
-            bluetoothManager?.openGattServer(this, gattServerCallback)
-        } catch (_: SecurityException) {
-            null
-        } catch (_: Exception) {
-            null
+            authenticatedDevicesMap.clear()
+            unauthenticatedConnections.clear()
+            deviceChallenges.clear()
+            notificationSubscriptions.clear()
+            computedSignaturesMap.clear()
+            sessionKeysMap.clear()
+            deviceMtuMap.clear()
+            pendingExecuteWrites.clear()
+
+            try {
+                bluetoothGattServer?.close()
+            } catch (_: SecurityException) {} catch (_: Exception) {}
+            bluetoothGattServer = null
+
+            try {
+                advertiser?.stopAdvertising(advertiseCallback)
+            } catch (_: SecurityException) {} catch (_: Exception) {}
+            advertiser = null
+            isAdvertising = false
+
+            val bluetoothManager = getSystemService(BluetoothManager::class.java)
+            bluetoothGattServer = try {
+                bluetoothManager?.openGattServer(this, gattServerCallback)
+            } catch (_: SecurityException) { null } catch (_: Exception) { null }
+
+            if (bluetoothGattServer == null) {
+                Log.e("TetherBle", "GATT server allocation rejected by the Android OS framework layer.")
+                return
+            }
+            setupGattServer()
+            startAdvertising()
         }
-        if (bluetoothGattServer == null) {
-            Log.e("TetherBle", "Failed to reopen GATT server")
-            return
-        }
-        setupGattServer()
-        startAdvertising()
     }
 
     private fun hasRequiredRuntimePermissions(): Boolean {
@@ -834,8 +859,7 @@ class BleGattServerService : Service() {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         Log.w("TetherBle", "onTrimMemory level=$level")
-        if (level >= TRIM_MEMORY_RUNNING_LOW) {
-            // Clear computed signatures as they can be re-generated
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             computedSignaturesMap.clear()
             deviceChallenges.clear()
         }
@@ -858,7 +882,7 @@ class BleGattServerService : Service() {
         synchronized(gattLock) {
             try {
                 advertiser?.stopAdvertising(advertiseCallback)
-            } catch (_: Exception) {}
+            } catch (_: SecurityException) {} catch (_: Exception) {}
             isAdvertising = false
             authenticatedDevicesMap.clear()
             deviceChallenges.clear()

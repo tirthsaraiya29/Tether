@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- LOCK -->
     <capability android:name="custom.intents.LOCK_DEVICE">
         <intent
             android:action="android.intent.action.VIEW"
@@ -32,7 +31,6 @@
         </intent>
     </shortcut>
 
-    <!-- UNLOCK -->
     <capability android:name="custom.intents.UNLOCK_DEVICE">
         <intent
             android:action="android.intent.action.VIEW"
@@ -63,7 +61,6 @@
         </intent>
     </shortcut>
 
-    <!-- SHUTDOWN -->
     <capability android:name="custom.intents.SHUTDOWN_DEVICE">
         <intent
             android:action="android.intent.action.VIEW"
@@ -94,7 +91,6 @@
         </intent>
     </shortcut>
 
-    <!-- SLEEP -->
     <capability android:name="custom.intents.SLEEP_DEVICE">
         <intent
             android:action="android.intent.action.VIEW"
@@ -125,7 +121,6 @@
         </intent>
     </shortcut>
 
-    <!-- REBOOT -->
     <capability android:name="custom.intents.REBOOT_DEVICE">
         <intent
             android:action="android.intent.action.VIEW"
