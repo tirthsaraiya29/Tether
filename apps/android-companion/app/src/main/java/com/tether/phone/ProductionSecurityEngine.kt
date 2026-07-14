@@ -2,9 +2,12 @@ package com.tether.phone
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.KeyStore
+import java.security.Signature
 import java.security.spec.MGF1ParameterSpec
+import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.spec.OAEPParameterSpec
@@ -78,5 +81,18 @@ class ProductionSecurityEngine {
         val secretKey = SecretKeySpec(sessionKey, "HmacSHA256")
         hmac.init(secretKey)
         return hmac.doFinal(nonce)
+    }
+
+    fun verifySignature(data: ByteArray, signature: ByteArray, publicKeyBytes: ByteArray): Boolean {
+        return try {
+            val keyFactory = KeyFactory.getInstance("RSA")
+            val publicKey = keyFactory.generatePublic(X509EncodedKeySpec(publicKeyBytes))
+            val sig = Signature.getInstance("SHA256withRSA")
+            sig.initVerify(publicKey)
+            sig.update(data)
+            sig.verify(signature)
+        } catch (e: Exception) {
+            false
+        }
     }
 }

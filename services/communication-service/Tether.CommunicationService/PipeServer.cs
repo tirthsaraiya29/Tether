@@ -11,11 +11,22 @@ using Tether.EventBus;
 using Tether.Shared.Events;
 using Tether.Shared.IPC;
 using Tether.Shared.Logging;
+using System.Security.Principal;
+using System.Runtime.InteropServices;
 
 namespace Tether.CommunicationService;
 
 public class PipeServer : IDisposable
 {
+    [DllImport("kernel32.dll", SetLastError = false)]
+    private static extern uint WTSGetActiveConsoleSessionId();
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSQueryUserToken(uint SessionId, out IntPtr phToken);
+
+    [DllImport("kernel32.dll", SetLastError = false)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
     private CancellationTokenSource? _cts;
@@ -80,7 +91,48 @@ public class PipeServer : IDisposable
     private async Task HandleClientMessages(NamedPipeServerStream pipeStream)
     {
         var buffer = new byte[IpcConstants.PipeBufferSize];
+        bool clientAuthorized = false;
 
+        // 1. Impersonate the client connection to verify its user SID matches the active console user
+        try
+        {
+            pipeStream.RunAsClient(() =>
+            {
+                using (var identity = WindowsIdentity.GetCurrent())
+                {
+                    var principal = new WindowsPrincipal(identity);
+
+                    // Fetch the token identifier of the active console session user
+                    uint sessionId = WTSGetActiveConsoleSessionId();
+                    IntPtr userToken;
+                    if (WTSQueryUserToken(sessionId, out userToken))
+                    {
+                        using (var tokenIdentity = new WindowsIdentity(userToken))
+                        {
+                            // Check if the connecting user matches the logged-in interactive user context
+                            if (identity.User == tokenIdentity.User)
+                            {
+                                clientAuthorized = true;
+                            }
+                        }
+                        CloseHandle(userToken);
+                    }
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Client authorization failed: {ex.Message}");
+            return;
+        }
+
+        if (!clientAuthorized)
+        {
+            _logger.Warning("Rejected connection from unauthorized user.");
+            return;
+        }
+
+        // Process secure stream loop
         while (pipeStream.IsConnected)
         {
             try
@@ -93,26 +145,11 @@ public class PipeServer : IDisposable
 
                 if (evt != null)
                 {
-                    bool isClientAuthorized = false;
-                    try
+                    // 2. Strict Event Whitelist Filtering
+                    // Reject all administrative or state alteration commands except for initial phone provisioning
+                    if (evt.EventType != TetherEventType.PROVISION_PHONE)
                     {
-                        pipeStream.RunAsClient(() =>
-                        {
-                            using (var identity = WindowsIdentity.GetCurrent())
-                            {
-                                var principal = new WindowsPrincipal(identity);
-                                isClientAuthorized = principal.IsInRole(WindowsBuiltInRole.Administrator) || identity.IsSystem;
-                            }
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Error($"Failed client privilege verification: {ex.Message}");
-                    }
-
-                    if (evt.EventType == TetherEventType.PROVISION_PHONE && !isClientAuthorized)
-                    {
-                        _logger.Warning("Rejected unauthorized PROVISION_PHONE event.");
+                        _logger.Warning($"Rejected disallowed event type: {evt.EventType}");
                         continue;
                     }
 
@@ -123,7 +160,7 @@ public class PipeServer : IDisposable
             catch (IOException ex) when (ex.Message.Contains("pipe") || ex.Message.Contains("broken"))
             {
                 _logger.Warning("Pipe client disconnected abruptly.");
-                break;  // exit loop, outer listener will re‑create the pipe
+                break;
             }
             catch (Exception ex)
             {

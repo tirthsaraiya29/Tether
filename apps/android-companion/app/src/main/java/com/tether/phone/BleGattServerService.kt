@@ -24,6 +24,7 @@ import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import android.os.PowerManager
+import java.security.SecureRandom
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -50,6 +51,8 @@ class BleGattServerService : Service() {
     private val computedSignaturesMap = ConcurrentHashMap<String, ByteArray>()
     private val sessionKeysMap = ConcurrentHashMap<String, ByteArray>()
     private val deviceMtuMap = ConcurrentHashMap<String, Int>()
+    private val windowsPublicKeys = ConcurrentHashMap<String, ByteArray>()
+    private val pendingNonces = ConcurrentHashMap<String, ByteArray>()
 
     private data class WriteSession(val uuid: UUID, val payload: ByteArray) {
         override fun equals(other: Any?): Boolean {
@@ -190,6 +193,9 @@ class BleGattServerService : Service() {
         private val SIGNATURE_CHAR_UUID = UUID.fromString("0000FFE4-0000-1000-8000-00805F9B34FB")
         private val COMMAND_CHAR_UUID = UUID.fromString("0000FFE5-0000-1000-8000-00805F9B34FB")
         private val PUBLIC_KEY_CHAR_UUID = UUID.fromString("0000FFE6-0000-1000-8000-00805F9B34FB")
+        private val WINDOWS_PUBLIC_KEY_CHAR_UUID = UUID.fromString("0000FFE7-0000-1000-8000-00805F9B34FB")
+        private val AUTH_CHALLENGE_CHAR_UUID = UUID.fromString("0000FFE8-0000-1000-8000-00805F9B34FB")
+        private val AUTH_SIGNATURE_CHAR_UUID = UUID.fromString("0000FFE9-0000-1000-8000-00805F9B34FB")
         private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
         const val ACTION_GATT_STATE_CHANGED = "com.tether.phone.ACTION_GATT_STATE_CHANGED"
@@ -358,11 +364,36 @@ class BleGattServerService : Service() {
         val challengeChar = BluetoothGattCharacteristic(CHALLENGE_CHAR_UUID, BluetoothGattCharacteristic.PROPERTY_WRITE, BluetoothGattCharacteristic.PERMISSION_WRITE)
         val signatureChar = BluetoothGattCharacteristic(SIGNATURE_CHAR_UUID, BluetoothGattCharacteristic.PROPERTY_READ, BluetoothGattCharacteristic.PERMISSION_READ)
         val publicKeyChar = BluetoothGattCharacteristic(PUBLIC_KEY_CHAR_UUID, BluetoothGattCharacteristic.PROPERTY_READ, BluetoothGattCharacteristic.PERMISSION_READ)
+        val windowsPublicKeyChar = BluetoothGattCharacteristic(WINDOWS_PUBLIC_KEY_CHAR_UUID, BluetoothGattCharacteristic.PROPERTY_WRITE, BluetoothGattCharacteristic.PERMISSION_WRITE)
+
+        val authChallengeChar = BluetoothGattCharacteristic(
+            AUTH_CHALLENGE_CHAR_UUID,
+            BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+            BluetoothGattCharacteristic.PERMISSION_READ
+        )
+
+        // MISSING DESCRIPTOR FIX: Windows requires this to subscribe to notifications
+        val authCccdDescriptor = BluetoothGattDescriptor(
+            CCCD_UUID,
+            BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE,
+        )
+        @Suppress("DEPRECATION")
+        authCccdDescriptor.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+        authChallengeChar.addDescriptor(authCccdDescriptor)
+
+        val authSignatureChar = BluetoothGattCharacteristic(
+            AUTH_SIGNATURE_CHAR_UUID,
+            BluetoothGattCharacteristic.PROPERTY_WRITE,
+            BluetoothGattCharacteristic.PERMISSION_WRITE
+        )
 
         commandCharacteristic?.let { service.addCharacteristic(it) }
         service.addCharacteristic(challengeChar)
         service.addCharacteristic(signatureChar)
         service.addCharacteristic(publicKeyChar)
+        service.addCharacteristic(windowsPublicKeyChar)
+        service.addCharacteristic(authChallengeChar)
+        service.addCharacteristic(authSignatureChar)
 
         try {
             server.addService(service)
@@ -460,6 +491,14 @@ class BleGattServerService : Service() {
                 } else if (hasSessionKey && accumulatedPayload.size < 16) {
                     shouldProcessImmediately = false
                 }
+            } else if (uuid == AUTH_SIGNATURE_CHAR_UUID) {
+                if (accumulatedPayload.size < 256) {
+                    shouldProcessImmediately = false
+                }
+            } else if (uuid == WINDOWS_PUBLIC_KEY_CHAR_UUID) {
+                if (accumulatedPayload.size < 270) { // RSA 2048 public key is usually ~294 bytes
+                    shouldProcessImmediately = false
+                }
             }
 
             if (shouldProcessImmediately) {
@@ -480,6 +519,13 @@ class BleGattServerService : Service() {
                 when (characteristic?.uuid) {
                     SIGNATURE_CHAR_UUID -> {
                         computedSignaturesMap[device.address]?.let {
+                            sendSlicedResponse(device, requestId, offset, it)
+                        } ?: synchronized(gattLock) {
+                            bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
+                        }
+                    }
+                    AUTH_CHALLENGE_CHAR_UUID -> {
+                        pendingNonces[device.address]?.let {
                             sendSlicedResponse(device, requestId, offset, it)
                         } ?: synchronized(gattLock) {
                             bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
@@ -566,6 +612,7 @@ class BleGattServerService : Service() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun processCompletePayload(device: BluetoothDevice, uuid: UUID, payload: ByteArray) {
         val address = device.address
         try {
@@ -577,20 +624,66 @@ class BleGattServerService : Service() {
                             sessionKeysMap[address] = sessionKey
                         } catch (_: Exception) {}
                     } else {
-                        deviceChallenges[address] = payload
-                        val sessionKey = sessionKeysMap[address]
-
-                        if (sessionKey != null) {
-                            computedSignaturesMap[address] = securityEngine.computeHmac(payload, sessionKey)
-
-                            unauthenticatedConnections.remove(address)
-                            authenticatedDevicesMap[address] = device
-                            stopAdvertising()
-                            notifyStateToInterface()
+                        // Challenge (nonce) from client
+                        if (windowsPublicKeys.containsKey(address)) {
+                            // Secure mode – send our own challenge
+                            val nonce = ByteArray(32)
+                            SecureRandom().nextBytes(nonce)
+                            pendingNonces[address] = nonce
+                            
+                            // Notify client via AUTH_CHALLENGE_CHAR_UUID
+                            val server = bluetoothGattServer
+                            val service = server?.getService(SERVICE_UUID)
+                            val challengeChar = service?.getCharacteristic(AUTH_CHALLENGE_CHAR_UUID)
+                            
+                            if (server != null && challengeChar != null) {
+                                synchronized(gattLock) {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        server.notifyCharacteristicChanged(device, challengeChar, false, nonce)
+                                    } else {
+                                        @Suppress("DEPRECATION")
+                                        challengeChar.value = nonce
+                                        @Suppress("DEPRECATION")
+                                        server.notifyCharacteristicChanged(device, challengeChar, false)
+                                    }
+                                }
+                            }
                         } else {
-                            computedSignaturesMap[address] = byteArrayOf()
+                            // Legacy mode – compute HMAC as before
+                            deviceChallenges[address] = payload
+                            val sessionKey = sessionKeysMap[address]
+
+                            if (sessionKey != null) {
+                                computedSignaturesMap[address] = securityEngine.computeHmac(payload, sessionKey)
+
+                                unauthenticatedConnections.remove(address)
+                                authenticatedDevicesMap[address] = device
+                                stopAdvertising()
+                                notifyStateToInterface()
+                            } else {
+                                computedSignaturesMap[address] = byteArrayOf()
+                            }
                         }
                     }
+                }
+
+                AUTH_SIGNATURE_CHAR_UUID -> {
+                    val nonce = pendingNonces.remove(address) ?: return
+                    val publicKey = windowsPublicKeys[address] ?: return
+                    if (securityEngine.verifySignature(nonce, payload, publicKey)) {
+                        unauthenticatedConnections.remove(address)
+                        authenticatedDevicesMap[address] = device
+                        stopAdvertising()
+                        notifyStateToInterface()
+                    } else {
+                        synchronized(gattLock) {
+                            try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
+                        }
+                    }
+                }
+
+                WINDOWS_PUBLIC_KEY_CHAR_UUID -> {
+                    windowsPublicKeys[address] = payload
                 }
 
                 COMMAND_CHAR_UUID -> {
@@ -808,6 +901,8 @@ class BleGattServerService : Service() {
             sessionKeysMap.clear()
             deviceMtuMap.clear()
             pendingExecuteWrites.clear()
+            windowsPublicKeys.clear()
+            pendingNonces.clear()
 
             try {
                 bluetoothGattServer?.close()
@@ -891,6 +986,8 @@ class BleGattServerService : Service() {
             sessionKeysMap.clear()
             deviceMtuMap.clear()
             pendingExecuteWrites.clear()
+            windowsPublicKeys.clear()
+            pendingNonces.clear()
             try {
                 bluetoothGattServer?.close()
             } catch (_: SecurityException) {
