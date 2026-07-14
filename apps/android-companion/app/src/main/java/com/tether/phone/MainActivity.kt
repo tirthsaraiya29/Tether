@@ -401,7 +401,12 @@ class MainActivity : FragmentActivity() {
                                         }
                                     }
                                 },
-                                onShowQR = { showPairingQRCode() }
+                                onShowQR = {
+                                    getSharedPreferences(preferenceName, MODE_PRIVATE).edit()
+                                        .putBoolean("pairing_mode_active", true)
+                                        .apply()
+                                    showPairingQRCode()
+                                }
                             )
 
                             pendingPowerAction.value?.let { action ->
@@ -665,10 +670,19 @@ class MainActivity : FragmentActivity() {
                     .setTitle(getString(R.string.dialog_pairing_title))
                     .setMessage(getString(R.string.dialog_pairing_message))
                     .setView(imageView)
-                    .setPositiveButton(getString(R.string.btn_done)) { _, _ -> }
+                    .setPositiveButton(getString(R.string.btn_done)) { _, _ -> 
+                        getSharedPreferences(preferenceName, MODE_PRIVATE).edit()
+                            .putBoolean("pairing_mode_active", false)
+                            .apply()
+                    }
                     .setNegativeButton(getString(R.string.btn_copy_key)) { _, _ ->
                         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("TetherPublicKey", base64Key))
+                    }
+                    .setOnDismissListener {
+                        getSharedPreferences(preferenceName, MODE_PRIVATE).edit()
+                            .putBoolean("pairing_mode_active", false)
+                            .apply()
                     }
                     .show()
             }

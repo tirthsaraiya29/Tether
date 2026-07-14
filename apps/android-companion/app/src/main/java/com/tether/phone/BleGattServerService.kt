@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.ParcelUuid
 import android.util.Log
+import android.util.Base64
 import androidx.core.app.NotificationCompat
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -142,7 +143,7 @@ class BleGattServerService : Service() {
             val now = SystemClock.elapsedRealtime()
 
             unauthenticatedConnections.forEach { (address, connectionTime) ->
-                if ((now - connectionTime) > 4000L) {
+                if ((now - connectionTime) > 15000L) {
                     unauthenticatedConnections.remove(address)
                     // Already executing within mainHandler context; evaluate directly to close the eviction window
                     synchronized(gattLock) {
@@ -418,7 +419,7 @@ class BleGattServerService : Service() {
                             try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
                         }
                     }
-                }, 4000L)
+                }, 15000L)
 
                 try {
                     bluetoothGattServer?.setPreferredPhy(device, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_OPTION_NO_PREFERRED)
@@ -625,7 +626,19 @@ class BleGattServerService : Service() {
                         } catch (_: Exception) {}
                     } else {
                         // Challenge (nonce) from client
-                        if (windowsPublicKeys.containsKey(address)) {
+                        val prefs = getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
+                        val pinnedKeyBase64 = prefs.getString("pinned_windows_public_key", null)
+                        val isPairingMode = prefs.getBoolean("pairing_mode_active", false)
+
+                        if (windowsPublicKeys.containsKey(address) || pinnedKeyBase64 != null) {
+                            if (pinnedKeyBase64 == null && !isPairingMode) {
+                                Log.e("TetherBle", "🛡️ Security Violation: Challenge requested for untrusted node without active pairing lifecycle.")
+                                synchronized(gattLock) {
+                                    try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
+                                }
+                                return
+                            }
+
                             // Secure mode – send our own challenge
                             val nonce = ByteArray(32)
                             SecureRandom().nextBytes(nonce)
@@ -669,13 +682,29 @@ class BleGattServerService : Service() {
 
                 AUTH_SIGNATURE_CHAR_UUID -> {
                     val nonce = pendingNonces.remove(address) ?: return
-                    val publicKey = windowsPublicKeys[address] ?: return
-                    if (securityEngine.verifySignature(nonce, payload, publicKey)) {
+                    val prefs = getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
+                    val pinnedKeyBase64 = prefs.getString("pinned_windows_public_key", null)
+                    val isPairingMode = prefs.getBoolean("pairing_mode_active", false)
+
+                    val publicKey = if (pinnedKeyBase64 != null) {
+                        Base64.decode(pinnedKeyBase64, Base64.NO_WRAP)
+                    } else if (isPairingMode) {
+                        windowsPublicKeys[address]
+                    } else {
+                        null
+                    }
+
+                    if (publicKey != null && securityEngine.verifySignature(nonce, payload, publicKey)) {
+                        if (pinnedKeyBase64 == null && isPairingMode) {
+                            Log.i("TetherBle", "🤝 Identity established. Pinning trusted Windows public key.")
+                            prefs.edit().putString("pinned_windows_public_key", Base64.encodeToString(publicKey, Base64.NO_WRAP)).apply()
+                        }
                         unauthenticatedConnections.remove(address)
                         authenticatedDevicesMap[address] = device
                         stopAdvertising()
                         notifyStateToInterface()
                     } else {
+                        Log.e("TetherBle", "❌ Handshake failed: Signature verification rejected or missing trust anchor.")
                         synchronized(gattLock) {
                             try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
                         }
