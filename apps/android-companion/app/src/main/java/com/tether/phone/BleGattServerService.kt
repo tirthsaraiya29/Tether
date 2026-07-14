@@ -628,11 +628,14 @@ class BleGattServerService : Service() {
                         // Challenge (nonce) from client
                         val prefs = getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
                         val pinnedKeyBase64 = prefs.getString("pinned_windows_public_key", null)
-                        val isPairingMode = prefs.getBoolean("pairing_mode_active", false)
+                        
+                        val pairingTimestamp = prefs.getLong("pairing_window_start_time", 0L)
+                        val currentTime = System.currentTimeMillis()
+                        val isPairingWindowOpen = (currentTime - pairingTimestamp) < 120000
 
                         if (windowsPublicKeys.containsKey(address) || pinnedKeyBase64 != null) {
-                            if (pinnedKeyBase64 == null && !isPairingMode) {
-                                Log.e("TetherBle", "🛡️ Security Violation: Challenge requested for untrusted node without active pairing lifecycle.")
+                            if (pinnedKeyBase64 == null && !isPairingWindowOpen) {
+                                Log.e("TetherBle", "🛡️ Security Violation: Challenge requested for untrusted node without active pairing window.")
                                 synchronized(gattLock) {
                                     try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
                                 }
@@ -684,18 +687,21 @@ class BleGattServerService : Service() {
                     val nonce = pendingNonces.remove(address) ?: return
                     val prefs = getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
                     val pinnedKeyBase64 = prefs.getString("pinned_windows_public_key", null)
-                    val isPairingMode = prefs.getBoolean("pairing_mode_active", false)
+                    
+                    val pairingTimestamp = prefs.getLong("pairing_window_start_time", 0L)
+                    val currentTime = System.currentTimeMillis()
+                    val isPairingWindowOpen = (currentTime - pairingTimestamp) < 120000
 
                     val publicKey = if (pinnedKeyBase64 != null) {
                         Base64.decode(pinnedKeyBase64, Base64.NO_WRAP)
-                    } else if (isPairingMode) {
+                    } else if (isPairingWindowOpen) {
                         windowsPublicKeys[address]
                     } else {
                         null
                     }
 
                     if (publicKey != null && securityEngine.verifySignature(nonce, payload, publicKey)) {
-                        if (pinnedKeyBase64 == null && isPairingMode) {
+                        if (pinnedKeyBase64 == null && isPairingWindowOpen) {
                             Log.i("TetherBle", "🤝 Identity established. Pinning trusted Windows public key.")
                             prefs.edit().putString("pinned_windows_public_key", Base64.encodeToString(publicKey, Base64.NO_WRAP)).apply()
                         }
