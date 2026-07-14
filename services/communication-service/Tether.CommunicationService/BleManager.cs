@@ -743,7 +743,7 @@ public partial class BleManager : IDisposable
                 {
                     using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(token))
                     {
-                        var completedTask = await Task.WhenAny(_secureAuthTcs!.Task, Task.Delay(10000, delayCts.Token));
+                        var completedTask = await Task.WhenAny(_secureAuthTcs!.Task, Task.Delay(20000, delayCts.Token));
                         if (completedTask == _secureAuthTcs.Task && await _secureAuthTcs.Task)
                         {
                             isAuthenticated = true;
