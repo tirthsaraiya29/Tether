@@ -880,8 +880,6 @@ class MainActivity : FragmentActivity() {
     }
 }
 
-// --- UI COMPONENTS ---
-
 @Composable
 fun LiquidSurface(
     modifier: Modifier = Modifier,
@@ -930,7 +928,6 @@ fun LiquidSurface(
                 shape = RoundedCornerShape(28.dp)
             )
     ) {
-        // Blurred background layer
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -951,7 +948,6 @@ fun LiquidSurface(
                 }
                 .drawBehind {
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                        // Legacy fallback: Add a subtle noise texture to simulate glass granularity
                         val noiseStep = 3f
                         for (x in 0 until size.width.toInt() step noiseStep.toInt()) {
                             for (y in 0 until size.height.toInt() step noiseStep.toInt()) {
@@ -967,7 +963,6 @@ fun LiquidSurface(
                     }
 
                     val strokeWidth = 1.4.dp.toPx()
-                    // Dynamic high-end Specular highlight
                     val specularPath = Path().apply {
                         moveTo(0f, size.height * 0.3f)
                         lineTo(0f, 28.dp.toPx())
@@ -994,7 +989,6 @@ fun LiquidSurface(
                 }
         )
 
-        // Sharp content layer
         Column(
             modifier = Modifier.padding(24.dp),
             content = content
@@ -1037,10 +1031,8 @@ fun AtmosphericBackground() {
         val gridSize = 60.dp.toPx()
         val gridColor = LiquidCyan.copy(alpha = 0.04f)
         
-        // Base abyss
         drawRect(DeepSpace)
 
-        // Distortion-aware grid
         var x = (gridShift % gridSize) - gridSize
         while (x < size.width + gridSize) {
             val distortionX = kotlin.math.sin((x + gridShift) / 120.0).toFloat() * 6f
@@ -1054,7 +1046,6 @@ fun AtmosphericBackground() {
             y += gridSize
         }
 
-        // Multi-layered fluid nebulae with dynamic scaling
         drawCircle(
             brush = Brush.radialGradient(
                 0.0f to LiquidCyan.copy(alpha = nebulaAlpha),
@@ -1078,7 +1069,6 @@ fun AtmosphericBackground() {
             radius = 1000.dp.toPx()
         )
         
-        // Starfield shimmer
         val random = java.util.Random(42)
         for (i in 0 until 40) {
             val px = random.nextFloat() * size.width
@@ -1155,7 +1145,6 @@ fun PremiumControlAction(
             ),
         contentAlignment = Alignment.Center
     ) {
-        // High-gloss specular highlight
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1419,7 +1408,6 @@ fun ScanningVisualizer(color: Color) {
             drawCircle(color.copy(alpha = alpha * 0.4f), radius, style = Stroke(2.5.dp.toPx()))
             drawCircle(color.copy(alpha = alpha * 0.15f), radius * 0.7f, style = Stroke(1.5.dp.toPx()))
             
-            // Refractive glint
             drawArc(
                 color = Color.White.copy(alpha = alpha * 0.2f),
                 startAngle = -45f,
@@ -1451,13 +1439,11 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
             drawCircle(Brush.radialGradient(listOf(color.copy(alpha = 0.3f * glowPulse), Color.Transparent), radius = size.width / 1.8f))
         }
         
-        // Outer complex ring
         Canvas(modifier = Modifier.size(280.dp).graphicsLayer { rotationZ = rotation }) {
             drawArc(color, 0f, 160f, false, style = Stroke(5.dp.toPx(), cap = StrokeCap.Round))
             drawArc(color.copy(alpha = 0.3f), 180f, 90f, false, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
         }
 
-        // Inner orbit nodes with specialized glow
         Canvas(modifier = Modifier.size(240.dp).graphicsLayer { rotationZ = orbitRotation }) {
             val nodeCenter = Offset(size.width, size.height/2)
             drawCircle(color, radius = 7.dp.toPx(), center = nodeCenter)
@@ -1768,7 +1754,7 @@ fun CyberConfirmationDialog(title: String, message: String, onConfirm: () -> Uni
 @Composable
 fun CompromisedEnvironmentOverlay(score: Int) {
     Box(Modifier.fillMaxSize().background(DeepSpace), contentAlignment = Alignment.Center) {
-        AtmosphericBackground() // Distorted background under lockdown
+        AtmosphericBackground() 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(stringResource(R.string.header_security_lockdown), color = AlertRed, style = MaterialTheme.typography.labelLarge, letterSpacing = 8.sp)
             Spacer(modifier = Modifier.height(56.dp))
@@ -1898,7 +1884,6 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(stringResource(R.string.label_tap_to_decrypt), color = TextMuted, style = MaterialTheme.typography.labelMedium)
                 
-                // Scanning line effect
                 val scanLinePos by infiniteTransition.animateFloat(
                     initialValue = 0f,
                     targetValue = 1f,
