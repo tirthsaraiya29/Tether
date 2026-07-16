@@ -221,28 +221,34 @@ public partial class BleManager : IDisposable
     {
         try
         {
-            // Bumping to ClientKey_v2 to force deletion of the old PKCS#1 incompatible keys
-            const string keyName = @"SOFTWARE\Tether\CredentialProvider\ClientKey_v2";
-            using var key = Registry.LocalMachine.OpenSubKey(keyName, true);
+            const string legacyKeyName = @"SOFTWARE\Tether\CredentialProvider\ClientKey";
+            const string productionKeyName = @"SOFTWARE\Tether\CredentialProvider\ClientKey_v2";
+
+            // 1. Automatically purge old legacy structures if detected on boot
+            using (var legacyKey = Registry.LocalMachine.OpenSubKey(legacyKeyName, true))
+            {
+                if (legacyKey != null)
+                {
+                    Registry.LocalMachine.DeleteSubKeyTree(legacyKeyName, false);
+                    _logger.Info("Purged outdated legacy PKCS#1 registry artifacts.");
+                }
+            }
+
+            using var key = Registry.LocalMachine.OpenSubKey(productionKeyName, true);
             if (key == null)
             {
-                using var newKey = Registry.LocalMachine.CreateSubKey(keyName);
+                using var newKey = Registry.LocalMachine.CreateSubKey(productionKeyName);
                 using var rsa = RSA.Create(2048);
 
                 var privateKeyBlob = rsa.ExportRSAPrivateKey();
-
-                // CRITICAL FIX: Android's X509EncodedKeySpec strictly requires SubjectPublicKeyInfo (X.509 format).
-                // Do NOT use ExportRSAPublicKey() which generates an incompatible PKCS#1 format.
-                var publicKeyBlob = rsa.ExportSubjectPublicKeyInfo();
+                var publicKeyBlob = rsa.ExportSubjectPublicKeyInfo(); // Asynchronous X.509 standard format
 
                 newKey.SetValue("PrivateKey", privateKeyBlob, RegistryValueKind.Binary);
                 newKey.SetValue("PublicKey", publicKeyBlob, RegistryValueKind.Binary);
 
-                _clientRsa = RSA.Create();
-                _clientRsa.ImportRSAPrivateKey(privateKeyBlob, out _);
+                _clientRsa = rsa;
                 _clientPublicKeyBytes = publicKeyBlob;
-
-                _logger.Info("Successfully generated and committed new persistent client RSA identity pair (X.509 Standard).");
+                _logger.Info("Seamlessly committed production X.509 identity keys.");
             }
             else
             {
@@ -252,13 +258,11 @@ public partial class BleManager : IDisposable
                 _clientRsa = RSA.Create();
                 _clientRsa.ImportRSAPrivateKey(privateBlob, out _);
                 _clientPublicKeyBytes = publicBlob;
-
-                _logger.Info("Persistent client RSA identity infrastructure loaded from registry hive securely.");
             }
         }
         catch (Exception ex)
         {
-            _logger.Error($"Failed to ensure native client RSA identity components: {ex.Message}");
+            _logger.Error($"Self-healing key manager failed: {ex.Message}");
         }
     }
 

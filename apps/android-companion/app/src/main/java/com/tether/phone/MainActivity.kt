@@ -403,7 +403,7 @@ class MainActivity : FragmentActivity() {
                                 },
                                 onShowQR = {
                                     getSharedPreferences(preferenceName, MODE_PRIVATE).edit()
-                                        .putBoolean("pairing_mode_active", true)
+                                        .putLong("pairing_window_start_time", System.currentTimeMillis())
                                         .apply()
                                     showPairingQRCode()
                                 }
@@ -672,7 +672,7 @@ class MainActivity : FragmentActivity() {
                     .setView(imageView)
                     .setPositiveButton(getString(R.string.btn_done)) { _, _ -> 
                         getSharedPreferences(preferenceName, MODE_PRIVATE).edit()
-                            .putBoolean("pairing_mode_active", false)
+                            .putLong("pairing_window_start_time", 0L)
                             .apply()
                     }
                     .setNegativeButton(getString(R.string.btn_copy_key)) { _, _ ->
@@ -681,7 +681,7 @@ class MainActivity : FragmentActivity() {
                     }
                     .setOnDismissListener {
                         getSharedPreferences(preferenceName, MODE_PRIVATE).edit()
-                            .putBoolean("pairing_mode_active", false)
+                            .putLong("pairing_window_start_time", 0L)
                             .apply()
                     }
                     .show()
