@@ -3,6 +3,7 @@ package com.tether.phone.ui.theme
 import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -17,6 +18,8 @@ import androidx.core.view.WindowCompat
  * Tether Liquid Glass Theme
  * Implements a modern dark-mode aesthetic with realistic material behaviors.
  */
+
+val TetherEase = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
 private val LiquidGlassColorScheme = darkColorScheme(
     primary = LiquidCyan,

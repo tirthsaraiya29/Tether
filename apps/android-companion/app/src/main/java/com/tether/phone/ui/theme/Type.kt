@@ -8,30 +8,30 @@ import androidx.compose.ui.unit.sp
 
 /**
  * Tether 2026 Typography System
- * High-precision, clean, and futuristic.
+ * Refined for high-precision instrumentation and a technical, premium feel.
  */
 
 val Typography = Typography(
     headlineLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.ExtraLight, // Modern minimalist look
-        fontSize = 40.sp,
-        lineHeight = 48.sp,
-        letterSpacing = (-1).sp
+        fontWeight = FontWeight.Light, // Sophisticated, thin look
+        fontSize = 42.sp,
+        lineHeight = 52.sp,
+        letterSpacing = (-1.5).sp
     ),
     headlineMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Light,
-        fontSize = 28.sp,
-        lineHeight = 36.sp,
-        letterSpacing = 0.sp
+        fontWeight = FontWeight.Normal,
+        fontSize = 32.sp,
+        lineHeight = 40.sp,
+        letterSpacing = (-0.5).sp
     ),
     headlineSmall = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
-        fontSize = 22.sp,
-        lineHeight = 30.sp,
-        letterSpacing = 2.sp // Increased for technical feel
+        fontSize = 20.sp,
+        lineHeight = 28.sp,
+        letterSpacing = 3.sp // Extreme tracking for tech aesthetic
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
@@ -57,22 +57,22 @@ val Typography = Typography(
     labelLarge = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
-        letterSpacing = 2.sp
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
+        letterSpacing = 2.5.sp
     ),
     labelMedium = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Medium,
-        fontSize = 12.sp,
+        fontSize = 11.sp,
         lineHeight = 16.sp,
-        letterSpacing = 3.sp
+        letterSpacing = 4.sp // Highly technical feel
     ),
     labelSmall = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Normal,
         fontSize = 10.sp,
         lineHeight = 14.sp,
-        letterSpacing = 2.sp
+        letterSpacing = 3.sp
     )
 )
