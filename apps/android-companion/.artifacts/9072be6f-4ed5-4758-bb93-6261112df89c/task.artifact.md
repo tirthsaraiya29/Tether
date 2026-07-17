@@ -1,0 +1,11 @@
+- [x] Create `TetherServiceReceiver.kt`
+- [x] Modify `BleGattServerService.kt`
+    - [x] Implement `onTaskRemoved`
+    - [x] Update `scheduleAlarmForHealthCheck` and `cancelAlarm`
+    - [x] Handle `ACTION_HEALTH_CHECK` in `onStartCommand`
+- [x] Register `TetherServiceReceiver` in `AndroidManifest.xml`
+- [x] Deploy and verify
+- [x] Add `RECEIVE_BOOT_COMPLETED` permission to `AndroidManifest.xml`
+- [x] Enable `directBootAware` for Service and Receiver
+- [x] Update `TetherServiceReceiver` to handle boot actions
+- [x] Deploy and verify boot start
