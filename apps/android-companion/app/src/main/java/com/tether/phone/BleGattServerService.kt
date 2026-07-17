@@ -126,14 +126,6 @@ class BleGattServerService : Service() {
         }
     }
 
-    private val alarmReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == ALARM_ACTION) {
-                mainHandler.post { healthCheckRunnable.run() }
-            }
-        }
-    }
-
     private val healthCheckRunnable = Runnable {
         try {
             val bluetoothManager = getSystemService(BluetoothManager::class.java) ?: return@Runnable
@@ -206,7 +198,7 @@ class BleGattServerService : Service() {
         private const val CHANNEL_ID = "tether_proximity_channel"
         private const val NOTIFICATION_ID = 1
 
-        private const val ALARM_ACTION = "com.tether.phone.ALARM_HEALTH_CHECK"
+        const val ALARM_ACTION = "com.tether.phone.ALARM_HEALTH_CHECK"
         private const val HEALTH_CHECK_INTERVAL_MS = 60000L
         private const val WAKE_LOCK_TAG = "tether:BleWakeLock"
     }
@@ -252,12 +244,6 @@ class BleGattServerService : Service() {
             addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
         }
         registerReceiver(bluetoothStateReceiver, filter)
-        androidx.core.content.ContextCompat.registerReceiver(
-            this,
-            alarmReceiver,
-            IntentFilter(ALARM_ACTION),
-            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
-        )
 
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         bluetoothAdapter = bluetoothManager?.adapter
@@ -319,6 +305,13 @@ class BleGattServerService : Service() {
 
         try {
             val action = intent?.action
+            if (action == ALARM_ACTION) {
+                Log.i("TetherBle", "Alarm Health Check triggered via onStartCommand")
+                mainHandler.post { healthCheckRunnable.run() }
+                scheduleAlarmForHealthCheck() // Reschedule for next interval
+                return START_STICKY
+            }
+
             if (action == "ACTION_GET_STATUS") {
                 notifyStateToInterface()
                 return START_STICKY
@@ -887,25 +880,56 @@ class BleGattServerService : Service() {
         }
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.w("TetherBle", "Task removed - scheduling immediate restart")
+        val restartIntent = Intent(applicationContext, BleGattServerService::class.java).apply {
+            action = "ACTION_GET_STATUS"
+        }
+        val pendingIntent = PendingIntent.getForegroundService(
+            this, 1, restartIntent,
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 1000, pendingIntent)
+    }
+
     private fun scheduleAlarmForHealthCheck() {
         alarmManager = getSystemService(ALARM_SERVICE) as AlarmManager
-        val intent = Intent(ALARM_ACTION)
+        val intent = Intent(this, TetherServiceReceiver::class.java).apply {
+            action = ALARM_ACTION
+        }
         val pendingIntent = PendingIntent.getBroadcast(
             this, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         alarmPendingIntent = pendingIntent
-        alarmManager?.setInexactRepeating(
-            AlarmManager.ELAPSED_REALTIME_WAKEUP,
-            SystemClock.elapsedRealtime() + HEALTH_CHECK_INTERVAL_MS,
-            HEALTH_CHECK_INTERVAL_MS,
-            pendingIntent
-        )
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarmManager?.setAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + HEALTH_CHECK_INTERVAL_MS,
+                pendingIntent
+            )
+        } else {
+            alarmManager?.set(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + HEALTH_CHECK_INTERVAL_MS,
+                pendingIntent
+            )
+        }
     }
 
     private fun cancelAlarm() {
-        alarmPendingIntent?.let {
-            alarmManager?.cancel(it)
+        val intent = Intent(this, TetherServiceReceiver::class.java).apply {
+            action = ALARM_ACTION
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            this, 0, intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (pendingIntent != null) {
+            alarmManager?.cancel(pendingIntent)
         }
         alarmPendingIntent = null
     }
@@ -1000,7 +1024,6 @@ class BleGattServerService : Service() {
     @SuppressLint("MissingPermission")
     override fun onDestroy() {
         try { unregisterReceiver(bluetoothStateReceiver) } catch (_: Exception) {}
-        try { unregisterReceiver(alarmReceiver) } catch (_: Exception) {}
 
         cancelAlarm()
         wakeLock?.let { if (it.isHeld) it.release() }
