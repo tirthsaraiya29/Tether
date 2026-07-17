@@ -27,8 +27,12 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import com.tether.phone.*
 import com.tether.phone.R
 import com.tether.phone.ui.theme.*
@@ -43,7 +47,7 @@ fun ProfessionalGlassSurface(
     alpha: Float = 0.12f,
     tint: Color = Color.White,
     blur: Float = 32f,
-    content: @Composable ColumnScope.() -> Unit
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "GlassRefraction")
     val tiltX by infiniteTransition.animateFloat(
@@ -71,6 +75,25 @@ fun ProfessionalGlassSurface(
                 cameraDistance = 12f * density
             }
             .clip(RoundedCornerShape(28.dp))
+            .drawBehind {
+                // Refractive Shadow (3D depth effect)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0.0f to Color.Black.copy(alpha = 0.4f),
+                        1.0f to Color.Transparent,
+                        center = Offset(
+                            (size.width / 2) + (tiltX * 5.dp.toPx()),
+                            (size.height / 2) + (tiltY * 5.dp.toPx())
+                        ),
+                        radius = size.width.coerceAtLeast(size.height)
+                    ),
+                    radius = size.width.coerceAtLeast(size.height),
+                    center = Offset(
+                        (size.width / 2) + (tiltX * 5.dp.toPx()),
+                        (size.height / 2) + (tiltY * 5.dp.toPx())
+                    ),
+                )
+            }
             .border(
                 width = 0.5.dp,
                 brush = Brush.linearGradient(
@@ -105,9 +128,9 @@ fun ProfessionalGlassSurface(
                 }
                 .drawBehind {
                     // Specular highlight path (Fresnel-like effect)
-                    val strokeWidth = 1.6.dp.toPx()
+                    val strokeWidth = 1.2.dp.toPx()
                     val highlightPath = Path().apply {
-                        moveTo(0f, size.height * 0.4f)
+                        moveTo(0f, size.height * 0.3f)
                         lineTo(0f, 28.dp.toPx())
                         arcTo(
                             rect = Rect(0f, 0f, 56.dp.toPx(), 56.dp.toPx()),
@@ -115,26 +138,37 @@ fun ProfessionalGlassSurface(
                             sweepAngleDegrees = 90f,
                             forceMoveTo = false
                         )
-                        lineTo(size.width * 0.4f, 0f)
+                        lineTo(size.width * 0.3f, 0f)
                     }
                     drawPath(
                         path = highlightPath,
                         brush = Brush.linearGradient(
-                            colors = listOf(Color.White.copy(alpha = 0.6f), Color.Transparent),
-                            start = Offset(tiltX * 40f, tiltY * 40f),
-                            end = Offset(size.width * 0.5f, size.height * 0.5f)
+                            colors = listOf(Color.White.copy(alpha = 0.5f), Color.Transparent),
+                            start = Offset(tiltX * 30f, tiltY * 30f),
+                            end = Offset(size.width * 0.4f, size.height * 0.4f)
                         ),
                         style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                     )
 
-                    // Grain/Noise texture overlay for tactile depth
-                    val noiseStep = 4f
-                    for (x in 0 until size.width.toInt() step (noiseStep.toInt() * 3)) {
-                        for (y in 0 until size.height.toInt() step (noiseStep.toInt() * 3)) {
-                            if ((x * y) % 13 == 0) {
+                    // Secondary refractive highlight
+                    drawArc(
+                        color = Color.White.copy(alpha = 0.08f),
+                        startAngle = 0f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        topLeft = Offset(8.dp.toPx(), 8.dp.toPx()),
+                        size = size.copy(width = size.width - 16.dp.toPx(), height = size.height - 16.dp.toPx()),
+                        style = Stroke(width = 0.5.dp.toPx())
+                    )
+
+                    // Grain/Noise texture overlay for tactile depth (Higher precision)
+                    val noiseStep = 3f
+                    for (x in 0 until size.width.toInt() step (noiseStep.toInt() * 4)) {
+                        for (y in 0 until size.height.toInt() step (noiseStep.toInt() * 4)) {
+                            if ((x + y) % 17 == 0) {
                                 drawCircle(
-                                    color = Color.White.copy(alpha = 0.02f),
-                                    radius = 0.5f,
+                                    color = Color.White.copy(alpha = 0.015f),
+                                    radius = 0.4f,
                                     center = Offset(x.toFloat(), y.toFloat())
                                 )
                             }
@@ -149,9 +183,8 @@ fun ProfessionalGlassSurface(
     }
 }
 
-/**
- * Tactile Tactical Action - Interactive Control
- */
+// TacticalSwitch and TacticalSlider removed to keep the interface clean
+
 @Composable
 fun TacticalAction(
     label: String,
@@ -159,10 +192,15 @@ fun TacticalAction(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    subLabel: String? = null
+    subLabel: String? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val haptic = LocalHapticFeedback.current
+
+    LaunchedEffect(isPressed) {
+        if (isPressed) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
 
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.94f else 1f,
@@ -196,7 +234,8 @@ fun TacticalAction(
                 Brush.verticalGradient(
                     listOf(
                         accentColor.copy(alpha = glow),
-                        accentColor.copy(alpha = glow * 0.4f)
+                        accentColor.copy(alpha = glow * 0.6f),
+                        accentColor.copy(alpha = glow * 0.2f)
                     )
                 )
             )
@@ -204,12 +243,23 @@ fun TacticalAction(
                 width = 0.5.dp,
                 brush = Brush.linearGradient(
                     listOf(
-                        accentColor.copy(alpha = if (isPressed) 0.8f else 0.4f),
-                        accentColor.copy(alpha = 0.1f)
+                        accentColor.copy(alpha = if (isPressed) 0.9f else 0.5f),
+                        accentColor.copy(alpha = 0.05f)
                     )
                 ),
                 shape = RoundedCornerShape(22.dp)
             )
+            .drawBehind {
+                if (isPressed) {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(accentColor.copy(alpha = 0.15f), Color.Transparent),
+                            center = center,
+                            radius = size.width
+                        )
+                    )
+                }
+            }
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -407,7 +457,7 @@ fun CommandConfirmationDialog(
 
 @Composable
 fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
-    var visible by remember { mutableStateOf(false) }
+    var visible by remember { mutableStateOf(value = false) }
     LaunchedEffect(Unit) { visible = true }
 
     val infiniteTransition = rememberInfiniteTransition(label = "LockPulse")

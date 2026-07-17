@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.tether.phone.ui.components.*
@@ -55,13 +56,8 @@ class MainActivity : FragmentActivity() {
     private val preferenceName = "tether_secure_prefs"
     private val panicStateKey = "is_panic_active"
 
-    private val appLockEnabledKey = "app_lock_biometrics_enabled"
     private val appLockTimeoutKey = "app_lock_timeout_ms"
     private val appLockBackgroundTimestampKey = "app_lock_bg_timestamp"
-
-    private val privacyMaskEnabledKey = "privacy_mask_enabled"
-    private val blockScreenReadingKey = "block_screen_reading"
-    private val hideInRecentsKey = "hide_in_recents"
 
     private var uiStatusText = mutableStateOf("")
     private var uiStatusColor = mutableStateOf(TextSecondary)
@@ -72,19 +68,20 @@ class MainActivity : FragmentActivity() {
     private var currentVerificationStep = mutableStateOf(value = TrustVerificationStep.NOT_IN_PANIC)
 
     private var isAppLocked = mutableStateOf(value = false)
-    private var isBiometricSettingEnabled = mutableStateOf(value = false)
+    // Mandatory Security Features
+    private var isBiometricSettingEnabled = mutableStateOf(value = true)
     private var selectedTimeoutMs = mutableLongStateOf(value = 0L)
 
-    private var isPrivacyMaskEnabled = mutableStateOf(value = false)
-    private var isBlockScreenReadingEnabled = mutableStateOf(value = false)
-    private var isHideInRecentsEnabled = mutableStateOf(value = false)
+    private var isPrivacyMaskEnabled = mutableStateOf(value = true)
+    private var isBlockScreenReadingEnabled = mutableStateOf(value = true)
+    private var isHideInRecentsEnabled = mutableStateOf(value = true)
 
     private var isEnvironmentRestricted = mutableStateOf(value = false)
     private var currentIntegrityScore = mutableIntStateOf(value = 100)
     private var isLoading = mutableStateOf(value = true)
 
     private var activePendingCommand = mutableStateOf<String?>(null)
-    private var isCommandConfirmed = mutableStateOf(false)
+    private var isCommandConfirmed = mutableStateOf(value = false)
     private var dismissalJob: kotlinx.coroutines.Job? = null
 
     private var pendingPowerAction = mutableStateOf<PowerAction?>(null)
@@ -180,12 +177,13 @@ class MainActivity : FragmentActivity() {
 
         val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
         isPanicActive.value = prefs.getBoolean(panicStateKey, false)
-        isBiometricSettingEnabled.value = prefs.getBoolean(appLockEnabledKey, false)
+        // Force security settings to true regardless of saved state
+        isBiometricSettingEnabled.value = true
+        isPrivacyMaskEnabled.value = true
+        isBlockScreenReadingEnabled.value = true
+        isHideInRecentsEnabled.value = true
+        
         selectedTimeoutMs.longValue = prefs.getLong(appLockTimeoutKey, 0L)
-
-        isPrivacyMaskEnabled.value = prefs.getBoolean(privacyMaskEnabledKey, false)
-        isBlockScreenReadingEnabled.value = prefs.getBoolean(blockScreenReadingKey, false)
-        isHideInRecentsEnabled.value = prefs.getBoolean(hideInRecentsKey, false)
 
         applyWindowSecurityFlags()
 
@@ -239,7 +237,7 @@ class MainActivity : FragmentActivity() {
                                     getString(R.string.status_verifying_environment),
                                     color = TextSecondary,
                                     style = MaterialTheme.typography.labelMedium,
-                                    modifier = Modifier.padding(top = 48.dp)
+                                    modifier = Modifier.padding(top = 48.dp),
                                 )
                             }
                         } else if (isEnvironmentRestricted.value) {
@@ -252,9 +250,7 @@ class MainActivity : FragmentActivity() {
                                 isConnected = isConnected.value,
                                 isPanicActive = isPanicActive.value,
                                 verificationStep = currentVerificationStep.value,
-                                isBiometricSettingEnabled = isBiometricSettingEnabled.value,
                                 selectedTimeoutMs = selectedTimeoutMs.longValue,
-                                isPrivacyMaskEnabled = isPrivacyMaskEnabled.value,
                                 onUnlockClick = {
                                     val currentTime = System.currentTimeMillis()
                                     val needsAuth = ((currentTime - lastBiometricAuthTime) > 10000)
@@ -278,7 +274,7 @@ class MainActivity : FragmentActivity() {
                                 },
                                 onLockClick = { triggerBleAction("lock_now") },
                                 onPanicClick = {
-                                    persistPanicState(true)
+                                    persistPanicState(active = true)
                                     triggerBleAction("panic")
                                 },
                                 onInitiateRestore = {
@@ -288,28 +284,9 @@ class MainActivity : FragmentActivity() {
                                 onTriggerStepVerification = { step ->
                                     triggerSystemBiometricPrompt(step)
                                 },
-                                onBiometricSettingToggled = { enabled ->
-                                    isBiometricSettingEnabled.value = enabled
-                                    prefs.edit { putBoolean(appLockEnabledKey, enabled) }
-                                    if (enabled) {
-                                        isAppLocked.value = true
-                                        authenticateForAppUnlock()
-                                    }
-                                },
                                 onTimeoutChanged = { timeout ->
                                     selectedTimeoutMs.longValue = timeout
                                     prefs.edit { putLong(appLockTimeoutKey, timeout) }
-                                },
-                                onPrivacyMaskToggled = { enabled ->
-                                    isPrivacyMaskEnabled.value = enabled
-                                    isBlockScreenReadingEnabled.value = enabled
-                                    isHideInRecentsEnabled.value = enabled
-                                    prefs.edit {
-                                        putBoolean(privacyMaskEnabledKey, enabled)
-                                        putBoolean(blockScreenReadingKey, enabled)
-                                        putBoolean(hideInRecentsKey, enabled)
-                                    }
-                                    applyWindowSecurityFlags()
                                 },
                                 onLaptopActionClick = { action ->
                                     val command = when (action) {
@@ -430,7 +407,7 @@ class MainActivity : FragmentActivity() {
         val commandType = intent.getStringExtra("command_type") ?: intent.getStringExtra("action_command")
         val action = intent.action
 
-        if (commandType != null || action == "com.tether.phone.ACTION_VOICE_COMMAND") {
+        if (commandType != null || (action == "com.tether.phone.ACTION_VOICE_COMMAND")) {
             val command = commandType ?: "unknown"
             if (!isEnvironmentRestricted.value && !isAppLocked.value) {
                 val bleCommand = when (command) {
@@ -497,12 +474,11 @@ class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
-        if (isPrivacyMaskEnabled.value && isHideInRecentsEnabled.value) {
+        if (isHideInRecentsEnabled.value) {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
         if (isBiometricSettingEnabled.value) {
-            val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
-            prefs.edit(commit = true) {
+            getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
                 putLong(appLockBackgroundTimestampKey, System.currentTimeMillis())
             }
         }
@@ -536,6 +512,7 @@ class MainActivity : FragmentActivity() {
                     } else {
                         requestPermissions()
                     }
+                    syncBleState()
                     handleVoiceIntent(intent)
                 }
             } else {
@@ -567,10 +544,10 @@ class MainActivity : FragmentActivity() {
             Log.w("TetherUI", "App is not exempted from battery optimizations. Requesting exemption.")
             try {
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = android.net.Uri.parse("package:$packageName")
+                    data = "package:$packageName".toUri()
                 }
                 batteryOptimizationLauncher.launch(intent)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                 batteryOptimizationLauncher.launch(intent)
             }
@@ -605,18 +582,18 @@ class MainActivity : FragmentActivity() {
                     .setMessage(getString(R.string.dialog_pairing_message))
                     .setView(imageView)
                     .setPositiveButton(getString(R.string.btn_done)) { _, _ -> 
-                        getSharedPreferences(preferenceName, MODE_PRIVATE).edit()
-                            .putLong("pairing_window_start_time", 0L)
-                            .apply()
+                        getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
+                            putLong("pairing_window_start_time", 0L)
+                        }
                     }
                     .setNegativeButton(getString(R.string.btn_copy_key)) { _, _ ->
                         val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
                         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("TetherPublicKey", base64Key))
                     }
                     .setOnDismissListener {
-                        getSharedPreferences(preferenceName, MODE_PRIVATE).edit()
-                            .putLong("pairing_window_start_time", 0L)
-                            .apply()
+                        getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
+                            putLong("pairing_window_start_time", 0L)
+                        }
                     }
                     .show()
             }
@@ -756,7 +733,7 @@ class MainActivity : FragmentActivity() {
                 Manifest.permission.BLUETOOTH_SCAN,
                 Manifest.permission.BLUETOOTH_CONNECT,
                 Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.ACCESS_FINE_LOCATION
+                Manifest.permission.ACCESS_FINE_LOCATION,
             ))
         } else {
             required.addAll(listOf(
@@ -792,7 +769,7 @@ class MainActivity : FragmentActivity() {
                 Manifest.permission.BLUETOOTH_SCAN,
                 Manifest.permission.BLUETOOTH_CONNECT,
                 Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.ACCESS_FINE_LOCATION
+                Manifest.permission.ACCESS_FINE_LOCATION,
             ))
         } else {
             required.addAll(listOf(
@@ -816,14 +793,25 @@ class MainActivity : FragmentActivity() {
 
     private fun startBleService() {
         if (isPanicActive.value || isEnvironmentRestricted.value) return
-        val bleIntent = Intent(this, BleGattServerService::class.java)
+        val bleIntent = Intent(this, BleGattServerService::class.java).apply {
+            action = "ACTION_GET_STATUS"
+        }
         try {
             startForegroundService(bleIntent)
-            uiStatusText.value = getString(R.string.status_broadcast_active)
-            uiStatusColor.value = LiquidCyan
-            uiConnectionStatusText.value = getString(R.string.status_waiting_nodes)
         } catch (e: Exception) {
             Log.e("TetherActivity", "Failed to start BLE service", e)
+        }
+    }
+
+    private fun syncBleState() {
+        if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
+        val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
+            action = "ACTION_GET_STATUS"
+        }
+        try {
+            startForegroundService(serviceIntent)
+        } catch (e: Exception) {
+            Log.e("TetherActivity", "Failed to sync BLE state", e)
         }
     }
 }
@@ -837,18 +825,14 @@ fun TetherNavigationShell(
     isConnected: Boolean,
     isPanicActive: Boolean,
     verificationStep: TrustVerificationStep,
-    isBiometricSettingEnabled: Boolean,
     selectedTimeoutMs: Long,
-    isPrivacyMaskEnabled: Boolean,
     onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
     onInitiateRestore: () -> Unit,
     onSelectLaptop: () -> Unit,
     onTriggerStepVerification: (TrustVerificationStep) -> Unit,
-    onBiometricSettingToggled: (Boolean) -> Unit,
     onTimeoutChanged: (Long) -> Unit,
-    onPrivacyMaskToggled: (Boolean) -> Unit,
     onLaptopActionClick: (String) -> Unit,
     onShowQR: () -> Unit
 ) {
@@ -888,7 +872,6 @@ fun TetherNavigationShell(
 
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
-                            Triple(stringResource(R.string.nav_hardware), Icons.Default.Info, AppScreen.LAPTOP_CONTROL),
                             Triple(stringResource(R.string.nav_security), Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
                             Triple(stringResource(R.string.nav_pair), Icons.Default.QrCode, AppScreen.PAIRING)
                         )
@@ -962,10 +945,10 @@ fun TetherNavigationShell(
                             onTriggerStepVerification, onBleActionRequested = onLaptopActionClick
                         )
                         AppScreen.SECURITY_SETTINGS -> SettingsScreen(
-                            isBiometricSettingEnabled, selectedTimeoutMs, isPrivacyMaskEnabled,
-                            onBiometricSettingToggled, onTimeoutChanged, onPrivacyMaskToggled
+                            selectedTimeoutMs = selectedTimeoutMs,
+                            onTimeoutChanged = onTimeoutChanged
                         )
-                        AppScreen.LAPTOP_CONTROL -> LaptopControlScreen(onBleActionRequested = onLaptopActionClick)
+                        AppScreen.LAPTOP_CONTROL -> Box(Modifier.fillMaxSize()) // Removed
                         AppScreen.PAIRING -> PairingScreen(onShowQR = onShowQR)
                     }
                 }
