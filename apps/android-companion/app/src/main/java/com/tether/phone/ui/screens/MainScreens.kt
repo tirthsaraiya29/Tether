@@ -62,7 +62,7 @@ fun TetherAppScreen(
             .fillMaxSize()
             .verticalScroll(scrollState)
             .padding(horizontal = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         AnimatedVisibility(
             visible = visible,
@@ -426,7 +426,7 @@ fun LoadingSecurityStep(msg: String) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         CircularProgressIndicator(
             color = LiquidCyan,
@@ -467,19 +467,15 @@ fun BiometricVerificationStep(onVerify: () -> Unit) {
 
 @Composable
 fun SettingsScreen(
-    isBiometricEnabled: Boolean,
     selectedTimeoutMs: Long,
-    isPrivacyMaskEnabled: Boolean,
-    onBiometricToggled: (Boolean) -> Unit,
-    onTimeoutChanged: (Long) -> Unit,
-    onPrivacyMaskToggled: (Boolean) -> Unit
+    onTimeoutChanged: (Long) -> Unit
 ) {
     val context = LocalContext.current
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
     var isBatteryOptimized by remember { mutableStateOf(value = !powerManager.isIgnoringBatteryOptimizations(context.packageName)) }
 
     val scrollState = rememberScrollState()
-    var visible by remember { mutableStateOf(false) }
+    var visible by remember { mutableStateOf(value = false) }
     LaunchedEffect(Unit) { visible = true }
 
     Column(
@@ -508,68 +504,48 @@ fun SettingsScreen(
                     slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 100)) { it / 3 }
         ) {
             ProfessionalGlassSurface {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.label_biometric_gateway),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = stringResource(R.string.desc_biometric_gateway),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
-                        )
-                    }
-                    Switch(
-                        checked = isBiometricEnabled,
-                        onCheckedChange = onBiometricToggled,
-                        colors = SwitchDefaults.colors(checkedTrackColor = LiquidCyan)
+                Column {
+                    Text(
+                        text = stringResource(R.string.label_lock_threshold),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary
                     )
-                }
-                AnimatedVisibility(
-                    visible = isBiometricEnabled,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    Column {
-                        Spacer(modifier = Modifier.height(28.dp))
-                        Text(
-                            text = stringResource(R.string.label_lock_threshold),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = LiquidCyan
-                        )
-                        Spacer(modifier = Modifier.height(18.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            listOf("IMM" to 0L, "1M" to 60000L, "5M" to 300000L).forEach { (l, v) ->
-                                val sel = selectedTimeoutMs == v
-                                Box(
-                                    modifier = Modifier
-                                        .height(44.dp)
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(if (sel) LiquidCyan.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.04f))
-                                        .clickable { onTimeoutChanged(v) }
-                                        .border(
-                                            width = 0.5.dp,
-                                            color = if (sel) LiquidCyan else GlassBorder,
-                                            shape = RoundedCornerShape(14.dp)
-                                        )
-                                        .graphicsLayer {
-                                            scaleX = if (sel) 1.05f else 1f
-                                            scaleY = if (sel) 1.05f else 1f
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = l,
-                                        color = if (sel) LiquidCyan else TextSecondary,
-                                        style = MaterialTheme.typography.labelLarge
+                    Text(
+                        text = "Automated vault enforcement interval.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(28.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        listOf("IMM" to 0L, "1M" to 60000L, "5M" to 300000L).forEach { (l, v) ->
+                            val sel = selectedTimeoutMs == v
+                            Box(
+                                modifier = Modifier
+                                    .height(56.dp)
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(if (sel) LiquidCyan.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.04f))
+                                    .clickable { onTimeoutChanged(v) }
+                                    .border(
+                                        width = 0.5.dp,
+                                        color = if (sel) LiquidCyan else GlassBorder,
+                                        shape = RoundedCornerShape(16.dp)
                                     )
-                                }
+                                    .graphicsLayer {
+                                        scaleX = if (sel) 1.05f else 1f
+                                        scaleY = if (sel) 1.05f else 1f
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = l,
+                                    color = if (sel) LiquidCyan else TextSecondary,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal
+                                )
                             }
                         }
                     }
@@ -587,20 +563,21 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            text = stringResource(R.string.label_ui_hardening),
+                            text = "Security Hardening",
                             style = MaterialTheme.typography.titleLarge,
                             color = TextPrimary
                         )
                         Text(
-                            text = stringResource(R.string.desc_ui_hardening),
+                            text = "Biometric Gateway and UI Privacy Mask are active and enforced by system policy.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
+                            color = IntegrityGreen
                         )
                     }
-                    Switch(
-                        checked = isPrivacyMaskEnabled,
-                        onCheckedChange = onPrivacyMaskToggled,
-                        colors = SwitchDefaults.colors(checkedTrackColor = LiquidCyan)
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = IntegrityGreen,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
@@ -735,94 +712,8 @@ fun MetricRow(label: String, pass: Boolean) {
 }
 
 @Composable
-fun LaptopControlScreen(onBleActionRequested: (String) -> Unit) {
-    var vol by remember { mutableFloatStateOf(value = 50f) }
-    var bri by remember { mutableFloatStateOf(value = 50f) }
-    val scrollState = rememberScrollState()
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { visible = true }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(24.dp)
-    ) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 600)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 600)) { -it / 4 }
-        ) {
-            Text(
-                text = stringResource(R.string.header_hardware_interface),
-                style = MaterialTheme.typography.labelLarge,
-                color = LiquidCyan,
-                letterSpacing = 4.sp
-            )
-        }
-        Spacer(modifier = Modifier.height(28.dp))
-
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 100)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 100)) { it / 3 }
-        ) {
-            ProfessionalGlassSurface {
-                Text(
-                    text = stringResource(R.string.label_volume),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = TextPrimary
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Slider(
-                    value = vol,
-                    onValueChange = {
-                        val old = vol
-                        vol = it
-                        onBleActionRequested(if (it > old) "VOL_UP" else "VOL_DOWN")
-                    },
-                    colors = SliderDefaults.colors(
-                        thumbColor = TextPrimary,
-                        activeTrackColor = LiquidCyan
-                    )
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(28.dp))
-
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 200)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 200)) { it / 3 }
-        ) {
-            ProfessionalGlassSurface {
-                Text(
-                    text = stringResource(R.string.label_brightness),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = TextPrimary
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Slider(
-                    value = bri,
-                    onValueChange = {
-                        val old = bri
-                        bri = it
-                        onBleActionRequested(if (it > old) "BRIGHT_UP" else "BRIGHT_DOWN")
-                    },
-                    colors = SliderDefaults.colors(
-                        thumbColor = TextPrimary,
-                        activeTrackColor = LiquidCyan
-                    )
-                )
-            }
-        }
-    }
-}
-
-@Composable
 fun PairingScreen(onShowQR: () -> Unit) {
-    var visible by remember { mutableStateOf(false) }
+    var visible by remember { mutableStateOf(value = false) }
     LaunchedEffect(Unit) { visible = true }
 
     Column(
