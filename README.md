@@ -9,7 +9,7 @@ The system creates a secure trust relationship between a Windows machine and an 
 ---
 
 # Usability Notice
- - The system isn't usable even for debuggers. Please stay away from using it. 
+ - The system is a bit vulnerable and caution is advised to use this in public spots. 
 
 # Features
 
