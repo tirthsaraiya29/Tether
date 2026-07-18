@@ -176,13 +176,6 @@ public class PipeServer : IDisposable
                                 }
                             }
                         }
-
-                        // Check 4: Interactive Desktop Session fallback (non-SYSTEM / elevated dev execution)
-                        if (clientSessionId > 0 && clientIdentity.User.AccountDomainSid != null)
-                        {
-                            clientAuthorized = true;
-                            return;
-                        }
                     });
                 }
                 catch (Exception ex)
