@@ -90,8 +90,11 @@ class ProductionSecurityEngine {
             val sig = Signature.getInstance("SHA256withRSA")
             sig.initVerify(publicKey)
             sig.update(data)
-            sig.verify(signature)
+            val result = sig.verify(signature)
+            android.util.Log.d("TetherSecurity", "Signature verification result: $result")
+            result
         } catch (e: Exception) {
+            android.util.Log.e("TetherSecurity", "Signature verification error: ${e.message}", e)
             false
         }
     }

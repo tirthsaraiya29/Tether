@@ -48,7 +48,7 @@ fun TetherAppScreen(
     onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
-    onInitiateRestore: () -> Unit,
+    onSideRestore: () -> Unit,
     onSelectLaptop: () -> Unit,
     onTriggerStepVerification: (TrustVerificationStep) -> Unit,
     onBleActionRequested: (String) -> Unit,
@@ -144,7 +144,7 @@ fun TetherAppScreen(
                                 enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 400)) + 
                                         scaleIn(initialScale = 0.9f)
                             ) {
-                                PanicRestoreCard(onInitiateRestore = onInitiateRestore)
+                                PanicRestoreCard(onSideRestore = onSideRestore)
                             }
                         } else {
                             AnimatedVisibility(
@@ -398,7 +398,7 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
 }
 
 @Composable
-fun PanicRestoreCard(onInitiateRestore: () -> Unit) {
+fun PanicRestoreCard(onSideRestore: () -> Unit) {
     ProfessionalGlassSurface(tint = IntegrityGreen, alpha = 0.12f) {
         Text(
             text = stringResource(R.string.status_lockdown_active),
@@ -415,7 +415,7 @@ fun PanicRestoreCard(onInitiateRestore: () -> Unit) {
         TacticalAction(
             label = stringResource(R.string.label_restore),
             accentColor = IntegrityGreen,
-            onClick = onInitiateRestore
+            onClick = onSideRestore
         )
     }
 }

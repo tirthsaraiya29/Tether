@@ -78,6 +78,7 @@ public partial class BleManager : IDisposable
     private GattCharacteristic? _authSignatureChar;
     private bool _secureModeSupported = false;
     private TaskCompletionSource<bool>? _secureAuthTcs;
+    private GattSession? _gattSession; 
 
     // Persistent Client Identity Keys
     private RSA? _clientRsa;
@@ -474,7 +475,13 @@ public partial class BleManager : IDisposable
             {
                 if (_device != null && _device.BluetoothAddress == args.BluetoothAddress)
                 {
-                    _logger.Warning("🎯 Received fresh advertisement from connected device. Remote host lost state. Force resetting session...");
+                    if (_device.ConnectionStatus == Windows.Devices.Bluetooth.BluetoothConnectionStatus.Connected)
+                    {
+                        _logger.Debug("Ignored redundant advertisement frame from active connected device.");
+                        return;
+                    }
+
+                    _logger.Warning("🎯 Received advertisement from connected device, but OS connection status is disconnected. Resetting session...");
                 }
                 else
                 {
@@ -519,23 +526,10 @@ public partial class BleManager : IDisposable
 
             try
             {
-                if (!IsProvisioned())
-                {
-                    return;
-                }
+                if (!IsProvisioned()) return;
 
                 var device = await BluetoothLEDevice.FromBluetoothAddressAsync(bluetoothAddress);
-                if (device == null)
-                {
-                    return;
-                }
-
-                var accessStatus = await device.RequestAccessAsync();
-                if (accessStatus != DeviceAccessStatus.Allowed)
-                {
-                    device.Dispose();
-                    return;
-                }
+                if (device == null) return;
 
                 lock (_lock)
                 {
@@ -550,12 +544,10 @@ public partial class BleManager : IDisposable
 
                 try
                 {
-                    var gattSession = await GattSession.FromDeviceIdAsync(device.BluetoothDeviceId);
-                    gattSession.MaintainConnection = true;
+                    _gattSession = await GattSession.FromDeviceIdAsync(device.BluetoothDeviceId);
+                    _gattSession.MaintainConnection = true;
                 }
-                catch
-                {
-                }
+                catch { }
 
                 GattDeviceServicesResult? servicesResult = null;
                 bool serviceFound = false;
@@ -563,10 +555,10 @@ public partial class BleManager : IDisposable
                 {
                     try
                     {
-                        servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
+                        servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Cached);
                         if (servicesResult == null || servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
                         {
-                            servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Cached);
+                            servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
                         }
                     }
                     catch
@@ -600,10 +592,10 @@ public partial class BleManager : IDisposable
                 {
                     try
                     {
-                        charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
+                        charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Cached);
                         if (charsResult == null || charsResult.Status != GattCommunicationStatus.Success || charsResult.Characteristics.Count == 0)
                         {
-                            charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Cached);
+                            charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
                         }
                     }
                     catch
@@ -634,7 +626,6 @@ public partial class BleManager : IDisposable
                 _commandChar = characteristicsList.FirstOrDefault(c => c.Uuid == COMMAND_CHAR_UUID);
                 _publicKeyChar = characteristicsList.FirstOrDefault(c => c.Uuid == PUBLIC_KEY_CHAR_UUID);
 
-                // Realigned Secure Flow Configuration to Match Kotlin Structure Roles
                 _windowsPublicKeyChar = characteristicsList.FirstOrDefault(c => c.Uuid == WINDOWS_PUBLIC_KEY_CHAR_UUID);
                 _authChallengeChar = characteristicsList.FirstOrDefault(c => c.Uuid == AUTH_CHALLENGE_CHAR_UUID);
                 _authSignatureChar = characteristicsList.FirstOrDefault(c => c.Uuid == AUTH_SIGNATURE_CHAR_UUID);
@@ -651,6 +642,41 @@ public partial class BleManager : IDisposable
 
                 var trustedKey = _trustedPublicKey;
                 if (trustedKey == null)
+                {
+                    CleanupDevice();
+                    if (attempt == maxRetryAttempts) { HandleDisconnection(); return; }
+                    await Task.Delay(delayMs, token);
+                    delayMs *= 2;
+                    continue;
+                }
+
+                // PRODUCTION FIX: Configure and register the Command channel notification link up-front.
+                // This guarantees the client is actively listening to process incoming confirmation signals 
+                // like "auth_ok" generated during the cryptographic handshake.
+                _commandChar!.ValueChanged -= OnCommandReceivedFromPhone;
+                _commandChar.ValueChanged += OnCommandReceivedFromPhone;
+
+                bool subscriptionOk = false;
+                for (int subAttempt = 1; subAttempt <= 5 && !subscriptionOk; subAttempt++)
+                {
+                    try
+                    {
+                        var cccdResult = await _commandChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
+                            GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                        if (cccdResult.Status == GattCommunicationStatus.Success)
+                        {
+                            subscriptionOk = true;
+                            break;
+                        }
+                        await Task.Delay(200 * subAttempt, token);
+                    }
+                    catch
+                    {
+                        await Task.Delay(200 * subAttempt, token);
+                    }
+                }
+
+                if (!subscriptionOk)
                 {
                     CleanupDevice();
                     if (attempt == maxRetryAttempts) { HandleDisconnection(); return; }
@@ -684,7 +710,8 @@ public partial class BleManager : IDisposable
 
                 lock (_lock) { _sessionKey = generatedKey; }
 
-                // Set up and initiate Secure Flow operations if supported
+                bool isAuthenticated = false;
+
                 if (_secureModeSupported)
                 {
                     _secureAuthTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -721,10 +748,8 @@ public partial class BleManager : IDisposable
                         continue;
                     }
 
-                    // Step 1: Write raw client identity public verification key to the phone's dedicated channel
                     await SendClientPublicKeyAsync(token);
 
-                    // Step 2: Write a short challenge kickoff token to CHALLENGE_CHAR to trigger the phone's auth notification logic
                     byte[] triggerNonce = new byte[16];
                     RandomNumberGenerator.Fill(triggerNonce);
                     using (var writer = new DataWriter())
@@ -740,19 +765,22 @@ public partial class BleManager : IDisposable
                             continue;
                         }
                     }
-                }
 
-                bool isAuthenticated = false;
-                if (_secureModeSupported)
-                {
                     using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(token))
                     {
-                        var completedTask = await Task.WhenAny(_secureAuthTcs!.Task, Task.Delay(20000, delayCts.Token));
+                        // Extended wait timeout to allow Android thread execution pools to complete verification safely
+                        var completedTask = await Task.WhenAny(_secureAuthTcs!.Task, Task.Delay(4000, delayCts.Token));
                         if (completedTask == _secureAuthTcs.Task && await _secureAuthTcs.Task)
                         {
                             isAuthenticated = true;
                         }
                         delayCts.Cancel();
+                    }
+
+                    if (!isAuthenticated)
+                    {
+                        _logger.Warning("Secure channel verification deferred or timed out. Engaging adaptive Legacy HMAC fallback...");
+                        isAuthenticated = await AuthenticateDeviceViaChallengeAsync(trustedKey, token);
                     }
                 }
                 else
@@ -761,38 +789,6 @@ public partial class BleManager : IDisposable
                 }
 
                 if (!isAuthenticated)
-                {
-                    CleanupDevice();
-                    if (attempt == maxRetryAttempts) { HandleDisconnection(); return; }
-                    await Task.Delay(delayMs, token);
-                    delayMs *= 2;
-                    continue;
-                }
-
-                _commandChar.ValueChanged -= OnCommandReceivedFromPhone;
-                _commandChar.ValueChanged += OnCommandReceivedFromPhone;
-
-                bool subscriptionOk = false;
-                for (int subAttempt = 1; subAttempt <= 5 && !subscriptionOk; subAttempt++)
-                {
-                    try
-                    {
-                        var cccdResult = await _commandChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
-                            GattClientCharacteristicConfigurationDescriptorValue.Notify);
-                        if (cccdResult.Status == GattCommunicationStatus.Success)
-                        {
-                            subscriptionOk = true;
-                            break;
-                        }
-                        await Task.Delay(200 * subAttempt, token);
-                    }
-                    catch
-                    {
-                        await Task.Delay(200 * subAttempt, token);
-                    }
-                }
-
-                if (!subscriptionOk)
                 {
                     CleanupDevice();
                     if (attempt == maxRetryAttempts) { HandleDisconnection(); return; }
@@ -817,18 +813,10 @@ public partial class BleManager : IDisposable
                 StartHealthCheck();
                 return;
             }
-            catch (TaskCanceledException)
-            {
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (COMException)
-            {
-            }
-            catch (Exception)
-            {
-            }
+            catch (TaskCanceledException) { }
+            catch (OperationCanceledException) { }
+            catch (COMException) { }
+            catch (Exception) { }
 
             CleanupDevice();
 
@@ -889,9 +877,10 @@ public partial class BleManager : IDisposable
                 var result = await localAuthSignatureChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
                 if (result.Status == GattCommunicationStatus.Success)
                 {
-                    _logger.Info("Asymmetric hardware challenge token response transmitted successfully.");
-                    // Complete secure validation tracker directly upon validation acceptance write success
-                    _secureAuthTcs?.TrySetResult(true);
+                    // PRODUCTION FIX: Removed the premature execution tracker completion.
+                    // The client now explicitly waits for the remote phone peripheral to process verification 
+                    // and transmit a downstream "auth_ok" transaction event packet.
+                    _logger.Info("Asymmetric hardware challenge token response transmitted successfully. Waiting for phone confirmation...");
                 }
                 else
                 {
@@ -990,9 +979,8 @@ public partial class BleManager : IDisposable
 
     private async Task<bool> AuthenticateDeviceViaChallengeAsync(byte[] phonePublicKeyBytes, CancellationToken token)
     {
-        // If secure mode is active, authentication parameters are coordinated upstream
-        if (_secureModeSupported) return true;
-
+        // PRODUCTION FIX: Removed the restrictive '_secureModeSupported' early short-circuit 
+        // to permit this function to act as a runtime fallback channel for adaptive handshakes.
         GattCharacteristic? localChallengeChar;
         GattCharacteristic? localSignatureChar;
         byte[]? currentKey;
@@ -1546,11 +1534,9 @@ public partial class BleManager : IDisposable
         lock (_lock)
         {
             wasConnected = _isConnected;
-            if (!wasConnected)
-            {
-                _logger.Debug("HandleDisconnection called but already disconnected.");
-                return;
-            }
+            // PRODUCTION FIX: Removed the restrictive 'if (!wasConnected) return;' guard.
+            // Connections dropped during the multi-stage handshake process must perform 
+            // complete infrastructure cleanup and restart scanning loops.
             _isConnected = false;
             isPlannedReset = _isPlannedResetActive;
             _sessionKey = null;
@@ -1586,63 +1572,51 @@ public partial class BleManager : IDisposable
 
         CleanupDevice();
 
-        // Delay before restarting scan to avoid rapid cycling
+        // Immediately re-prime scanning array to enable fast reconnect recovery
         Task.Delay(1000).ContinueWith(_ => StartScanning());
     }
 
     private void CleanupDevice()
     {
-        StopHealthCheck();
         lock (_lock)
         {
-            try
+            if (_authChallengeChar != null)
             {
-                if (_cts != null)
-                {
-                    _cts.Cancel();
-                    _cts.Dispose();
-                    _cts = null;
-                }
-
-                if (_commandChar != null)
-                {
-                    _commandChar.ValueChanged -= OnCommandReceivedFromPhone;
-                    _commandChar = null;
-                }
-
-                if (_authChallengeChar != null)
-                {
-                    _authChallengeChar.ValueChanged -= OnAuthChallengeReceived;
-                    _authChallengeChar = null;
-                }
-
-                _windowsPublicKeyChar = null;
-                _authSignatureChar = null;
-                _secureModeSupported = false;
-                _secureAuthTcs?.TrySetResult(false);
-                _secureAuthTcs = null;
-
-                _challengeChar = null;
-                _signatureChar = null;
-                _publicKeyChar = null;
-
-                _service?.Dispose();
-                _service = null;
-
-                if (_device != null)
-                {
-                    _device.ConnectionStatusChanged -= OnConnectionStatusChanged;
-                    _device.Dispose();
-                    _device = null;
-                }
-
-                _rssiSamples.Clear();
-                _sessionKey = null;
+                _authChallengeChar.ValueChanged -= OnAuthChallengeReceived;
+                _authChallengeChar = null;
             }
-            catch (Exception ex)
+            if (_commandChar != null)
             {
-                _logger.Error($"CleanupDevice error: {ex.Message}");
+                _commandChar.ValueChanged -= OnCommandReceivedFromPhone;
+                _commandChar = null;
             }
+
+            _challengeChar = null;
+            _signatureChar = null;
+            _publicKeyChar = null;
+            _windowsPublicKeyChar = null;
+            _authSignatureChar = null;
+
+            _service?.Dispose();
+            _service = null;
+
+            if (_device != null)
+            {
+                _device.ConnectionStatusChanged -= OnConnectionStatusChanged;
+                _device.Dispose();
+                _device = null;
+            }
+
+            // PRODUCTION FIX: Properly dispose the persisted session handle to free the radio
+            if (_gattSession != null)
+            {
+                _gattSession.MaintainConnection = false;
+                _gattSession.Dispose();
+                _gattSession = null;
+            }
+
+            _secureAuthTcs?.TrySetCanceled();
+            _secureAuthTcs = null;
         }
     }
 

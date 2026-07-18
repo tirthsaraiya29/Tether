@@ -104,8 +104,10 @@ class MainActivity : FragmentActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == BleGattServerService.ACTION_GATT_STATE_CHANGED) {
                 val count = intent.getIntExtra(BleGattServerService.EXTRA_CONNECTION_COUNT, 0)
+                Log.d("TetherActivity", "GATT state changed. Connection count: $count")
                 runOnUiThread {
                     isConnected.value = count > 0
+                    Log.d("TetherActivity", "isConnected set to: ${isConnected.value}")
                     if (count > 0) {
                         uiStatusText.value = getString(R.string.status_link_active)
                         uiStatusColor.value = IntegrityGreen
@@ -223,6 +225,8 @@ class MainActivity : FragmentActivity() {
         }
 
         setContent {
+            // PRODUCTION FIX: Removed erroneous remember wrappers that insulate states from background receiver updates.
+            // Reading class-level MutableState handles directly guarantees immediate recomposition tracking.
             TetherTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -277,7 +281,7 @@ class MainActivity : FragmentActivity() {
                                     persistPanicState(active = true)
                                     triggerBleAction("panic")
                                 },
-                                onInitiateRestore = {
+                                onSideRestore = {
                                     executeVerificationPipeline(TrustVerificationStep.DEVICE_CREDENTIAL)
                                 },
                                 onSelectLaptop = { showLaptopSelectionDialog() },
@@ -829,7 +833,7 @@ fun TetherNavigationShell(
     onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
-    onInitiateRestore: () -> Unit,
+    onSideRestore: () -> Unit,
     onSelectLaptop: () -> Unit,
     onTriggerStepVerification: (TrustVerificationStep) -> Unit,
     onTimeoutChanged: (Long) -> Unit,
@@ -941,7 +945,7 @@ fun TetherNavigationShell(
                     when (screen) {
                         AppScreen.TELEMETRY_DASHBOARD -> TetherAppScreen(
                             statusText, statusColor, connectionStatus, isConnected, isPanicActive, verificationStep,
-                            onUnlockClick, onLockClick, onPanicClick, onInitiateRestore, onSelectLaptop,
+                            onUnlockClick, onLockClick, onPanicClick, onSideRestore, onSelectLaptop,
                             onTriggerStepVerification, onBleActionRequested = onLaptopActionClick
                         )
                         AppScreen.SECURITY_SETTINGS -> SettingsScreen(
