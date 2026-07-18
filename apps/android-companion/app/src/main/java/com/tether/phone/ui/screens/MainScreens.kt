@@ -67,7 +67,7 @@ fun TetherAppScreen(
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 1000)) + 
-                    expandVertically(animationSpec = tween(durationMillis = 800, easing = TetherEase))
+                    expandVertically(animationSpec = tween(durationMillis = 800, easing = TetherEase)),
         ) {
             Box(
                 modifier = Modifier

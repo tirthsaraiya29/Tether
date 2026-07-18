@@ -17,7 +17,7 @@ class DeviceIntegrityRegistry(private val context: Context) {
         val devOptionsDisabled = Settings.Global.getInt(
             context.contentResolver, 
             Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 
-            0
+            0,
         ) == 0
         if (devOptionsDisabled) finalScore += 10
         val usbDebuggingDisabled = Settings.Global.getInt(
@@ -55,7 +55,7 @@ class DeviceIntegrityRegistry(private val context: Context) {
 
     private fun checkRootStatus(): Boolean {
         val tags = Build.TAGS
-        if (tags != null && tags.contains("test-keys")) return true
+        if ((tags != null) && tags.contains("test-keys")) return true
         val commonPaths = arrayOf(
             "/system/app/Superuser.apk", "/sbin/su", "/system/bin/su", 
             "/system/xbin/su", "/data/local/xbin/su", "/data/local/bin/su", 

@@ -29,7 +29,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
@@ -55,7 +54,7 @@ fun ProfessionalGlassSurface(
         targetValue = 1.2f,
         animationSpec = infiniteRepeatable(
             animation = tween(8000, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse
+            repeatMode = RepeatMode.Reverse,
         ), label = "TiltX"
     )
     val tiltY by infiniteTransition.animateFloat(
@@ -165,7 +164,7 @@ fun ProfessionalGlassSurface(
                     val noiseStep = 3f
                     for (x in 0 until size.width.toInt() step (noiseStep.toInt() * 4)) {
                         for (y in 0 until size.height.toInt() step (noiseStep.toInt() * 4)) {
-                            if ((x + y) % 17 == 0) {
+                            if (((x + y) % 17) == 0) {
                                 drawCircle(
                                     color = Color.White.copy(alpha = 0.015f),
                                     radius = 0.4f,
@@ -279,9 +278,9 @@ fun TacticalAction(
                     translationY = if (isPressed) 1.dp.toPx() else 0f
                 }
             )
-            if (subLabel != null) {
+            subLabel?.let {
                 Text(
-                    text = subLabel.uppercase(),
+                    text = it.uppercase(),
                     style = MaterialTheme.typography.labelSmall,
                     color = (if (enabled) accentColor else TextMuted).copy(alpha = 0.7f),
                     letterSpacing = 2.sp

@@ -263,7 +263,7 @@ class MainActivity : FragmentActivity() {
                                         authenticateViaSystem(
                                             title = getString(R.string.auth_unlock_title),
                                             subtitle = getString(R.string.auth_unlock_subtitle),
-                                            allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                                            allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL,
                                         ) { success ->
                                             if (success) {
                                                 runOnUiThread {
@@ -547,6 +547,7 @@ class MainActivity : FragmentActivity() {
         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
             Log.w("TetherUI", "App is not exempted from battery optimizations. Requesting exemption.")
             try {
+                // NOTE: Using ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is subject to Play Store policy.
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                     data = "package:$packageName".toUri()
                 }
@@ -637,7 +638,7 @@ class MainActivity : FragmentActivity() {
                 ) { success ->
                     if (success) {
                         lastBiometricAuthTime = System.currentTimeMillis()
-                        persistPanicState(false)
+                        persistPanicState(active = false)
                     } else {
                         handleVerificationFailure()
                     }
@@ -733,12 +734,14 @@ class MainActivity : FragmentActivity() {
     private fun checkPermissions(): Boolean {
         val required = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            required.addAll(listOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-            ))
+            required.addAll(
+                listOf(
+                    Manifest.permission.BLUETOOTH_SCAN,
+                    Manifest.permission.BLUETOOTH_CONNECT,
+                    Manifest.permission.BLUETOOTH_ADVERTISE,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                )
+            )
         } else {
             required.addAll(listOf(
                 Manifest.permission.ACCESS_FINE_LOCATION,
@@ -769,12 +772,14 @@ class MainActivity : FragmentActivity() {
     private fun requestPermissions() {
         val required = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            required.addAll(listOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-            ))
+            required.addAll(
+                listOf(
+                    Manifest.permission.BLUETOOTH_SCAN,
+                    Manifest.permission.BLUETOOTH_CONNECT,
+                    Manifest.permission.BLUETOOTH_ADVERTISE,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                )
+            )
         } else {
             required.addAll(listOf(
                 Manifest.permission.ACCESS_FINE_LOCATION,
