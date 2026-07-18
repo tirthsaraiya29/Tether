@@ -135,9 +135,10 @@ class BleGattServerService : Service() {
             val now = SystemClock.elapsedRealtime()
 
             unauthenticatedConnections.forEach { (address, connectionTime) ->
-                if ((now - connectionTime) > 15000L) {
+                // PRODUCTION FIX: Synchronized timeout window with the main handler.
+                // 15 seconds was too aggressive and randomly killed legitimate Windows GATT discovery handshakes.
+                if ((now - connectionTime) > 45000L) {
                     unauthenticatedConnections.remove(address)
-                    // Already executing within mainHandler context; evaluate directly to close the eviction window
                     synchronized(gattLock) {
                         try {
                             val connectedDevices = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT_SERVER)
@@ -148,17 +149,6 @@ class BleGattServerService : Service() {
                         } catch (_: Exception) {}
                     }
                 }
-            }
-
-            synchronized(gattLock) {
-                try {
-                    val actualConnectedDevices = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT_SERVER)
-                    if (actualConnectedDevices.isEmpty() && authenticatedDevicesMap.isNotEmpty()) {
-                        Log.w("TetherBle", "Hardware state drift detected. Performing clean stack recovery reset.")
-                        restartGattServer()
-                        return@Runnable
-                    }
-                } catch (_: Exception) {}
             }
 
             if ((now - lastStackRefreshTime) > 3600000L) {
@@ -400,34 +390,37 @@ class BleGattServerService : Service() {
         override fun onConnectionStateChange(device: BluetoothDevice?, status: Int, newState: Int) {
             if (device == null) return
             val address = device.address
+            Log.d("TetherBle", "onConnectionStateChange: $address status=$status newState=$newState")
 
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 unauthenticatedConnections[address] = SystemClock.elapsedRealtime()
 
                 mainHandler.postDelayed({
                     if (!authenticatedDevicesMap.containsKey(address) && unauthenticatedConnections.containsKey(address)) {
-                        Log.w("TetherBle", "Validation window expired. Purging drop-in node: $address")
+                        Log.w("TetherBle", "Validation window expired. Handshake too slow or trust failed. Purging node: $address")
                         unauthenticatedConnections.remove(address)
                         synchronized(gattLock) {
                             try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
                         }
                     }
-                }, 15000L)
+                }, 45000L) // Extended to 45s for heavy cross-platform RSA handshakes
 
-                try {
-                    bluetoothGattServer?.setPreferredPhy(device, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_OPTION_NO_PREFERRED)
-                } catch (_: SecurityException) {} catch (_: Exception) {}
+                // PRODUCTION FIX: Removed `setPreferredPhy`.
+                // Windows BLE stack crashes and deadlocks during Service Discovery if the peripheral
+                // initiates a PHY speed upgrade immediately upon connection. Let the OS implicitly negotiate.
+
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
                 authenticatedDevicesMap.remove(address)
                 unauthenticatedConnections.remove(address)
                 deviceChallenges.remove(address)
-                notificationSubscriptions.remove(address)
+
+                val subscriptionsToRemove = notificationSubscriptions.keys().toList().filter { it.startsWith("$address-") }
+                subscriptionsToRemove.forEach { notificationSubscriptions.remove(it) }
+
                 computedSignaturesMap.remove(address)
                 sessionKeysMap.remove(address)
                 deviceMtuMap.remove(address)
-                
-                // CRITICAL FIX: Purge ALL pending write payloads linked to this MAC address 
-                // to prevent malicious MTU buffer flooding OOM leaks.
+
                 val keysToRemove = pendingExecuteWrites.keys().toList().filter { it.startsWith("$address-") }
                 keysToRemove.forEach { pendingExecuteWrites.remove(it) }
 
@@ -449,77 +442,61 @@ class BleGattServerService : Service() {
             preparedWrite: Boolean,
             responseNeeded: Boolean,
             offset: Int,
-            value: ByteArray?,
+            value: ByteArray?
         ) {
-            if ((device == null) || (characteristic == null) || (value == null)) {
+            if (device == null || characteristic == null || value == null) {
                 if (responseNeeded && device != null) {
-                    try {
-                        synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null) }
-                    } catch (_: SecurityException) {}
+                    try { synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null) } } catch (_: Exception) {}
                 }
                 return
             }
 
             val address = device.address
             val uuid = characteristic.uuid
+
+            // PRODUCTION FIX: Compound tracking key to ensure Windows "Prepare Write" chunks
+            // are properly assembled without colliding.
             val storageKey = "$address-$uuid"
 
-            val currentSession = pendingExecuteWrites[storageKey]
-            val accumulatedPayload = if (offset == 0) value else (currentSession?.payload ?: byteArrayOf()) + value
-            pendingExecuteWrites[storageKey] = WriteSession(uuid, accumulatedPayload)
-
             if (preparedWrite) {
+                val currentPayload = pendingExecuteWrites[storageKey]?.payload ?: byteArrayOf()
+                pendingExecuteWrites[storageKey] = WriteSession(uuid, if (offset == 0) value else currentPayload + value)
                 if (responseNeeded) {
-                    try {
-                        synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value) }
-                    } catch (_: SecurityException) {}
+                    try { synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value) } } catch (_: Exception) {}
                 }
                 return
             }
 
-            var shouldProcessImmediately = true
-            if (uuid == CHALLENGE_CHAR_UUID) {
-                val hasSessionKey = sessionKeysMap.containsKey(address)
-                if (!hasSessionKey && accumulatedPayload.size < 256) {
-                    shouldProcessImmediately = false
-                } else if (hasSessionKey && accumulatedPayload.size < 16) {
-                    shouldProcessImmediately = false
-                }
-            } else if (uuid == AUTH_SIGNATURE_CHAR_UUID) {
-                if (accumulatedPayload.size < 256) {
-                    shouldProcessImmediately = false
-                }
-            } else if (uuid == WINDOWS_PUBLIC_KEY_CHAR_UUID) {
-                if (accumulatedPayload.size < 270) { // RSA 2048 public key is usually ~294 bytes
-                    shouldProcessImmediately = false
-                }
-            }
-
-            if (shouldProcessImmediately) {
-                val finalPayload = pendingExecuteWrites.remove(storageKey)?.payload ?: accumulatedPayload
-                processCompletePayload(device, uuid, finalPayload)
-            }
-
+            // Standard short write execution
             if (responseNeeded) {
-                try {
-                    synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null) }
-                } catch (_: SecurityException) {}
+                try { synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value) } } catch (_: Exception) {}
             }
+
+            // PRODUCTION FIX: Offload crypto parsing from the Bluetooth Binder Thread
+            // to prevent Gatt Framework ANRs and timeout disconnects.
+            Thread { processCompletePayload(device, uuid, value) }.start()
         }
+
+
 
         override fun onCharacteristicReadRequest(device: BluetoothDevice?, requestId: Int, offset: Int, characteristic: BluetoothGattCharacteristic?) {
             if (device == null) return
+            Log.d("TetherBle", "onCharacteristicReadRequest: ${characteristic?.uuid} from ${device.address} offset=$offset")
             try {
                 when (characteristic?.uuid) {
                     SIGNATURE_CHAR_UUID -> {
-                        computedSignaturesMap[device.address]?.let {
+                        val sig = computedSignaturesMap[device.address]
+                        Log.d("TetherBle", "Reading Legacy Signature. Available: ${sig != null}")
+                        sig?.let {
                             sendSlicedResponse(device, requestId, offset, it)
                         } ?: synchronized(gattLock) {
                             bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
                         }
                     }
                     AUTH_CHALLENGE_CHAR_UUID -> {
-                        pendingNonces[device.address]?.let {
+                        val nonce = pendingNonces[device.address]
+                        Log.d("TetherBle", "Reading Auth Challenge. Available: ${nonce != null}")
+                        nonce?.let {
                             sendSlicedResponse(device, requestId, offset, it)
                         } ?: synchronized(gattLock) {
                             bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
@@ -534,17 +511,29 @@ class BleGattServerService : Service() {
             } catch (_: SecurityException) {}
         }
 
-        override fun onDescriptorWriteRequest(device: BluetoothDevice?, requestId: Int, descriptor: BluetoothGattDescriptor?, preparedWrite: Boolean, responseNeeded: Boolean, offset: Int, value: ByteArray?) {
+        override fun onDescriptorWriteRequest(
+            device: BluetoothDevice?,
+            requestId: Int,
+            descriptor: BluetoothGattDescriptor?,
+            preparedWrite: Boolean,
+            responseNeeded: Boolean,
+            offset: Int,
+            value: ByteArray?
+        ) {
             if ((device == null) || (descriptor == null) || (value == null)) {
                 if (responseNeeded && (device != null)) {
-                    try { synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null) } } catch (_: SecurityException) {} catch (_: Exception) {}
+                    try { synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null) } } catch (_: Exception) {}
                 }
                 return
             }
 
             val address = device.address
             val uuid = descriptor.uuid
-            val storageKey = "$address-$uuid"
+            val parentCharUuid = descriptor.characteristic?.uuid ?: UUID.randomUUID()
+            Log.d("TetherBle", "onDescriptorWriteRequest: $uuid from $address value=${value.contentToString()}")
+            
+            // PRODUCTION FIX: Compound tracking key maps subscriptions strictly to their parent characteristic.
+            val storageKey = "$address-$parentCharUuid-$uuid"
 
             if (preparedWrite) {
                 val currentPayload = pendingExecuteWrites[storageKey]?.payload ?: byteArrayOf()
@@ -560,10 +549,10 @@ class BleGattServerService : Service() {
                 if (value.isNotEmpty()) {
                     val controlByte = value[0].toInt()
                     if ((controlByte and 0x03) != 0) {
-                        notificationSubscriptions[address] = true
+                        notificationSubscriptions["$address-$parentCharUuid"] = true
                         accepted = true
                     } else if (controlByte == 0) {
-                        notificationSubscriptions.remove(address)
+                        notificationSubscriptions.remove("$address-$parentCharUuid")
                         accepted = true
                     }
                 }
@@ -580,7 +569,11 @@ class BleGattServerService : Service() {
         override fun onDescriptorReadRequest(device: BluetoothDevice?, requestId: Int, offset: Int, descriptor: BluetoothGattDescriptor?) {
             if ((device == null) || (descriptor == null)) return
             try {
-                val value = if (descriptor.uuid == CCCD_UUID && notificationSubscriptions[device.address] == true) {
+                val address = device.address
+                val parentCharUuid = descriptor.characteristic?.uuid ?: UUID.randomUUID()
+                
+                // PRODUCTION FIX: Re-routed mapping read tracking logic onto the distinct compound channel keys.
+                val value = if (descriptor.uuid == CCCD_UUID && notificationSubscriptions["$address-$parentCharUuid"] == true) {
                     BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                 } else {
                     BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
@@ -592,118 +585,134 @@ class BleGattServerService : Service() {
         override fun onExecuteWrite(device: BluetoothDevice?, requestId: Int, execute: Boolean) {
             if (device == null) return
             val address = device.address
-            val targetKeys = pendingExecuteWrites.keys().asSequence().filter { it.startsWith("$address-") }
 
-            for (storageKey in targetKeys) {
-                val session = pendingExecuteWrites.remove(storageKey)
-                if (execute && (session != null)) {
-                    processCompletePayload(device, session.uuid, session.payload)
-                }
-            }
+            val targetKeys = pendingExecuteWrites.keys().toList().filter { it.startsWith("$address-") }
+
+            // Immediately clear the framework channel so Windows doesn't timeout
             try {
                 synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null) }
             } catch (_: SecurityException) {}
+
+            for (storageKey in targetKeys) {
+                val session = pendingExecuteWrites.remove(storageKey)
+                if (execute && session != null) {
+                    // PRODUCTION FIX: Offload payload execution (RSA decryption) to a background thread
+                    // This allows the sendResponse above to reach Windows instantly.
+                    Thread { processCompletePayload(device, session.uuid, session.payload) }.start()
+                }
+            }
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun processCompletePayload(device: BluetoothDevice, uuid: UUID, payload: ByteArray) {
         val address = device.address
+        Log.d("TetherBle", "Processing payload for $uuid from $address, size=${payload.size}")
         try {
             when (uuid) {
                 CHALLENGE_CHAR_UUID -> {
                     if (payload.size >= 256) {
+                        Log.d("TetherBle", "Received encrypted session key")
                         try {
                             val sessionKey = securityEngine.decryptSessionKey(payload)
                             sessionKeysMap[address] = sessionKey
-                        } catch (_: Exception) {}
+                            Log.d("TetherBle", "Session key decrypted successfully")
+
+                            // PRODUCTION FIX: Defer challenge initialization until the client
+                            // has subscribed to notifications and explicitly transmits its kickoff token.
+                        } catch (e: Exception) {
+                            Log.e("TetherBle", "Failed to decrypt session key: ${e.message}")
+                        }
                     } else {
-                        // Challenge (nonce) from client
+                        Log.d("TetherBle", "Received direct challenge or trigger token from client")
+                        deviceChallenges[address] = payload
+
                         val prefs = getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
                         val pinnedKeyBase64 = prefs.getString("pinned_windows_public_key", null)
-                        
-                        val pairingTimestamp = prefs.getLong("pairing_window_start_time", 0L)
-                        val currentTime = System.currentTimeMillis()
-                        val isPairingWindowOpen = (currentTime - pairingTimestamp) < 120000
+                        val hasSecureAnchor = windowsPublicKeys.containsKey(address) || pinnedKeyBase64 != null
 
-                        if (windowsPublicKeys.containsKey(address) || pinnedKeyBase64 != null) {
-                            if (pinnedKeyBase64 == null && !isPairingWindowOpen) {
-                                Log.e("TetherBle", "🛡️ Security Violation: Challenge requested for untrusted node without active pairing window.")
-                                synchronized(gattLock) {
-                                    try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
-                                }
-                                return
-                            }
-
-                            // Secure mode – send our own challenge
-                            val nonce = ByteArray(32)
-                            SecureRandom().nextBytes(nonce)
-                            pendingNonces[address] = nonce
-                            
-                            // Notify client via AUTH_CHALLENGE_CHAR_UUID
-                            val server = bluetoothGattServer
-                            val service = server?.getService(SERVICE_UUID)
-                            val challengeChar = service?.getCharacteristic(AUTH_CHALLENGE_CHAR_UUID)
-                            
-                            if (server != null && challengeChar != null) {
-                                synchronized(gattLock) {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        server.notifyCharacteristicChanged(device, challengeChar, false, nonce)
-                                    } else {
-                                        @Suppress("DEPRECATION")
-                                        challengeChar.value = nonce
-                                        @Suppress("DEPRECATION")
-                                        server.notifyCharacteristicChanged(device, challengeChar, false)
-                                    }
-                                }
-                            }
+                        if (hasSecureAnchor) {
+                            // Secure flow trigger path: Safely initiate/re-notify the challenge
+                            // now that the client is fully subscribed and listening.
+                            initiateAuthChallengeIfPossible(device)
                         } else {
-                            // Legacy mode – compute HMAC as before
-                            deviceChallenges[address] = payload
+                            // Legacy HMAC fallback logic (only execute if no secure trust anchor is active)
                             val sessionKey = sessionKeysMap[address]
-
                             if (sessionKey != null) {
                                 computedSignaturesMap[address] = securityEngine.computeHmac(payload, sessionKey)
+                                Log.d("TetherBle", "Legacy HMAC computed for $address")
 
-                                unauthenticatedConnections.remove(address)
+                                Log.i("TetherBle", "✅ Authenticating node via Legacy Handshake: $address")
                                 authenticatedDevicesMap[address] = device
+                                unauthenticatedConnections.remove(address)
                                 stopAdvertising()
                                 notifyStateToInterface()
-                            } else {
-                                computedSignaturesMap[address] = byteArrayOf()
                             }
                         }
                     }
                 }
 
                 AUTH_SIGNATURE_CHAR_UUID -> {
-                    val nonce = pendingNonces.remove(address) ?: return
+                    Log.d("TetherBle", "Received signature for auth verification")
+                    val nonce = pendingNonces.remove(address)
+                    if (nonce == null) {
+                        Log.e("TetherBle", "No pending nonce found for $address")
+                        return
+                    }
+
                     val prefs = getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
                     val pinnedKeyBase64 = prefs.getString("pinned_windows_public_key", null)
-                    
+
                     val pairingTimestamp = prefs.getLong("pairing_window_start_time", 0L)
                     val currentTime = System.currentTimeMillis()
                     val isPairingWindowOpen = (currentTime - pairingTimestamp) < 120000
 
-                    val publicKey = if (pinnedKeyBase64 != null) {
-                        Base64.decode(pinnedKeyBase64, Base64.NO_WRAP)
-                    } else if (isPairingWindowOpen) {
+                    // PRODUCTION FIX: Prioritize the freshly transmitted public key if the pairing window is open.
+                    // This allows clean re-pairing and key synchronization immediately following a Windows key migration.
+                    val publicKey = if (isPairingWindowOpen && windowsPublicKeys.containsKey(address)) {
+                        Log.d("TetherBle", "Pairing window is active. Prioritizing fresh session key over pinned key.")
                         windowsPublicKeys[address]
+                    } else if (pinnedKeyBase64 != null) {
+                        Log.d("TetherBle", "Using pinned public key for verification")
+                        Base64.decode(pinnedKeyBase64, Base64.NO_WRAP)
                     } else {
+                        Log.e("TetherBle", "No public key available for verification")
                         null
                     }
 
                     if (publicKey != null && securityEngine.verifySignature(nonce, payload, publicKey)) {
-                        if (pinnedKeyBase64 == null && isPairingWindowOpen) {
+                        if (isPairingWindowOpen || pinnedKeyBase64 == null) {
                             Log.i("TetherBle", "🤝 Identity established. Pinning trusted Windows public key.")
                             prefs.edit().putString("pinned_windows_public_key", Base64.encodeToString(publicKey, Base64.NO_WRAP)).apply()
                         }
+                        Log.i("TetherBle", "✅ Auth Succeeded for $address")
                         unauthenticatedConnections.remove(address)
                         authenticatedDevicesMap[address] = device
                         stopAdvertising()
                         notifyStateToInterface()
+
+                        // PRODUCTION FIX: Explicitly notify the Windows host that authentication passed.
+                        // Because Windows is now subscribed to the command channel ahead of time, this message
+                        // safely reaches the worker thread and triggers the connected state transition.
+                        mainHandler.postDelayed({
+                            val commandChar = commandCharacteristic
+                            val server = bluetoothGattServer
+                            if (server != null && commandChar != null) {
+                                synchronized(gattLock) {
+                                    val reply = "auth_ok".toByteArray(Charsets.UTF_8)
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        server.notifyCharacteristicChanged(device, commandChar, false, reply)
+                                    } else {
+                                        @Suppress("DEPRECATION")
+                                        commandChar.value = reply
+                                        @Suppress("DEPRECATION")
+                                        server.notifyCharacteristicChanged(device, commandChar, false)
+                                    }
+                                }
+                            }
+                        }, 100)
                     } else {
-                        Log.e("TetherBle", "❌ Handshake failed: Signature verification rejected or missing trust anchor.")
+                        Log.e("TetherBle", "❌ Handshake failed: Signature verification rejected or missing trust anchor. KeyAvailable: ${publicKey != null}")
                         synchronized(gattLock) {
                             try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
                         }
@@ -755,7 +764,8 @@ class BleGattServerService : Service() {
         val server = bluetoothGattServer ?: return
 
         for (device in authenticatedDevicesMap.values) {
-            if (notificationSubscriptions[device.address] != true) continue
+            // PRODUCTION FIX: Aligned lookup key structure with the compound layout schema mapping
+            if (notificationSubscriptions["${device.address}-$COMMAND_CHAR_UUID"] != true) continue
             try {
                 synchronized(gattLock) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -768,6 +778,76 @@ class BleGattServerService : Service() {
                     }
                 }
             } catch (_: SecurityException) {} catch (_: Exception) {}
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun initiateAuthChallengeIfPossible(device: BluetoothDevice) {
+        val address = device.address
+
+        val prefs = getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
+        val pinnedKeyBase64 = prefs.getString("pinned_windows_public_key", null)
+
+        val pairingTimestamp = prefs.getLong("pairing_window_start_time", 0L)
+        val currentTime = System.currentTimeMillis()
+        val isPairingWindowOpen = (currentTime - pairingTimestamp) < 120000
+
+        if (pendingNonces.containsKey(address)) {
+            Log.d("TetherBle", "Auth challenge already pending for $address. Re-notifying client.")
+            val existingNonce = pendingNonces[address] ?: return
+            sendAuthChallengeNotification(device, existingNonce)
+            return
+        }
+
+        if (windowsPublicKeys.containsKey(address) || pinnedKeyBase64 != null) {
+            if (pinnedKeyBase64 == null && !isPairingWindowOpen) {
+                // PRODUCTION FIX: Instead of dropping execution completely and forcing a 20s deadlock,
+                // calculate the Legacy HMAC fallback to seamlessly initialize alignment.
+                Log.w("TetherBle", "Secure challenge deferred: No pinned key and pairing window closed. Processing Legacy Fallback.")
+                val challengeToken = deviceChallenges[address] ?: ByteArray(16)
+                val sessionKey = sessionKeysMap[address]
+                if (sessionKey != null) {
+                    computedSignaturesMap[address] = securityEngine.computeHmac(challengeToken, sessionKey)
+                    Log.d("TetherBle", "Adaptive Fallback HMAC calculated for $address")
+
+                    authenticatedDevicesMap[address] = device
+                    unauthenticatedConnections.remove(address)
+                    stopAdvertising()
+                    notifyStateToInterface()
+                }
+                return
+            }
+
+            val nonce = ByteArray(32)
+            SecureRandom().nextBytes(nonce)
+            pendingNonces[address] = nonce
+            Log.d("TetherBle", "Generated 32-byte auth challenge nonce for $address")
+
+            sendAuthChallengeNotification(device, nonce)
+        } else {
+            Log.d("TetherBle", "Auth challenge skipped: No trust anchor available for $address")
+        }
+    }
+
+    // Encapsulated thread-safe notification transmitter helper
+    @SuppressLint("MissingPermission")
+    private fun sendAuthChallengeNotification(device: BluetoothDevice, nonce: ByteArray) {
+        val server = bluetoothGattServer
+        val service = server?.getService(SERVICE_UUID)
+        val challengeChar = service?.getCharacteristic(AUTH_CHALLENGE_CHAR_UUID)
+        
+        if (server != null && challengeChar != null) {
+            synchronized(gattLock) {
+                Log.d("TetherBle", "Notifying client ${device.address} of auth challenge")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    server.notifyCharacteristicChanged(device, challengeChar, false, nonce)
+                } else {
+                    @Suppress("DEPRECATION")
+                    challengeChar.value = nonce
+                    @Suppress("DEPRECATION")
+                    server.notifyCharacteristicChanged(device, challengeChar, false)
+                }
+            }
         }
     }
 

@@ -32,6 +32,14 @@ public class PipeServer : IDisposable
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool ProcessIdToSessionId(uint dwProcessId, out uint pSessionId);
 
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(
+        IntPtr TokenHandle,
+        int TokenInformationClass,
+        out uint TokenInformation,
+        uint TokenInformationLength,
+        out uint ReturnLength);
+
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
     private CancellationTokenSource? _cts;
@@ -127,61 +135,83 @@ public class PipeServer : IDisposable
                 // Capture service host identity
                 SecurityIdentifier? serviceOwnerSid = WindowsIdentity.GetCurrent().User;
 
-                // Retrieve pipe client session ID via Win32 API
+                // Retrieve pipe client session ID via Win32 process API
                 uint clientSessionId = GetClientSessionId(pipeStream);
 
-                // 2. Perform security authorization check
+                // Intermediate context variables to extract from the client token
                 bool clientAuthorized = false;
+                string? clientSid = null;
+                bool isClientSystem = false;
+                uint tokenSessionId = 0xFFFFFFFF;
+
+                // 2. Perform light identification capture INSIDE the client context
                 try
                 {
                     pipeStream.RunAsClient(() =>
                     {
                         using var clientIdentity = WindowsIdentity.GetCurrent();
-                        if (clientIdentity.User == null) return;
-
-                        // Check 1: Client matches service host owner (Dev/Debug execution or same user process)
-                        if (serviceOwnerSid != null && clientIdentity.User == serviceOwnerSid)
+                        if (clientIdentity.User != null)
                         {
-                            clientAuthorized = true;
-                            return;
-                        }
+                            clientSid = clientIdentity.User.Value;
+                            isClientSystem = clientIdentity.User.IsWellKnown(WellKnownSidType.LocalSystemSid);
 
-                        // Check 2: Client is NT AUTHORITY\SYSTEM
-                        if (clientIdentity.User.IsWellKnown(WellKnownSidType.LocalSystemSid))
-                        {
-                            clientAuthorized = true;
-                            return;
-                        }
-
-                        // Check 3: Check against Client Pipe Session ID first, then Active Console Session ID
-                        uint consoleSessionId = WTSGetActiveConsoleSessionId();
-                        uint[] sessionIdsToCheck = new[] { clientSessionId, consoleSessionId };
-
-                        foreach (var sid in sessionIdsToCheck)
-                        {
-                            if (sid != 0xFFFFFFFF && WTSQueryUserToken(sid, out IntPtr userToken))
+                            // Reading session info from the active thread token is permitted without SE_TCB_NAME
+                            if (GetTokenInformation(clientIdentity.Token, 12, out uint sessionInfo, sizeof(uint), out _))
                             {
-                                try
-                                {
-                                    using var tokenIdentity = new WindowsIdentity(userToken);
-                                    if (clientIdentity.User == tokenIdentity.User)
-                                    {
-                                        clientAuthorized = true;
-                                        return;
-                                    }
-                                }
-                                finally
-                                {
-                                    CloseHandle(userToken);
-                                }
+                                tokenSessionId = sessionInfo;
                             }
                         }
                     });
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error($"Client authorization check threw an exception: {ex.Message}");
+                    _logger.Error($"Failed to safely collect client identification tokens: {ex.Message}");
                     break;
+                }
+
+                // If identity resolution failed, abort connection early
+                if (string.IsNullOrEmpty(clientSid))
+                {
+                    _logger.Warning("Rejected connection: Client identity bounds could not be resolved.");
+                    break;
+                }
+
+                // 3. Perform privilege-heavy token validation OUTSIDE of the impersonation context (Running as SYSTEM)
+                // Check 1: Client matches service host owner (Dev/Debug execution or same user process)
+                if (serviceOwnerSid != null && clientSid.Equals(serviceOwnerSid.Value, StringComparison.OrdinalIgnoreCase))
+                {
+                    clientAuthorized = true;
+                }
+                // Check 2: Client is NT AUTHORITY\SYSTEM
+                else if (isClientSystem)
+                {
+                    clientAuthorized = true;
+                }
+                // Check 3: Check against session mappings now that TCB privilege availability is restored
+                else
+                {
+                    uint consoleSessionId = WTSGetActiveConsoleSessionId();
+                    uint[] sessionIdsToCheck = new[] { tokenSessionId, clientSessionId, consoleSessionId };
+
+                    foreach (var sid in sessionIdsToCheck)
+                    {
+                        if (sid != 0xFFFFFFFF && WTSQueryUserToken(sid, out IntPtr userToken))
+                        {
+                            try
+                            {
+                                using var tokenIdentity = new WindowsIdentity(userToken);
+                                if (tokenIdentity.User != null && clientSid.Equals(tokenIdentity.User.Value, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    clientAuthorized = true;
+                                    break;
+                                }
+                            }
+                            finally
+                            {
+                                CloseHandle(userToken);
+                            }
+                        }
+                    }
                 }
 
                 if (!clientAuthorized)
@@ -190,7 +220,7 @@ public class PipeServer : IDisposable
                     break;
                 }
 
-                // 3. Process authorized JSON event payload
+                // 4. Process authorized JSON event payload
                 var json = Encoding.UTF8.GetString(buffer, 0, read);
                 var evt = JsonSerializer.Deserialize<TetherEvent>(json);
 

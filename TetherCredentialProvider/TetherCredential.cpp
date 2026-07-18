@@ -405,7 +405,12 @@ HRESULT CSampleCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SER
         {
             DATA_BLOB dataIn = { dwSize, encryptedData };
             DATA_BLOB dataOut = { 0 };
-            if (CryptUnprotectData(&dataIn, nullptr, nullptr, nullptr, nullptr,
+
+            // Explicitly pass matching application-specific entropy vector
+            BYTE entropyBytes[] = "Tether_System_Bound_Vault_v1";
+            DATA_BLOB entropyBlob = { sizeof(entropyBytes) - 1, entropyBytes }; // -1 drops the automatic null terminator
+
+            if (CryptUnprotectData(&dataIn, nullptr, &entropyBlob, nullptr, nullptr,
                 CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, &dataOut))
             {
                 size_t passwordLen = 0;

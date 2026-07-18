@@ -468,6 +468,7 @@ namespace Tether.DesktopUI
         private void BtnCommitVault_Click(object sender, RoutedEventArgs e)
         {
             IntPtr unmanagedPasswordPtr = IntPtr.Zero;
+            IntPtr unmanagedEntropy = IntPtr.Zero;
             try
             {
                 if (TxtPassword.SecurePassword.Length == 0) return;
@@ -484,9 +485,14 @@ namespace Tether.DesktopUI
                 }
                 CloseHandle(token);
 
+                // Allocate and setup application-specific entropy to restrict generic DPAPI decryption tools
+                byte[] entropyBytes = Encoding.UTF8.GetBytes("Tether_System_Bound_Vault_v1");
+                unmanagedEntropy = Marshal.AllocHGlobal(entropyBytes.Length);
+                Marshal.Copy(entropyBytes, 0, unmanagedEntropy, entropyBytes.Length);
+
                 DATA_BLOB dataIn = new DATA_BLOB { cbData = byteLength, pbData = unmanagedPasswordPtr };
                 DATA_BLOB dataOut = new DATA_BLOB();
-                DATA_BLOB entropy = new DATA_BLOB { cbData = 0, pbData = IntPtr.Zero };
+                DATA_BLOB entropy = new DATA_BLOB { cbData = entropyBytes.Length, pbData = unmanagedEntropy };
 
                 if (CryptProtectData(ref dataIn, "TetherCredentialProviderSecret", ref entropy, IntPtr.Zero, IntPtr.Zero, 0x5, ref dataOut))
                 {
@@ -494,13 +500,17 @@ namespace Tether.DesktopUI
                     Marshal.Copy(dataOut.pbData, protectedPayload, 0, dataOut.cbData);
                     using RegistryKey? regKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
                     regKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
-                    LogTerminal("✓ VAULT // Cryptographic alignment sealed inside Local Security Authority.");
+                    LogTerminal("✓ VAULT // Cryptographic alignment sealed with application entropy.");
                     TxtPassword.Clear();
                 }
             }
             catch (Exception ex) { LogTerminal($"Fatal registry exception: {ex.Message}"); }
             finally
             {
+                if (unmanagedEntropy != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(unmanagedEntropy);
+                }
                 if (unmanagedPasswordPtr != IntPtr.Zero)
                 {
                     // Strict forensic zeroization of raw unmanaged memory space parameters
