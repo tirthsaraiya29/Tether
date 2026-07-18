@@ -17,7 +17,6 @@ import android.os.Build
 import android.os.IBinder
 import android.os.ParcelUuid
 import android.util.Log
-import android.util.Base64
 import androidx.core.app.NotificationCompat
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -141,11 +140,10 @@ class BleGattServerService : Service() {
                     unauthenticatedConnections.remove(address)
                     synchronized(gattLock) {
                         try {
+                            @SuppressLint("MissingPermission")
                             val connectedDevices = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT_SERVER)
                             val device = connectedDevices.find { it.address == address }
-                            if (device != null) {
-                                bluetoothGattServer?.cancelConnection(device)
-                            }
+                            device?.let { bluetoothGattServer?.cancelConnection(it) }
                         } catch (_: Exception) {}
                     }
                 }
@@ -224,7 +222,7 @@ class BleGattServerService : Service() {
         powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
         try { 
-            wakeLock?.acquire() 
+            wakeLock?.acquire(10 * 60 * 1000L /*10 minutes*/) 
         } catch (_: Exception) {}
 
         val filter = IntentFilter().apply {
@@ -289,7 +287,7 @@ class BleGattServerService : Service() {
 
         if (wakeLock?.isHeld == false) {
             try { 
-                wakeLock?.acquire() 
+                wakeLock?.acquire(10 * 60 * 1000L /*10 minutes*/) 
             } catch (_: Exception) {}
         }
 
@@ -307,7 +305,7 @@ class BleGattServerService : Service() {
                 return START_STICKY
             }
 
-            if (action == Intent.ACTION_SCREEN_ON || action == Intent.ACTION_SCREEN_OFF) {
+            if ((action == Intent.ACTION_SCREEN_ON) || (action == Intent.ACTION_SCREEN_OFF)) {
                 if (authenticatedDevicesMap.isEmpty() && !isAdvertising) {
                     startAdvertisingWithRetry(3)
                 }
@@ -414,7 +412,7 @@ class BleGattServerService : Service() {
                 unauthenticatedConnections.remove(address)
                 deviceChallenges.remove(address)
 
-                val subscriptionsToRemove = notificationSubscriptions.keys().toList().filter { it.startsWith("$address-") }
+                val subscriptionsToRemove = notificationSubscriptions.keys().asSequence().filter { it.startsWith("$address-") }.toList()
                 subscriptionsToRemove.forEach { notificationSubscriptions.remove(it) }
 
                 computedSignaturesMap.remove(address)
@@ -627,7 +625,7 @@ class BleGattServerService : Service() {
                         Log.d("TetherBle", "Received direct challenge or trigger token from client")
                         deviceChallenges[address] = payload
 
-                        val prefs = getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
+                        val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
                         val pinnedKeyBase64 = prefs.getString("pinned_windows_public_key", null)
                         val hasSecureAnchor = windowsPublicKeys.containsKey(address) || pinnedKeyBase64 != null
 
@@ -653,7 +651,7 @@ class BleGattServerService : Service() {
                 }
 
                 AUTH_SIGNATURE_CHAR_UUID -> {
-                    Log.d("TetherBle", "Received signature for auth verification")
+                    Log.d("TetherBle", "Received signature for auth verification from $address")
                     val nonce = pendingNonces.remove(address)
                     if (nonce == null) {
                         Log.e("TetherBle", "No pending nonce found for $address")
@@ -661,29 +659,36 @@ class BleGattServerService : Service() {
                     }
 
                     val prefs = getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
-                    val pinnedKeyBase64 = prefs.getString("pinned_windows_public_key", null)
+
+                    // PRODUCTION FIX: Retrieve the trusted anchor using hardware AES decryption
+                    val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(this)
 
                     val pairingTimestamp = prefs.getLong("pairing_window_start_time", 0L)
                     val currentTime = System.currentTimeMillis()
                     val isPairingWindowOpen = (currentTime - pairingTimestamp) < 120000
 
-                    // PRODUCTION FIX: Prioritize the freshly transmitted public key if the pairing window is open.
-                    // This allows clean re-pairing and key synchronization immediately following a Windows key migration.
-                    val publicKey = if (isPairingWindowOpen && windowsPublicKeys.containsKey(address)) {
-                        Log.d("TetherBle", "Pairing window is active. Prioritizing fresh session key over pinned key.")
-                        windowsPublicKeys[address]
-                    } else if (pinnedKeyBase64 != null) {
-                        Log.d("TetherBle", "Using pinned public key for verification")
-                        Base64.decode(pinnedKeyBase64, Base64.NO_WRAP)
-                    } else {
-                        Log.e("TetherBle", "No public key available for verification")
-                        null
+                    val freshKey = windowsPublicKeys[address]
+                    if (freshKey == null) {
+                        Log.e("TetherBle", "❌ Handshake failed: No public key transmitted by client for $address")
+                        synchronized(gattLock) {
+                            try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
+                        }
+                        return
                     }
 
-                    if (publicKey != null && securityEngine.verifySignature(nonce, payload, publicKey)) {
-                        if (isPairingWindowOpen || pinnedKeyBase64 == null) {
-                            Log.i("TetherBle", "🤝 Identity established. Pinning trusted Windows public key.")
-                            prefs.edit().putString("pinned_windows_public_key", Base64.encodeToString(publicKey, Base64.NO_WRAP)).apply()
+                    // Zero-Interaction Trust Verification: Match incoming key against the hardware anchor byte-for-byte.
+                    val isKeyTrusted = if (pinnedKeyBytes != null) {
+                        freshKey.contentEquals(pinnedKeyBytes)
+                    } else {
+                        isPairingWindowOpen
+                    }
+
+                    if (isKeyTrusted && securityEngine.verifySignature(nonce, payload, freshKey)) {
+                        if (pinnedKeyBytes == null) {
+                            Log.i("TetherBle", "🤝 Initial pairing successful. Pinning trusted Windows public key via Hardware Keystore Encryption.")
+
+                            // PRODUCTION FIX: Commit the verification bytes directly into Keystore pipeline
+                            securityEngine.storePinnedKeySecurely(this, freshKey)
                         }
                         Log.i("TetherBle", "✅ Auth Succeeded for $address")
                         unauthenticatedConnections.remove(address)
@@ -691,9 +696,7 @@ class BleGattServerService : Service() {
                         stopAdvertising()
                         notifyStateToInterface()
 
-                        // PRODUCTION FIX: Explicitly notify the Windows host that authentication passed.
-                        // Because Windows is now subscribed to the command channel ahead of time, this message
-                        // safely reaches the worker thread and triggers the connected state transition.
+                        // Explicitly notify the Windows host that authentication passed
                         mainHandler.postDelayed({
                             val commandChar = commandCharacteristic
                             val server = bluetoothGattServer
@@ -712,7 +715,7 @@ class BleGattServerService : Service() {
                             }
                         }, 100)
                     } else {
-                        Log.e("TetherBle", "❌ Handshake failed: Signature verification rejected or missing trust anchor. KeyAvailable: ${publicKey != null}")
+                        Log.e("TetherBle", "❌ Handshake failed: Signature verification rejected or untrusted key framework context. Trusted: $isKeyTrusted")
                         synchronized(gattLock) {
                             try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
                         }
@@ -786,7 +789,9 @@ class BleGattServerService : Service() {
         val address = device.address
 
         val prefs = getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
-        val pinnedKeyBase64 = prefs.getString("pinned_windows_public_key", null)
+
+        // PRODUCTION FIX: Query hardware storage to verify context state securely
+        val hasPinnedKey = securityEngine.getPinnedKeyDecrypted(this) != null
 
         val pairingTimestamp = prefs.getLong("pairing_window_start_time", 0L)
         val currentTime = System.currentTimeMillis()
@@ -799,10 +804,8 @@ class BleGattServerService : Service() {
             return
         }
 
-        if (windowsPublicKeys.containsKey(address) || pinnedKeyBase64 != null) {
-            if (pinnedKeyBase64 == null && !isPairingWindowOpen) {
-                // PRODUCTION FIX: Instead of dropping execution completely and forcing a 20s deadlock,
-                // calculate the Legacy HMAC fallback to seamlessly initialize alignment.
+        if (windowsPublicKeys.containsKey(address) || hasPinnedKey) {
+            if (!hasPinnedKey && !isPairingWindowOpen) {
                 Log.w("TetherBle", "Secure challenge deferred: No pinned key and pairing window closed. Processing Legacy Fallback.")
                 val challengeToken = deviceChallenges[address] ?: ByteArray(16)
                 val sessionKey = sessionKeysMap[address]
@@ -1093,7 +1096,7 @@ class BleGattServerService : Service() {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         Log.w("TetherBle", "onTrimMemory level=$level")
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
             computedSignaturesMap.clear()
             deviceChallenges.clear()
         }

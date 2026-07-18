@@ -28,7 +28,7 @@ fun DeepSpaceCanvasVisualizer() {
         initialValue = 0f,
         targetValue = gridStep,
         animationSpec = infiniteRepeatable(
-            animation = tween(25000, easing = LinearEasing)
+            animation = tween(25000, easing = LinearEasing),
         ), label = "Shift"
     )
     val nebAlpha by transition.animateFloat(
