@@ -54,8 +54,8 @@ public partial class BleManager : IDisposable
 
     private const int RSSI_GOOD = -65;
     private const int RSSI_LOCK = -78;
-    private const int SAMPLE_INTERVAL_MS = 150;
-    private const int SAMPLES_PER_AVERAGE = 5;
+    private const int SAMPLE_INTERVAL_MS = 100;
+    private const int SAMPLES_PER_AVERAGE = 3;
 
     private System.Threading.Timer? _healthCheckTimer;
     private readonly object _reconnectLock = new object();
@@ -488,13 +488,14 @@ public partial class BleManager : IDisposable
 
                         int liveRssi = args.RawSignalStrengthInDBm;
                         _rssiSamples.Add(liveRssi);
-                        if (_rssiSamples.Count >= SAMPLES_PER_AVERAGE)
+                        if (_rssiSamples.Count > SAMPLES_PER_AVERAGE)
                         {
-                            double avg = _rssiSamples.Average();
-                            _rssiSamples.Clear();
-                            _logger.Info($"📊 Average RSSI (Live Stream): {avg:F0} dBm (samples: {SAMPLES_PER_AVERAGE})");
-                            EvaluateProximity(avg);
+                            _rssiSamples.RemoveAt(0);
                         }
+
+                        double avg = _rssiSamples.Average();
+                        _logger.Info($"📊 Average RSSI (Live Stream): {avg:F0} dBm (samples: {_rssiSamples.Count})");
+                        EvaluateProximity(avg);
                         return;
                     }
 
@@ -1665,6 +1666,7 @@ public partial class BleManager : IDisposable
         lock (_lock)
         {
             _firstAdvertReceived = false;
+            _rssiSamples.Clear();
 
             if (_authChallengeChar != null)
             {
