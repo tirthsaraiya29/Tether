@@ -4,6 +4,11 @@
              xmlns:local="clr-namespace:Tether.DesktopUI"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/Themes/FluentTheme.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/Themes/ControlStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>
