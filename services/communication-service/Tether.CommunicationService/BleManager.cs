@@ -49,6 +49,9 @@ public partial class BleManager : IDisposable
     private DateTime _lastUnlockTime = DateTime.MinValue;
     private const int UNLOCK_COOLDOWN_MS = 3000;
 
+    // FIX: Watchdog anchor to prevent active thread collisions
+    private DateTime _lastSeenTime = DateTime.Now;
+
     // Thresholds (restored to working values)
     private const int RSSI_GOOD = -55;
     private const int RSSI_LOCK = -75;           // Changed back from -80 for better responsiveness
@@ -484,7 +487,9 @@ public partial class BleManager : IDisposable
                 {
                     if (_device.ConnectionStatus == Windows.Devices.Bluetooth.BluetoothConnectionStatus.Connected)
                     {
-                        // FIX: Process the true, real-time uncached RSSI value directly from the beacon!
+                        // FIX: Update the watchdog timestamp anchor on every healthy beacon receipt
+                        _lastSeenTime = DateTime.Now;
+
                         int liveRssi = args.RawSignalStrengthInDBm;
                         _rssiSamples.Add(liveRssi);
                         if (_rssiSamples.Count >= SAMPLES_PER_AVERAGE)
@@ -817,6 +822,7 @@ public partial class BleManager : IDisposable
                         return;
                     }
                     _isConnected = true;
+                    _lastSeenTime = DateTime.Now; // Refresh watchdog anchor immediately upon valid auth pass context
                 }
 
                 _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_CONNECTED, Source = "BleManager" });
@@ -1313,7 +1319,7 @@ public partial class BleManager : IDisposable
             byte[] plainBytes = Encoding.UTF8.GetBytes(plainText);
             byte[] encryptedBuffer;
 
-            using (Aes aes = Aes.Create())
+            using (var aes = Aes.Create())
             {
                 aes.Key = sessionKey;
                 aes.Mode = CipherMode.CBC;
@@ -1419,57 +1425,38 @@ public partial class BleManager : IDisposable
 
     private async Task SampleRssi()
     {
-        BluetoothLEDevice? device;
-        GattCharacteristic? challengeChar;
         bool connected;
         bool stopping;
+        DateTime lastSeen;
 
         lock (_lock)
         {
-            device = _device;
-            challengeChar = _commandChar; // Use the readable command characteristic fixed previously
             connected = _isConnected;
             stopping = _isStopping;
+            lastSeen = _lastSeenTime;
         }
 
-        if (device == null || !connected || stopping || challengeChar == null)
+        if (!connected || stopping)
             return;
 
-        bool linkHealthy = false;
+        // Passive Watchdog Evaluation: If the background advertisement watcher hasn't received 
+        // a beacon segment packet in over 4.5 seconds, we execute our graceful failover lock safely.
+        double secondsSinceLastSeen = (DateTime.Now - lastSeen).TotalSeconds;
 
-        try
+        if (secondsSinceLastSeen > 4.5)
         {
-            using (var timeoutCts = new CancellationTokenSource(300))
-            {
-                var readResult = await challengeChar.ReadValueAsync(BluetoothCacheMode.Uncached).AsTask(timeoutCts.Token);
-                if (readResult.Status == GattCommunicationStatus.Success)
-                {
-                    linkHealthy = true;
-                }
-            }
-        }
-        catch
-        {
-            linkHealthy = false;
-        }
+            _logger.Warning($"⚠️ Proximity Watchdog Timeout: No beacons captured for {secondsSinceLastSeen:F1} seconds. Triggering secure lock.");
 
-        if (!linkHealthy)
-        {
-            _logger.Warning("⚠️ GATT link quality degraded or shielding detected. Triggering lock sequence.");
             lock (_lock)
             {
-                _rssiSamples.Add(RSSI_LOCK - 5);
-                if (_rssiSamples.Count >= SAMPLES_PER_AVERAGE)
-                {
-                    double avg = _rssiSamples.Average();
-                    _rssiSamples.Clear();
-                    EvaluateProximity(avg);
-                }
+                _rssiSamples.Clear();
+                EvaluateProximity(RSSI_LOCK - 5); // Force clear out-of-bounds lock layout safely
             }
-            return;
         }
-
-        // REMOVED old stale DeviceInformation property lookup logic completely.
+        else
+        {
+            await Task.CompletedTask;
+        }
     }
 
     private async void EvaluateProximity(double avgRssi)
