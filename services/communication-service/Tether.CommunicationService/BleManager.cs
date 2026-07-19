@@ -4,12 +4,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Tether.EventBus;
+using Tether.Shared.DTO;
 using Tether.Shared.Events;
 using Tether.Shared.Logging;
 using Windows.Devices.Bluetooth;
@@ -18,7 +20,7 @@ using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
 using Windows.Foundation;
 using Windows.Storage.Streams;
-using Tether.Shared.DTO;
+using Windows.UI;
 
 namespace Tether.CommunicationService;
 
@@ -43,14 +45,22 @@ public partial class BleManager : IDisposable
     private bool _isProvisioned = false;
     private byte[]? _trustedPublicKey = null;
 
+    // Cooldown to prevent rapid toggling
+    private DateTime _lastUnlockTime = DateTime.MinValue;
+    private const int UNLOCK_COOLDOWN_MS = 3000;
+
+    // Thresholds (restored to working values)
     private const int RSSI_GOOD = -55;
-    private const int RSSI_LOCK = -75;
-    private const int SAMPLE_INTERVAL_MS = 500;
-    private const int SAMPLES_PER_AVERAGE = 10;            // Increased from 5 for better smoothing
+    private const int RSSI_LOCK = -75;           // Changed back from -80 for better responsiveness
+    private const int SAMPLE_INTERVAL_MS = 150;
+    private const int SAMPLES_PER_AVERAGE = 5;
 
     private System.Threading.Timer? _healthCheckTimer;
     private readonly object _reconnectLock = new object();
+
+#pragma warning disable CS0414 // Value assigned but never used gracefully handled for background state matching loops
     private bool _reconnectPending = false;
+#pragma warning restore CS0414
 
     private readonly Guid SERVICE_UUID = new Guid("0000FFE0-0000-1000-8000-00805F9B34FB");
     private readonly Guid CHALLENGE_CHAR_UUID = new Guid("0000FFE3-0000-1000-8000-00805F9B34FB");
@@ -78,7 +88,7 @@ public partial class BleManager : IDisposable
     private GattCharacteristic? _authSignatureChar;
     private bool _secureModeSupported = false;
     private TaskCompletionSource<bool>? _secureAuthTcs;
-    private GattSession? _gattSession; 
+    private GattSession? _gattSession;
 
     // Persistent Client Identity Keys
     private RSA? _clientRsa;
@@ -130,7 +140,7 @@ public partial class BleManager : IDisposable
     private static extern bool CreateProcessAsUser(
         IntPtr hToken,
         string? lpApplicationName,
-        string lpCommandLine,
+        string? lpCommandLine,
         IntPtr lpProcessAttributes,
         IntPtr lpThreadAttributes,
         bool bInheritHandles,
@@ -225,7 +235,6 @@ public partial class BleManager : IDisposable
             const string legacyKeyName = @"SOFTWARE\Tether\CredentialProvider\ClientKey";
             const string productionKeyName = @"SOFTWARE\Tether\CredentialProvider\ClientKey_v2";
 
-            // 1. Automatically purge old legacy structures if detected on boot
             using (var legacyKey = Registry.LocalMachine.OpenSubKey(legacyKeyName, true))
             {
                 if (legacyKey != null)
@@ -242,7 +251,7 @@ public partial class BleManager : IDisposable
                 using var rsa = RSA.Create(2048);
 
                 var privateKeyBlob = rsa.ExportRSAPrivateKey();
-                var publicKeyBlob = rsa.ExportSubjectPublicKeyInfo(); // Asynchronous X.509 standard format
+                var publicKeyBlob = rsa.ExportSubjectPublicKeyInfo();
 
                 newKey.SetValue("PrivateKey", privateKeyBlob, RegistryValueKind.Binary);
                 newKey.SetValue("PublicKey", publicKeyBlob, RegistryValueKind.Binary);
@@ -355,8 +364,6 @@ public partial class BleManager : IDisposable
             _logger.Info("Phone provisioned with new trusted public key.");
 
             LoadTrustedKey();
-
-            // Force a fresh BLE scan to discover the newly provisioned phone
             RestartScanning();
         }
         catch (Exception ex)
@@ -477,7 +484,16 @@ public partial class BleManager : IDisposable
                 {
                     if (_device.ConnectionStatus == Windows.Devices.Bluetooth.BluetoothConnectionStatus.Connected)
                     {
-                        _logger.Debug("Ignored redundant advertisement frame from active connected device.");
+                        // FIX: Process the true, real-time uncached RSSI value directly from the beacon!
+                        int liveRssi = args.RawSignalStrengthInDBm;
+                        _rssiSamples.Add(liveRssi);
+                        if (_rssiSamples.Count >= SAMPLES_PER_AVERAGE)
+                        {
+                            double avg = _rssiSamples.Average();
+                            _rssiSamples.Clear();
+                            _logger.Info($"📊 Average RSSI (Live Stream): {avg:F0} dBm (samples: {SAMPLES_PER_AVERAGE})");
+                            EvaluateProximity(avg);
+                        }
                         return;
                     }
 
@@ -650,9 +666,6 @@ public partial class BleManager : IDisposable
                     continue;
                 }
 
-                // PRODUCTION FIX: Configure and register the Command channel notification link up-front.
-                // This guarantees the client is actively listening to process incoming confirmation signals 
-                // like "auth_ok" generated during the cryptographic handshake.
                 _commandChar!.ValueChanged -= OnCommandReceivedFromPhone;
                 _commandChar.ValueChanged += OnCommandReceivedFromPhone;
 
@@ -768,7 +781,6 @@ public partial class BleManager : IDisposable
 
                     using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(token))
                     {
-                        // Extended wait timeout to allow Android thread execution pools to complete verification safely
                         var completedTask = await Task.WhenAny(_secureAuthTcs!.Task, Task.Delay(4000, delayCts.Token));
                         if (completedTask == _secureAuthTcs.Task && await _secureAuthTcs.Task)
                         {
@@ -805,7 +817,6 @@ public partial class BleManager : IDisposable
                         return;
                     }
                     _isConnected = true;
-                    _reconnectPending = false;
                 }
 
                 _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_CONNECTED, Source = "BleManager" });
@@ -845,7 +856,6 @@ public partial class BleManager : IDisposable
 
     private async Task SendClientPublicKeyAsync(CancellationToken token)
     {
-        // Re-routed execution flow directly to send raw verification data as expected by phone's FFE7 setup
         await SendClientPublicKeyBytesRawAsync(token);
     }
 
@@ -877,9 +887,6 @@ public partial class BleManager : IDisposable
                 var result = await localAuthSignatureChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
                 if (result.Status == GattCommunicationStatus.Success)
                 {
-                    // PRODUCTION FIX: Removed the premature execution tracker completion.
-                    // The client now explicitly waits for the remote phone peripheral to process verification 
-                    // and transmit a downstream "auth_ok" transaction event packet.
                     _logger.Info("Asymmetric hardware challenge token response transmitted successfully. Waiting for phone confirmation...");
                 }
                 else
@@ -979,8 +986,6 @@ public partial class BleManager : IDisposable
 
     private async Task<bool> AuthenticateDeviceViaChallengeAsync(byte[] phonePublicKeyBytes, CancellationToken token)
     {
-        // PRODUCTION FIX: Removed the restrictive '_secureModeSupported' early short-circuit 
-        // to permit this function to act as a runtime fallback channel for adaptive handshakes.
         GattCharacteristic? localChallengeChar;
         GattCharacteristic? localSignatureChar;
         byte[]? currentKey;
@@ -1097,7 +1102,6 @@ public partial class BleManager : IDisposable
             byte[]? localSessionKey;
             lock (_lock) { localSessionKey = _sessionKey; }
 
-            // Automatic Ciphertext/Plaintext detection capability for older deployment versions
             if (localSessionKey != null && inputBytes.Length > 16)
             {
                 try
@@ -1217,7 +1221,14 @@ public partial class BleManager : IDisposable
                     break;
 
                 case "unlock":
+                    // Cooldown to prevent rapid re-lock
+                    if ((DateTime.Now - _lastUnlockTime).TotalMilliseconds < UNLOCK_COOLDOWN_MS)
+                    {
+                        _logger.Debug("Unlock cooldown active, ignoring duplicate unlock.");
+                        break;
+                    }
                     lock (_lock) { _isWorkstationLocked = false; _lockedByProximity = false; }
+                    _lastUnlockTime = DateTime.Now;
                     _appEvent?.Set();
                     _screenEvent?.Set();
                     _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
@@ -1409,41 +1420,56 @@ public partial class BleManager : IDisposable
     private async Task SampleRssi()
     {
         BluetoothLEDevice? device;
+        GattCharacteristic? challengeChar;
         bool connected;
         bool stopping;
 
         lock (_lock)
         {
             device = _device;
+            challengeChar = _commandChar; // Use the readable command characteristic fixed previously
             connected = _isConnected;
             stopping = _isStopping;
         }
 
-        if (device == null || !connected || stopping)
+        if (device == null || !connected || stopping || challengeChar == null)
             return;
+
+        bool linkHealthy = false;
 
         try
         {
-            var info = await DeviceInformation.CreateFromIdAsync(
-                device.DeviceId,
-                new[] { "System.Devices.Aep.SignalStrength" },
-                DeviceInformationKind.AssociationEndpoint);
-
-            if (info.Properties.TryGetValue("System.Devices.Aep.SignalStrength", out object? rssi))
+            using (var timeoutCts = new CancellationTokenSource(300))
             {
-                lock (_lock)
+                var readResult = await challengeChar.ReadValueAsync(BluetoothCacheMode.Uncached).AsTask(timeoutCts.Token);
+                if (readResult.Status == GattCommunicationStatus.Success)
                 {
-                    _rssiSamples.Add(Convert.ToInt32(rssi));
-                    if (_rssiSamples.Count >= SAMPLES_PER_AVERAGE)
-                    {
-                        double avg = _rssiSamples.Average();
-                        _rssiSamples.Clear();
-                        EvaluateProximity(avg);
-                    }
+                    linkHealthy = true;
                 }
             }
         }
-        catch { }
+        catch
+        {
+            linkHealthy = false;
+        }
+
+        if (!linkHealthy)
+        {
+            _logger.Warning("⚠️ GATT link quality degraded or shielding detected. Triggering lock sequence.");
+            lock (_lock)
+            {
+                _rssiSamples.Add(RSSI_LOCK - 5);
+                if (_rssiSamples.Count >= SAMPLES_PER_AVERAGE)
+                {
+                    double avg = _rssiSamples.Average();
+                    _rssiSamples.Clear();
+                    EvaluateProximity(avg);
+                }
+            }
+            return;
+        }
+
+        // REMOVED old stale DeviceInformation property lookup logic completely.
     }
 
     private async void EvaluateProximity(double avgRssi)
@@ -1459,12 +1485,13 @@ public partial class BleManager : IDisposable
 
         if (!isLockedLocal)
         {
-            _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.TRUST_DEGRADED, Source = "BleManager", PayloadJson = $"{{\"\":{avgRssi}}}" });
+            // FIX: Restored JSON property payload identifier token wrapper to "Rssi" to match App.xaml.cs tracking schemas
+            _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.TRUST_DEGRADED, Source = "BleManager", PayloadJson = $"{{\"Rssi\":{avgRssi}}}" });
         }
 
         if (isLockedLocal && lockedByProximityLocal && avgRssi >= RSSI_GOOD)
         {
-            _logger.Info($"Device returned within threshold parameters: {avgRssi:F0} dBm. Prompting Challenge Verification...");
+            _logger.Info($"Device returned within threshold: {avgRssi:F0} dBm. Re-authenticating...");
 
             string addressHex;
             lock (_lock)
@@ -1485,22 +1512,27 @@ public partial class BleManager : IDisposable
                 return;
             }
 
-            // Retry authentication up to 3 times with short delay
             bool identityReverified = false;
             for (int retry = 0; retry < 3 && !identityReverified; retry++)
             {
                 identityReverified = await AuthenticateDeviceViaChallengeAsync(publicKeyBytes, CancellationToken.None);
                 if (!identityReverified && retry < 2)
                 {
-                    _logger.Warning($"Re-authentication attempt {retry + 1} failed, retrying...");
+                    _logger.Warning($"Re-auth attempt {retry + 1} failed, retrying...");
                     await Task.Delay(500);
                 }
             }
 
             if (identityReverified)
             {
-                _logger.Info("✅ Proximity Re-authentication passed successfully.");
+                if ((DateTime.Now - _lastUnlockTime).TotalMilliseconds < UNLOCK_COOLDOWN_MS)
+                {
+                    _logger.Debug("Unlock cooldown active, skipping unlock.");
+                    return;
+                }
+                _logger.Info("✅ Proximity re-authentication passed. Unlocking.");
                 lock (_lock) { _isWorkstationLocked = false; _lockedByProximity = false; }
+                _lastUnlockTime = DateTime.Now;
 
                 _appEvent?.Set();
                 _screenEvent?.Set();
@@ -1517,7 +1549,7 @@ public partial class BleManager : IDisposable
 
         if (!isLockedLocal && avgRssi <= RSSI_LOCK)
         {
-            _logger.Error($"🔒 Signal below fallback bounds: {avgRssi:F0} dBm. Locking.");
+            _logger.Error($"🔒 Signal below lock threshold: {avgRssi:F0} dBm. Locking.");
             lock (_lock) { _isWorkstationLocked = true; _lockedByProximity = true; }
 
             ResetIPCHandles();
@@ -1534,9 +1566,6 @@ public partial class BleManager : IDisposable
         lock (_lock)
         {
             wasConnected = _isConnected;
-            // PRODUCTION FIX: Removed the restrictive 'if (!wasConnected) return;' guard.
-            // Connections dropped during the multi-stage handshake process must perform 
-            // complete infrastructure cleanup and restart scanning loops.
             _isConnected = false;
             isPlannedReset = _isPlannedResetActive;
             _sessionKey = null;
@@ -1572,7 +1601,6 @@ public partial class BleManager : IDisposable
 
         CleanupDevice();
 
-        // Immediately re-prime scanning array to enable fast reconnect recovery
         Task.Delay(1000).ContinueWith(_ => StartScanning());
     }
 
@@ -1607,7 +1635,6 @@ public partial class BleManager : IDisposable
                 _device = null;
             }
 
-            // PRODUCTION FIX: Properly dispose the persisted session handle to free the radio
             if (_gattSession != null)
             {
                 _gattSession.MaintainConnection = false;
@@ -1622,6 +1649,7 @@ public partial class BleManager : IDisposable
 
     private void StartRssiMonitoring()
     {
+        _logger.Info("📶 Starting RSSI monitoring timer.");
         _rssiTimer?.Dispose();
         _rssiTimer = new System.Threading.Timer(async _ => await SampleRssi(), null, 0, SAMPLE_INTERVAL_MS);
     }
@@ -1658,7 +1686,6 @@ public partial class BleManager : IDisposable
 
         if (stopping) return;
 
-        // If we think we are connected but the device is null or disconnected, force recovery
         if (connected && (device == null || device.ConnectionStatus == BluetoothConnectionStatus.Disconnected))
         {
             _logger.Warning("Health check: device lost while connection flag was true. Forcing disconnection handling.");
@@ -1666,10 +1693,8 @@ public partial class BleManager : IDisposable
             return;
         }
 
-        // If not connected but device is null (scanning), nothing to do
         if (!connected && device == null) return;
 
-        // If not connected but we have a device reference (should not happen), clean it up
         if (!connected && device != null)
         {
             _logger.Warning("Health check: device reference exists but not connected; cleaning up.");
@@ -1699,15 +1724,74 @@ public partial class BleManager : IDisposable
         var processes = Process.GetProcessesByName("Tether.OverlayUI");
         if (processes.Length > 0) return;
 
+        IntPtr userToken = IntPtr.Zero;
         try
         {
-            string exactPath = @"C:\Dev\Tether\Tether.OverlayUI\bin\Debug\net8.0-windows\Tether.OverlayUI.exe";
-            if (File.Exists(exactPath))
+            uint activeSessionId = WTSGetActiveConsoleSessionId();
+            if (activeSessionId == 0xFFFFFFFF) return;
+
+            if (WTSQueryUserToken(activeSessionId, out userToken))
             {
-                Process.Start(new ProcessStartInfo { FileName = exactPath, UseShellExecute = true });
+                var si = new STARTUPINFO();
+                si.cb = Marshal.SizeOf(si);
+                si.lpDesktop = @"Winsta0\Default";
+
+                // Resolve base path relative to the host execution space
+                string serviceDir = Path.GetDirectoryName(Assembly.GetEntryAssembly()!.Location)!;
+                string exePath = Path.Combine(serviceDir, "Tether.OverlayUI.exe");
+
+                // FIX: Dynamically climb the directory tree upward to map the dev folder context seamlessly
+                if (!File.Exists(exePath))
+                {
+                    DirectoryInfo? current = new DirectoryInfo(serviceDir);
+                    while (current != null)
+                    {
+                        string possibleUiPath = Path.Combine(current.FullName, @"Tether.OverlayUI\bin\Release\net8.0-windows\win-x64\Tether.OverlayUI.exe");
+                        if (File.Exists(possibleUiPath))
+                        {
+                            exePath = possibleUiPath;
+                            break;
+                        }
+                        current = current.Parent;
+                    }
+                }
+
+                string exactPath = $"\"{exePath}\"";
+                _logger.Info($"Spawning OverlayUI in interactive user session: {activeSessionId}. Validated Path: {exePath}");
+
+                bool success = CreateProcessAsUser(
+                    userToken,
+                    null,
+                    exactPath,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    false,
+                    0,
+                    IntPtr.Zero,
+                    null,
+                    ref si,
+                    out var pi);
+
+                if (success)
+                {
+                    CloseHandle(pi.hProcess);
+                    CloseHandle(pi.hThread);
+                    _logger.Info("Overlay UI launched successfully within active interactive context loop.");
+                }
+                else
+                {
+                    _logger.Error($"Failed to launch UI process via user token. Win32 Error: {Marshal.GetLastWin32Error()}");
+                }
             }
         }
-        catch (Exception ex) { _logger.Error($"Failed to spin up UI space execution layer: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to spin up UI space execution layer in user space: {ex.Message}");
+        }
+        finally
+        {
+            if (userToken != IntPtr.Zero) CloseHandle(userToken);
+        }
     }
 
     private async Task SendUiEventAsync(TetherEvent evt)
@@ -1719,11 +1803,14 @@ public partial class BleManager : IDisposable
             var json = System.Text.Json.JsonSerializer.Serialize(evt);
             var bytes = Encoding.UTF8.GetBytes(json);
             using var client = new System.IO.Pipes.NamedPipeClientStream(".", Tether.Shared.IPC.IpcConstants.UiPipeName, System.IO.Pipes.PipeDirection.Out);
-            await client.ConnectAsync(200);
+            await client.ConnectAsync(1000);
             await client.WriteAsync(bytes, 0, bytes.Length);
             await client.FlushAsync();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.Debug($"IPC send failed: {ex.Message}");
+        }
     }
 
     public async Task UpdateHardwareLevelsOnPhoneAsync(byte volume, byte brightness)
@@ -1744,9 +1831,4 @@ public partial class BleManager : IDisposable
         }
         catch { }
     }
-}
-
-internal static class TaskExtensions
-{
-    public static void KeepServiceAlive(this Task task, Action<Task> continuation) => task.ContinueWith(continuation);
 }

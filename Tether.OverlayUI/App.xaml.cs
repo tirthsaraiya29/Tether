@@ -2,6 +2,8 @@
 using System.ComponentModel;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -33,13 +35,26 @@ namespace Tether.OverlayUI
                 NamedPipeServerStream? server = null;
                 try
                 {
-                    // Configure server pipelines with multi-instance accessibility tokens allowed
-                    server = new NamedPipeServerStream(
+                    // Explicitly allow Local SYSTEM account to communicate via this pipe
+                    var pipeSecurity = new PipeSecurity();
+                    pipeSecurity.AddAccessRule(new PipeAccessRule(
+                        new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                        PipeAccessRights.ReadWrite,
+                        AccessControlType.Allow));
+                    pipeSecurity.AddAccessRule(new PipeAccessRule(
+                        WindowsIdentity.GetCurrent().User!,
+                        PipeAccessRights.FullControl,
+                        AccessControlType.Allow));
+
+                    server = NamedPipeServerStreamAcl.Create(
                         IpcConstants.UiPipeName,
                         PipeDirection.In,
                         NamedPipeServerStream.MaxAllowedServerInstances,
                         PipeTransmissionMode.Message,
-                        PipeOptions.Asynchronous
+                        PipeOptions.Asynchronous,
+                        0,
+                        0,
+                        pipeSecurity
                     );
 
                     await server.WaitForConnectionAsync();
@@ -54,15 +69,14 @@ namespace Tether.OverlayUI
 
                         if (evt != null)
                         {
-                            // FIXED: Marshal compilation pipeline safely back to main thread context via UI Dispatcher
                             Current.Dispatcher.Invoke(() => HandleIncomingEvent(evt));
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Named Pipe processing cycle exception caught: {ex.Message}");
-                    await Task.Delay(500); // Prevent hard CPU spin on persistent pipeline faults
+                    System.Diagnostics.Debug.WriteLine($"Named Pipe cross-session loop error: {ex.Message}");
+                    await Task.Delay(250);
                 }
                 finally
                 {
