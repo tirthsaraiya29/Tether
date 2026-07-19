@@ -395,17 +395,18 @@ class BleGattServerService : Service() {
 
                 mainHandler.postDelayed({
                     if (!authenticatedDevicesMap.containsKey(address) && unauthenticatedConnections.containsKey(address)) {
-                        Log.w("TetherBle", "Validation window expired. Handshake too slow or trust failed. Purging node: $address")
+                        Log.w("TetherBle", "Validation window expired. Purging node: $address")
                         unauthenticatedConnections.remove(address)
                         synchronized(gattLock) {
-                            try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
+                            try { bluetoothGattServer?.cancelConnection(device) } catch (_: Exception) {}
                         }
                     }
-                }, 45000L) // Extended to 45s for heavy cross-platform RSA handshakes
+                }, 45000L)
 
-                // PRODUCTION FIX: Removed `setPreferredPhy`.
-                // Windows BLE stack crashes and deadlocks during Service Discovery if the peripheral
-                // initiates a PHY speed upgrade immediately upon connection. Let the OS implicitly negotiate.
+                // FIX: Force the radio to start non-connectable advertising for live proximity tracking while connected
+                mainHandler.post { 
+                    startAdvertising(connectable = false) 
+                }
 
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
                 authenticatedDevicesMap.remove(address)
@@ -423,7 +424,7 @@ class BleGattServerService : Service() {
                 keysToRemove.forEach { pendingExecuteWrites.remove(it) }
 
                 if (authenticatedDevicesMap.isEmpty()) {
-                    mainHandler.postDelayed({ startAdvertisingWithRetry(3) }, 300)
+                    mainHandler.postDelayed({ startAdvertising(connectable = true) }, 300)
                 }
             }
             notifyStateToInterface()
@@ -894,15 +895,19 @@ class BleGattServerService : Service() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun startAdvertising() {
-        if (isAdvertising) return
+    private fun startAdvertising(connectable: Boolean = true) {
+        // Stop any existing advertisement loop to clear the channel for the new mode
+        if (isAdvertising) {
+            stopAdvertising()
+        }
+        
         val serverAdvertiser = bluetoothAdapter?.bluetoothLeAdvertiser ?: return
         advertiser = serverAdvertiser
 
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-            .setConnectable(true)
+            .setConnectable(connectable) // FIX: Natively handles alternating between connectable and broadcast-only states
             .setTimeout(0)
             .build()
 
@@ -916,40 +921,28 @@ class BleGattServerService : Service() {
             .build()
 
         try {
-            advertiser?.stopAdvertising(advertiseCallback)
-        } catch (_: SecurityException) {} catch (_: Exception) {}
-
-        try {
             advertiser?.startAdvertising(settings, advertiseData, scanResponseData, advertiseCallback)
-            Log.i("TetherBle", "🚀 Advanced Dual-Packet Advertisement Array deployed successfully.")
+            Log.i("TetherBle", "🚀 Proximity Advertisement Deployed (Connectable: $connectable)")
         } catch (e: Exception) {
             Log.e("TetherBle", "Failed to initialize advertiser array: ${e.message}")
         }
     }
 
     private fun startAdvertisingWithRetry(retries: Int, delayMs: Long = 1000) {
-        if (retries <= 0) {
-            Log.e("TetherBle", "Advertisement start failed after all retries.")
-            return
-        }
+        if (retries <= 0) return
         val bluetoothManager = getSystemService(BluetoothManager::class.java)
         val adapter = bluetoothManager?.adapter
         if (adapter == null || !adapter.isEnabled) {
-            Log.w("TetherBle", "Bluetooth not enabled, cannot start advertising.")
             mainHandler.postDelayed({ startAdvertisingWithRetry(retries - 1, delayMs * 2) }, delayMs)
             return
         }
 
-        startAdvertising()
-        mainHandler.postDelayed(
-            {
-                if (!isAdvertising) {
-                    Log.w("TetherBle", "Advertising not active, retrying (${retries - 1} retries left)")
-                    startAdvertisingWithRetry(retries - 1, delayMs * 2)
-                }
-            },
-            delayMs,
-        )
+        startAdvertising(connectable = true)
+        mainHandler.postDelayed({
+            if (!isAdvertising) {
+                startAdvertisingWithRetry(retries - 1, delayMs * 2)
+            }
+        }, delayMs)
     }
 
     private val advertiseCallback = object : AdvertiseCallback() {
