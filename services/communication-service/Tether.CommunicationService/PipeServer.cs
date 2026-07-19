@@ -177,17 +177,14 @@ public class PipeServer : IDisposable
                 }
 
                 // 3. Perform privilege-heavy token validation OUTSIDE of the impersonation context (Running as SYSTEM)
-                // Check 1: Client matches service host owner (Dev/Debug execution or same user process)
                 if (serviceOwnerSid != null && clientSid.Equals(serviceOwnerSid.Value, StringComparison.OrdinalIgnoreCase))
                 {
                     clientAuthorized = true;
                 }
-                // Check 2: Client is NT AUTHORITY\SYSTEM
                 else if (isClientSystem)
                 {
                     clientAuthorized = true;
                 }
-                // Check 3: Check against session mappings now that TCB privilege availability is restored
                 else
                 {
                     uint consoleSessionId = WTSGetActiveConsoleSessionId();
@@ -226,11 +223,18 @@ public class PipeServer : IDisposable
 
                 if (evt != null)
                 {
-                    // Strict Event Filtering
+                    // CRITICAL FIX: Explicitly reject state spoofing events over IPC.
+                    // Authentication and unlock confirmations must strictly flow through 
+                    // the verified cryptographic channel inside BleManager.cs.
+                    if (evt.EventType == TetherEventType.PHONE_UNLOCKED ||
+                        evt.EventType == TetherEventType.AUTH_SUCCESS)
+                    {
+                        _logger.Warning($"Security Block: Disallowed state injection event attempt rejected over IPC: {evt.EventType}");
+                        continue;
+                    }
+
                     if (evt.EventType != TetherEventType.PROVISION_PHONE &&
-                        evt.EventType != TetherEventType.PHONE_UNLOCKED &&
-                        evt.EventType != TetherEventType.PANIC_TRIGGERED &&
-                        evt.EventType != TetherEventType.AUTH_SUCCESS)
+                        evt.EventType != TetherEventType.PANIC_TRIGGERED)
                     {
                         _logger.Warning($"Rejected disallowed event type: {evt.EventType}");
                         continue;

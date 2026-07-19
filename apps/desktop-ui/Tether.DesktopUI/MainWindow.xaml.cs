@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Tether.Shared.Events;
 using Tether.Shared.IPC;
@@ -23,6 +24,7 @@ namespace Tether.DesktopUI
         private bool _isListening = true;
         private DispatcherTimer? _syncTimer;
         private bool _isInternalSliderChange = false;
+        private bool _isClosingAnimated = false;
 
         [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
         internal class MMDeviceEnumerator { }
@@ -125,6 +127,86 @@ namespace Tether.DesktopUI
             InitializeHardwarePolling();
         }
 
+        // ==========================================
+        // FLUID ENTRANCE & INTERACTION HANDLERS
+        // ==========================================
+        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            var entranceStoryboard = new Storyboard();
+
+            var scaleXAnim = new DoubleAnimation(0.96, 1.0, new Duration(TimeSpan.FromSeconds(0.35))) { DecelerationRatio = 0.9 };
+            Storyboard.SetTarget(scaleXAnim, WindowScale);
+            Storyboard.SetTargetProperty(scaleXAnim, new PropertyPath(ScaleTransform.ScaleXProperty));
+
+            var scaleYAnim = new DoubleAnimation(0.96, 1.0, new Duration(TimeSpan.FromSeconds(0.35))) { DecelerationRatio = 0.9 };
+            Storyboard.SetTarget(scaleYAnim, WindowScale);
+            Storyboard.SetTargetProperty(scaleYAnim, new PropertyPath(ScaleTransform.ScaleYProperty));
+
+            var translateAnim = new DoubleAnimation(20.0, 0.0, new Duration(TimeSpan.FromSeconds(0.35))) { DecelerationRatio = 0.9 };
+            Storyboard.SetTarget(translateAnim, WindowTranslate);
+            Storyboard.SetTargetProperty(translateAnim, new PropertyPath(TranslateTransform.YProperty));
+
+            var opacityAnim = new DoubleAnimation(0.0, 1.0, new Duration(TimeSpan.FromSeconds(0.25)));
+            Storyboard.SetTarget(opacityAnim, this);
+            Storyboard.SetTargetProperty(opacityAnim, new PropertyPath(Window.OpacityProperty));
+
+            entranceStoryboard.Children.Add(scaleXAnim);
+            entranceStoryboard.Children.Add(scaleYAnim);
+            entranceStoryboard.Children.Add(translateAnim);
+            entranceStoryboard.Children.Add(opacityAnim);
+
+            entranceStoryboard.Begin();
+        }
+
+        private void BtnMinimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+        private void BtnMaximize_Click(object sender, RoutedEventArgs e) =>
+            WindowState = (WindowState == WindowState.Maximized) ? WindowState.Normal : WindowState.Maximized;
+
+        private void BtnClose_Click(object sender, RoutedEventArgs e) => Close();
+
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            if (!_isClosingAnimated)
+            {
+                e.Cancel = true;
+                _isClosingAnimated = true;
+
+                var fadeOut = new DoubleAnimation(1.0, 0.0, new Duration(TimeSpan.FromSeconds(0.2)));
+                var scaleX = new DoubleAnimation(1.0, 0.96, new Duration(TimeSpan.FromSeconds(0.25)));
+                var scaleY = new DoubleAnimation(1.0, 0.96, new Duration(TimeSpan.FromSeconds(0.25)));
+                var translate = new DoubleAnimation(0.0, 20.0, new Duration(TimeSpan.FromSeconds(0.25)));
+
+                fadeOut.Completed += (s, ev) => Close();
+
+                WindowScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleX);
+                WindowScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleY);
+                WindowTranslate.BeginAnimation(TranslateTransform.YProperty, translate);
+                BeginAnimation(OpacityProperty, fadeOut);
+            }
+            else
+            {
+                _isListening = false;
+                _syncTimer?.Stop();
+                base.OnClosing(e);
+            }
+        }
+
+        private SolidColorBrush GetFluentStatusBrush(string key, Color fallbackColor)
+        {
+            if (Application.Current != null)
+            {
+                if (Application.Current.TryFindResource(key) is SolidColorBrush resolvedBrush)
+                {
+                    return resolvedBrush;
+                }
+            }
+            return new SolidColorBrush(fallbackColor);
+        }
+
+        // ==========================================
+        // SECURITY BACKEND PIPELINE
+        // ==========================================
         private void CheckProvisioningStatus()
         {
             try
@@ -139,18 +221,18 @@ namespace Tether.DesktopUI
                         if (!string.IsNullOrEmpty(storedKey))
                         {
                             TxtProvisionStatus.Text = "✓ Phone paired";
-                            TxtProvisionStatus.Foreground = new SolidColorBrush(Color.FromRgb(0x00, 0xFF, 0x66));
+                            TxtProvisionStatus.Foreground = GetFluentStatusBrush("StatusHealthyBrush", Color.FromRgb(106, 237, 126));
                             return;
                         }
                     }
                 }
                 TxtProvisionStatus.Text = "✗ Not paired";
-                TxtProvisionStatus.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0x00, 0x55));
+                TxtProvisionStatus.Foreground = GetFluentStatusBrush("StatusCriticalBrush", Color.FromRgb(255, 153, 164));
             }
             catch
             {
                 TxtProvisionStatus.Text = "✗ Error reading pairing status";
-                TxtProvisionStatus.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0x00, 0x55));
+                TxtProvisionStatus.Foreground = GetFluentStatusBrush("StatusCriticalBrush", Color.FromRgb(255, 153, 164));
             }
         }
 
@@ -205,14 +287,14 @@ namespace Tether.DesktopUI
             {
                 case TetherEventType.PHONE_CONNECTED:
                     TxtStatus.Text = "LINK ENFORCED";
-                    IndicatorNode.Fill = new SolidColorBrush(Color.FromRgb(0x00, 0xFF, 0x66));
+                    IndicatorNode.Fill = GetFluentStatusBrush("StatusHealthyBrush", Color.FromRgb(106, 237, 126));
                     LogTerminal("✓ LINK // Cryptographic over-the-air validation chain locked.");
                     ForceTelemetrySyncToPhone();
                     break;
 
                 case TetherEventType.PHONE_DISCONNECTED:
                     TxtStatus.Text = "NODE DISCONNECTED";
-                    IndicatorNode.Fill = new SolidColorBrush(Color.FromRgb(0xFF, 0x00, 0x55));
+                    IndicatorNode.Fill = GetFluentStatusBrush("StatusCriticalBrush", Color.FromRgb(255, 153, 164));
                     LogTerminal("⚠ LINK // Target node dropped carrier radio links unexpectedly.");
                     break;
 
@@ -365,7 +447,7 @@ namespace Tether.DesktopUI
 
         private void SliderVolume_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            if (_isInternalSliderChange) return;
+            if (_isInternalSliderChange || TxtVolumeValue == null) return;
             SetSystemMasterVolume((float)(SliderVolume.Value / 100.0));
             TxtVolumeValue.Text = $"{(int)SliderVolume.Value}%";
             ForceTelemetrySyncToPhone();
@@ -373,7 +455,7 @@ namespace Tether.DesktopUI
 
         private void SliderBrightness_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            if (_isInternalSliderChange) return;
+            if (_isInternalSliderChange || TxtBrightnessValue == null) return;
             SetMonitorBrightnessLevel((uint)SliderBrightness.Value);
             TxtBrightnessValue.Text = $"{(int)SliderBrightness.Value}%";
             ForceTelemetrySyncToPhone();
@@ -401,8 +483,6 @@ namespace Tether.DesktopUI
 
         private async void DispatchServiceBusPipe(TetherEvent evt)
         {
-            // Check if the service process is running (optional: use ServiceController).
-            // For simplicity, we'll just attempt to connect with a short timeout and retry.
             const int maxAttempts = 3;
             const int retryDelayMs = 500;
 
@@ -413,14 +493,13 @@ namespace Tether.DesktopUI
                     string json = JsonSerializer.Serialize(evt);
                     byte[] bytes = Encoding.UTF8.GetBytes(json);
                     using var client = new NamedPipeClientStream(".", IpcConstants.PipeName, PipeDirection.Out);
-                    await client.ConnectAsync(200);  // 200 ms timeout
+                    await client.ConnectAsync(200);
                     await client.WriteAsync(bytes, 0, bytes.Length);
                     await client.FlushAsync();
-                    return; // success
+                    return;
                 }
                 catch (TimeoutException)
                 {
-                    // The service might not be running yet.
                     if (attempt < maxAttempts - 1)
                         await Task.Delay(retryDelayMs);
                 }
@@ -477,7 +556,6 @@ namespace Tether.DesktopUI
                 int byteLength = plainTextLength * 2;
                 unmanagedPasswordPtr = Marshal.SecureStringToGlobalAllocUnicode(TxtPassword.SecurePassword);
 
-                // Safe validation using native pointer directly to block managed heap generation
                 if (!LogonUser(Environment.UserName, Environment.UserDomainName, Marshal.PtrToStringUni(unmanagedPasswordPtr), 2, 0, out IntPtr token))
                 {
                     LogTerminal("❌ VAULT // Windows operational token assignment failed. Secret rejected.");
@@ -485,7 +563,6 @@ namespace Tether.DesktopUI
                 }
                 CloseHandle(token);
 
-                // Allocate and setup application-specific entropy to restrict generic DPAPI decryption tools
                 byte[] entropyBytes = Encoding.UTF8.GetBytes("Tether_System_Bound_Vault_v1");
                 unmanagedEntropy = Marshal.AllocHGlobal(entropyBytes.Length);
                 Marshal.Copy(entropyBytes, 0, unmanagedEntropy, entropyBytes.Length);
@@ -513,7 +590,6 @@ namespace Tether.DesktopUI
                 }
                 if (unmanagedPasswordPtr != IntPtr.Zero)
                 {
-                    // Strict forensic zeroization of raw unmanaged memory space parameters
                     byte[] zeroBuffer = new byte[TxtPassword.SecurePassword.Length * 2];
                     Marshal.Copy(zeroBuffer, 0, unmanagedPasswordPtr, zeroBuffer.Length);
                     Marshal.ZeroFreeGlobalAllocUnicode(unmanagedPasswordPtr);
@@ -521,9 +597,8 @@ namespace Tether.DesktopUI
             }
         }
 
-        private void ResolveUserContext() => TxtUserType.Text = $"✓ SECURE SUBSYSTEM BOUNDS: {Environment.UserDomainName}\\{Environment.UserName}";
+        private void ResolveUserContext() => TxtUserType.Text = $"{Environment.UserDomainName}\\{Environment.UserName}";
         private void BtnUnlockOverride_Click(object sender, RoutedEventArgs e) => DispatchServiceBusPipe(new TetherEvent { EventType = TetherEventType.PHONE_UNLOCKED, Source = "DesktopUI" });
         private void BtnLockdownOverride_Click(object sender, RoutedEventArgs e) => DispatchServiceBusPipe(new TetherEvent { EventType = TetherEventType.PANIC_TRIGGERED, Source = "DesktopUI" });
-        protected override void OnClosed(EventArgs e) { _isListening = false; _syncTimer?.Stop(); base.OnClosed(e); }
     }
 }
