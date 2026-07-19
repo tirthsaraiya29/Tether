@@ -5,7 +5,6 @@
     <Platform Name="x86" />
   </Configurations>
   <Project Path="apps/desktop-ui/Tether.DesktopUI/Tether.DesktopUI.csproj" Id="a070738e-07bb-4121-ae87-cc2d2c5b5515" />
-  <Project Path="platform/windows/Tether.Platform.Windows/Tether.Platform.Windows.csproj" Id="c6d4ba83-b71e-4558-bed2-911ac9cf1cc5" />
   <Project Path="services/communication-service/Tether.CommunicationService/Tether.CommunicationService.csproj" Id="52fd365d-08fc-4891-9b33-acae9bbff409" />
   <Project Path="services/enforcement-engine/Tether.EnforcementEngine/Tether.EnforcementEngine.csproj" Id="776c4d29-2fc9-46b7-8c1f-60a6658611d9" />
   <Project Path="services/event-bus/Tether.EventBus/Tether.EventBus.csproj" Id="db980167-9fe8-4743-b031-b1b43507d5d9" />
