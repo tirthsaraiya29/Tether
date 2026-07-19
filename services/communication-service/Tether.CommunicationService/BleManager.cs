@@ -33,9 +33,10 @@ public partial class BleManager : IDisposable
     private System.Threading.Timer? _rssiTimer;
     private readonly List<int> _rssiSamples = new();
     private readonly object _lock = new();
-    private readonly SemaphoreSlim _scanLock = new(1, 1);   // For StartScanning concurrency
+    private readonly SemaphoreSlim _scanLock = new(1, 1);
     private bool _isScanning = false;
 
+    private bool _isReauthenticating = false;
     private bool _isWorkstationLocked = false;
     private bool _isConnected = false;
     private bool _lockedByProximity = false;
@@ -45,23 +46,21 @@ public partial class BleManager : IDisposable
     private bool _isProvisioned = false;
     private byte[]? _trustedPublicKey = null;
 
-    // Cooldown to prevent rapid toggling
     private DateTime _lastUnlockTime = DateTime.MinValue;
     private const int UNLOCK_COOLDOWN_MS = 3000;
 
-    // FIX: Watchdog anchor to prevent active thread collisions
     private DateTime _lastSeenTime = DateTime.Now;
+    private bool _firstAdvertReceived = false;
 
-    // Thresholds (restored to working values)
-    private const int RSSI_GOOD = -55;
-    private const int RSSI_LOCK = -75;           // Changed back from -80 for better responsiveness
+    private const int RSSI_GOOD = -65;
+    private const int RSSI_LOCK = -78;
     private const int SAMPLE_INTERVAL_MS = 150;
     private const int SAMPLES_PER_AVERAGE = 5;
 
     private System.Threading.Timer? _healthCheckTimer;
     private readonly object _reconnectLock = new object();
 
-#pragma warning disable CS0414 // Value assigned but never used gracefully handled for background state matching loops
+#pragma warning disable CS0414
     private bool _reconnectPending = false;
 #pragma warning restore CS0414
 
@@ -71,13 +70,12 @@ public partial class BleManager : IDisposable
     private readonly Guid COMMAND_CHAR_UUID = new Guid("0000FFE5-0000-1000-8000-00805F9B34FB");
     private readonly Guid PUBLIC_KEY_CHAR_UUID = new Guid("0000FFE6-0000-1000-8000-00805F9B34FB");
 
-    // Corrected Secure Flow Characteristics to Match Android Handshake Scheme Exactly
     private readonly Guid WINDOWS_PUBLIC_KEY_CHAR_UUID = new Guid("0000FFE7-0000-1000-8000-00805F9B34FB");
     private readonly Guid AUTH_CHALLENGE_CHAR_UUID = new Guid("0000FFE8-0000-1000-8000-00805F9B34FB");
     private readonly Guid AUTH_SIGNATURE_CHAR_UUID = new Guid("0000FFE9-0000-1000-8000-00805F9B34FB");
 
     private readonly SemaphoreSlim _connectionSemaphore = new SemaphoreSlim(1, 1);
-    private CancellationTokenSource? _cts;                  // Cancellation for ongoing GATT operations
+    private CancellationTokenSource? _cts;
 
     private GattDeviceService? _service;
     private GattCharacteristic? _challengeChar;
@@ -85,7 +83,6 @@ public partial class BleManager : IDisposable
     private GattCharacteristic? _commandChar;
     private GattCharacteristic? _publicKeyChar;
 
-    // Secure Flow Characteristic References
     private GattCharacteristic? _windowsPublicKeyChar;
     private GattCharacteristic? _authChallengeChar;
     private GattCharacteristic? _authSignatureChar;
@@ -93,7 +90,6 @@ public partial class BleManager : IDisposable
     private TaskCompletionSource<bool>? _secureAuthTcs;
     private GattSession? _gattSession;
 
-    // Persistent Client Identity Keys
     private RSA? _clientRsa;
     private byte[]? _clientPublicKeyBytes;
 
@@ -487,8 +483,8 @@ public partial class BleManager : IDisposable
                 {
                     if (_device.ConnectionStatus == Windows.Devices.Bluetooth.BluetoothConnectionStatus.Connected)
                     {
-                        // FIX: Update the watchdog timestamp anchor on every healthy beacon receipt
                         _lastSeenTime = DateTime.Now;
+                        _firstAdvertReceived = true;
 
                         int liveRssi = args.RawSignalStrengthInDBm;
                         _rssiSamples.Add(liveRssi);
@@ -822,7 +818,8 @@ public partial class BleManager : IDisposable
                         return;
                     }
                     _isConnected = true;
-                    _lastSeenTime = DateTime.Now; // Refresh watchdog anchor immediately upon valid auth pass context
+                    _firstAdvertReceived = false;
+                    _lastSeenTime = DateTime.Now;
                 }
 
                 _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_CONNECTED, Source = "BleManager" });
@@ -1227,13 +1224,18 @@ public partial class BleManager : IDisposable
                     break;
 
                 case "unlock":
-                    // Cooldown to prevent rapid re-lock
                     if ((DateTime.Now - _lastUnlockTime).TotalMilliseconds < UNLOCK_COOLDOWN_MS)
                     {
                         _logger.Debug("Unlock cooldown active, ignoring duplicate unlock.");
                         break;
                     }
-                    lock (_lock) { _isWorkstationLocked = false; _lockedByProximity = false; }
+                    lock (_lock)
+                    {
+                        _isWorkstationLocked = false;
+                        _lockedByProximity = false;
+                        _firstAdvertReceived = false;
+                        _lastSeenTime = DateTime.Now;
+                    }
                     _lastUnlockTime = DateTime.Now;
                     _appEvent?.Set();
                     _screenEvent?.Set();
@@ -1330,7 +1332,6 @@ public partial class BleManager : IDisposable
                 using (var encryptor = aes.CreateEncryptor(aes.Key, iv))
                 using (var ms = new MemoryStream())
                 {
-                    // Prepend the initialization vector onto the payload segment
                     ms.Write(iv, 0, iv.Length);
                     using (var cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
                     {
@@ -1427,30 +1428,35 @@ public partial class BleManager : IDisposable
     {
         bool connected;
         bool stopping;
+        bool alreadyLocked;
+        bool firstAdvertReceived;
         DateTime lastSeen;
 
         lock (_lock)
         {
             connected = _isConnected;
             stopping = _isStopping;
+            alreadyLocked = _isWorkstationLocked;
             lastSeen = _lastSeenTime;
+            firstAdvertReceived = _firstAdvertReceived;
         }
 
-        if (!connected || stopping)
+        if (!connected || stopping || alreadyLocked)
             return;
 
-        // Passive Watchdog Evaluation: If the background advertisement watcher hasn't received 
-        // a beacon segment packet in over 4.5 seconds, we execute our graceful failover lock safely.
+        if (!firstAdvertReceived)
+            return;
+
         double secondsSinceLastSeen = (DateTime.Now - lastSeen).TotalSeconds;
 
-        if (secondsSinceLastSeen > 4.5)
+        if (secondsSinceLastSeen > 8.0)
         {
             _logger.Warning($"⚠️ Proximity Watchdog Timeout: No beacons captured for {secondsSinceLastSeen:F1} seconds. Triggering secure lock.");
 
             lock (_lock)
             {
                 _rssiSamples.Clear();
-                EvaluateProximity(RSSI_LOCK - 5); // Force clear out-of-bounds lock layout safely
+                EvaluateProximity(RSSI_LOCK - 5);
             }
         }
         else
@@ -1472,64 +1478,127 @@ public partial class BleManager : IDisposable
 
         if (!isLockedLocal)
         {
-            // FIX: Restored JSON property payload identifier token wrapper to "Rssi" to match App.xaml.cs tracking schemas
             _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.TRUST_DEGRADED, Source = "BleManager", PayloadJson = $"{{\"Rssi\":{avgRssi}}}" });
         }
 
         if (isLockedLocal && lockedByProximityLocal && avgRssi >= RSSI_GOOD)
         {
-            _logger.Info($"Device returned within threshold: {avgRssi:F0} dBm. Re-authenticating...");
-
-            string addressHex;
             lock (_lock)
             {
-                addressHex = _device?.BluetoothAddress.ToString("X") ?? "";
-            }
-
-            string? storedKey = GetStoredPublicKey(addressHex);
-            byte[]? publicKeyBytes = null;
-
-            if (!string.IsNullOrEmpty(storedKey))
-                publicKeyBytes = Convert.FromBase64String(storedKey);
-            else if (_trustedPublicKey != null)
-                publicKeyBytes = _trustedPublicKey;
-            else
-            {
-                _logger.Error("No stored public key available for proximity recovery.");
-                return;
-            }
-
-            bool identityReverified = false;
-            for (int retry = 0; retry < 3 && !identityReverified; retry++)
-            {
-                identityReverified = await AuthenticateDeviceViaChallengeAsync(publicKeyBytes, CancellationToken.None);
-                if (!identityReverified && retry < 2)
+                if (_isReauthenticating)
                 {
-                    _logger.Warning($"Re-auth attempt {retry + 1} failed, retrying...");
-                    await Task.Delay(500);
-                }
-            }
-
-            if (identityReverified)
-            {
-                if ((DateTime.Now - _lastUnlockTime).TotalMilliseconds < UNLOCK_COOLDOWN_MS)
-                {
-                    _logger.Debug("Unlock cooldown active, skipping unlock.");
                     return;
                 }
-                _logger.Info("✅ Proximity re-authentication passed. Unlocking.");
-                lock (_lock) { _isWorkstationLocked = false; _lockedByProximity = false; }
-                _lastUnlockTime = DateTime.Now;
-
-                _appEvent?.Set();
-                _screenEvent?.Set();
-
-                _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
-                _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager" });
+                _isReauthenticating = true;
             }
-            else
+
+            _logger.Info($"Device returned within threshold: {avgRssi:F0} dBm. Re-authenticating...");
+
+            try
             {
-                _logger.Error("❌ Re-authentication failed after retries.");
+                string addressHex;
+                lock (_lock)
+                {
+                    addressHex = _device?.BluetoothAddress.ToString("X") ?? "";
+                }
+
+                string? storedKey = GetStoredPublicKey(addressHex);
+                byte[]? publicKeyBytes = null;
+
+                if (!string.IsNullOrEmpty(storedKey))
+                    publicKeyBytes = Convert.FromBase64String(storedKey);
+                else if (_trustedPublicKey != null)
+                    publicKeyBytes = _trustedPublicKey;
+                else
+                {
+                    _logger.Error("No stored public key available for proximity recovery.");
+                    return;
+                }
+
+                bool identityReverified = false;
+                for (int retry = 0; retry < 3 && !identityReverified; retry++)
+                {
+                    if (_secureModeSupported)
+                    {
+                        TaskCompletionSource<bool> localTcs;
+                        lock (_lock)
+                        {
+                            _secureAuthTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                            localTcs = _secureAuthTcs;
+                        }
+
+                        try
+                        {
+                            byte[] triggerNonce = new byte[16];
+                            RandomNumberGenerator.Fill(triggerNonce);
+                            using (var writer = new DataWriter())
+                            {
+                                writer.WriteBytes(triggerNonce);
+                                var triggerResult = await _challengeChar!.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
+                                if (triggerResult.Status == GattCommunicationStatus.Success)
+                                {
+                                    using (var timeoutCts = new CancellationTokenSource(3000))
+                                    {
+                                        var completedTask = await Task.WhenAny(localTcs.Task, Task.Delay(3000, timeoutCts.Token));
+                                        if (completedTask == localTcs.Task)
+                                        {
+                                            identityReverified = await localTcs.Task;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Error($"Secure proximity re-auth iteration failure: {ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                        identityReverified = await AuthenticateDeviceViaChallengeAsync(publicKeyBytes, CancellationToken.None);
+                    }
+
+                    if (!identityReverified && retry < 2)
+                    {
+                        _logger.Warning($"Re-auth attempt {retry + 1} failed, retrying...");
+                        await Task.Delay(500);
+                    }
+                }
+
+                if (identityReverified)
+                {
+                    if ((DateTime.Now - _lastUnlockTime).TotalMilliseconds < UNLOCK_COOLDOWN_MS)
+                    {
+                        _logger.Debug("Unlock cooldown active, skipping unlock.");
+                        return;
+                    }
+                    _logger.Info("✅ Proximity re-authentication passed. Unlocking.");
+                    lock (_lock)
+                    {
+                        _isWorkstationLocked = false;
+                        _lockedByProximity = false;
+                        _firstAdvertReceived = false;
+                        _lastSeenTime = DateTime.Now;
+                    }
+                    _lastUnlockTime = DateTime.Now;
+
+                    try { _appEvent?.Set(); } catch { }
+                    try { _screenEvent?.Set(); } catch { }
+
+                    _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
+                    _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager" });
+                }
+                else
+                {
+                    _logger.Error("❌ Re-authentication failed after retries.");
+                }
+            }
+            finally
+            {
+                lock (_lock)
+                {
+                    _isReauthenticating = false;
+                }
             }
             return;
         }
@@ -1595,6 +1664,8 @@ public partial class BleManager : IDisposable
     {
         lock (_lock)
         {
+            _firstAdvertReceived = false;
+
             if (_authChallengeChar != null)
             {
                 _authChallengeChar.ValueChanged -= OnAuthChallengeReceived;
@@ -1723,11 +1794,9 @@ public partial class BleManager : IDisposable
                 si.cb = Marshal.SizeOf(si);
                 si.lpDesktop = @"Winsta0\Default";
 
-                // Resolve base path relative to the host execution space
                 string serviceDir = Path.GetDirectoryName(Assembly.GetEntryAssembly()!.Location)!;
                 string exePath = Path.Combine(serviceDir, "Tether.OverlayUI.exe");
 
-                // FIX: Dynamically climb the directory tree upward to map the dev folder context seamlessly
                 if (!File.Exists(exePath))
                 {
                     DirectoryInfo? current = new DirectoryInfo(serviceDir);
@@ -1789,14 +1858,16 @@ public partial class BleManager : IDisposable
         {
             var json = System.Text.Json.JsonSerializer.Serialize(evt);
             var bytes = Encoding.UTF8.GetBytes(json);
-            using var client = new System.IO.Pipes.NamedPipeClientStream(".", Tether.Shared.IPC.IpcConstants.UiPipeName, System.IO.Pipes.PipeDirection.Out);
+
+            using var client = new System.IO.Pipes.NamedPipeClientStream(".", "TetherUiPipe", System.IO.Pipes.PipeDirection.Out);
+
             await client.ConnectAsync(1000);
             await client.WriteAsync(bytes, 0, bytes.Length);
             await client.FlushAsync();
         }
         catch (Exception ex)
         {
-            _logger.Debug($"IPC send failed: {ex.Message}");
+            _logger.Debug($"IPC UI Proximity pipeline transmission failed: {ex.Message}");
         }
     }
 

@@ -1,6 +1,11 @@
 ﻿using System;
 using System.ComponentModel;
+using System.IO.Pipes;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -9,16 +14,15 @@ namespace Tether.OverlayUI
 {
     public partial class OverlayWindow : Window
     {
-        // Low-Level Keyboard Interceptor Hooks
         private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
         private LowLevelKeyboardProc? _proc;
         private IntPtr _hookID = IntPtr.Zero;
+        private CancellationTokenSource? _ipcTokenSource;
 
         private const int WH_KEYBOARD_LL = 13;
         private const int WM_KEYDOWN = 0x0100;
         private const int WM_SYSKEYDOWN = 0x0104;
 
-        // Native Blur Attributes Constants
         [DllImport("user32.dll", SetLastError = true)]
         private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
 
@@ -36,7 +40,7 @@ namespace Tether.OverlayUI
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, uint dwAttribute, ref uint pvAttribute, uint cbAttribute);
 
         private const uint DWMWA_SYSTEMBACKDROP_TYPE = 38;
-        private const uint DWMSBT_TRANSLUCENTBACKDROP = 3; // High-performance Acrylic/Mica Glass effect ceiling
+        private const uint DWMSBT_TRANSLUCENTBACKDROP = 3;
 
         public OverlayWindow()
         {
@@ -48,28 +52,90 @@ namespace Tether.OverlayUI
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            // Lock out full screen parameters safely
             this.Left = SystemParameters.VirtualScreenLeft;
             this.Top = SystemParameters.VirtualScreenTop;
             this.Width = SystemParameters.VirtualScreenWidth;
             this.Height = SystemParameters.VirtualScreenHeight;
 
-            // Trigger Hardware Accelerated Windows 11 Translucent Acrylic Glass Backdrop
             IntPtr windowHandle = new WindowInteropHelper(this).Handle;
             uint backdropType = DWMSBT_TRANSLUCENTBACKDROP;
             DwmSetWindowAttribute(windowHandle, DWMWA_SYSTEMBACKDROP_TYPE, ref backdropType, sizeof(uint));
 
             this.Activate();
             this.Focus();
+
+            _ipcTokenSource = new CancellationTokenSource();
+            Task.Run(() => StartIpcListenerLoopAsync(_ipcTokenSource.Token));
         }
 
-        // Steal focus back aggressively if the user attempts to click away or activate Task Manager
+        public void UpdateBlurFromRssi(double rssi)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(() => UpdateBlurFromRssi(rssi));
+                return;
+            }
+
+            try
+            {
+                double opacity = Math.Clamp((rssi + 50) / -30.0, 0.05, 0.75);
+                if (BackgroundObfuscator != null)
+                {
+                    BackgroundObfuscator.Opacity = opacity;
+                }
+            }
+            catch
+            {
+                // Fallback catch boundary
+            }
+        }
+
+        private async Task StartIpcListenerLoopAsync(CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    using (var server = new NamedPipeServerStream("TetherUiPipe", PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
+                    {
+                        await server.WaitForConnectionAsync(token);
+
+                        byte[] buffer = new byte[1024];
+                        int bytesRead = await server.ReadAsync(buffer, 0, buffer.Length, token);
+                        if (bytesRead > 0)
+                        {
+                            string json = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                            var tetherEvent = JsonSerializer.Deserialize<TetherEventMinimal>(json);
+
+                            if (tetherEvent != null && (tetherEvent.EventType == "OVERLAY_DISABLED" || tetherEvent.EventType == "TRUST_RESTORED"))
+                            {
+                                await Dispatcher.InvokeAsync(() =>
+                                {
+                                    GracefulDismissal();
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"UI Proximity IPC loop error: {ex.Message}");
+                    await Task.Delay(1000, token);
+                }
+            }
+        }
+
         private void Window_Deactivated(object sender, EventArgs e)
         {
             if (this.IsLoaded)
             {
                 this.Topmost = false;
-                this.Topmost = true; // Refresh stacking priority
+                this.Topmost = true;
                 this.Activate();
                 this.Focus();
             }
@@ -80,12 +146,6 @@ namespace Tether.OverlayUI
             e.Cancel = true;
         }
 
-        public void UpdateBlurFromRssi(double rssi)
-        {
-            // Unused since OS Acrylic backdrop handles visual isolation natively now
-        }
-
-        // Low-level system hook callback logic processing inputs safely
         private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
             if (nCode >= 0 && (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN))
@@ -93,7 +153,6 @@ namespace Tether.OverlayUI
                 int vkCode = Marshal.ReadInt32(lParam);
                 Key key = KeyInterop.KeyFromVirtualKey(vkCode);
 
-                // Intercept and absorb bypass keys: Alt+Tab, Windows Keys, Esc modifiers
                 bool isAlt = (Keyboard.Modifiers & ModifierKeys.Alt) != 0 || key == Key.System;
                 bool isCtrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
 
@@ -102,7 +161,7 @@ namespace Tether.OverlayUI
                     (key == Key.LWin) || (key == Key.RWin) ||
                     (isAlt && key == Key.F4))
                 {
-                    return (IntPtr)1; // Consume input stream immediately
+                    return (IntPtr)1;
                 }
             }
             return CallNextHookEx(_hookID, nCode, wParam, lParam);
@@ -113,7 +172,11 @@ namespace Tether.OverlayUI
             using (var curProcess = System.Diagnostics.Process.GetCurrentProcess())
             using (var curModule = curProcess.MainModule)
             {
-                return SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(curModule!.ModuleName!), 0);
+                if (curModule != null && !string.IsNullOrEmpty(curModule.ModuleName))
+                {
+                    return SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(curModule.ModuleName), 0);
+                }
+                return IntPtr.Zero;
             }
         }
 
@@ -121,16 +184,18 @@ namespace Tether.OverlayUI
         {
             try
             {
+                // FIX: Use the strongly-typed TetherEvent class so the enum serializes perfectly for the service parser
                 var releaseEvent = new Tether.Shared.Events.TetherEvent
                 {
                     EventType = Tether.Shared.Events.TetherEventType.PHONE_UNLOCKED,
                     Source = "OverlayUI"
                 };
 
-                var json = System.Text.Json.JsonSerializer.Serialize(releaseEvent);
-                var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+                var json = JsonSerializer.Serialize(releaseEvent);
+                var bytes = Encoding.UTF8.GetBytes(json);
 
-                using var client = new System.IO.Pipes.NamedPipeClientStream(".", Tether.Shared.IPC.IpcConstants.PipeName, System.IO.Pipes.PipeDirection.Out);
+                // FIX: Align the outbound target back to the shared PipeName definition
+                using var client = new NamedPipeClientStream(".", Tether.Shared.IPC.IpcConstants.PipeName, PipeDirection.Out);
                 await client.ConnectAsync(300);
                 await client.WriteAsync(bytes, 0, bytes.Length);
                 await client.FlushAsync();
@@ -141,14 +206,27 @@ namespace Tether.OverlayUI
             }
             finally
             {
-                if (_hookID != IntPtr.Zero)
-                {
-                    UnhookWindowsHookEx(_hookID);
-                }
-                this.Closing -= OnWindowClosing;
-                this.Close();
-                System.Windows.Application.Current.Shutdown();
+                GracefulDismissal();
             }
+        }
+
+        private void GracefulDismissal()
+        {
+            _ipcTokenSource?.Cancel();
+            if (_hookID != IntPtr.Zero)
+            {
+                UnhookWindowsHookEx(_hookID);
+                _hookID = IntPtr.Zero;
+            }
+            this.Closing -= OnWindowClosing;
+            this.Close();
+            System.Windows.Application.Current.Shutdown();
+        }
+
+        private class TetherEventMinimal
+        {
+            public string EventType { get; set; } = string.Empty;
+            public string Source { get; set; } = string.Empty;
         }
     }
 }
