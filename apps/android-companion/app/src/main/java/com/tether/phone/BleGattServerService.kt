@@ -643,7 +643,7 @@ class BleGattServerService : Service() {
                                 Log.i("TetherBle", "✅ Authenticating node via Legacy Handshake: $address")
                                 authenticatedDevicesMap[address] = device
                                 unauthenticatedConnections.remove(address)
-                                stopAdvertising()
+                                // stopAdvertising()
                                 notifyStateToInterface()
                             }
                         }
@@ -693,7 +693,7 @@ class BleGattServerService : Service() {
                         Log.i("TetherBle", "✅ Auth Succeeded for $address")
                         unauthenticatedConnections.remove(address)
                         authenticatedDevicesMap[address] = device
-                        stopAdvertising()
+                        // stopAdvertising()
                         notifyStateToInterface()
 
                         // Explicitly notify the Windows host that authentication passed
@@ -815,7 +815,7 @@ class BleGattServerService : Service() {
 
                     authenticatedDevicesMap[address] = device
                     unauthenticatedConnections.remove(address)
-                    stopAdvertising()
+                    // stopAdvertising()
                     notifyStateToInterface()
                 }
                 return

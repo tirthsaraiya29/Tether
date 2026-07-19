@@ -5,23 +5,18 @@
         WindowStyle="None" 
         ResizeMode="NoResize" 
         Topmost="True" 
-        AllowsTransparency="True" 
-        Background="Transparent"
+        AllowsTransparency="False" Background="Transparent"
         ShowInTaskbar="False"
-        Loaded="Window_Loaded">
+        Loaded="Window_Loaded"
+        Deactivated="Window_Deactivated">
 
-    <Grid>
-        <Rectangle x:Name="BackgroundObfuscator" Fill="#40000000">
-            <Rectangle.Effect>
-                <BlurEffect x:Name="ScreenBlur" Radius="0" KernelType="Box"/>
-            </Rectangle.Effect>
-        </Rectangle>
+    <Grid Background="Transparent">
+        <Rectangle x:Name="BackgroundObfuscator" Fill="#05000000" IsHitTestVisible="False"/>
 
         <Border Width="340" 
                 Height="220" 
-                Background="#000000" 
-                CornerRadius="24" 
-                BorderBrush="#222222" 
+                Background="#55101010" CornerRadius="24" 
+                BorderBrush="#44FFFFFF" 
                 BorderThickness="1.5"
                 HorizontalAlignment="Center" 
                 VerticalAlignment="Center">
@@ -34,8 +29,8 @@
                            HorizontalAlignment="Center" 
                            Margin="0,0,0,8"/>
 
-                <TextBlock Text="Proximity hardware missing or tracking signal degraded." 
-                           Foreground="#888888" 
+                <TextBlock Text="Proximity hardware missing or tracking signal degraded."
+                           Foreground="#CCCCCC" 
                            FontSize="12" 
                            TextWrapping="Wrap"
                            TextAlignment="Center"
