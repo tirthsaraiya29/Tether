@@ -31,6 +31,7 @@
     <string name="status_broadcasting">BROADCASTING</string>
     <string name="status_scanning_host">SCANNING FOR HOST...</string>
     <string name="status_hardware_offline">HARDWARE OFFLINE</string>
+    <string name="status_restarting_stack">RESTARTING SECURE STACK...</string>
     <string name="status_link_severed">BLUETOOTH LINK SEVERED</string>
     <string name="status_access_denied">ACCESS DENIED</string>
     <string name="status_verifying_environment">VERIFYING ENVIRONMENT...</string>
@@ -97,6 +98,9 @@
     <string name="label_battery_persistence">BATTERY PERSISTENCE</string>
     <string name="desc_battery_optimized">System may kill background mesh.</string>
     <string name="desc_battery_unrestricted">Unrestricted background access active.</string>
+    <string name="label_service_control">SERVICE CONTROL</string>
+    <string name="label_restart_server">RESTART SERVER</string>
+    <string name="desc_restart_server">Purge GATT handles and re-initialize radio mesh.</string>
     <string name="btn_fix">FIX</string>
     <string name="header_integrity_core">INTEGRITY CORE</string>
     <string name="header_hardware_interface">HARDWARE INTERFACE</string>

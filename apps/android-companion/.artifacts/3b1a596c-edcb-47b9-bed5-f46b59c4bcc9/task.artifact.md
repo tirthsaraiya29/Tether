@@ -1,0 +1,4 @@
+- [x] Add `ACTION_RESTART_SERVER` to `BleGattServerService` and handle in `onStartCommand`
+- [x] Add `restartBleServer` in `MainActivity` and wire up to UI
+- [x] Add "Restart Server" button to `SettingsScreen`
+- [x] Verify build and functionality

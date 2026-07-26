@@ -187,6 +187,7 @@ class BleGattServerService : Service() {
         private const val NOTIFICATION_ID = 1
 
         const val ALARM_ACTION = "com.tether.phone.ALARM_HEALTH_CHECK"
+        const val ACTION_RESTART_SERVER = "com.tether.phone.RESTART_SERVER"
         private const val HEALTH_CHECK_INTERVAL_MS = 60000L
         private const val WAKE_LOCK_TAG = "tether:BleWakeLock"
     }
@@ -302,6 +303,18 @@ class BleGattServerService : Service() {
 
             if (action == "ACTION_GET_STATUS") {
                 notifyStateToInterface()
+                return START_STICKY
+            }
+
+            if (action == ACTION_RESTART_SERVER) {
+                Log.w("TetherBle", "Manual server restart requested via onStartCommand")
+                mainHandler.post { restartGattServer() }
+                return START_STICKY
+            }
+
+            if (action == ACTION_RESTART_SERVER) {
+                Log.w("TetherBle", "Manual server restart requested via onStartCommand")
+                mainHandler.post { restartGattServer() }
                 return START_STICKY
             }
 
