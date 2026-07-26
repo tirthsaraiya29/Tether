@@ -8,7 +8,7 @@ The system creates a secure trust relationship between a Windows machine and an 
 
 ---
 
-> **⚠️ ALPHA DEVELOPMENT STATUS**
+> **⚠️ BETA DEVELOPMENT STATUS**
 >
 > This software is under active development.
 > It should **not** be relied upon for production-critical security environments.
