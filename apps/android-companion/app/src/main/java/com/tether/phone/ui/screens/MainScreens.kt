@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -468,7 +469,8 @@ fun BiometricVerificationStep(onVerify: () -> Unit) {
 @Composable
 fun SettingsScreen(
     selectedTimeoutMs: Long,
-    onTimeoutChanged: (Long) -> Unit
+    onTimeoutChanged: (Long) -> Unit,
+    onRestartServer: () -> Unit
 ) {
     val context = LocalContext.current
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
@@ -632,6 +634,41 @@ fun SettingsScreen(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 400)) + 
                     slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 400)) { it / 3 }
+        ) {
+            ProfessionalGlassSurface {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.label_service_control),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = stringResource(R.string.desc_restart_server),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = onRestartServer,
+                        colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan.copy(alpha = 0.12f)),
+                        border = BorderStroke(width = 0.5.dp, color = LiquidCyan),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text(text = stringResource(R.string.label_restart_server), color = LiquidCyan)
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 500)) + 
+                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 500)) { it / 3 }
         ) {
             DeviceAttestationCard(context = LocalContext.current)
         }

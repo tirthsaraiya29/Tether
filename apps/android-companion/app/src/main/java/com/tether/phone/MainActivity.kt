@@ -321,7 +321,8 @@ class MainActivity : FragmentActivity() {
                                         putLong("pairing_window_start_time", System.currentTimeMillis())
                                     }
                                     showPairingQRCode()
-                                }
+                                },
+                                onRestartServer = { restartBleServer() }
                             )
 
                             pendingPowerAction.value?.let { action: PowerAction ->
@@ -812,6 +813,18 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private fun restartBleServer() {
+        val intent = Intent(this, BleGattServerService::class.java).apply {
+            action = BleGattServerService.ACTION_RESTART_SERVER
+        }
+        try {
+            startForegroundService(intent)
+            uiConnectionStatusText.value = getString(R.string.status_restarting_stack)
+        } catch (e: Exception) {
+            Log.e("TetherActivity", "Failed to restart server", e)
+        }
+    }
+
     private fun syncBleState() {
         if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
         val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
@@ -843,7 +856,8 @@ fun TetherNavigationShell(
     onTriggerStepVerification: (TrustVerificationStep) -> Unit,
     onTimeoutChanged: (Long) -> Unit,
     onLaptopActionClick: (String) -> Unit,
-    onShowQR: () -> Unit
+    onShowQR: () -> Unit,
+    onRestartServer: () -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -955,7 +969,8 @@ fun TetherNavigationShell(
                         )
                         AppScreen.SECURITY_SETTINGS -> SettingsScreen(
                             selectedTimeoutMs = selectedTimeoutMs,
-                            onTimeoutChanged = onTimeoutChanged
+                            onTimeoutChanged = onTimeoutChanged,
+                            onRestartServer = onRestartServer
                         )
                         AppScreen.LAPTOP_CONTROL -> Box(Modifier.fillMaxSize()) // Removed
                         AppScreen.PAIRING -> PairingScreen(onShowQR = onShowQR)
