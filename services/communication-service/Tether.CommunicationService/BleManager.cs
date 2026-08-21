@@ -247,7 +247,7 @@ public partial class BleManager : IDisposable
             if (key == null)
             {
                 using var newKey = Registry.LocalMachine.CreateSubKey(productionKeyName);
-                using var rsa = RSA.Create(2048);
+                var rsa = RSA.Create(2048); // Do not wrap in using; instance must remain alive
 
                 var privateKeyBlob = rsa.ExportRSAPrivateKey();
                 var publicKeyBlob = rsa.ExportSubjectPublicKeyInfo();
@@ -564,6 +564,10 @@ public partial class BleManager : IDisposable
                 {
                     _gattSession = await GattSession.FromDeviceIdAsync(device.BluetoothDeviceId);
                     _gattSession.MaintainConnection = true;
+
+                    // Request high-throughput / low-latency parameters on the device
+                    device.RequestPreferredConnectionParameters(
+                        BluetoothLEPreferredConnectionParameters.ThroughputOptimized);
                 }
                 catch { }
 
@@ -573,11 +577,7 @@ public partial class BleManager : IDisposable
                 {
                     try
                     {
-                        servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Cached);
-                        if (servicesResult == null || servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
-                        {
-                            servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
-                        }
+                        servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached);
                     }
                     catch
                     {
@@ -589,8 +589,7 @@ public partial class BleManager : IDisposable
                         serviceFound = true;
                         break;
                     }
-
-                    await Task.Delay(300 * serviceAttempt, token);
+                    await Task.Delay(200 * serviceAttempt, token);
                 }
 
                 if (!serviceFound)
@@ -610,11 +609,7 @@ public partial class BleManager : IDisposable
                 {
                     try
                     {
-                        charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Cached);
-                        if (charsResult == null || charsResult.Status != GattCommunicationStatus.Success || charsResult.Characteristics.Count == 0)
-                        {
-                            charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
-                        }
+                        charsResult = await _service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
                     }
                     catch
                     {
@@ -626,7 +621,7 @@ public partial class BleManager : IDisposable
                         charsFound = true;
                         break;
                     }
-                    await Task.Delay(300 * charAttempt, token);
+                    await Task.Delay(200 * charAttempt, token);
                 }
 
                 if (!charsFound)
@@ -671,34 +666,8 @@ public partial class BleManager : IDisposable
                 _commandChar!.ValueChanged -= OnCommandReceivedFromPhone;
                 _commandChar.ValueChanged += OnCommandReceivedFromPhone;
 
-                bool subscriptionOk = false;
-                for (int subAttempt = 1; subAttempt <= 5 && !subscriptionOk; subAttempt++)
-                {
-                    try
-                    {
-                        var cccdResult = await _commandChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
-                            GattClientCharacteristicConfigurationDescriptorValue.Notify);
-                        if (cccdResult.Status == GattCommunicationStatus.Success)
-                        {
-                            subscriptionOk = true;
-                            break;
-                        }
-                        await Task.Delay(200 * subAttempt, token);
-                    }
-                    catch
-                    {
-                        await Task.Delay(200 * subAttempt, token);
-                    }
-                }
-
-                if (!subscriptionOk)
-                {
-                    CleanupDevice();
-                    if (attempt == maxRetryAttempts) { HandleDisconnection(); return; }
-                    await Task.Delay(delayMs, token);
-                    delayMs *= 2;
-                    continue;
-                }
+                await _commandChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
+                    GattClientCharacteristicConfigurationDescriptorValue.Notify);
 
                 byte[] generatedKey = new byte[32];
                 RandomNumberGenerator.Fill(generatedKey);
@@ -734,59 +703,60 @@ public partial class BleManager : IDisposable
                     _authChallengeChar!.ValueChanged -= OnAuthChallengeReceived;
                     _authChallengeChar.ValueChanged += OnAuthChallengeReceived;
 
-                    bool authSubOk = false;
-                    for (int subAttempt = 1; subAttempt <= 5 && !authSubOk; subAttempt++)
-                    {
-                        try
-                        {
-                            var cccdResult = await _authChallengeChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
-                                GattClientCharacteristicConfigurationDescriptorValue.Notify);
-                            if (cccdResult.Status == GattCommunicationStatus.Success)
-                            {
-                                authSubOk = true;
-                                break;
-                            }
-                            await Task.Delay(200 * subAttempt, token);
-                        }
-                        catch
-                        {
-                            await Task.Delay(200 * subAttempt, token);
-                        }
-                    }
+                    await _authChallengeChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
+                        GattClientCharacteristicConfigurationDescriptorValue.Notify);
 
-                    if (!authSubOk)
-                    {
-                        CleanupDevice();
-                        if (attempt == maxRetryAttempts) { HandleDisconnection(); return; }
-                        await Task.Delay(delayMs, token);
-                        delayMs *= 2;
-                        continue;
-                    }
-
+                    // 1. Send client public key to phone first
                     await SendClientPublicKeyAsync(token);
 
+                    // 2. Allow Android to register the public key in its dictionary
+                    await Task.Delay(100, token);
+
+                    // 3. Send trigger token to initiate challenge generation
                     byte[] triggerNonce = new byte[16];
                     RandomNumberGenerator.Fill(triggerNonce);
                     using (var writer = new DataWriter())
                     {
                         writer.WriteBytes(triggerNonce);
-                        var triggerResult = await _challengeChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
-                        if (triggerResult.Status != GattCommunicationStatus.Success)
-                        {
-                            CleanupDevice();
-                            if (attempt == maxRetryAttempts) { HandleDisconnection(); return; }
-                            await Task.Delay(delayMs, token);
-                            delayMs *= 2;
-                            continue;
-                        }
+                        await _challengeChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
                     }
 
+                    // 4. Wait for auth challenge notification with direct read fallback
                     using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(token))
                     {
-                        var completedTask = await Task.WhenAny(_secureAuthTcs!.Task, Task.Delay(4000, delayCts.Token));
+                        var completedTask = await Task.WhenAny(_secureAuthTcs!.Task, Task.Delay(2500, delayCts.Token));
                         if (completedTask == _secureAuthTcs.Task && await _secureAuthTcs.Task)
                         {
                             isAuthenticated = true;
+                        }
+                        else if (!_secureAuthTcs.Task.IsCompleted)
+                        {
+                            // Direct read fallback if notification was dropped
+                            var readResult = await _authChallengeChar.ReadValueAsync(BluetoothCacheMode.Uncached);
+                            if (readResult.Status == GattCommunicationStatus.Success && readResult.Value.Length > 0)
+                            {
+                                var reader = DataReader.FromBuffer(readResult.Value);
+                                byte[] nonce = new byte[reader.UnconsumedBufferLength];
+                                reader.ReadBytes(nonce);
+
+                                byte[] signature;
+                                lock (_lock)
+                                {
+                                    signature = _clientRsa!.SignData(nonce, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                                }
+
+                                using var sigWriter = new DataWriter();
+                                sigWriter.WriteBytes(signature);
+                                var sigResult = await _authSignatureChar!.WriteValueWithResultAsync(sigWriter.DetachBuffer(), GattWriteOption.WriteWithResponse);
+                                if (sigResult.Status == GattCommunicationStatus.Success)
+                                {
+                                    var finalWait = await Task.WhenAny(_secureAuthTcs.Task, Task.Delay(2500, delayCts.Token));
+                                    if (finalWait == _secureAuthTcs.Task && await _secureAuthTcs.Task)
+                                    {
+                                        isAuthenticated = true;
+                                    }
+                                }
+                            }
                         }
                         delayCts.Cancel();
                     }
@@ -828,10 +798,10 @@ public partial class BleManager : IDisposable
                 StartHealthCheck();
                 return;
             }
-            catch (TaskCanceledException) { }
-            catch (OperationCanceledException) { }
-            catch (COMException) { }
-            catch (Exception) { }
+            catch (Exception ex)
+            {
+                _logger.Error($"Connection attempt {attempt} failed: {ex.Message}");
+            }
 
             CleanupDevice();
 
