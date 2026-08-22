@@ -27,13 +27,12 @@ jobs:
           - language: csharp
             build-mode: none
           - language: java-kotlin
-            build-mode: manual # 1. Changed from 'autobuild' to 'manual'
+            build-mode: manual
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2. Add JDK setup so Gradle can compile your Android app
     - name: Set up JDK 17
       if: matrix.language == 'java-kotlin'
       uses: actions/setup-java@v4
@@ -41,22 +40,19 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v4
       with:
         languages: ${{ matrix.language }}
         build-mode: ${{ matrix.build-mode }}
 
-    # 3. Replace the placeholder manual build block with your actual Gradle build command
     - name: Run manual build steps
       if: matrix.build-mode == 'manual'
       shell: bash
       run: |
-        echo "Navigating to the android app folder..."
         cd apps/android-companion
         chmod +x gradlew
-        ./gradlew compileDebugJavaWithJavac
+        ./gradlew --no-daemon clean compileDebugSources
         
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4
