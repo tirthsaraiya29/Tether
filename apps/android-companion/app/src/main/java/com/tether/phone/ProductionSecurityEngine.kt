@@ -1,3 +1,4 @@
+// apps/android-companion/app/src/main/java/com/tether/phone/ProductionSecurityEngine.kt
 package com.tether.phone
 
 import android.content.Context
@@ -33,6 +34,7 @@ class ProductionSecurityEngine {
         ensureStorageKeyExists()
     }
 
+    // PATCH: Upgraded KeyProperties digest from SHA-1 to secure SHA-256 and SHA-512
     private fun ensureKeyPairExists() {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         if (!keyStore.containsAlias(KEY_ALIAS)) {
@@ -46,7 +48,7 @@ class ProductionSecurityEngine {
                 KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY or KeyProperties.PURPOSE_DECRYPT,
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_ECB)
-                .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA1)
+                .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
                 .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_RSA_OAEP)
                 .setKeySize(2048)
@@ -89,7 +91,6 @@ class ProductionSecurityEngine {
             val iv = cipher.iv
             val encryptedBytes = cipher.doFinal(publicKeyBytes)
 
-            // Pack the IV block alongside encrypted chunk data seamlessly
             val combined = ByteArray(iv.size + encryptedBytes.size)
             System.arraycopy(iv, 0, combined, 0, iv.size)
             System.arraycopy(encryptedBytes, 0, combined, iv.size, encryptedBytes.size)
@@ -132,21 +133,33 @@ class ProductionSecurityEngine {
         return publicKey.encoded
     }
 
+    // PATCH: Upgraded to OAEPWithSHA-256AndMGF1Padding with SHA-1 fallback for legacy keys
     fun decryptSessionKey(encryptedKey: ByteArray): ByteArray {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         val privateKeyEntry = keyStore.getEntry(KEY_ALIAS, null) as KeyStore.PrivateKeyEntry
         val privateKey = privateKeyEntry.privateKey
 
-        val cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-1AndMGF1Padding")
-        val oaepSpec = OAEPParameterSpec(
-            "SHA-1",
-            "MGF1",
-            MGF1ParameterSpec.SHA1,
-            PSource.PSpecified.DEFAULT
-        )
-
-        cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepSpec)
-        return cipher.doFinal(encryptedKey)
+        return try {
+            val cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding")
+            val oaepSpec = OAEPParameterSpec(
+                "SHA-256",
+                "MGF1",
+                MGF1ParameterSpec.SHA256,
+                PSource.PSpecified.DEFAULT
+            )
+            cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepSpec)
+            cipher.doFinal(encryptedKey)
+        } catch (_: Exception) {
+            val cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-1AndMGF1Padding")
+            val oaepSpec = OAEPParameterSpec(
+                "SHA-1",
+                "MGF1",
+                MGF1ParameterSpec.SHA1,
+                PSource.PSpecified.DEFAULT
+            )
+            cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepSpec)
+            cipher.doFinal(encryptedKey)
+        }
     }
 
     fun computeHmac(nonce: ByteArray, sessionKey: ByteArray): ByteArray {
@@ -164,10 +177,10 @@ class ProductionSecurityEngine {
             sig.initVerify(publicKey)
             sig.update(data)
             val result = sig.verify(signature)
-            android.util.Log.d("TetherSecurity", "Signature verification result: $result")
+            Log.d("TetherSecurity", "Signature verification result: $result")
             result
         } catch (e: Exception) {
-            android.util.Log.e("TetherSecurity", "Signature verification error: ${e.message}", e)
+            Log.e("TetherSecurity", "Signature verification error: ${e.message}", e)
             false
         }
     }

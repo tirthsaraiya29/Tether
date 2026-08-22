@@ -1,3 +1,4 @@
+// apps/android-companion/app/src/main/java/com/tether/phone/TetherServiceReceiver.kt
 package com.tether.phone
 
 import android.content.BroadcastReceiver
@@ -8,13 +9,14 @@ import android.util.Log
 class TetherServiceReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
-        if ((action == ACTION_HEALTH_CHECK) || 
-            (action == Intent.ACTION_BOOT_COMPLETED) || 
+        if ((action == ACTION_HEALTH_CHECK) ||
+            (action == Intent.ACTION_BOOT_COMPLETED) ||
             (action == Intent.ACTION_LOCKED_BOOT_COMPLETED)) {
-            
+
             Log.i("TetherReceiver", "Critical trigger received ($action) - Pinging service")
             val serviceIntent = Intent(context, BleGattServerService::class.java).apply {
                 this.action = "ACTION_GET_STATUS"
+                setPackage(context.packageName)
             }
             try {
                 context.startForegroundService(serviceIntent)

@@ -1,36 +1,38 @@
+// apps/android-companion/app/src/main/java/com/tether/phone/BleGattServerService.kt
 package com.tether.phone
 
-import android.app.Notification
 import android.annotation.SuppressLint
+import android.app.AlarmManager
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.bluetooth.*
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
+import android.content.BroadcastReceiver
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelUuid
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import java.security.SecureRandom
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
-import android.os.PowerManager
-import java.security.SecureRandom
-import android.app.AlarmManager
-import android.app.PendingIntent
-import android.content.BroadcastReceiver
-import android.content.ComponentCallbacks2
-import android.content.IntentFilter
-import android.os.SystemClock
 
 class BleGattServerService : Service() {
 
@@ -134,8 +136,6 @@ class BleGattServerService : Service() {
             val now = SystemClock.elapsedRealtime()
 
             unauthenticatedConnections.forEach { (address, connectionTime) ->
-                // PRODUCTION FIX: Synchronized timeout window with the main handler.
-                // 15 seconds was too aggressive and randomly killed legitimate Windows GATT discovery handshakes.
                 if ((now - connectionTime) > 45000L) {
                     unauthenticatedConnections.remove(address)
                     synchronized(gattLock) {
@@ -222,8 +222,8 @@ class BleGattServerService : Service() {
 
         powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
-        try { 
-            wakeLock?.acquire(10 * 60 * 1000L /*10 minutes*/) 
+        try {
+            wakeLock?.acquire(10 * 60 * 1000L)
         } catch (_: Exception) {}
 
         val filter = IntentFilter().apply {
@@ -287,8 +287,8 @@ class BleGattServerService : Service() {
         }
 
         if (wakeLock?.isHeld == false) {
-            try { 
-                wakeLock?.acquire(10 * 60 * 1000L /*10 minutes*/) 
+            try {
+                wakeLock?.acquire(10 * 60 * 1000L)
             } catch (_: Exception) {}
         }
 
@@ -297,18 +297,12 @@ class BleGattServerService : Service() {
             if (action == ALARM_ACTION) {
                 Log.i("TetherBle", "Alarm Health Check triggered via onStartCommand")
                 mainHandler.post { healthCheckRunnable.run() }
-                scheduleAlarmForHealthCheck() // Reschedule for next interval
+                scheduleAlarmForHealthCheck()
                 return START_STICKY
             }
 
             if (action == "ACTION_GET_STATUS") {
                 notifyStateToInterface()
-                return START_STICKY
-            }
-
-            if (action == ACTION_RESTART_SERVER) {
-                Log.w("TetherBle", "Manual server restart requested via onStartCommand")
-                mainHandler.post { restartGattServer() }
                 return START_STICKY
             }
 
@@ -330,8 +324,7 @@ class BleGattServerService : Service() {
                 activeCommandPayload = value
                 pushCommandToSubscribedDevices(value)
             }
-        } finally {
-        }
+        } finally {}
 
         return START_STICKY
     }
@@ -367,7 +360,6 @@ class BleGattServerService : Service() {
             BluetoothGattCharacteristic.PERMISSION_READ
         )
 
-        // MISSING DESCRIPTOR FIX: Windows requires this to subscribe to notifications
         val authCccdDescriptor = BluetoothGattDescriptor(
             CCCD_UUID,
             BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE,
@@ -416,9 +408,8 @@ class BleGattServerService : Service() {
                     }
                 }, 45000L)
 
-                // FIX: Force the radio to start non-connectable advertising for live proximity tracking while connected
-                mainHandler.post { 
-                    startAdvertising(connectable = false) 
+                mainHandler.post {
+                    startAdvertising(connectable = false)
                 }
 
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
@@ -480,11 +471,8 @@ class BleGattServerService : Service() {
                 try { synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value) } } catch (_: Exception) {}
             }
 
-            // Process short writes on the same mainHandler queue to preserve order
             mainHandler.post { processCompletePayload(device, uuid, value) }
         }
-
-
 
         override fun onCharacteristicReadRequest(device: BluetoothDevice?, requestId: Int, offset: Int, characteristic: BluetoothGattCharacteristic?) {
             if (device == null) return
@@ -538,8 +526,7 @@ class BleGattServerService : Service() {
             val uuid = descriptor.uuid
             val parentCharUuid = descriptor.characteristic?.uuid ?: UUID.randomUUID()
             Log.d("TetherBle", "onDescriptorWriteRequest: $uuid from $address value=${value.contentToString()}")
-            
-            // PRODUCTION FIX: Compound tracking key maps subscriptions strictly to their parent characteristic.
+
             val storageKey = "$address-$parentCharUuid-$uuid"
 
             if (preparedWrite) {
@@ -578,8 +565,6 @@ class BleGattServerService : Service() {
             try {
                 val address = device.address
                 val parentCharUuid = descriptor.characteristic?.uuid ?: UUID.randomUUID()
-                
-                // PRODUCTION FIX: Re-routed mapping read tracking logic onto the distinct compound channel keys.
                 val value = if (descriptor.uuid == CCCD_UUID && notificationSubscriptions["$address-$parentCharUuid"] == true) {
                     BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                 } else {
@@ -618,8 +603,6 @@ class BleGattServerService : Service() {
                 WINDOWS_PUBLIC_KEY_CHAR_UUID -> {
                     windowsPublicKeys[address] = payload
                     Log.d("TetherBle", "Received Windows Public Key for $address (${payload.size} bytes)")
-
-                    // Trigger auth challenge immediately now that key material is registered
                     initiateAuthChallengeIfPossible(device)
                 }
 
@@ -653,11 +636,11 @@ class BleGattServerService : Service() {
 
                     val pairingTimestamp = prefs.getLong("pairing_window_start_time", 0L)
                     val currentTime = System.currentTimeMillis()
-                    val isPairingWindowOpen = (currentTime - pairingTimestamp) < 180000 // 3 minutes window
+                    val isPairingWindowOpen = (currentTime - pairingTimestamp) < 180000
 
                     val freshKey = windowsPublicKeys[address]
                     if (freshKey == null) {
-                        Log.e("TetherBle", "❌ Handshake failed: No public key transmitted by client for $address")
+                        Log.e("TetherBle", "Handshake failed: No public key transmitted by client for $address")
                         synchronized(gattLock) {
                             try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
                         }
@@ -667,20 +650,19 @@ class BleGattServerService : Service() {
                     val isKeyTrusted = if (pinnedKeyBytes != null) {
                         freshKey.contentEquals(pinnedKeyBytes)
                     } else {
-                        isPairingWindowOpen || true // Accept fresh key during initial provisioning
+                        isPairingWindowOpen
                     }
 
                     if (isKeyTrusted && securityEngine.verifySignature(nonce, payload, freshKey)) {
                         if (pinnedKeyBytes == null) {
-                            Log.i("TetherBle", "🤝 Initial pairing successful. Pinning trusted Windows public key via Hardware Keystore Encryption.")
+                            Log.i("TetherBle", "Initial pairing successful. Pinning trusted Windows public key via Hardware Keystore Encryption.")
                             securityEngine.storePinnedKeySecurely(this, freshKey)
                         }
-                        Log.i("TetherBle", "✅ Auth Succeeded for $address")
+                        Log.i("TetherBle", "Auth Succeeded for $address")
                         unauthenticatedConnections.remove(address)
                         authenticatedDevicesMap[address] = device
                         notifyStateToInterface()
 
-                        // Send auth_ok back to Windows on the command characteristic
                         mainHandler.postDelayed({
                             val commandChar = commandCharacteristic
                             val server = bluetoothGattServer
@@ -699,7 +681,7 @@ class BleGattServerService : Service() {
                             }
                         }, 50)
                     } else {
-                        Log.e("TetherBle", "❌ Handshake failed: Signature verification rejected. Trusted: $isKeyTrusted")
+                        Log.e("TetherBle", "Handshake failed: Signature verification rejected. Trusted: $isKeyTrusted")
                         synchronized(gattLock) {
                             try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
                         }
@@ -721,12 +703,29 @@ class BleGattServerService : Service() {
                     } else if (payload.size > 16) {
                         val sessionKey = sessionKeysMap[address] ?: return
                         try {
-                            val iv = payload.copyOfRange(0, 16)
-                            val ciphertext = payload.copyOfRange(16, payload.size)
-                            val cipher = Cipher.getInstance("AES/CBC/PKCS7Padding")
-                            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(sessionKey, "AES"), IvParameterSpec(iv))
+                            // SECURE CIPHER IMPLEMENTATION: Primary AES-GCM with backward-compatible fallback
+                            val decryptedString: String = if (payload.size >= 28) {
+                                try {
+                                    val iv = payload.copyOfRange(0, 12)
+                                    val ciphertext = payload.copyOfRange(12, payload.size)
+                                    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                                    cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(sessionKey, "AES"), GCMParameterSpec(128, iv))
+                                    String(cipher.doFinal(ciphertext), Charsets.UTF_8)
+                                } catch (_: Exception) {
+                                    val iv = payload.copyOfRange(0, 16)
+                                    val ciphertext = payload.copyOfRange(16, payload.size)
+                                    val cipher = Cipher.getInstance("AES/CBC/PKCS7Padding")
+                                    cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(sessionKey, "AES"), IvParameterSpec(iv))
+                                    String(cipher.doFinal(ciphertext), Charsets.UTF_8)
+                                }
+                            } else {
+                                val iv = payload.copyOfRange(0, 16)
+                                val ciphertext = payload.copyOfRange(16, payload.size)
+                                val cipher = Cipher.getInstance("AES/CBC/PKCS7Padding")
+                                cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(sessionKey, "AES"), IvParameterSpec(iv))
+                                String(cipher.doFinal(ciphertext), Charsets.UTF_8)
+                            }
 
-                            val decryptedString = String(cipher.doFinal(ciphertext), Charsets.UTF_8)
                             if (decryptedString.startsWith("confirm_")) {
                                 val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
                                     putExtra("confirmed_command", decryptedString.substringAfter("confirm_"))
@@ -747,7 +746,6 @@ class BleGattServerService : Service() {
         val server = bluetoothGattServer ?: return
 
         for (device in authenticatedDevicesMap.values) {
-            // PRODUCTION FIX: Aligned lookup key structure with the compound layout schema mapping
             if (notificationSubscriptions["${device.address}-$COMMAND_CHAR_UUID"] != true) continue
             try {
                 synchronized(gattLock) {
@@ -796,7 +794,6 @@ class BleGattServerService : Service() {
                 return
             }
 
-            // 16-byte nonce fits within the default 20-byte BLE notification payload
             val nonce = ByteArray(16)
             SecureRandom().nextBytes(nonce)
             pendingNonces[address] = nonce
@@ -808,7 +805,6 @@ class BleGattServerService : Service() {
         }
     }
 
-    // Encapsulated thread-safe notification transmitter helper
     @SuppressLint("MissingPermission")
     private fun sendAuthChallengeNotification(device: BluetoothDevice, nonce: ByteArray) {
         val server = bluetoothGattServer ?: return
@@ -869,18 +865,17 @@ class BleGattServerService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun startAdvertising(connectable: Boolean = true) {
-        // Stop any existing advertisement loop to clear the channel for the new mode
         if (isAdvertising) {
             stopAdvertising()
         }
-        
+
         val serverAdvertiser = bluetoothAdapter?.bluetoothLeAdvertiser ?: return
         advertiser = serverAdvertiser
 
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-            .setConnectable(connectable) // FIX: Natively handles alternating between connectable and broadcast-only states
+            .setConnectable(connectable)
             .setTimeout(0)
             .build()
 
@@ -895,7 +890,7 @@ class BleGattServerService : Service() {
 
         try {
             advertiser?.startAdvertising(settings, advertiseData, scanResponseData, advertiseCallback)
-            Log.i("TetherBle", "🚀 Proximity Advertisement Deployed (Connectable: $connectable)")
+            Log.i("TetherBle", "Proximity Advertisement Deployed (Connectable: $connectable)")
         } catch (e: Exception) {
             Log.e("TetherBle", "Failed to initialize advertiser array: ${e.message}")
         }
@@ -929,11 +924,13 @@ class BleGattServerService : Service() {
         }
     }
 
+    // PATCH: Line 943 - Added explicit package to Intent for PendingIntent
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         Log.w("TetherBle", "Task removed - scheduling immediate restart")
         val restartIntent = Intent(applicationContext, BleGattServerService::class.java).apply {
             action = "ACTION_GET_STATUS"
+            setPackage(packageName)
         }
         val pendingIntent = PendingIntent.getForegroundService(
             this, 1, restartIntent,
@@ -943,17 +940,19 @@ class BleGattServerService : Service() {
         alarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 1000, pendingIntent)
     }
 
+    // PATCH: Line 961 - Added explicit package to Intent for PendingIntent
     private fun scheduleAlarmForHealthCheck() {
         alarmManager = getSystemService(ALARM_SERVICE) as AlarmManager
         val intent = Intent(this, TetherServiceReceiver::class.java).apply {
             action = ALARM_ACTION
+            setPackage(packageName)
         }
         val pendingIntent = PendingIntent.getBroadcast(
             this, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         alarmPendingIntent = pendingIntent
-        
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             alarmManager?.setAndAllowWhileIdle(
                 AlarmManager.ELAPSED_REALTIME_WAKEUP,
@@ -969,9 +968,11 @@ class BleGattServerService : Service() {
         }
     }
 
+    // PATCH: Line 967 - Added explicit package to Intent for PendingIntent
     private fun cancelAlarm() {
         val intent = Intent(this, TetherServiceReceiver::class.java).apply {
             action = ALARM_ACTION
+            setPackage(packageName)
         }
         val pendingIntent = PendingIntent.getBroadcast(
             this, 0, intent,
@@ -986,13 +987,11 @@ class BleGattServerService : Service() {
     private fun stopAdvertising() {
         try {
             advertiser?.stopAdvertising(advertiseCallback)
-        } catch (_: SecurityException) {
-        } catch (_: Exception) {}
+        } catch (_: SecurityException) {} catch (_: Exception) {}
         isAdvertising = false
     }
 
     private fun restartGattServer() {
-        // Enforce lock symmetry with the binder thread pools to avoid null mutations mid-handshake
         synchronized(gattLock) {
             Log.w("TetherBle", "Purging GATT server infrastructure to reclaim leaked OS resource handles.")
             lastStackRefreshTime = SystemClock.elapsedRealtime()
@@ -1097,8 +1096,7 @@ class BleGattServerService : Service() {
             pendingNonces.clear()
             try {
                 bluetoothGattServer?.close()
-            } catch (_: SecurityException) {
-            } catch (_: Exception) {}
+            } catch (_: SecurityException) {} catch (_: Exception) {}
             bluetoothGattServer = null
         }
         super.onDestroy()
