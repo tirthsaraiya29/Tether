@@ -29,10 +29,9 @@ jobs:
           semgrep scan \
             --sarif \
             --output=semgrep-results.sarif \
+            --config=auto \
             --config=p/security-audit \
-            --config=p/owasp-top-10 \
-            --config=p/csharp \
-            --config=p/kotlin
+            --config=p/owasp-top-ten
 
       - name: Upload SARIF to GitHub Security Tab
         uses: github/codeql-action/upload-sarif@v4
