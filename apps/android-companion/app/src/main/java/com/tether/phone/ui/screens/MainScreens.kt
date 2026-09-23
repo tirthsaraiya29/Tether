@@ -61,7 +61,7 @@ fun TetherAppScreen(
     onMuteToggled: () -> Unit = {},
     onMediaPlayPause: () -> Unit = {},
     onMediaPrevious: () -> Unit = {},
-    onMediaNext: () -> Unit = {}
+    onMediaNext: () -> Unit = {},
 ) {
     val scrollState = rememberScrollState()
     var visible by remember { mutableStateOf(value = false) }

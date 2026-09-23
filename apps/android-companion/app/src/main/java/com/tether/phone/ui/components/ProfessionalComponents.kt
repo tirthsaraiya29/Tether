@@ -31,7 +31,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.roundToInt
 import com.tether.phone.*
 import com.tether.phone.R
 import com.tether.phone.ui.theme.*
@@ -499,14 +498,14 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.graphicsLayer {
-                    scaleX = pulse * 0.05f + 0.95f
-                    scaleY = pulse * 0.05f + 0.95f
+                    scaleX = (pulse * 0.05f) + 0.95f
+                    scaleY = (pulse * 0.05f) + 0.95f
                 }
             ) {
                 Text(
                     text = "🔒",
                     fontSize = 90.sp,
-                    modifier = Modifier.graphicsLayer { alpha = pulse * 0.3f + 0.7f }
+                    modifier = Modifier.graphicsLayer { alpha = (pulse * 0.3f) + 0.7f }
                 )
                 Spacer(modifier = Modifier.height(48.dp))
                 Text(

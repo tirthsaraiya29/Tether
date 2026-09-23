@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import java.io.File
+import java.util.Locale
 
 class DeviceIntegrityRegistry(private val context: Context) {
     fun runAttestationPipeline(): IntegrityReport {
@@ -23,7 +24,7 @@ class DeviceIntegrityRegistry(private val context: Context) {
         val usbDebuggingDisabled = Settings.Global.getInt(
             context.contentResolver, 
             Settings.Global.ADB_ENABLED, 
-            0
+            0,
         ) == 0
         if (usbDebuggingDisabled) finalScore += 10
         val appIntegrityValid = verifyAppSignatureIntegrity()
@@ -44,7 +45,7 @@ class DeviceIntegrityRegistry(private val context: Context) {
             devOptionsDisabled, 
             usbDebuggingDisabled, 
             appIntegrityValid, 
-            secureLockscreenEnabled
+            secureLockscreenEnabled,
         )
     }
 
@@ -89,10 +90,10 @@ class DeviceIntegrityRegistry(private val context: Context) {
             val digestEngine = java.security.MessageDigest.getInstance("SHA-256")
             val certBytes = signatures[0].toByteArray()
             val computedHash = digestEngine.digest(certBytes).joinToString(":") { 
-                String.format("%02X", it) 
+                String.format(Locale.US, "%02X", it)
             }
 
-            computedHash == targetCertificatePin || Build.FINGERPRINT.startsWith("generic")
+            (computedHash == targetCertificatePin) || Build.FINGERPRINT.startsWith("generic")
         } catch (_: Exception) { 
             false 
         }

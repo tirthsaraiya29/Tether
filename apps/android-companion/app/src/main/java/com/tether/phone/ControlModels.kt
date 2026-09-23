@@ -11,7 +11,7 @@ data class MediaState(
     val isPlaying: Boolean = false,
     val durationMs: Long = 0L,
     val positionMs: Long = 0L,
-    val artworkBase64: String? = null
+    val artworkBase64: String? = null,
 )
 
 data class AppInfo(

@@ -64,7 +64,7 @@ fun RemoteControlScreen(
     var launchFeedbackJob by remember { mutableStateOf<Job?>(null) }
 
     val filteredApps = remember(searchQuery, applications) {
-        val list = if (applications.isNotEmpty()) applications else defaultWindowsApplications
+        val list = applications.ifEmpty { defaultWindowsApplications }
         if (searchQuery.isBlank()) {
             list
         } else {

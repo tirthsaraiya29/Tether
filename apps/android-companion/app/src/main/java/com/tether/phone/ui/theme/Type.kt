@@ -17,7 +17,7 @@ val Typography = Typography(
         fontWeight = FontWeight.Light, // Sophisticated, thin look
         fontSize = 42.sp,
         lineHeight = 52.sp,
-        letterSpacing = (-1.5).sp
+        letterSpacing = (-1.5).sp,
     ),
     headlineMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,

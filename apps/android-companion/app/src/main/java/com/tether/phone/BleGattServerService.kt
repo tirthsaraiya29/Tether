@@ -31,7 +31,6 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import javax.crypto.AEADBadTagException
 
@@ -643,7 +642,7 @@ class BleGattServerService : Service() {
                         return
                     }
 
-                    val prefs = getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
+                    val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
                     val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(this)
 
                     val pairingTimestamp = prefs.getLong("pairing_window_start_time", 0L)
@@ -744,7 +743,7 @@ class BleGattServerService : Service() {
                             GCMParameterSpec(128, nonce)
                         )
                         String(cipher.doFinal(ciphertextWithTag), Charsets.UTF_8)
-                    } catch (e: AEADBadTagException) {
+                    } catch (_: AEADBadTagException) {
                         // Fail closed. Never fall back to CBC/ECB/plaintext.
                         Log.e("TetherBle", "GCM authentication tag verification failed for $address — frame rejected")
                         return
@@ -802,7 +801,7 @@ class BleGattServerService : Service() {
     @SuppressLint("MissingPermission")
     private fun initiateAuthChallengeIfPossible(device: BluetoothDevice) {
         val address = device.address
-        val prefs = getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
 
         val hasPinnedKey = securityEngine.getPinnedKeyDecrypted(this) != null
         val pairingTimestamp = prefs.getLong("pairing_window_start_time", 0L)
@@ -978,8 +977,8 @@ class BleGattServerService : Service() {
             PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        alarmManager.set(
+        val am = getSystemService(ALARM_SERVICE) as? AlarmManager
+        am?.set(
             AlarmManager.ELAPSED_REALTIME_WAKEUP,
             SystemClock.elapsedRealtime() + 1000L,
             pendingIntent
@@ -1003,19 +1002,11 @@ class BleGattServerService : Service() {
         )
         alarmPendingIntent = pendingIntent
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarmManager?.setAndAllowWhileIdle(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + HEALTH_CHECK_INTERVAL_MS,
-                pendingIntent
-            )
-        } else {
-            alarmManager?.set(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + HEALTH_CHECK_INTERVAL_MS,
-                pendingIntent
-            )
-        }
+        alarmManager?.setAndAllowWhileIdle(
+            AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            SystemClock.elapsedRealtime() + HEALTH_CHECK_INTERVAL_MS,
+            pendingIntent
+        )
     }
 
     // PATCH: Line 967 - Added explicit package to Intent for PendingIntent

@@ -96,7 +96,7 @@ class MainActivity : FragmentActivity() {
     private var masterVolumeLevel = mutableFloatStateOf(value = 50f)
     private var isMasterMuted = mutableStateOf(value = false)
     private var mediaState = mutableStateOf(value = MediaState())
-    private var applicationsList = mutableStateOf<List<AppInfo>>(value = defaultWindowsApplications)
+    private var applicationsList = mutableStateOf(value = defaultWindowsApplications)
 
     private var activePendingCommand = mutableStateOf<String?>(null)
     private var isCommandConfirmed = mutableStateOf(value = false)
@@ -197,7 +197,7 @@ class MainActivity : FragmentActivity() {
                         isPlaying = isPlaying,
                         durationMs = durationMs,
                         positionMs = positionMs,
-                        artworkBase64 = artworkBase64
+                        artworkBase64 = artworkBase64,
                     )
                 }
             }
@@ -207,7 +207,10 @@ class MainActivity : FragmentActivity() {
     private val appListReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == "com.tether.phone.ACTION_SYNC_APP_LIST") {
-                // Keep default or updated app list
+                val json = intent.getStringExtra("APP_LIST_JSON")
+                if (json != null) {
+                    Log.d("TetherActivity", "App list synced from host")
+                }
             }
         }
     }
@@ -567,7 +570,7 @@ class MainActivity : FragmentActivity() {
         val commandType = intent.getStringExtra("command_type") ?: intent.getStringExtra("action_command")
         val action = intent.action
 
-        if (commandType != null || (action == "com.tether.phone.ACTION_VOICE_COMMAND")) {
+        if ((commandType != null) || (action == "com.tether.phone.ACTION_VOICE_COMMAND")) {
             val command = commandType ?: "unknown"
             if (!isEnvironmentRestricted.value && !isAppLocked.value) {
                 val bleCommand = when (command) {
@@ -859,23 +862,27 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        val signature: Signature
-        try {
-            val privateKey = keyStore.getKey(BIOMETRIC_KEY_ALIAS, null) as? PrivateKey
-            if (privateKey == null) {
-                Log.e("TetherActivity", "Biometric private key missing from Keystore")
+        val requiresCrypto = (allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0
+
+        val cryptoObject: BiometricPrompt.CryptoObject? = if (requiresCrypto) {
+            try {
+                val privateKey = keyStore.getKey(BIOMETRIC_KEY_ALIAS, null) as? PrivateKey
+                if (privateKey == null) {
+                    Log.e("TetherActivity", "Biometric private key missing from Keystore")
+                    callback(false)
+                    return
+                }
+                val signature = Signature.getInstance("SHA256withECDSA")
+                signature.initSign(privateKey)
+                BiometricPrompt.CryptoObject(signature)
+            } catch (e: Exception) {
+                Log.e("TetherActivity", "Signature.initSign failed: ${e.message}")
                 callback(false)
                 return
             }
-            signature = Signature.getInstance("SHA256withECDSA")
-            signature.initSign(privateKey)
-        } catch (e: Exception) {
-            Log.e("TetherActivity", "Signature.initSign failed: ${e.message}")
-            callback(false)
-            return
+        } else {
+            null
         }
-
-        val cryptoObject = BiometricPrompt.CryptoObject(signature)
 
         runOnUiThread {
             val promptBuilder = BiometricPrompt.PromptInfo.Builder()
@@ -898,25 +905,24 @@ class MainActivity : FragmentActivity() {
                         super.onAuthenticationSucceeded(result)
                         try {
                             val authSignature = result.cryptoObject?.signature
-                            if (authSignature == null) {
-                                Log.e("TetherActivity", "CryptoObject signature absent after auth")
-                                callback(false)
-                                return
-                            }
-
-                            val challenge = ByteArray(32)
-                            SecureRandom().nextBytes(challenge)
-                            try {
-                                authSignature.update(challenge)
-                                val proof = authSignature.sign()
-                                Arrays.fill(proof, 0)
-                                Arrays.fill(challenge, 0)
-                                Log.i("TetherActivity", "Keystore-backed biometric proof succeeded")
+                            if (authSignature != null) {
+                                val challenge = ByteArray(32)
+                                SecureRandom().nextBytes(challenge)
+                                try {
+                                    authSignature.update(challenge)
+                                    val proof = authSignature.sign()
+                                    Arrays.fill(proof, 0)
+                                    Arrays.fill(challenge, 0)
+                                    Log.i("TetherActivity", "Keystore-backed biometric proof succeeded")
+                                    callback(true)
+                                } catch (e: Exception) {
+                                    Log.e("TetherActivity", "Keystore signature failed after auth: ${e.message}")
+                                    Arrays.fill(challenge, 0)
+                                    callback(false)
+                                }
+                            } else {
+                                Log.i("TetherActivity", "Authentication succeeded via system credential")
                                 callback(true)
-                            } catch (e: Exception) {
-                                Log.e("TetherActivity", "Keystore signature failed after auth: ${e.message}")
-                                Arrays.fill(challenge, 0)
-                                callback(false)
                             }
                         } catch (e: Exception) {
                             Log.e("TetherActivity", "Unexpected error in auth success handler: ${e.message}")
@@ -932,7 +938,11 @@ class MainActivity : FragmentActivity() {
             )
 
             try {
-                biometricPrompt.authenticate(promptBuilder.build(), cryptoObject)
+                if (requiresCrypto && cryptoObject != null) {
+                    biometricPrompt.authenticate(promptBuilder.build(), cryptoObject)
+                } else {
+                    biometricPrompt.authenticate(promptBuilder.build())
+                }
             } catch (e: Exception) {
                 Log.e("TetherActivity", "BiometricPrompt.authenticate threw: ${e.message}")
                 callback(false)

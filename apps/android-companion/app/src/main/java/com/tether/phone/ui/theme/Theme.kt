@@ -36,7 +36,7 @@ private val LiquidGlassColorScheme = darkColorScheme(
     onSurface = TextPrimary,
     surfaceVariant = SurfaceVeneer,
     onSurfaceVariant = TextSecondary,
-    outline = GlassBorder
+    outline = GlassBorder,
 )
 
 @Composable

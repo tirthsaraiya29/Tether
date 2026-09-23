@@ -5,9 +5,7 @@ import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
 import android.util.Base64
-import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -54,6 +52,7 @@ import com.tether.phone.MediaState
 import com.tether.phone.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -209,7 +208,7 @@ fun LiquidGlassVolumeSlider(
 ) {
     val haptic = LocalHapticFeedback.current
     var isDragging by remember { mutableStateOf(false) }
-    var dragProgress by remember(value) { mutableStateOf(value.coerceIn(0f, 100f)) }
+    var dragProgress by remember(value) { mutableFloatStateOf(value.coerceIn(0f, 100f)) }
 
     // Synchronize local drag progress when value updates externally and user is not dragging
     LaunchedEffect(value) {
@@ -505,7 +504,7 @@ fun LiquidGlassMediaCard(
             ) {
                 val artworkBitmap = remember(mediaState.artworkBase64) {
                     try {
-                        if (!mediaState.artworkBase64.isNull_or_empty()) {
+                        if (!mediaState.artworkBase64.isNullOrEmpty()) {
                             val decodedBytes = Base64.decode(mediaState.artworkBase64, Base64.DEFAULT)
                             BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)?.asImageBitmap()
                         } else null
@@ -696,9 +695,9 @@ fun LiquidGlassMediaCard(
 fun LiquidGlassAppCard(
     app: AppInfo,
     onLaunch: (String) -> Unit,
+    modifier: Modifier = Modifier,
     isLaunching: Boolean = false,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier
+    enabled: Boolean = true
 ) {
     val haptic = LocalHapticFeedback.current
 
@@ -876,10 +875,8 @@ private fun formatMillis(ms: Long): String {
     val totalSeconds = (ms / 1000).coerceAtLeast(0)
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
-    return String.format("%d:%02d", minutes, seconds)
+    return String.format(Locale.US, "%d:%02d", minutes, seconds)
 }
-
-private fun CharSequence?.isNull_or_empty(): Boolean = this == null || this.isEmpty()
 
 private fun getAppIcon(name: String): ImageVector {
     return when (name.lowercase()) {
