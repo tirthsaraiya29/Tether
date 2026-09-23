@@ -1280,7 +1280,7 @@ public partial class BleManager : IDisposable
             commandChar = _commandChar;
         }
 
-        if (sessionKey == null || commandChar == null)
+        if (sessionKey == null || sessionKey.Length != 32 || commandChar == null)
         {
             _logger.Warning($"Symmetric link uninitialized. Skipping confirmation framing transmission for execution context: {command}");
             return;
@@ -1290,35 +1290,41 @@ public partial class BleManager : IDisposable
         {
             string plainText = $"confirm_{command}";
             byte[] plainBytes = Encoding.UTF8.GetBytes(plainText);
-            byte[] encryptedBuffer;
 
-            using (var aes = Aes.Create())
+            // AES-GCM authenticated encryption.
+            // Wire format: [12-byte nonce][ciphertext][16-byte tag]
+            //   - exactly what Android's BleGattServerService.processCompletePayload reads.
+            //   - exactly what Windows must emit so the phone accepts the confirmation frame.
+            byte[] nonce = new byte[12];
+            RandomNumberGenerator.Fill(nonce);
+
+            byte[] ciphertext = new byte[plainBytes.Length];
+            byte[] tag = new byte[16];
+
+            // CS0104 / SYSLIB0053 FIX:
+            //   * `AesGcm(key, tagSizeInBytes)` is the non-obsolete constructor in .NET 8+.
+            //   * `System.Buffer.BlockCopy` is fully qualified because the file imports
+            //     Windows.Storage.Streams, which also exposes a type named `Buffer`.
+            using (var aesGcm = new AesGcm(sessionKey, 16))
             {
-                aes.Key = sessionKey;
-                aes.Mode = CipherMode.CBC;
-                aes.Padding = PaddingMode.PKCS7;
-                aes.GenerateIV();
-                byte[] iv = aes.IV;
-
-                using (var encryptor = aes.CreateEncryptor(aes.Key, iv))
-                using (var ms = new MemoryStream())
-                {
-                    ms.Write(iv, 0, iv.Length);
-                    using (var cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
-                    {
-                        cs.Write(plainBytes, 0, plainBytes.Length);
-                    }
-                    encryptedBuffer = ms.ToArray();
-                }
+                aesGcm.Encrypt(nonce, plainBytes, ciphertext, tag);
             }
+
+            byte[] payload = new byte[nonce.Length + ciphertext.Length + tag.Length];
+            System.Buffer.BlockCopy(nonce, 0, payload, 0, nonce.Length);
+            System.Buffer.BlockCopy(ciphertext, 0, payload, nonce.Length, ciphertext.Length);
+            System.Buffer.BlockCopy(tag, 0, payload, nonce.Length + ciphertext.Length, tag.Length);
 
             using (var writer = new DataWriter())
             {
-                writer.WriteBytes(encryptedBuffer);
-                var result = await commandChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
+                writer.WriteBytes(payload);
+                var result = await commandChar.WriteValueWithResultAsync(
+                    writer.DetachBuffer(),
+                    GattWriteOption.WriteWithResponse);
+
                 if (result.Status == GattCommunicationStatus.Success)
                 {
-                    _logger.Info($"Secure encrypted execution confirmation transmitted for payload: {command}");
+                    _logger.Info($"Secure GCM execution confirmation transmitted for payload: {command}");
                 }
                 else
                 {
@@ -1766,7 +1772,15 @@ public partial class BleManager : IDisposable
                 si.cb = Marshal.SizeOf(si);
                 si.lpDesktop = @"Winsta0\Default";
 
-                string serviceDir = Path.GetDirectoryName(Assembly.GetEntryAssembly()!.Location)!;
+                // IL3000 FIX:
+                // The project is published as a single-file executable. In that mode
+                // Assembly.GetEntryAssembly()?.Location returns an empty string, which
+                // triggers IL3000 and breaks path resolution at runtime. AppContext.BaseDirectory
+                // always resolves to the directory containing the (possibly single-file) host,
+                // regardless of publish mode. This is exactly what we need for locating the
+                // sibling Tether.OverlayUI.exe.
+                string serviceDir = AppContext.BaseDirectory;
+
                 string exePath = Path.Combine(serviceDir, "Tether.OverlayUI.exe");
 
                 if (!File.Exists(exePath))
@@ -1774,7 +1788,9 @@ public partial class BleManager : IDisposable
                     DirectoryInfo? current = new DirectoryInfo(serviceDir);
                     while (current != null)
                     {
-                        string possibleUiPath = Path.Combine(current.FullName, @"Tether.OverlayUI\bin\Release\net8.0-windows\win-x64\Tether.OverlayUI.exe");
+                        string possibleUiPath = Path.Combine(
+                            current.FullName,
+                            @"Tether.OverlayUI\bin\Release\net8.0-windows\win-x64\Tether.OverlayUI.exe");
                         if (File.Exists(possibleUiPath))
                         {
                             exePath = possibleUiPath;

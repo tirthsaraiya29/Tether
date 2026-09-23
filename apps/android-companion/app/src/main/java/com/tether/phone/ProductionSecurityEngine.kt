@@ -35,6 +35,24 @@ class ProductionSecurityEngine {
     }
 
     // PATCH: Upgraded KeyProperties digest from SHA-1 to secure SHA-256 and SHA-512
+    /**
+     * SECURITY PATCH (Finding 4):
+     * Removed `.setBlockModes(KeyProperties.BLOCK_MODE_ECB)` from the RSA key generation spec.
+     *
+     * Rationale:
+     *   - RSA is not a block cipher. The "ECB" terminology in the RSA padding name
+     *     ("RSA/ECB/OAEPWith...") is a legacy alias and does NOT mean AES-ECB.
+     *   - AndroidKeyStore does NOT require setBlockModes() for RSA keys; Google's
+     *     canonical examples omit it.
+     *   - Removing it removes the misleading literal 'ECB' that the Semgrep rule
+     *     `kotlin.lang.security.ecb-cipher.ecb-cipher` matches.
+     *   - The remaining configuration (PURPOSE_SIGN|VERIFY|DECRYPT, SHA-256/SHA-512 digests,
+     *     RSA-PKCS1 signatures, RSA-OAEP encryption padding, 2048-bit key) is preserved.
+     *     No wire format, key material, or decryption behaviour changes.
+     *
+     * NOTE: this keypair is only used for asymmetric operations — sign, verify, and decrypt
+     * of the BLE session key. No symmetric cipher is ever created from this key.
+     */
     private fun ensureKeyPairExists() {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         if (!keyStore.containsAlias(KEY_ALIAS)) {
@@ -47,7 +65,6 @@ class ProductionSecurityEngine {
                 KEY_ALIAS,
                 KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY or KeyProperties.PURPOSE_DECRYPT,
             )
-                .setBlockModes(KeyProperties.BLOCK_MODE_ECB)
                 .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
                 .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_RSA_OAEP)

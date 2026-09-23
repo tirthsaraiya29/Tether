@@ -10,6 +10,8 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -32,8 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tether.phone.R
 import com.tether.phone.*
-import com.tether.phone.ui.components.ProfessionalGlassSurface
-import com.tether.phone.ui.components.TacticalAction
+import com.tether.phone.ui.components.*
 import com.tether.phone.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -46,6 +47,9 @@ fun TetherAppScreen(
     isConnected: Boolean,
     isPanicActive: Boolean,
     verificationStep: TrustVerificationStep,
+    volumeLevel: Float = 50f,
+    isMuted: Boolean = false,
+    mediaState: MediaState = MediaState(),
     onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
@@ -53,6 +57,11 @@ fun TetherAppScreen(
     onSelectLaptop: () -> Unit,
     onTriggerStepVerification: (TrustVerificationStep) -> Unit,
     onBleActionRequested: (String) -> Unit,
+    onVolumeChanged: (Float) -> Unit = {},
+    onMuteToggled: () -> Unit = {},
+    onMediaPlayPause: () -> Unit = {},
+    onMediaPrevious: () -> Unit = {},
+    onMediaNext: () -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
     var visible by remember { mutableStateOf(value = false) }
@@ -128,6 +137,52 @@ fun TetherAppScreen(
                     enabled = isConnected
                 )
             }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Quick Master Volume & Mute Card
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 300)) +
+                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 300)) { it / 2 }
+        ) {
+            ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
+                LiquidGlassVolumeSlider(
+                    value = volumeLevel,
+                    onValueChange = onVolumeChanged,
+                    onValueChangeFinished = onVolumeChanged,
+                    isMuted = isMuted,
+                    enabled = isConnected
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                LiquidGlassButton(
+                    text = if (isMuted) "UNMUTE AUDIO" else "MUTE AUDIO",
+                    icon = if (isMuted) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                    accentColor = if (isMuted) AlertRed else LiquidCyan,
+                    isHighlighted = isMuted,
+                    enabled = isConnected,
+                    onClick = onMuteToggled
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Quick Media Controls Card
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 400)) +
+                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 400)) { it / 2 }
+        ) {
+            LiquidGlassMediaCard(
+                mediaState = mediaState,
+                onPlayPause = onMediaPlayPause,
+                onPrev = onMediaPrevious,
+                onNext = onMediaNext,
+                enabled = isConnected,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         Spacer(modifier = Modifier.height(28.dp))

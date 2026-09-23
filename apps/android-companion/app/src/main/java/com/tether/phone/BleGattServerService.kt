@@ -33,6 +33,7 @@ import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import javax.crypto.AEADBadTagException
 
 class BleGattServerService : Service() {
 
@@ -143,6 +144,7 @@ class BleGattServerService : Service() {
                             @SuppressLint("MissingPermission")
                             val connectedDevices = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT_SERVER)
                             val device = connectedDevices.find { it.address == address }
+                            @SuppressLint("MissingPermission")
                             device?.let { bluetoothGattServer?.cancelConnection(it) }
                         } catch (_: Exception) {}
                     }
@@ -190,6 +192,11 @@ class BleGattServerService : Service() {
         const val ACTION_RESTART_SERVER = "com.tether.phone.RESTART_SERVER"
         private const val HEALTH_CHECK_INTERVAL_MS = 60000L
         private const val WAKE_LOCK_TAG = "tether:BleWakeLock"
+
+        // SECURITY PATCH (Finding 2): deterministic request codes and actions used by PendingIntents.
+        private const val REQ_CODE_HEALTH_CHECK = 0x7E71
+        private const val REQ_CODE_TASK_REMOVED = 0x7E72
+        const val ACTION_TASK_REMOVED_RESTART = "com.tether.phone.ACTION_TASK_REMOVED_RESTART"
     }
 
     @SuppressLint("MissingPermission")
@@ -403,7 +410,10 @@ class BleGattServerService : Service() {
                         Log.w("TetherBle", "Validation window expired. Purging node: $address")
                         unauthenticatedConnections.remove(address)
                         synchronized(gattLock) {
-                            try { bluetoothGattServer?.cancelConnection(device) } catch (_: Exception) {}
+                            try {
+                                @SuppressLint("MissingPermission")
+                                bluetoothGattServer?.cancelConnection(device)
+                            } catch (_: Exception) {}
                         }
                     }
                 }, 45000L)
@@ -438,6 +448,7 @@ class BleGattServerService : Service() {
             device?.let { deviceMtuMap[it.address] = mtu }
         }
 
+        @SuppressLint("MissingPermission")
         override fun onCharacteristicWriteRequest(
             device: BluetoothDevice?,
             requestId: Int,
@@ -506,6 +517,7 @@ class BleGattServerService : Service() {
             } catch (_: SecurityException) {}
         }
 
+        @SuppressLint("MissingPermission")
         override fun onDescriptorWriteRequest(
             device: BluetoothDevice?,
             requestId: Int,
@@ -690,50 +702,75 @@ class BleGattServerService : Service() {
 
                 COMMAND_CHAR_UUID -> {
                     if (!authenticatedDevicesMap.containsKey(address)) return
+
+                    // Short opcode path (hardware metric sync) — plaintext by design, no crypto.
                     if (payload.size in 3..15) {
                         val opcode = payload[0].toInt()
                         if (opcode == 0x01) {
                             val stateUpdateBroadcast = Intent("com.tether.phone.ACTION_SYNC_HARDWARE_METRICS").apply {
                                 putExtra("VOLUME_LEVEL", payload[1].toInt())
                                 putExtra("BRIGHTNESS_LEVEL", payload[2].toInt())
+                                if (payload.size >= 4) {
+                                    putExtra("IS_MUTED", payload[3].toInt() == 1)
+                                }
                                 setPackage(packageName)
                             }
                             sendBroadcast(stateUpdateBroadcast)
                         }
-                    } else if (payload.size > 16) {
-                        val sessionKey = sessionKeysMap[address] ?: return
-                        try {
-                            // SECURE CIPHER IMPLEMENTATION: Primary AES-GCM with backward-compatible fallback
-                            val decryptedString: String = if (payload.size >= 28) {
-                                try {
-                                    val iv = payload.copyOfRange(0, 12)
-                                    val ciphertext = payload.copyOfRange(12, payload.size)
-                                    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-                                    cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(sessionKey, "AES"), GCMParameterSpec(128, iv))
-                                    String(cipher.doFinal(ciphertext), Charsets.UTF_8)
-                                } catch (_: Exception) {
-                                    val iv = payload.copyOfRange(0, 16)
-                                    val ciphertext = payload.copyOfRange(16, payload.size)
-                                    val cipher = Cipher.getInstance("AES/CBC/PKCS7Padding")
-                                    cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(sessionKey, "AES"), IvParameterSpec(iv))
-                                    String(cipher.doFinal(ciphertext), Charsets.UTF_8)
-                                }
-                            } else {
-                                val iv = payload.copyOfRange(0, 16)
-                                val ciphertext = payload.copyOfRange(16, payload.size)
-                                val cipher = Cipher.getInstance("AES/CBC/PKCS7Padding")
-                                cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(sessionKey, "AES"), IvParameterSpec(iv))
-                                String(cipher.doFinal(ciphertext), Charsets.UTF_8)
-                            }
+                        return
+                    }
 
-                            if (decryptedString.startsWith("confirm_")) {
-                                val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
-                                    putExtra("confirmed_command", decryptedString.substringAfter("confirm_"))
-                                    setPackage(packageName)
-                                }
-                                sendBroadcast(intent)
-                            }
-                        } catch (_: Exception) {}
+                    // Authenticated AES-GCM path. Wire format: [12-byte nonce][ciphertext||16-byte tag]
+                    // Minimum: 12 (nonce) + 1 (ciphertext) + 16 (tag) = 29 bytes.
+                    if (payload.size < 29) {
+                        Log.w("TetherBle", "Rejected command payload: too short for GCM framing (${payload.size} bytes)")
+                        return
+                    }
+
+                    val sessionKey = sessionKeysMap[address]
+                    if (sessionKey == null || sessionKey.size != 32) {
+                        Log.w("TetherBle", "Rejected command payload: no valid AES session key for $address")
+                        return
+                    }
+
+                    val decryptedString: String = try {
+                        val nonce = payload.copyOfRange(0, 12)
+                        val ciphertextWithTag = payload.copyOfRange(12, payload.size)
+
+                        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                        cipher.init(
+                            Cipher.DECRYPT_MODE,
+                            SecretKeySpec(sessionKey, "AES"),
+                            GCMParameterSpec(128, nonce)
+                        )
+                        String(cipher.doFinal(ciphertextWithTag), Charsets.UTF_8)
+                    } catch (e: AEADBadTagException) {
+                        // Fail closed. Never fall back to CBC/ECB/plaintext.
+                        Log.e("TetherBle", "GCM authentication tag verification failed for $address — frame rejected")
+                        return
+                    } catch (e: Exception) {
+                        Log.e("TetherBle", "GCM decryption error for $address: ${e.message}")
+                        return
+                    }
+
+                    if (decryptedString.startsWith("confirm_")) {
+                        val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
+                            putExtra("confirmed_command", decryptedString.substringAfter("confirm_"))
+                            setPackage(packageName)
+                        }
+                        sendBroadcast(intent)
+                    } else if (decryptedString.startsWith("media_state:")) {
+                        val intent = Intent("com.tether.phone.ACTION_SYNC_MEDIA_STATE").apply {
+                            putExtra("MEDIA_JSON", decryptedString.substringAfter("media_state:"))
+                            setPackage(packageName)
+                        }
+                        sendBroadcast(intent)
+                    } else if (decryptedString.startsWith("app_list:")) {
+                        val intent = Intent("com.tether.phone.ACTION_SYNC_APP_LIST").apply {
+                            putExtra("APP_LIST_JSON", decryptedString.substringAfter("app_list:"))
+                            setPackage(packageName)
+                        }
+                        sendBroadcast(intent)
                     }
                 }
             }
@@ -928,27 +965,40 @@ class BleGattServerService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         Log.w("TetherBle", "Task removed - scheduling immediate restart")
+
         val restartIntent = Intent(applicationContext, BleGattServerService::class.java).apply {
-            action = "ACTION_GET_STATUS"
+            action = ACTION_TASK_REMOVED_RESTART
             setPackage(packageName)
         }
+
         val pendingIntent = PendingIntent.getForegroundService(
-            this, 1, restartIntent,
+            this,
+            REQ_CODE_TASK_REMOVED,
+            restartIntent,
             PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
         )
+
         val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        alarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 1000, pendingIntent)
+        alarmManager.set(
+            AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            SystemClock.elapsedRealtime() + 1000L,
+            pendingIntent
+        )
     }
 
     // PATCH: Line 961 - Added explicit package to Intent for PendingIntent
     private fun scheduleAlarmForHealthCheck() {
         alarmManager = getSystemService(ALARM_SERVICE) as AlarmManager
+
         val intent = Intent(this, TetherServiceReceiver::class.java).apply {
             action = ALARM_ACTION
             setPackage(packageName)
         }
+
         val pendingIntent = PendingIntent.getBroadcast(
-            this, 0, intent,
+            this,
+            REQ_CODE_HEALTH_CHECK,
+            intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         alarmPendingIntent = pendingIntent
@@ -974,10 +1024,14 @@ class BleGattServerService : Service() {
             action = ALARM_ACTION
             setPackage(packageName)
         }
+
         val pendingIntent = PendingIntent.getBroadcast(
-            this, 0, intent,
+            this,
+            REQ_CODE_HEALTH_CHECK,
+            intent,
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
         )
+
         if (pendingIntent != null) {
             alarmManager?.cancel(pendingIntent)
         }

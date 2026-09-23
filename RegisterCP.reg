@@ -1,0 +1,14 @@
+Windows Registry Editor Version 5.00
+
+; [1] Registers the Credential Provider with the Windows Authentication system
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\941f1527-a29e-41cc-96b2-77c4a0a09ec5]
+@="TetherCredentialProvider"
+
+; [2] Registers the COM server so Windows can find and load the DLL
+[HKEY_CLASSES_ROOT\CLSID\941f1527-a29e-41cc-96b2-77c4a0a09ec5]
+@="TetherCredentialProvider"
+
+; [3] Specifies the DLL file and threading model
+[HKEY_CLASSES_ROOT\CLSID\941f1527-a29e-41cc-96b2-77c4a0a09ec5\InprocServer32]
+@="TetherCredentialProvider.dll"
+"ThreadingModel"="Apartment"

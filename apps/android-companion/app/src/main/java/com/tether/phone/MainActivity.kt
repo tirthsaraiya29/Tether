@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -22,6 +23,7 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -40,6 +43,8 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.net.toUri
+import com.tether.phone.ui.screens.RemoteControlScreen
+import kotlin.math.roundToInt
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.tether.phone.ui.components.*
@@ -50,6 +55,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import java.security.KeyPairGenerator
+import java.security.KeyStore
+import java.security.PrivateKey
+import java.security.SecureRandom
+import java.security.Signature
+import java.security.spec.ECGenParameterSpec
+import java.util.Arrays
 
 class MainActivity : FragmentActivity() {
     private val requestPermissionsCode = 101
@@ -68,7 +82,6 @@ class MainActivity : FragmentActivity() {
     private var currentVerificationStep = mutableStateOf(value = TrustVerificationStep.NOT_IN_PANIC)
 
     private var isAppLocked = mutableStateOf(value = false)
-    // Mandatory Security Features
     private var isBiometricSettingEnabled = mutableStateOf(value = true)
     private var selectedTimeoutMs = mutableLongStateOf(value = 0L)
 
@@ -80,6 +93,11 @@ class MainActivity : FragmentActivity() {
     private var currentIntegrityScore = mutableIntStateOf(value = 100)
     private var isLoading = mutableStateOf(value = true)
 
+    private var masterVolumeLevel = mutableFloatStateOf(value = 50f)
+    private var isMasterMuted = mutableStateOf(value = false)
+    private var mediaState = mutableStateOf(value = MediaState())
+    private var applicationsList = mutableStateOf<List<AppInfo>>(value = defaultWindowsApplications)
+
     private var activePendingCommand = mutableStateOf<String?>(null)
     private var isCommandConfirmed = mutableStateOf(value = false)
     private var dismissalJob: kotlinx.coroutines.Job? = null
@@ -88,8 +106,15 @@ class MainActivity : FragmentActivity() {
     private data class PowerAction(val command: String, val title: String)
 
     private var lastBiometricAuthTime = 0L
+    private var isQrDialogVisible = mutableStateOf(value = false)
+    private var qrBitmap: MutableState<Bitmap?> = mutableStateOf(null)
+    private var qrBase64Key = mutableStateOf("")
 
     private lateinit var executor: ExecutorService
+
+    companion object {
+        private const val BIOMETRIC_KEY_ALIAS = "TetherBiometricAuthKey_v1"
+    }
 
     private val batteryOptimizationLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
@@ -140,6 +165,53 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private val hardwareMetricsReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.tether.phone.ACTION_SYNC_HARDWARE_METRICS") {
+                val vol = intent.getIntExtra("VOLUME_LEVEL", 50)
+                runOnUiThread {
+                    masterVolumeLevel.floatValue = vol.toFloat().coerceIn(0f, 100f)
+                    if (intent.hasExtra("IS_MUTED")) {
+                        isMasterMuted.value = intent.getBooleanExtra("IS_MUTED", false)
+                    }
+                }
+            }
+        }
+    }
+
+    private val mediaStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.tether.phone.ACTION_SYNC_MEDIA_STATE") {
+                val title = intent.getStringExtra("MEDIA_TITLE") ?: "No Active Session"
+                val artist = intent.getStringExtra("MEDIA_ARTIST") ?: "Windows Media Engine"
+                val album = intent.getStringExtra("MEDIA_ALBUM") ?: ""
+                val isPlaying = intent.getBooleanExtra("IS_PLAYING", false)
+                val durationMs = intent.getLongExtra("DURATION_MS", 0L)
+                val positionMs = intent.getLongExtra("POSITION_MS", 0L)
+                val artworkBase64 = intent.getStringExtra("ARTWORK_BASE64")
+                runOnUiThread {
+                    mediaState.value = MediaState(
+                        title = title,
+                        artist = artist,
+                        album = album,
+                        isPlaying = isPlaying,
+                        durationMs = durationMs,
+                        positionMs = positionMs,
+                        artworkBase64 = artworkBase64
+                    )
+                }
+            }
+        }
+    }
+
+    private val appListReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.tether.phone.ACTION_SYNC_APP_LIST") {
+                // Keep default or updated app list
+            }
+        }
+    }
+
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
@@ -179,12 +251,11 @@ class MainActivity : FragmentActivity() {
 
         val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
         isPanicActive.value = prefs.getBoolean(panicStateKey, false)
-        // Force security settings to true regardless of saved state
         isBiometricSettingEnabled.value = true
         isPrivacyMaskEnabled.value = true
         isBlockScreenReadingEnabled.value = true
         isHideInRecentsEnabled.value = true
-        
+
         selectedTimeoutMs.longValue = prefs.getLong(appLockTimeoutKey, 0L)
 
         applyWindowSecurityFlags()
@@ -225,8 +296,6 @@ class MainActivity : FragmentActivity() {
         }
 
         setContent {
-            // PRODUCTION FIX: Removed erroneous remember wrappers that insulate states from background receiver updates.
-            // Reading class-level MutableState handles directly guarantees immediate recomposition tracking.
             TetherTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -255,6 +324,10 @@ class MainActivity : FragmentActivity() {
                                 isPanicActive = isPanicActive.value,
                                 verificationStep = currentVerificationStep.value,
                                 selectedTimeoutMs = selectedTimeoutMs.longValue,
+                                volumeLevel = masterVolumeLevel.floatValue,
+                                isMuted = isMasterMuted.value,
+                                mediaState = mediaState.value,
+                                applications = applicationsList.value,
                                 onUnlockClick = {
                                     val currentTime = System.currentTimeMillis()
                                     val needsAuth = ((currentTime - lastBiometricAuthTime) > 10000)
@@ -317,10 +390,19 @@ class MainActivity : FragmentActivity() {
                                     }
                                 },
                                 onShowQR = {
+                                    showPairingQRCode()
+                                },
+                                onPairingTabEntered = {
                                     getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
                                         putLong("pairing_window_start_time", System.currentTimeMillis())
                                     }
-                                    showPairingQRCode()
+                                    Log.i("TetherActivity", "Pairing window OPENED (entered Pair tab)")
+                                },
+                                onPairingTabExited = {
+                                    getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
+                                        putLong("pairing_window_start_time", 0L)
+                                    }
+                                    Log.i("TetherActivity", "Pairing window CLOSED (left Pair tab)")
                                 },
                                 onRestartServer = { restartBleServer() }
                             )
@@ -362,6 +444,61 @@ class MainActivity : FragmentActivity() {
                                     )
                                 }
                             }
+
+                            if (isQrDialogVisible.value) {
+                                val currentBitmap = qrBitmap.value
+                                AlertDialog(
+                                    onDismissRequest = { isQrDialogVisible.value = false },
+                                    title = { Text(getString(R.string.dialog_pairing_title)) },
+                                    text = {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                text = getString(R.string.dialog_pairing_message),
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            if (currentBitmap != null) {
+                                                Image(
+                                                    bitmap = currentBitmap.asImageBitmap(),
+                                                    contentDescription = "Pairing QR Code",
+                                                    modifier = Modifier
+                                                        .size(280.dp)
+                                                        .padding(4.dp)
+                                                )
+                                            } else {
+                                                CircularProgressIndicator(color = LiquidCyan)
+                                            }
+                                        }
+                                    },
+                                    confirmButton = {
+                                        TextButton(
+                                            onClick = { isQrDialogVisible.value = false }
+                                        ) {
+                                            Text(getString(R.string.btn_done))
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(
+                                            onClick = {
+                                                val clipboard = getSystemService(CLIPBOARD_SERVICE)
+                                                        as android.content.ClipboardManager
+                                                clipboard.setPrimaryClip(
+                                                    android.content.ClipData.newPlainText(
+                                                        "TetherPublicKey",
+                                                        qrBase64Key.value
+                                                    )
+                                                )
+                                                isQrDialogVisible.value = false
+                                            }
+                                        ) {
+                                            Text(getString(R.string.btn_copy_key))
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -386,6 +523,24 @@ class MainActivity : FragmentActivity() {
             this,
             commandConfirmedReceiver,
             IntentFilter("com.tether.phone.ACTION_COMMAND_CONFIRMED"),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        ContextCompat.registerReceiver(
+            this,
+            hardwareMetricsReceiver,
+            IntentFilter("com.tether.phone.ACTION_SYNC_HARDWARE_METRICS"),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        ContextCompat.registerReceiver(
+            this,
+            mediaStateReceiver,
+            IntentFilter("com.tether.phone.ACTION_SYNC_MEDIA_STATE"),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        ContextCompat.registerReceiver(
+            this,
+            appListReceiver,
+            IntentFilter("com.tether.phone.ACTION_SYNC_APP_LIST"),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
 
@@ -492,9 +647,12 @@ class MainActivity : FragmentActivity() {
     override fun onDestroy() {
         try { unregisterReceiver(gattStateReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(commandConfirmedReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(hardwareMetricsReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(mediaStateReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(appListReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(screenUnlockReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(bluetoothStateReceiver) } catch (_: Exception) {}
-        
+
         executor.shutdown()
         super.onDestroy()
     }
@@ -545,20 +703,28 @@ class MainActivity : FragmentActivity() {
 
     private fun requestBatteryOptimizationExemption() {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-        if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
-            Log.w("TetherUI", "App is not exempted from battery optimizations. Requesting exemption.")
-            try {
-                // NOTE: Using ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is subject to Play Store policy.
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = "package:$packageName".toUri()
-                }
-                batteryOptimizationLauncher.launch(intent)
-            } catch (_: Exception) {
-                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                batteryOptimizationLauncher.launch(intent)
-            }
-        } else {
+        if (powerManager.isIgnoringBatteryOptimizations(packageName)) {
             Log.i("TetherUI", "App is already exempted from battery optimizations.")
+            return
+        }
+
+        Log.w("TetherUI", "App is not exempted from battery optimizations. Opening settings for user opt-in.")
+
+        try {
+            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            batteryOptimizationLauncher.launch(intent)
+            return
+        } catch (e: Exception) {
+            Log.w("TetherUI", "Could not open ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS: ${e.message}")
+        }
+
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = "package:$packageName".toUri()
+            }
+            batteryOptimizationLauncher.launch(intent)
+        } catch (e: Exception) {
+            Log.e("TetherUI", "Could not open app details settings: ${e.message}")
         }
     }
 
@@ -570,42 +736,31 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun showPairingQRCode() {
-        try {
-            val publicKeyBytes = ProductionSecurityEngine().getPublicKeyBytes()
-            val base64Key = android.util.Base64.encodeToString(publicKeyBytes, android.util.Base64.NO_WRAP)
+        executor.execute {
+            try {
+                val publicKeyBytes = ProductionSecurityEngine().getPublicKeyBytes()
+                val base64Key = android.util.Base64.encodeToString(
+                    publicKeyBytes,
+                    android.util.Base64.NO_WRAP
+                )
 
-            val qrContent = "TETHER:KEY:$base64Key"
-            val qrBitmap = QRCodeGenerator.generateQRCode(qrContent)
+                val qrContent = "TETHER:KEY:$base64Key"
+                val bitmap = QRCodeGenerator.generateQRCode(qrContent)
 
-            runOnUiThread {
-                val imageView = android.widget.ImageView(this).apply {
-                    setImageBitmap(qrBitmap)
-                    setPadding(40, 40, 40, 40)
+                runOnUiThread {
+                    qrBitmap.value = bitmap
+                    qrBase64Key.value = base64Key
+                    isQrDialogVisible.value = true
                 }
-
-                androidx.appcompat.app.AlertDialog.Builder(this)
-                    .setTitle(getString(R.string.dialog_pairing_title))
-                    .setMessage(getString(R.string.dialog_pairing_message))
-                    .setView(imageView)
-                    .setPositiveButton(getString(R.string.btn_done)) { _, _ -> 
-                        getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
-                            putLong("pairing_window_start_time", 0L)
-                        }
-                    }
-                    .setNegativeButton(getString(R.string.btn_copy_key)) { _, _ ->
-                        val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("TetherPublicKey", base64Key))
-                    }
-                    .setOnDismissListener {
-                        getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
-                            putLong("pairing_window_start_time", 0L)
-                        }
-                    }
-                    .show()
-            }
-        } catch (e: Exception) {
-            runOnUiThread {
-                Log.e("TetherActivity", "QR Generation failed", e)
+            } catch (e: Exception) {
+                Log.e("TetherActivity", "QR generation failed: ${e.message}", e)
+                runOnUiThread {
+                    android.widget.Toast.makeText(
+                        this@MainActivity,
+                        "Failed to generate QR: ${e.message}",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }
@@ -649,31 +804,139 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun authenticateViaSystem(title: String, subtitle: String, allowedAuthenticators: Int, callback: (Boolean) -> Unit) {
+    private fun authenticateViaSystem(
+        title: String,
+        subtitle: String,
+        allowedAuthenticators: Int,
+        callback: (Boolean) -> Unit
+    ) {
+        val keyStore: KeyStore = try {
+            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        } catch (e: Exception) {
+            Log.e("TetherActivity", "AndroidKeyStore unavailable: ${e.message}")
+            callback(false)
+            return
+        }
+
+        if (!keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)) {
+            try {
+                val kpg = KeyPairGenerator.getInstance(
+                    KeyProperties.KEY_ALGORITHM_EC,
+                    "AndroidKeyStore"
+                )
+                val specBuilder = KeyGenParameterSpec.Builder(
+                    BIOMETRIC_KEY_ALIAS,
+                    KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
+                )
+                    .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
+                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    .setUserAuthenticationRequired(true)
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    specBuilder.setUserAuthenticationParameters(
+                        0,
+                        KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    specBuilder.setUserAuthenticationValidityDurationSeconds(-1)
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    try {
+                        specBuilder.setIsStrongBoxBacked(true)
+                    } catch (_: Exception) {
+                    }
+                }
+
+                kpg.initialize(specBuilder.build())
+                kpg.generateKeyPair()
+                Log.i("TetherActivity", "Biometric Keystore key created (hardware-gated).")
+            } catch (e: Exception) {
+                Log.e("TetherActivity", "Failed to create biometric Keystore key: ${e.message}")
+                callback(false)
+                return
+            }
+        }
+
+        val signature: Signature
+        try {
+            val privateKey = keyStore.getKey(BIOMETRIC_KEY_ALIAS, null) as? PrivateKey
+            if (privateKey == null) {
+                Log.e("TetherActivity", "Biometric private key missing from Keystore")
+                callback(false)
+                return
+            }
+            signature = Signature.getInstance("SHA256withECDSA")
+            signature.initSign(privateKey)
+        } catch (e: Exception) {
+            Log.e("TetherActivity", "Signature.initSign failed: ${e.message}")
+            callback(false)
+            return
+        }
+
+        val cryptoObject = BiometricPrompt.CryptoObject(signature)
+
         runOnUiThread {
             val promptBuilder = BiometricPrompt.PromptInfo.Builder()
                 .setTitle(title)
                 .setSubtitle(subtitle)
                 .setAllowedAuthenticators(allowedAuthenticators)
+
             if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
                 promptBuilder.setNegativeButtonText(getString(R.string.btn_abort))
             }
+
             val biometricPrompt = BiometricPrompt(
                 this,
                 executor,
                 object : BiometricPrompt.AuthenticationCallback() {
-                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+
+                    override fun onAuthenticationSucceeded(
+                        result: BiometricPrompt.AuthenticationResult
+                    ) {
                         super.onAuthenticationSucceeded(result)
-                        callback(true)
+                        try {
+                            val authSignature = result.cryptoObject?.signature
+                            if (authSignature == null) {
+                                Log.e("TetherActivity", "CryptoObject signature absent after auth")
+                                callback(false)
+                                return
+                            }
+
+                            val challenge = ByteArray(32)
+                            SecureRandom().nextBytes(challenge)
+                            try {
+                                authSignature.update(challenge)
+                                val proof = authSignature.sign()
+                                Arrays.fill(proof, 0)
+                                Arrays.fill(challenge, 0)
+                                Log.i("TetherActivity", "Keystore-backed biometric proof succeeded")
+                                callback(true)
+                            } catch (e: Exception) {
+                                Log.e("TetherActivity", "Keystore signature failed after auth: ${e.message}")
+                                Arrays.fill(challenge, 0)
+                                callback(false)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("TetherActivity", "Unexpected error in auth success handler: ${e.message}")
+                            callback(false)
+                        }
                     }
 
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                         super.onAuthenticationError(errorCode, errString)
                         callback(false)
                     }
-                },
+                }
             )
-            biometricPrompt.authenticate(promptBuilder.build())
+
+            try {
+                biometricPrompt.authenticate(promptBuilder.build(), cryptoObject)
+            } catch (e: Exception) {
+                Log.e("TetherActivity", "BiometricPrompt.authenticate threw: ${e.message}")
+                callback(false)
+            }
         }
     }
 
@@ -716,7 +979,7 @@ class MainActivity : FragmentActivity() {
 
     private fun triggerBleAction(action: String) {
         if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
-        
+
         Log.d("TetherActivity", "Triggering BLE action: $action")
         dismissalJob?.cancel()
         activePendingCommand.value = action
@@ -848,6 +1111,10 @@ fun TetherNavigationShell(
     isPanicActive: Boolean,
     verificationStep: TrustVerificationStep,
     selectedTimeoutMs: Long,
+    volumeLevel: Float = 50f,
+    isMuted: Boolean = false,
+    mediaState: MediaState = MediaState(),
+    applications: List<AppInfo> = defaultWindowsApplications,
     onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
@@ -857,11 +1124,24 @@ fun TetherNavigationShell(
     onTimeoutChanged: (Long) -> Unit,
     onLaptopActionClick: (String) -> Unit,
     onShowQR: () -> Unit,
-    onRestartServer: () -> Unit
+    onRestartServer: () -> Unit,
+    onPairingTabEntered: () -> Unit,
+    onPairingTabExited: () -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var currentScreen by remember { mutableStateOf(AppScreen.TELEMETRY_DASHBOARD) }
+
+    DisposableEffect(currentScreen) {
+        if (currentScreen == AppScreen.PAIRING) {
+            onPairingTabEntered()
+        }
+        onDispose {
+            if (currentScreen == AppScreen.PAIRING) {
+                onPairingTabExited()
+            }
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -895,6 +1175,7 @@ fun TetherNavigationShell(
 
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
+                            Triple("PC Remote Control", Icons.Default.Tune, AppScreen.LAPTOP_CONTROL),
                             Triple(stringResource(R.string.nav_security), Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
                             Triple(stringResource(R.string.nav_pair), Icons.Default.QrCode, AppScreen.PAIRING)
                         )
@@ -954,25 +1235,51 @@ fun TetherNavigationShell(
                 AnimatedContent(
                     targetState = currentScreen,
                     transitionSpec = {
-                        (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessLow)) + 
-                         scaleIn(initialScale = 0.96f, animationSpec = spring(stiffness = Spring.StiffnessLow)))
-                            .togetherWith(fadeOut(animationSpec = spring(stiffness = Spring.StiffnessLow)) + 
-                                         scaleOut(targetScale = 1.04f, animationSpec = spring(stiffness = Spring.StiffnessLow)))
+                        (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessLow)) +
+                                scaleIn(initialScale = 0.96f, animationSpec = spring(stiffness = Spring.StiffnessLow)))
+                            .togetherWith(fadeOut(animationSpec = spring(stiffness = Spring.StiffnessLow)) +
+                                    scaleOut(targetScale = 1.04f, animationSpec = spring(stiffness = Spring.StiffnessLow)))
                     },
                     label = "ScreenTransition"
                 ) { screen ->
                     when (screen) {
                         AppScreen.TELEMETRY_DASHBOARD -> TetherAppScreen(
                             statusText, statusColor, connectionStatus, isConnected, isPanicActive, verificationStep,
-                            onUnlockClick, onLockClick, onPanicClick, onSideRestore, onSelectLaptop,
-                            onTriggerStepVerification, onBleActionRequested = onLaptopActionClick
+                            volumeLevel = volumeLevel,
+                            isMuted = isMuted,
+                            mediaState = mediaState,
+                            onUnlockClick = onUnlockClick,
+                            onLockClick = onLockClick,
+                            onPanicClick = onPanicClick,
+                            onSideRestore = onSideRestore,
+                            onSelectLaptop = onSelectLaptop,
+                            onTriggerStepVerification = onTriggerStepVerification,
+                            onBleActionRequested = onLaptopActionClick,
+                            onVolumeChanged = { newVol -> onLaptopActionClick("volume:${newVol.roundToInt()}") },
+                            onMuteToggled = { onLaptopActionClick("mute_toggle") },
+                            onMediaPlayPause = { onLaptopActionClick("media:play_pause") },
+                            onMediaPrevious = { onLaptopActionClick("media:prev") },
+                            onMediaNext = { onLaptopActionClick("media:next") }
                         )
                         AppScreen.SECURITY_SETTINGS -> SettingsScreen(
                             selectedTimeoutMs = selectedTimeoutMs,
                             onTimeoutChanged = onTimeoutChanged,
                             onRestartServer = onRestartServer
                         )
-                        AppScreen.LAPTOP_CONTROL -> Box(Modifier.fillMaxSize()) // Removed
+                        AppScreen.LAPTOP_CONTROL -> RemoteControlScreen(
+                            volumeLevel = volumeLevel,
+                            isMuted = isMuted,
+                            mediaState = mediaState,
+                            applications = applications,
+                            isConnected = isConnected,
+                            onVolumeChanged = { newVol -> onLaptopActionClick("volume:${newVol.roundToInt()}") },
+                            onMuteToggled = { onLaptopActionClick("mute_toggle") },
+                            onMediaPlayPause = { onLaptopActionClick("media:play_pause") },
+                            onMediaPrevious = { onLaptopActionClick("media:prev") },
+                            onMediaNext = { onLaptopActionClick("media:next") },
+                            onLaunchApp = { appId -> onLaptopActionClick("app_launch:$appId") },
+                            onRefreshApps = { onLaptopActionClick("get_apps") }
+                        )
                         AppScreen.PAIRING -> PairingScreen(onShowQR = onShowQR)
                     }
                 }
