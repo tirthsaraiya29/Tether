@@ -1,11 +1,18 @@
 package com.tether.phone.ui.screens
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,48 +20,78 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tether.phone.AppInfo
+import com.tether.phone.BatteryState
 import com.tether.phone.MediaState
-import com.tether.phone.R
+import com.tether.phone.PowerPlanInfo
 import com.tether.phone.defaultWindowsApplications
-import com.tether.phone.ui.components.*
-import com.tether.phone.ui.theme.*
+import com.tether.phone.ui.components.LiquidGlassAppCard
+import com.tether.phone.ui.components.LiquidGlassBatteryCard
+import com.tether.phone.ui.components.LiquidGlassBrightnessSlider
+import com.tether.phone.ui.components.LiquidGlassButton
+import com.tether.phone.ui.components.LiquidGlassMediaCard
+import com.tether.phone.ui.components.LiquidGlassPowerPlanCard
+import com.tether.phone.ui.components.LiquidGlassSearchField
+import com.tether.phone.ui.components.LiquidGlassSurface
+import com.tether.phone.ui.components.LiquidGlassVolumeSlider
+import com.tether.phone.ui.theme.AlertRed
+import com.tether.phone.ui.theme.GlassBorderBright
+import com.tether.phone.ui.theme.IntegrityGreen
+import com.tether.phone.ui.theme.LiquidCyan
+import com.tether.phone.ui.theme.MatrixGold
+import com.tether.phone.ui.theme.SurfaceElevated
+import com.tether.phone.ui.theme.TextMuted
+import com.tether.phone.ui.theme.TextPrimary
+import com.tether.phone.ui.theme.TextSecondary
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.time.Duration
 
 /**
  * Tether PC Control Screen
- * Houses Master Volume, Master Mute, Generic Media Controls, and Windows Application Launcher.
+ * Houses Master Volume, Master Mute, Display Brightness, Power Plans, Battery Status, Media Controls, and Windows App Launcher.
  * Built with the True Liquid Glass Design System.
  */
 @Composable
 fun RemoteControlScreen(
     volumeLevel: Float, // 0f..100f
     isMuted: Boolean,
+    brightnessLevel: Float, // 0f..100f
     mediaState: MediaState,
     applications: List<AppInfo>,
+    powerPlans: List<PowerPlanInfo>,
+    batteryState: BatteryState,
     isConnected: Boolean,
     onVolumeChanged: (Float) -> Unit,
     onMuteToggled: () -> Unit,
+    onBrightnessChanged: (Float) -> Unit,
+    onSelectPowerPlan: (String) -> Unit,
     onMediaPlayPause: () -> Unit,
     onMediaPrevious: () -> Unit,
     onMediaNext: () -> Unit,
     onLaunchApp: (String) -> Unit,
     onRefreshApps: () -> Unit,
-    modifier: Modifier = Modifier
+    onRefreshState: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
@@ -80,91 +117,99 @@ fun RemoteControlScreen(
             .fillMaxSize()
             .verticalScroll(scrollState)
             .padding(horizontal = 20.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Status Bar Card
         LiquidGlassSurface(
             modifier = Modifier.fillMaxWidth(),
             tint = if (isConnected) LiquidCyan else AlertRed,
-            alpha = 0.12f
+            alpha = 0.12f,
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Box(
                         modifier = Modifier
                             .size(10.dp)
                             .clip(CircleShape)
-                            .background(if (isConnected) IntegrityGreen else AlertRed)
+                            .background(if (isConnected) IntegrityGreen else AlertRed),
                     )
                     Column {
                         Text(
                             text = if (isConnected) "ENCRYPTED PC LINK ACTIVE" else "PC OFFLINE / RECONNECTING",
                             style = MaterialTheme.typography.labelMedium,
                             color = if (isConnected) TextPrimary else AlertRed,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
                         )
                         Text(
                             text = if (isConnected) "Authenticated BLE Transport" else "Commands disabled while offline",
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary,
-                            fontSize = 11.sp
+                            fontSize = 11.sp,
                         )
                     }
                 }
 
                 IconButton(
-                    onClick = onRefreshApps,
+                    onClick = {
+                        onRefreshApps()
+                        onRefreshState()
+                    },
                     enabled = isConnected,
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
                         .background(SurfaceElevated.copy(alpha = 0.5f))
-                        .border(0.5.dp, GlassBorderBright, CircleShape)
+                        .border(0.5.dp, GlassBorderBright, CircleShape),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "Sync State",
                         tint = LiquidCyan,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(18.dp),
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // 1. MASTER VOLUME & MUTE CONTROL CARD
+        // 1. BATTERY HEALTH / STATUS CARD
+        LiquidGlassBatteryCard(
+            batteryState = batteryState,
+            onRefresh = onRefreshState,
+            enabled = isConnected,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 2. MASTER VOLUME & MUTE CONTROL CARD
         LiquidGlassSurface(
             modifier = Modifier.fillMaxWidth(),
             tint = LiquidCyan,
-            alpha = 0.16f
+            alpha = 0.16f,
         ) {
             LiquidGlassVolumeSlider(
                 value = volumeLevel,
-                onValueChange = { localVal ->
-                    // Throttled local callback
-                    onVolumeChanged(localVal)
-                },
-                onValueChangeFinished = { finalVal ->
-                    onVolumeChanged(finalVal)
-                },
+                onValueChange = { localVal -> onVolumeChanged(localVal) },
+                onValueChangeFinished = { finalVal -> onVolumeChanged(finalVal) },
                 isMuted = isMuted,
-                enabled = isConnected
+                enabled = isConnected,
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 // Mute / Unmute Button
                 LiquidGlassButton(
@@ -174,13 +219,13 @@ fun RemoteControlScreen(
                     isHighlighted = isMuted,
                     enabled = isConnected,
                     onClick = onMuteToggled,
-                    modifier = Modifier.weight(1.2f)
+                    modifier = Modifier.weight(1.2f),
                 )
 
                 // Quick Presets
                 Row(
                     modifier = Modifier.weight(1.8f),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     listOf(25f, 50f, 75f, 100f).forEach { preset ->
                         Box(
@@ -193,10 +238,10 @@ fun RemoteControlScreen(
                                 .border(
                                     width = if (!isMuted && (volumeLevel - preset).let { abs(it) < 5f }) 1.dp else 0.dp,
                                     color = LiquidCyan,
-                                    shape = RoundedCornerShape(18.dp)
+                                    shape = RoundedCornerShape(18.dp),
                                 )
                                 .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center
+                            contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 text = "${preset.toInt()}%",
@@ -206,7 +251,7 @@ fun RemoteControlScreen(
                                 fontSize = 11.sp,
                                 modifier = Modifier.clickable(enabled = isConnected) {
                                     onVolumeChanged(preset)
-                                }
+                                },
                             )
                         }
                     }
@@ -214,30 +259,94 @@ fun RemoteControlScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // 2. GENERIC MEDIA CONTROLS CARD
+        // 3. DISPLAY BRIGHTNESS CONTROL CARD
+        LiquidGlassSurface(
+            modifier = Modifier.fillMaxWidth(),
+            tint = MatrixGold,
+            alpha = 0.16f,
+        ) {
+            LiquidGlassBrightnessSlider(
+                value = brightnessLevel,
+                onValueChange = { localVal -> onBrightnessChanged(localVal) },
+                onValueChangeFinished = { finalVal -> onBrightnessChanged(finalVal) },
+                enabled = isConnected,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Quick Brightness Presets
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listOf(25f, 50f, 75f, 100f).forEach { preset ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(SurfaceElevated.copy(alpha = 0.5f))
+                            .border(0.5.dp, GlassBorderBright, RoundedCornerShape(16.dp))
+                            .border(
+                                width = if ((brightnessLevel - preset).let { abs(it) < 5f }) 1.dp else 0.dp,
+                                color = MatrixGold,
+                                shape = RoundedCornerShape(16.dp),
+                            )
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "${preset.toInt()}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if ((brightnessLevel - preset).let { abs(it) < 5f }) MatrixGold else TextSecondary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            modifier = Modifier.clickable(enabled = isConnected) {
+                                onBrightnessChanged(preset)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 4. POWER PLAN SELECTION CARD
+        LiquidGlassPowerPlanCard(
+            powerPlans = powerPlans,
+            onSelectPlan = onSelectPowerPlan,
+            onRefresh = onRefreshState,
+            enabled = isConnected,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 5. GENERIC MEDIA CONTROLS CARD
         LiquidGlassMediaCard(
             mediaState = mediaState,
             onPlayPause = onMediaPlayPause,
             onPrev = onMediaPrevious,
             onNext = onMediaNext,
             enabled = isConnected,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // 3. APPLICATION LAUNCHER SECTION
+        // 6. APPLICATION LAUNCHER SECTION
         LiquidGlassSurface(
             modifier = Modifier.fillMaxWidth(),
             tint = IntegrityGreen,
-            alpha = 0.14f
+            alpha = 0.14f,
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column {
                     Text(
@@ -245,13 +354,13 @@ fun RemoteControlScreen(
                         style = MaterialTheme.typography.labelSmall,
                         color = IntegrityGreen,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.2.sp
+                        letterSpacing = 1.2.sp,
                     )
                     Text(
                         text = "Trusted Host Execution",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondary,
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
                     )
                 }
 
@@ -260,13 +369,13 @@ fun RemoteControlScreen(
                         .clip(RoundedCornerShape(12.dp))
                         .background(IntegrityGreen.copy(alpha = 0.15f))
                         .border(0.5.dp, IntegrityGreen.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
                 ) {
                     Text(
                         text = "${filteredApps.size} APPS",
                         style = MaterialTheme.typography.labelSmall,
                         color = IntegrityGreen,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
                     )
                 }
             }
@@ -277,7 +386,7 @@ fun RemoteControlScreen(
             LiquidGlassSearchField(
                 query = searchQuery,
                 onQueryChange = { searchQuery = it },
-                placeholder = "Search Windows Applications..."
+                placeholder = "Search Windows Applications...",
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -288,12 +397,12 @@ fun RemoteControlScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 32.dp),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = "No applications matching search query",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = TextMuted
+                        color = TextMuted,
                     )
                 }
             } else {
@@ -308,12 +417,12 @@ fun RemoteControlScreen(
                                 onLaunchApp(appId)
                                 launchFeedbackJob?.cancel()
                                 launchFeedbackJob = scope.launch {
-                                    delay(2000L)
+                                    delay(Duration.parse("2s"))
                                     if (launchingAppId == appId) {
                                         launchingAppId = null
                                     }
                                 }
-                            }
+                            },
                         )
                     }
                 }

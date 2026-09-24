@@ -18,7 +18,19 @@ data class AppInfo(
     val id: String,
     val name: String,
     val category: String,
-    val iconName: String = "default"
+    val iconName: String = "default",
+)
+
+data class PowerPlanInfo(
+    val id: String,
+    val name: String,
+    val isActive: Boolean = false,
+)
+
+data class BatteryState(
+    val percentage: Int = 100,
+    val isCharging: Boolean = false,
+    val health: String = "Good",
 )
 
 val defaultWindowsApplications = listOf(
@@ -31,5 +43,5 @@ val defaultWindowsApplications = listOf(
     AppInfo("taskmgr", "Task Manager", "System", "analytics"),
     AppInfo("notepad", "Notepad", "Productivity", "description"),
     AppInfo("settings", "Windows Settings", "System", "settings"),
-    AppInfo("vscode", "VS Code", "Developer", "code")
+    AppInfo("vscode", "VS Code", "Developer", "code"),
 )

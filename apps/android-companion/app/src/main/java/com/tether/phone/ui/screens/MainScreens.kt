@@ -84,13 +84,13 @@ fun TetherAppScreen(
                     .fillMaxWidth()
                     .height(360.dp)
                     .graphicsLayer { translationY = -scrollState.value * 0.2f },
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 if (isConnected) {
                     ActiveLinkVisualizer(
                         color = statusColor,
                         status = statusText,
-                        subStatus = connectionStatus
+                        subStatus = connectionStatus,
                     )
                 } else {
                     ScanningVisualizer(color = statusColor)
@@ -101,32 +101,32 @@ fun TetherAppScreen(
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 200)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 200)) { it / 2 }
+                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 200)) { it / 2 },
         ) {
             ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = stringResource(R.string.header_hardware_directives),
                     style = MaterialTheme.typography.labelMedium,
-                    color = LiquidCyan
+                    color = LiquidCyan,
                 )
                 Spacer(modifier = Modifier.height(28.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp)
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     TacticalAction(
                         label = stringResource(R.string.label_sleep),
                         accentColor = MatrixGold,
                         onClick = { onBleActionRequested("PWR_SLEEP") },
                         modifier = Modifier.weight(1f),
-                        enabled = isConnected
+                        enabled = isConnected,
                     )
                     TacticalAction(
                         label = stringResource(R.string.label_reboot),
                         accentColor = TextPrimary,
                         onClick = { onBleActionRequested("PWR_REBOOT") },
                         modifier = Modifier.weight(1f),
-                        enabled = isConnected
+                        enabled = isConnected,
                     )
                 }
                 Spacer(modifier = Modifier.height(20.dp))
@@ -134,7 +134,7 @@ fun TetherAppScreen(
                     label = stringResource(R.string.label_halt_system),
                     accentColor = AlertRed,
                     onClick = { onBleActionRequested("PWR_SHUTDOWN") },
-                    enabled = isConnected
+                    enabled = isConnected,
                 )
             }
         }
@@ -145,7 +145,7 @@ fun TetherAppScreen(
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 300)) +
-                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 300)) { it / 2 }
+                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 300)) { it / 2 },
         ) {
             ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
                 LiquidGlassVolumeSlider(
@@ -153,7 +153,7 @@ fun TetherAppScreen(
                     onValueChange = onVolumeChanged,
                     onValueChangeFinished = onVolumeChanged,
                     isMuted = isMuted,
-                    enabled = isConnected
+                    enabled = isConnected,
                 )
                 Spacer(modifier = Modifier.height(14.dp))
                 LiquidGlassButton(
@@ -162,7 +162,7 @@ fun TetherAppScreen(
                     accentColor = if (isMuted) AlertRed else LiquidCyan,
                     isHighlighted = isMuted,
                     enabled = isConnected,
-                    onClick = onMuteToggled
+                    onClick = onMuteToggled,
                 )
             }
         }
@@ -173,7 +173,7 @@ fun TetherAppScreen(
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 400)) +
-                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 400)) { it / 2 }
+                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 400)) { it / 2 },
         ) {
             LiquidGlassMediaCard(
                 mediaState = mediaState,
@@ -181,7 +181,7 @@ fun TetherAppScreen(
                 onPrev = onMediaPrevious,
                 onNext = onMediaNext,
                 enabled = isConnected,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             )
         }
 
@@ -189,7 +189,7 @@ fun TetherAppScreen(
 
         AnimatedContent(
             targetState = verificationStep,
-            label = "Security"
+            label = "Security",
         ) { step ->
             Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 when (step) {
@@ -198,7 +198,7 @@ fun TetherAppScreen(
                             AnimatedVisibility(
                                 visible = visible,
                                 enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 400)) + 
-                                        scaleIn(initialScale = 0.9f)
+                                        scaleIn(initialScale = 0.9f),
                             ) {
                                 PanicRestoreCard(onSideRestore = onSideRestore)
                             }
@@ -206,43 +206,43 @@ fun TetherAppScreen(
                             AnimatedVisibility(
                                 visible = visible,
                                 enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 400)) + 
-                                        slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 400)) { it / 2 }
+                                        slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 400)) { it / 2 },
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(20.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(20.dp),
                                     ) {
                                         TacticalAction(
                                             label = stringResource(R.string.label_unlock),
                                             accentColor = IntegrityGreen,
                                             onClick = onUnlockClick,
                                             modifier = Modifier.weight(1f),
-                                            enabled = isConnected
+                                            enabled = isConnected,
                                         )
                                         TacticalAction(
                                             label = stringResource(R.string.label_lock),
                                             accentColor = LiquidCyan,
                                             onClick = onLockClick,
                                             modifier = Modifier.weight(1f),
-                                            enabled = isConnected
+                                            enabled = isConnected,
                                         )
                                     }
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(20.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(20.dp),
                                     ) {
                                         TacticalAction(
                                             label = stringResource(R.string.label_target),
                                             accentColor = TextSecondary,
                                             onClick = onSelectLaptop,
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.weight(1f),
                                         )
                                         TacticalAction(
                                             label = stringResource(R.string.label_panic),
                                             accentColor = AlertRed,
                                             onClick = onPanicClick,
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.weight(1f),
                                         )
                                     }
                                 }
@@ -268,21 +268,22 @@ fun ScanningVisualizer(color: Color) {
         initialValue = 0f,
         targetValue = radiusTargetPx,
         animationSpec = infiniteRepeatable(animation = tween(durationMillis = 3500, easing = LinearOutSlowInEasing)),
-        label = "R"
+        label = "R",
     )
     val alpha by infiniteTransition.animateFloat(
         initialValue = 1f,
         targetValue = 0f,
         animationSpec = infiniteRepeatable(animation = tween(durationMillis = 3500, easing = LinearOutSlowInEasing)),
-        label = "A"
+        label = "A",
     )
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
         targetValue = 1.1f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 2000, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse
-        ), label = "P"
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "P",
     )
 
     Box(contentAlignment = Alignment.Center) {
@@ -292,17 +293,17 @@ fun ScanningVisualizer(color: Color) {
                 .graphicsLayer {
                     scaleX = pulseScale
                     scaleY = pulseScale
-                }
+                },
         ) {
             drawCircle(
                 color = color.copy(alpha = alpha * 0.4f),
                 radius = radius,
-                style = Stroke(width = 2.5.dp.toPx())
+                style = Stroke(width = 2.5.dp.toPx()),
             )
             drawCircle(
                 color = color.copy(alpha = alpha * 0.15f),
                 radius = radius * 0.7f,
-                style = Stroke(width = 1.5.dp.toPx())
+                style = Stroke(width = 1.5.dp.toPx()),
             )
 
             drawArc(
@@ -312,26 +313,26 @@ fun ScanningVisualizer(color: Color) {
                 useCenter = false,
                 topLeft = Offset(x = center.x - radius, y = center.y - radius),
                 size = androidx.compose.ui.geometry.Size(width = radius * 2, height = radius * 2),
-                style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
+                style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round),
             )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = stringResource(R.string.status_scanning),
                 style = MaterialTheme.typography.labelMedium,
-                color = color
+                color = color,
             )
             Spacer(modifier = Modifier.height(20.dp))
             Text(
                 text = stringResource(R.string.label_no_host),
                 style = MaterialTheme.typography.headlineMedium,
                 color = TextPrimary,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
             Text(
                 text = stringResource(R.string.label_broadcasting_mesh),
                 style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary
+                color = TextSecondary,
             )
         }
     }
@@ -344,85 +345,86 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(animation = tween(durationMillis = 25000, easing = LinearEasing)),
-        label = "Rot"
+        label = "Rot",
     )
     val orbitRotation by infiniteTransition.animateFloat(
         initialValue = 360f,
         targetValue = 0f,
         animationSpec = infiniteRepeatable(animation = tween(durationMillis = 15000, easing = LinearEasing)),
-        label = "Orbit"
+        label = "Orbit",
     )
     val glowPulse by infiniteTransition.animateFloat(
         initialValue = 0.4f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 3000, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse
-        ), label = "Glow"
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "Glow",
     )
 
     Box(contentAlignment = Alignment.Center) {
         Canvas(
             modifier = Modifier
                 .size(320.dp)
-                .graphicsLayer { alpha = 0.8f }
+                .graphicsLayer { alpha = 0.8f },
         ) {
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(color.copy(alpha = 0.3f * glowPulse), Color.Transparent),
-                    radius = size.width / 1.8f
-                )
+                    radius = size.width / 1.8f,
+                ),
             )
         }
 
         Canvas(
             modifier = Modifier
                 .size(280.dp)
-                .graphicsLayer { rotationZ = rotation }
+                .graphicsLayer { rotationZ = rotation },
         ) {
             drawArc(
                 color = color,
                 startAngle = 0f,
                 sweepAngle = 160f,
                 useCenter = false,
-                style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
+                style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round),
             )
             drawArc(
                 color = color.copy(alpha = 0.3f),
                 startAngle = 180f,
                 sweepAngle = 90f,
                 useCenter = false,
-                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
             )
         }
 
         Canvas(
             modifier = Modifier
                 .size(240.dp)
-                .graphicsLayer { rotationZ = orbitRotation }
+                .graphicsLayer { rotationZ = orbitRotation },
         ) {
             val nodeCenter = Offset(x = size.width, y = size.height / 2)
             drawCircle(
                 color = color,
                 radius = 7.dp.toPx(),
-                center = nodeCenter
+                center = nodeCenter,
             )
             drawCircle(
                 color = color.copy(alpha = 0.4f),
                 radius = 14.dp.toPx() * glowPulse,
-                center = nodeCenter
+                center = nodeCenter,
             )
 
             val mirrorCenter = Offset(x = 0f, y = size.height / 2)
             drawCircle(
                 color = color.copy(alpha = 0.6f),
                 radius = 5.dp.toPx(),
-                center = mirrorCenter
+                center = mirrorCenter,
             )
             drawCircle(
                 color = color.copy(alpha = 0.2f),
                 radius = 10.dp.toPx() * glowPulse,
-                center = mirrorCenter
+                center = mirrorCenter,
             )
         }
 
@@ -433,7 +435,7 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
                 .graphicsLayer {
                     scaleX = (glowPulse * 0.05f) + 0.95f
                     scaleY = (glowPulse * 0.05f) + 0.95f
-                }
+                },
         ) {
             Text(
                 text = status,
@@ -441,13 +443,13 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
                 color = color,
                 textAlign = TextAlign.Center,
                 fontWeight = FontWeight.ExtraBold,
-                lineHeight = 28.sp
+                lineHeight = 28.sp,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = subStatus,
                 style = MaterialTheme.typography.labelMedium,
-                color = TextSecondary
+                color = TextSecondary,
             )
         }
     }
@@ -459,19 +461,19 @@ fun PanicRestoreCard(onSideRestore: () -> Unit) {
         Text(
             text = stringResource(R.string.status_lockdown_active),
             style = MaterialTheme.typography.labelMedium,
-            color = AlertRed
+            color = AlertRed,
         )
         Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = stringResource(R.string.panic_message),
             style = MaterialTheme.typography.bodyMedium,
-            color = TextSecondary
+            color = TextSecondary,
         )
         Spacer(modifier = Modifier.height(28.dp))
         TacticalAction(
             label = stringResource(R.string.label_restore),
             accentColor = IntegrityGreen,
-            onClick = onSideRestore
+            onClick = onSideRestore,
         )
     }
 }
@@ -487,13 +489,13 @@ fun LoadingSecurityStep(msg: String) {
         CircularProgressIndicator(
             color = LiquidCyan,
             strokeWidth = 1.5.dp,
-            modifier = Modifier.size(48.dp)
+            modifier = Modifier.size(48.dp),
         )
         Spacer(modifier = Modifier.height(20.dp))
         Text(
             text = msg,
             style = MaterialTheme.typography.labelMedium,
-            color = TextSecondary
+            color = TextSecondary,
         )
     }
 }
@@ -504,19 +506,19 @@ fun BiometricVerificationStep(onVerify: () -> Unit) {
         Text(
             text = stringResource(R.string.header_identity_required),
             style = MaterialTheme.typography.labelMedium,
-            color = LiquidCyan
+            color = LiquidCyan,
         )
         Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = stringResource(R.string.identity_message),
             style = MaterialTheme.typography.bodyMedium,
-            color = TextSecondary
+            color = TextSecondary,
         )
         Spacer(modifier = Modifier.height(28.dp))
         TacticalAction(
             label = stringResource(R.string.btn_verify),
             accentColor = LiquidCyan,
-            onClick = onVerify
+            onClick = onVerify,
         )
     }
 }
@@ -525,7 +527,7 @@ fun BiometricVerificationStep(onVerify: () -> Unit) {
 fun SettingsScreen(
     selectedTimeoutMs: Long,
     onTimeoutChanged: (Long) -> Unit,
-    onRestartServer: () -> Unit
+    onRestartServer: () -> Unit,
 ) {
     val context = LocalContext.current
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
@@ -539,18 +541,18 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(24.dp)
+            .padding(24.dp),
     ) {
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 600)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 600)) { -it / 4 }
+                    slideInVertically(animationSpec = tween(durationMillis = 600)) { -it / 4 },
         ) {
             Text(
                 text = stringResource(R.string.header_system_config),
                 style = MaterialTheme.typography.labelLarge,
                 color = LiquidCyan,
-                letterSpacing = 4.sp
+                letterSpacing = 4.sp,
             )
         }
         Spacer(modifier = Modifier.height(28.dp))
@@ -558,24 +560,24 @@ fun SettingsScreen(
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 100)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 100)) { it / 3 }
+                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 100)) { it / 3 },
         ) {
             ProfessionalGlassSurface {
                 Column {
                     Text(
                         text = stringResource(R.string.label_lock_threshold),
                         style = MaterialTheme.typography.titleLarge,
-                        color = TextPrimary
+                        color = TextPrimary,
                     )
                     Text(
                         text = "Automated vault enforcement interval.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
+                        color = TextSecondary,
                     )
                     Spacer(modifier = Modifier.height(28.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         listOf("IMM" to 0L, "1M" to 60000L, "5M" to 300000L).forEach { (l, v) ->
                             val sel = selectedTimeoutMs == v
@@ -589,19 +591,19 @@ fun SettingsScreen(
                                     .border(
                                         width = 0.5.dp,
                                         color = if (sel) LiquidCyan else GlassBorder,
-                                        shape = RoundedCornerShape(16.dp)
+                                        shape = RoundedCornerShape(16.dp),
                                     )
                                     .graphicsLayer {
                                         scaleX = if (sel) 1.05f else 1f
                                         scaleY = if (sel) 1.05f else 1f
                                     },
-                                contentAlignment = Alignment.Center
+                                contentAlignment = Alignment.Center,
                             ) {
                                 Text(
                                     text = l,
                                     color = if (sel) LiquidCyan else TextSecondary,
                                     style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal
+                                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
                                 )
                             }
                         }
@@ -614,7 +616,7 @@ fun SettingsScreen(
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 200)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 200)) { it / 3 }
+                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 200)) { it / 3 },
         ) {
             ProfessionalGlassSurface {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -622,19 +624,19 @@ fun SettingsScreen(
                         Text(
                             text = "Security Hardening",
                             style = MaterialTheme.typography.titleLarge,
-                            color = TextPrimary
+                            color = TextPrimary,
                         )
                         Text(
                             text = "Biometric Gateway and UI Privacy Mask are active and enforced by system policy.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = IntegrityGreen
+                            color = IntegrityGreen,
                         )
                     }
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
                         contentDescription = null,
                         tint = IntegrityGreen,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(24.dp),
                     )
                 }
             }
@@ -644,7 +646,7 @@ fun SettingsScreen(
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 300)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 300)) { it / 3 }
+                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 300)) { it / 3 },
         ) {
             ProfessionalGlassSurface {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -652,12 +654,12 @@ fun SettingsScreen(
                         Text(
                             text = stringResource(R.string.label_battery_persistence),
                             style = MaterialTheme.typography.titleLarge,
-                            color = TextPrimary
+                            color = TextPrimary,
                         )
                         Text(
                             text = if (isBatteryOptimized) stringResource(R.string.desc_battery_optimized) else stringResource(R.string.desc_battery_unrestricted),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = if (isBatteryOptimized) MatrixGold else IntegrityGreen
+                            color = if (isBatteryOptimized) MatrixGold else IntegrityGreen,
                         )
                     }
                     if (isBatteryOptimized) {
@@ -668,7 +670,7 @@ fun SettingsScreen(
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan.copy(alpha = 0.12f)),
                             border = BorderStroke(width = 0.5.dp, color = LiquidCyan),
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(12.dp),
                         ) {
                             Text(text = stringResource(R.string.btn_fix), color = LiquidCyan)
                         }
@@ -677,7 +679,7 @@ fun SettingsScreen(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = null,
                             tint = IntegrityGreen,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(32.dp),
                         )
                     }
                 }
@@ -688,7 +690,7 @@ fun SettingsScreen(
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 400)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 400)) { it / 3 }
+                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 400)) { it / 3 },
         ) {
             ProfessionalGlassSurface {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -696,19 +698,19 @@ fun SettingsScreen(
                         Text(
                             text = stringResource(R.string.label_service_control),
                             style = MaterialTheme.typography.titleLarge,
-                            color = TextPrimary
+                            color = TextPrimary,
                         )
                         Text(
                             text = stringResource(R.string.desc_restart_server),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
+                            color = TextSecondary,
                         )
                     }
                     Button(
                         onClick = onRestartServer,
                         colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan.copy(alpha = 0.12f)),
                         border = BorderStroke(width = 0.5.dp, color = LiquidCyan),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -723,7 +725,7 @@ fun SettingsScreen(
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 500)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 500)) { it / 3 }
+                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 500)) { it / 3 },
         ) {
             DeviceAttestationCard(context = LocalContext.current)
         }
@@ -742,8 +744,8 @@ fun DeviceAttestationCard(context: Context) {
             isDevOptionsDisabled = true,
             isUsbDebuggingDisabled = true,
             isAppIntegrityValid = true,
-            isSecureLockscreenEnabled = true
-        )
+            isSecureLockscreenEnabled = true,
+        ),
     ) {
         withContext(Dispatchers.IO) { value = evaluator.runAttestationPipeline() }
     }
@@ -752,25 +754,25 @@ fun DeviceAttestationCard(context: Context) {
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Column {
                 Text(
                     text = stringResource(R.string.header_integrity_core),
                     style = MaterialTheme.typography.labelLarge,
                     color = LiquidCyan,
-                    letterSpacing = 2.sp
+                    letterSpacing = 2.sp,
                 )
                 Text(
                     text = stringResource(report.tier.labelRes),
                     color = report.tier.color,
-                    style = MaterialTheme.typography.labelMedium
+                    style = MaterialTheme.typography.labelMedium,
                 )
             }
             Text(
                 text = report.score.toString(),
                 style = MaterialTheme.typography.headlineLarge,
-                color = report.tier.color
+                color = report.tier.color,
             )
         }
         Spacer(modifier = Modifier.height(24.dp))
@@ -787,24 +789,27 @@ fun DeviceAttestationCard(context: Context) {
 fun MetricRow(label: String, pass: Boolean) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
             text = label,
             color = TextSecondary,
-            style = MaterialTheme.typography.bodyMedium
+            style = MaterialTheme.typography.bodyMedium,
         )
         Text(
             text = if (pass) stringResource(R.string.label_secure) else stringResource(R.string.label_fail),
             color = if (pass) IntegrityGreen else AlertRed,
             fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.bodyMedium
+            style = MaterialTheme.typography.bodyMedium,
         )
     }
 }
 
 @Composable
-fun PairingScreen(onShowQR: () -> Unit) {
+fun PairingScreen(
+    onShowQR: () -> Unit,
+    onUnpinHostKey: () -> Unit = {},
+) {
     var visible by remember { mutableStateOf(value = false) }
     LaunchedEffect(Unit) { visible = true }
 
@@ -813,52 +818,58 @@ fun PairingScreen(onShowQR: () -> Unit) {
             .fillMaxSize()
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center,
     ) {
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 800)) + 
-                    scaleIn(initialScale = 0.85f)
+                    scaleIn(initialScale = 0.85f),
         ) {
             Text(
                 text = stringResource(R.string.header_device_pairing),
                 style = MaterialTheme.typography.headlineSmall,
                 color = LiquidCyan,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 4.sp
+                letterSpacing = 4.sp,
             )
         }
         Spacer(modifier = Modifier.height(20.dp))
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 200))
+            enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 200)),
         ) {
             Text(
                 text = stringResource(R.string.desc_pairing),
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
             )
         }
-        Spacer(modifier = Modifier.height(56.dp))
+        Spacer(modifier = Modifier.height(36.dp))
 
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 400)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 400)) { it / 2 }
+                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 400)) { it / 2 },
         ) {
             ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
                 TacticalAction(
                     label = stringResource(R.string.btn_show_pairing_qr),
                     accentColor = LiquidCyan,
-                    onClick = onShowQR
+                    onClick = onShowQR,
                 )
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+                TacticalAction(
+                    label = "RESET PINNED HOST KEY",
+                    accentColor = MatrixGold,
+                    onClick = onUnpinHostKey,
+                )
+                Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = stringResource(R.string.desc_pairing_key),
                     style = MaterialTheme.typography.bodySmall,
                     color = TextMuted,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
                 )
             }
         }

@@ -48,10 +48,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tether.phone.AppInfo
+import com.tether.phone.BatteryState
 import com.tether.phone.MediaState
+import com.tether.phone.PowerPlanInfo
 import com.tether.phone.ui.theme.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -67,7 +67,7 @@ fun LiquidGlassSurface(
     alpha: Float = 0.16f,
     tint: Color = LiquidCyan,
     blur: Float = 36f,
-    content: @Composable ColumnScope.() -> Unit
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "LiquidGlassRefraction")
     val tiltX by infiniteTransition.animateFloat(
@@ -75,16 +75,18 @@ fun LiquidGlassSurface(
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
             animation = tween(9000, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse
-        ), label = "TiltX"
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "TiltX",
     )
     val tiltY by infiniteTransition.animateFloat(
         initialValue = -1.0f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
             animation = tween(7200, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse
-        ), label = "TiltY"
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "TiltY",
     )
 
     Box(
@@ -103,15 +105,15 @@ fun LiquidGlassSurface(
                         1.0f to Color.Transparent,
                         center = Offset(
                             (size.width / 2) + (tiltX * 6.dp.toPx()),
-                            (size.height / 2) + (tiltY * 6.dp.toPx())
+                            (size.height / 2) + (tiltY * 6.dp.toPx()),
                         ),
-                        radius = size.width.coerceAtLeast(size.height)
+                        radius = size.width.coerceAtLeast(size.height),
                     ),
                     radius = size.width.coerceAtLeast(size.height),
                     center = Offset(
                         (size.width / 2) + (tiltX * 6.dp.toPx()),
-                        (size.height / 2) + (tiltY * 6.dp.toPx())
-                    )
+                        (size.height / 2) + (tiltY * 6.dp.toPx()),
+                    ),
                 )
             }
             .border(
@@ -120,13 +122,13 @@ fun LiquidGlassSurface(
                     colors = listOf(
                         Color.White.copy(alpha = 0.40f),
                         tint.copy(alpha = 0.25f),
-                        Color.White.copy(alpha = 0.08f)
+                        Color.White.copy(alpha = 0.08f),
                     ),
                     start = Offset(0f, 0f),
-                    end = Offset(1000f, 1000f)
+                    end = Offset(1000f, 1000f),
                 ),
-                shape = RoundedCornerShape(cornerRadius)
-            )
+                shape = RoundedCornerShape(cornerRadius),
+            ),
     ) {
         Box(
             modifier = Modifier
@@ -136,9 +138,9 @@ fun LiquidGlassSurface(
                         colors = listOf(
                             tint.copy(alpha = alpha * 1.5f),
                             SurfaceVeneer.copy(alpha = alpha * 1.2f),
-                            DeepSpace.copy(alpha = alpha * 0.8f)
-                        )
-                    )
+                            DeepSpace.copy(alpha = alpha * 0.8f),
+                        ),
+                    ),
                 )
                 .graphicsLayer {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -157,7 +159,7 @@ fun LiquidGlassSurface(
                             rect = Rect(0f, 0f, cornerRadius.toPx() * 2, cornerRadius.toPx() * 2),
                             startAngleDegrees = 180f,
                             sweepAngleDegrees = 90f,
-                            forceMoveTo = false
+                            forceMoveTo = false,
                         )
                         lineTo(size.width * 0.35f, 0f)
                     }
@@ -166,9 +168,9 @@ fun LiquidGlassSurface(
                         brush = Brush.linearGradient(
                             colors = listOf(Color.White.copy(alpha = 0.50f), Color.Transparent),
                             start = Offset(tiltX * 20f, tiltY * 20f),
-                            end = Offset(size.width * 0.4f, size.height * 0.4f)
+                            end = Offset(size.width * 0.4f, size.height * 0.4f),
                         ),
-                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
                     )
 
                     // Secondary refractive inner ring
@@ -180,15 +182,15 @@ fun LiquidGlassSurface(
                         topLeft = Offset(6.dp.toPx(), 6.dp.toPx()),
                         size = size.copy(
                             width = (size.width - 12.dp.toPx()).coerceAtLeast(1f),
-                            height = (size.height - 12.dp.toPx()).coerceAtLeast(1f)
+                            height = (size.height - 12.dp.toPx()).coerceAtLeast(1f),
                         ),
-                        style = Stroke(width = 0.5.dp.toPx())
+                        style = Stroke(width = 0.5.dp.toPx()),
                     )
-                }
+                },
         )
         Column(
             modifier = Modifier.padding(20.dp),
-            content = content
+            content = content,
         )
     }
 }
@@ -204,10 +206,10 @@ fun LiquidGlassVolumeSlider(
     onValueChangeFinished: (Float) -> Unit,
     modifier: Modifier = Modifier,
     isMuted: Boolean = false,
-    enabled: Boolean = true
+    enabled: Boolean = true,
 ) {
     val haptic = LocalHapticFeedback.current
-    var isDragging by remember { mutableStateOf(false) }
+    var isDragging by remember { mutableStateOf(value = false) }
     var dragProgress by remember(value) { mutableFloatStateOf(value.coerceIn(0f, 100f)) }
 
     // Synchronize local drag progress when value updates externally and user is not dragging
@@ -224,28 +226,28 @@ fun LiquidGlassVolumeSlider(
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(
                     imageVector = when {
-                        isMuted || levelPercentage == 0 -> Icons.AutoMirrored.Filled.VolumeOff
+                        ((isMuted) || (levelPercentage == 0)) -> Icons.AutoMirrored.Filled.VolumeOff
                         levelPercentage < 40 -> Icons.AutoMirrored.Filled.VolumeDown
                         else -> Icons.AutoMirrored.Filled.VolumeUp
                     },
                     contentDescription = "Volume Icon",
                     tint = if (isMuted) AlertRed else LiquidCyan,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(20.dp),
                 )
                 Text(
                     text = if (isMuted) "MUTED" else "MASTER VOLUME",
                     style = MaterialTheme.typography.labelSmall,
                     color = if (isMuted) AlertRed else TextSecondary,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.2.sp
+                    letterSpacing = 1.2.sp,
                 )
             }
             Box(
@@ -253,13 +255,13 @@ fun LiquidGlassVolumeSlider(
                     .clip(RoundedCornerShape(10.dp))
                     .background(activeColor.copy(alpha = 0.15f))
                     .border(0.5.dp, activeColor.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
             ) {
                 Text(
                     text = "$levelPercentage%",
                     style = MaterialTheme.typography.labelMedium,
                     color = if (isMuted) AlertRed else TextPrimary,
-                    fontWeight = FontWeight.ExtraBold
+                    fontWeight = FontWeight.ExtraBold,
                 )
             }
         }
@@ -276,9 +278,9 @@ fun LiquidGlassVolumeSlider(
                 .border(
                     width = 0.75.dp,
                     brush = Brush.linearGradient(
-                        listOf(Color.White.copy(alpha = 0.25f), activeColor.copy(alpha = 0.1f))
+                        listOf(Color.White.copy(alpha = 0.25f), activeColor.copy(alpha = 0.1f)),
                     ),
-                    shape = RoundedCornerShape(22.dp)
+                    shape = RoundedCornerShape(22.dp),
                 )
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
@@ -308,15 +310,14 @@ fun LiquidGlassVolumeSlider(
                             isDragging = false
                             onValueChangeFinished(dragProgress)
                         },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            val newPct = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f) * 100f
-                            dragProgress = newPct
-                            onValueChange(newPct)
-                        }
-                    )
+                    ) { change, _ ->
+                        change.consume()
+                        val newPct = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f) * 100f
+                        dragProgress = newPct
+                        onValueChange(newPct)
+                    }
                 },
-            contentAlignment = Alignment.CenterStart
+            contentAlignment = Alignment.CenterStart,
         ) {
             val fraction = (dragProgress / 100f).coerceIn(0f, 1f)
 
@@ -329,9 +330,9 @@ fun LiquidGlassVolumeSlider(
                     .background(
                         Brush.horizontalGradient(
                             colors = if (isMuted) listOf(AlertRed.copy(alpha = 0.6f), AlertRedMuted)
-                            else listOf(LiquidCyanMuted, LiquidCyan, IntegrityGreen)
-                        )
-                    )
+                            else listOf(LiquidCyanMuted, LiquidCyan, IntegrityGreen),
+                        ),
+                    ),
             )
 
             // Refractive Specular Track Reflection
@@ -342,9 +343,9 @@ fun LiquidGlassVolumeSlider(
                     .align(Alignment.TopCenter)
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color.White.copy(alpha = 0.18f), Color.Transparent)
-                        )
-                    )
+                            colors = listOf(Color.White.copy(alpha = 0.18f), Color.Transparent),
+                        ),
+                    ),
             )
 
             // Glass Handle / Thumb Marker
@@ -357,17 +358,17 @@ fun LiquidGlassVolumeSlider(
                     .clip(CircleShape)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.White.copy(alpha = 0.95f), activeColor.copy(alpha = 0.8f))
-                        )
+                            listOf(Color.White.copy(alpha = 0.95f), activeColor.copy(alpha = 0.8f)),
+                        ),
                     )
                     .border(1.dp, Color.White, CircleShape),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Box(
                     modifier = Modifier
                         .size(8.dp)
                         .clip(CircleShape)
-                        .background(DeepSpace)
+                        .background(DeepSpace),
                 )
             }
         }
@@ -385,7 +386,7 @@ fun LiquidGlassButton(
     icon: ImageVector? = null,
     accentColor: Color = LiquidCyan,
     enabled: Boolean = true,
-    isHighlighted: Boolean = false
+    isHighlighted: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -394,7 +395,7 @@ fun LiquidGlassButton(
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.93f else 1f,
         animationSpec = spring(dampingRatio = 0.5f, stiffness = 600f),
-        label = "BtnScale"
+        label = "BtnScale",
     )
 
     Box(
@@ -411,44 +412,44 @@ fun LiquidGlassButton(
                 Brush.verticalGradient(
                     colors = if (isHighlighted) listOf(
                         accentColor.copy(alpha = 0.35f),
-                        accentColor.copy(alpha = 0.15f)
+                        accentColor.copy(alpha = 0.15f),
                     ) else listOf(
                         SurfaceElevated.copy(alpha = 0.50f),
-                        SurfaceVeneer.copy(alpha = 0.30f)
-                    )
-                )
+                        SurfaceVeneer.copy(alpha = 0.30f),
+                    ),
+                ),
             )
             .border(
                 width = 0.75.dp,
                 brush = Brush.linearGradient(
                     colors = listOf(
                         accentColor.copy(alpha = if (isHighlighted) 0.8f else 0.4f),
-                        Color.White.copy(alpha = 0.05f)
-                    )
+                        Color.White.copy(alpha = 0.05f),
+                    ),
                 ),
-                shape = RoundedCornerShape(18.dp)
+                shape = RoundedCornerShape(18.dp),
             )
             .clickable(
                 enabled = enabled,
                 interactionSource = interactionSource,
-                indication = null
+                indication = null,
             ) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 onClick()
             },
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Row(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 16.dp)
+            modifier = Modifier.padding(horizontal = 16.dp),
         ) {
             if (icon != null) {
                 Icon(
                     imageVector = icon,
                     contentDescription = text,
                     tint = accentColor,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(18.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
             }
@@ -457,7 +458,7 @@ fun LiquidGlassButton(
                 style = MaterialTheme.typography.labelMedium,
                 color = TextPrimary,
                 fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
             )
         }
     }
@@ -473,25 +474,25 @@ fun LiquidGlassMediaCard(
     onPrev: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
 ) {
     LiquidGlassSurface(
         modifier = modifier,
         tint = LiquidCyan,
-        alpha = 0.18f
+        alpha = 0.18f,
     ) {
         Text(
             text = "MEDIA CONTROLS",
             style = MaterialTheme.typography.labelSmall,
             color = LiquidCyan,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 1.2.sp
+            letterSpacing = 1.2.sp,
         )
         Spacer(modifier = Modifier.height(16.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             // Album Artwork Container
             Box(
@@ -500,7 +501,7 @@ fun LiquidGlassMediaCard(
                     .clip(RoundedCornerShape(16.dp))
                     .background(Obsidian)
                     .border(1.dp, GlassBorderBright, RoundedCornerShape(16.dp)),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 val artworkBitmap = remember(mediaState.artworkBase64) {
                     try {
@@ -518,7 +519,7 @@ fun LiquidGlassMediaCard(
                         bitmap = artworkBitmap,
                         contentDescription = "Album Art",
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
                     )
                 } else {
                     Box(
@@ -526,16 +527,16 @@ fun LiquidGlassMediaCard(
                             .fillMaxSize()
                             .background(
                                 Brush.radialGradient(
-                                    listOf(LiquidCyan.copy(alpha = 0.3f), Obsidian)
-                                )
+                                    listOf(LiquidCyan.copy(alpha = 0.3f), Obsidian),
+                                ),
                             ),
-                        contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.Center,
                     ) {
                         Icon(
                             imageVector = Icons.Default.MusicNote,
-                            contentDescription = "Music Placeholder",
+                            contentDescription = "Media Artwork",
                             tint = LiquidCyan,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(32.dp),
                         )
                     }
                 }
@@ -551,7 +552,7 @@ fun LiquidGlassMediaCard(
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
@@ -559,7 +560,7 @@ fun LiquidGlassMediaCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -569,7 +570,7 @@ fun LiquidGlassMediaCard(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(if (mediaState.isPlaying) IntegrityGreen else TextMuted)
+                            .background(if (mediaState.isPlaying) IntegrityGreen else TextMuted),
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
@@ -577,7 +578,7 @@ fun LiquidGlassMediaCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = if (mediaState.isPlaying) IntegrityGreen else TextMuted,
                         fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
                     )
                 }
             }
@@ -594,32 +595,32 @@ fun LiquidGlassMediaCard(
                         .fillMaxWidth()
                         .height(6.dp)
                         .clip(CircleShape)
-                        .background(SurfaceElevated)
+                        .background(SurfaceElevated),
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxHeight()
                             .fillMaxWidth(progressFraction)
                             .clip(CircleShape)
-                            .background(LiquidCyan)
+                            .background(LiquidCyan),
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
                         text = formatMillis(mediaState.positionMs),
                         style = MaterialTheme.typography.labelSmall,
                         color = TextMuted,
-                        fontSize = 10.sp
+                        fontSize = 10.sp,
                     )
                     Text(
                         text = formatMillis(mediaState.durationMs),
                         style = MaterialTheme.typography.labelSmall,
                         color = TextMuted,
-                        fontSize = 10.sp
+                        fontSize = 10.sp,
                     )
                 }
             }
@@ -630,7 +631,7 @@ fun LiquidGlassMediaCard(
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(
                 onClick = onPrev,
@@ -639,12 +640,12 @@ fun LiquidGlassMediaCard(
                     .size(48.dp)
                     .clip(CircleShape)
                     .background(SurfaceElevated.copy(alpha = 0.5f))
-                    .border(0.5.dp, GlassBorderBright, CircleShape)
+                    .border(0.5.dp, GlassBorderBright, CircleShape),
             ) {
                 Icon(
                     imageVector = Icons.Default.SkipPrevious,
                     contentDescription = "Previous Track",
-                    tint = TextPrimary
+                    tint = TextPrimary,
                 )
             }
 
@@ -656,16 +657,16 @@ fun LiquidGlassMediaCard(
                     .clip(CircleShape)
                     .background(
                         Brush.radialGradient(
-                            listOf(LiquidCyan, LiquidCyanMuted)
-                        )
+                            listOf(LiquidCyan, LiquidCyanMuted),
+                        ),
                     )
-                    .border(1.dp, Color.White, CircleShape)
+                    .border(1.dp, Color.White, CircleShape),
             ) {
                 Icon(
                     imageVector = if (mediaState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     contentDescription = "Play / Pause",
                     tint = DeepSpace,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(32.dp),
                 )
             }
 
@@ -676,12 +677,12 @@ fun LiquidGlassMediaCard(
                     .size(48.dp)
                     .clip(CircleShape)
                     .background(SurfaceElevated.copy(alpha = 0.5f))
-                    .border(0.5.dp, GlassBorderBright, CircleShape)
+                    .border(0.5.dp, GlassBorderBright, CircleShape),
             ) {
                 Icon(
                     imageVector = Icons.Default.SkipNext,
                     contentDescription = "Next Track",
-                    tint = TextPrimary
+                    tint = TextPrimary,
                 )
             }
         }
@@ -697,7 +698,7 @@ fun LiquidGlassAppCard(
     onLaunch: (String) -> Unit,
     modifier: Modifier = Modifier,
     isLaunching: Boolean = false,
-    enabled: Boolean = true
+    enabled: Boolean = true,
 ) {
     val haptic = LocalHapticFeedback.current
 
@@ -709,26 +710,26 @@ fun LiquidGlassAppCard(
                 Brush.verticalGradient(
                     listOf(
                         SurfaceElevated.copy(alpha = 0.5f),
-                        SurfaceVeneer.copy(alpha = 0.3f)
-                    )
-                )
+                        SurfaceVeneer.copy(alpha = 0.3f),
+                    ),
+                ),
             )
             .border(
                 width = 0.75.dp,
                 brush = Brush.linearGradient(
-                    listOf(Color.White.copy(alpha = 0.3f), LiquidCyan.copy(alpha = 0.1f))
+                    listOf(Color.White.copy(alpha = 0.3f), LiquidCyan.copy(alpha = 0.1f)),
                 ),
-                shape = RoundedCornerShape(20.dp)
+                shape = RoundedCornerShape(20.dp),
             )
             .clickable(enabled = enabled && !isLaunching) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 onLaunch(app.id)
             }
-            .padding(16.dp)
+            .padding(16.dp),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Box(
                 modifier = Modifier
@@ -736,13 +737,13 @@ fun LiquidGlassAppCard(
                     .clip(RoundedCornerShape(14.dp))
                     .background(LiquidCyan.copy(alpha = 0.15f))
                     .border(0.5.dp, LiquidCyan.copy(alpha = 0.4f), RoundedCornerShape(14.dp)),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = getAppIcon(app.iconName),
                     contentDescription = app.name,
                     tint = LiquidCyan,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(24.dp),
                 )
             }
 
@@ -755,13 +756,13 @@ fun LiquidGlassAppCard(
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = app.category,
                     style = MaterialTheme.typography.labelSmall,
                     color = TextMuted,
-                    fontSize = 11.sp
+                    fontSize = 11.sp,
                 )
             }
 
@@ -771,7 +772,7 @@ fun LiquidGlassAppCard(
                 CircularProgressIndicator(
                     modifier = Modifier.size(20.dp),
                     color = LiquidCyan,
-                    strokeWidth = 2.dp
+                    strokeWidth = 2.dp,
                 )
             } else {
                 Box(
@@ -779,14 +780,14 @@ fun LiquidGlassAppCard(
                         .clip(RoundedCornerShape(12.dp))
                         .background(LiquidCyan.copy(alpha = 0.12f))
                         .border(0.5.dp, LiquidCyan.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {
                     Text(
                         text = "LAUNCH",
                         style = MaterialTheme.typography.labelSmall,
                         color = LiquidCyan,
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = 10.sp
+                        fontSize = 10.sp,
                     )
                 }
             }
@@ -801,8 +802,8 @@ fun LiquidGlassAppCard(
 fun LiquidGlassSearchField(
     query: String,
     onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
     placeholder: String = "Search Windows Apps...",
-    modifier: Modifier = Modifier
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -814,17 +815,17 @@ fun LiquidGlassSearchField(
             .background(SurfaceElevated.copy(alpha = 0.5f))
             .border(0.5.dp, GlassBorderBright, RoundedCornerShape(16.dp))
             .padding(horizontal = 14.dp),
-        contentAlignment = Alignment.CenterStart
+        contentAlignment = Alignment.CenterStart,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(
                 imageVector = Icons.Default.Search,
                 contentDescription = "Search",
                 tint = TextSecondary,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp),
             )
             Spacer(modifier = Modifier.width(10.dp))
             Box(modifier = Modifier.weight(1f)) {
@@ -832,7 +833,7 @@ fun LiquidGlassSearchField(
                     Text(
                         text = placeholder,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = TextMuted
+                        color = TextMuted,
                     )
                 }
                 TextField(
@@ -845,30 +846,400 @@ fun LiquidGlassSearchField(
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,
                         focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
+                        unfocusedTextColor = TextPrimary,
                     ),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
             if (query.isNotEmpty()) {
                 IconButton(
                     onClick = { onQueryChange("") },
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(24.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Clear",
                         tint = TextSecondary,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(16.dp),
                     )
                 }
             }
         }
     }
 }
+
+/**
+ * Liquid Glass Brightness Slider
+ */
+@Composable
+fun LiquidGlassBrightnessSlider(
+    value: Float, // 0f..100f
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val haptic = LocalHapticFeedback.current
+    var isDragging by remember { mutableStateOf(value = false) }
+    var dragProgress by remember(value) { mutableFloatStateOf(value.coerceIn(0f, 100f)) }
+
+    LaunchedEffect(value) {
+        if (!isDragging) {
+            dragProgress = value.coerceIn(0f, 100f)
+        }
+    }
+
+    val levelPercentage = dragProgress.roundToInt()
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.WbSunny,
+                    contentDescription = "Brightness Icon",
+                    tint = MatrixGold,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    text = "DISPLAY BRIGHTNESS",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MatrixGold.copy(alpha = 0.15f))
+                    .border(0.5.dp, MatrixGold.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+            ) {
+                Text(
+                    text = "$levelPercentage%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(SurfaceElevated.copy(alpha = 0.6f))
+                .border(
+                    width = 0.75.dp,
+                    brush = Brush.linearGradient(
+                        listOf(Color.White.copy(alpha = 0.25f), MatrixGold.copy(alpha = 0.1f)),
+                    ),
+                    shape = RoundedCornerShape(22.dp),
+                )
+                .pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
+                    detectTapGestures { offset ->
+                        val newPct = (offset.x / size.width.toFloat()).coerceIn(0f, 1f) * 100f
+                        dragProgress = newPct
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onValueChange(newPct)
+                        onValueChangeFinished(newPct)
+                    }
+                }
+                .pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            isDragging = true
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            val newPct = (offset.x / size.width.toFloat()).coerceIn(0f, 1f) * 100f
+                            dragProgress = newPct
+                            onValueChange(newPct)
+                        },
+                        onDragEnd = {
+                            isDragging = false
+                            onValueChangeFinished(dragProgress)
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                            onValueChangeFinished(dragProgress)
+                        },
+                    ) { change, _ ->
+                        change.consume()
+                        val newPct = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f) * 100f
+                        dragProgress = newPct
+                        onValueChange(newPct)
+                    }
+                },
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            val fraction = (dragProgress / 100f).coerceIn(0f, 1f)
+
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(fraction.coerceAtLeast(0.02f))
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(MatrixGold.copy(alpha = 0.6f), MatrixGold, LiquidCyan),
+                        ),
+                    ),
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .align(Alignment.CenterStart)
+                    .padding(start = ((fraction * 0.90f) * 100).coerceAtLeast(0f).dp)
+                    .width(36.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.White.copy(alpha = 0.95f), MatrixGold.copy(alpha = 0.8f)),
+                        ),
+                    )
+                    .border(1.dp, Color.White, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(DeepSpace),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Liquid Glass Battery Card
+ */
+@Composable
+fun LiquidGlassBatteryCard(
+    batteryState: BatteryState,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    LiquidGlassSurface(
+        modifier = modifier,
+        tint = if (batteryState.percentage < 20) AlertRed else IntegrityGreen,
+        alpha = 0.16f,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Text(
+                    text = "HOST BATTERY STATUS",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (batteryState.percentage < 20) AlertRed else IntegrityGreen,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp,
+                )
+                Text(
+                    text = if (batteryState.isCharging) "Charging • Health: ${batteryState.health}" else "On Battery • Health: ${batteryState.health}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background((if (batteryState.percentage < 20) AlertRed else IntegrityGreen).copy(alpha = 0.15f))
+                        .border(0.5.dp, (if (batteryState.percentage < 20) AlertRed else IntegrityGreen).copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        text = "${batteryState.percentage}%",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+
+                IconButton(
+                    onClick = onRefresh,
+                    enabled = enabled,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceElevated.copy(alpha = 0.5f)),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Refresh Battery",
+                        tint = LiquidCyan,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(10.dp)
+                .clip(RoundedCornerShape(5.dp))
+                .background(SurfaceElevated),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth((batteryState.percentage / 100f).coerceIn(0f, 1f))
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(
+                        if (batteryState.percentage < 20) AlertRed
+                        else if (batteryState.isCharging) LiquidCyan
+                        else IntegrityGreen,
+                    ),
+            )
+        }
+    }
+}
+
+/**
+ * Liquid Glass Power Plan Card
+ */
+@Composable
+fun LiquidGlassPowerPlanCard(
+    powerPlans: List<PowerPlanInfo>,
+    onSelectPlan: (String) -> Unit,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    LiquidGlassSurface(
+        modifier = modifier,
+        tint = LiquidCyan,
+        alpha = 0.14f,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Text(
+                    text = "POWER PLAN CONFIGURATION",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = LiquidCyan,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp,
+                )
+                Text(
+                    text = "Windows Host Power Profiles",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                )
+            }
+
+            IconButton(
+                onClick = onRefresh,
+                enabled = enabled,
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(SurfaceElevated.copy(alpha = 0.5f)),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Refresh Power Plans",
+                    tint = LiquidCyan,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        val displayPlans = powerPlans.ifEmpty {
+            listOf(
+                PowerPlanInfo("balanced", "Balanced", isActive = true),
+                PowerPlanInfo("high_performance", "High Performance", isActive = false),
+                PowerPlanInfo("power_saver", "Power Saver", isActive = false),
+            )
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            displayPlans.forEach { plan ->
+                val haptic = LocalHapticFeedback.current
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(
+                            if (plan.isActive) LiquidCyan.copy(alpha = 0.18f)
+                            else SurfaceElevated.copy(alpha = 0.4f),
+                        )
+                        .border(
+                            width = 0.5.dp,
+                            color = if (plan.isActive) LiquidCyan else GlassBorder,
+                            shape = RoundedCornerShape(16.dp),
+                        )
+                        .clickable(enabled = enabled && !plan.isActive) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onSelectPlan(plan.id)
+                        }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = plan.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (plan.isActive) LiquidCyan else TextPrimary,
+                            fontWeight = if (plan.isActive) FontWeight.Bold else FontWeight.Normal,
+                        )
+                        if (plan.isActive) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(LiquidCyan.copy(alpha = 0.2f))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                            ) {
+                                Text(
+                                    text = "ACTIVE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LiquidCyan,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 // Helpers
 private fun formatMillis(ms: Long): String {

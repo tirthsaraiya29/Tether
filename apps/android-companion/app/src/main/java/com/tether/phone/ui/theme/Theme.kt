@@ -2,7 +2,6 @@ package com.tether.phone.ui.theme
 
 import android.app.Activity
 import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -41,13 +40,11 @@ private val LiquidGlassColorScheme = darkColorScheme(
 
 @Composable
 fun TetherTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
     dynamicColor: Boolean = false,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+        dynamicColor && (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) -> {
             val context = LocalContext.current
             dynamicDarkColorScheme(context)
         }
@@ -59,16 +56,16 @@ fun TetherTheme(
         SideEffect {
             val activity = view.context as Activity
             val window = activity.window
-            
-            // Set true dark mode background for status and nav bars
+
+            @Suppress("DEPRECATION")
             window.statusBarColor = colorScheme.background.toArgb()
+            @Suppress("DEPRECATION")
             window.navigationBarColor = colorScheme.background.toArgb()
 
             val insetsController = WindowCompat.getInsetsController(window, view)
             insetsController.isAppearanceLightStatusBars = false
             insetsController.isAppearanceLightNavigationBars = false
-            
-            // Ensure content draws under system bars for edge-to-edge glass feel
+
             WindowCompat.setDecorFitsSystemWindows(window, false)
         }
     }
@@ -76,6 +73,6 @@ fun TetherTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
-        content = content
+        content = content,
     )
 }

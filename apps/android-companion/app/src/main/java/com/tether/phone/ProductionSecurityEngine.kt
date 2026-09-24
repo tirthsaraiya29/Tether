@@ -1,4 +1,3 @@
-// apps/android-companion/app/src/main/java/com/tether/phone/ProductionSecurityEngine.kt
 package com.tether.phone
 
 import android.content.Context
@@ -15,12 +14,10 @@ import java.security.spec.MGF1ParameterSpec
 import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
-import javax.crypto.Mac
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.OAEPParameterSpec
 import javax.crypto.spec.PSource
-import javax.crypto.spec.SecretKeySpec
 
 class ProductionSecurityEngine {
 
@@ -45,7 +42,7 @@ class ProductionSecurityEngine {
 
             val parameterSpec = KeyGenParameterSpec.Builder(
                 KEY_ALIAS,
-                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY or KeyProperties.PURPOSE_DECRYPT
+                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY or KeyProperties.PURPOSE_DECRYPT,
             )
                 .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
                 .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
@@ -63,11 +60,11 @@ class ProductionSecurityEngine {
         if (!keyStore.containsAlias(STORAGE_KEY_ALIAS)) {
             val keyGenerator = KeyGenerator.getInstance(
                 KeyProperties.KEY_ALGORITHM_AES,
-                ANDROID_KEYSTORE
+                ANDROID_KEYSTORE,
             )
             val parameterSpec = KeyGenParameterSpec.Builder(
                 STORAGE_KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
@@ -126,6 +123,16 @@ class ProductionSecurityEngine {
         }
     }
 
+    fun clearPinnedKey(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
+            prefs.edit { remove("pinned_windows_public_key_enc") }
+            Log.i("TetherSecurity", "Pinned public key unpinned/cleared.")
+        } catch (e: Exception) {
+            Log.e("TetherSecurity", "Failed to clear pinned public key: ${e.message}", e)
+        }
+    }
+
     fun getPublicKeyBytes(): ByteArray {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         val publicKey = keyStore.getCertificate(KEY_ALIAS).publicKey
@@ -143,7 +150,7 @@ class ProductionSecurityEngine {
                 "SHA-256",
                 "MGF1",
                 MGF1ParameterSpec.SHA256,
-                PSource.PSpecified.DEFAULT
+                PSource.PSpecified.DEFAULT,
             )
             cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepSpec)
             cipher.doFinal(encryptedKey)
@@ -153,18 +160,11 @@ class ProductionSecurityEngine {
                 "SHA-1",
                 "MGF1",
                 MGF1ParameterSpec.SHA1,
-                PSource.PSpecified.DEFAULT
+                PSource.PSpecified.DEFAULT,
             )
             cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepSpec)
             cipher.doFinal(encryptedKey)
         }
-    }
-
-    fun computeHmac(nonce: ByteArray, sessionKey: ByteArray): ByteArray {
-        val hmac = Mac.getInstance("HmacSHA256")
-        val secretKey = SecretKeySpec(sessionKey, "HmacSHA256")
-        hmac.init(secretKey)
-        return hmac.doFinal(nonce)
     }
 
     fun verifySignature(data: ByteArray, signature: ByteArray, publicKeyBytes: ByteArray): Boolean {
