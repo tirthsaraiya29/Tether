@@ -89,6 +89,93 @@ class BleGattServerService : Service() {
     }
     private val pendingExecuteWrites = ConcurrentHashMap<String, WriteSession>()
 
+    private data class PartialWrite(
+        val uuid: UUID,
+        var buffer: ByteArray,
+        var lastOffset: Int,
+        var lastUpdateMs: Long = SystemClock.elapsedRealtime(),
+    ) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (javaClass != other?.javaClass) return false
+            other as PartialWrite
+            if (uuid != other.uuid) return false
+            if (!buffer.contentEquals(other.buffer)) return false
+            if (lastOffset != other.lastOffset) return false
+            return lastUpdateMs == other.lastUpdateMs
+        }
+
+        override fun hashCode(): Int {
+            var result = uuid.hashCode()
+            result = 31 * result + buffer.contentHashCode()
+            result = 31 * result + lastOffset
+            result = 31 * result + lastUpdateMs.hashCode()
+            return result
+        }
+    }
+    private val securityWriteReassembly = ConcurrentHashMap<String, PartialWrite>()
+
+    private fun expectedSecurityWriteSize(uuid: UUID): Int? = when (uuid) {
+        CHALLENGE_CHAR_UUID -> 256
+        WINDOWS_PUBLIC_KEY_CHAR_UUID -> 294
+        AUTH_SIGNATURE_CHAR_UUID -> 256
+        else -> null
+    }
+
+    private fun handleSecurityWrite(device: BluetoothDevice, uuid: UUID, offset: Int, value: ByteArray): Boolean {
+        val address = device.address
+        val key = "$address-$uuid"
+        val expected = expectedSecurityWriteSize(uuid)
+            ?: return processCompletePayloadSync(device, uuid, value)
+
+        // Fast path: single-PDU write carrying the whole payload.
+        if (offset == 0 && value.size == expected) {
+            securityWriteReassembly.remove(key)
+            return processCompletePayloadSync(device, uuid, value)
+        }
+
+        // Trigger nonce special case for FFE3.
+        if (uuid == CHALLENGE_CHAR_UUID && offset == 0 && value.size == 16) {
+            securityWriteReassembly.remove(key)
+            return processCompletePayloadSync(device, uuid, value)
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        val existing = securityWriteReassembly[key]
+        if (existing != null && (now - existing.lastUpdateMs > 5000L)) {
+            securityWriteReassembly.remove(key)
+        }
+
+        val partial = securityWriteReassembly.getOrPut(key) {
+            PartialWrite(uuid, ByteArray(expected), -1, now)
+        }
+
+        if (offset == 0) {
+            partial.buffer = ByteArray(expected)
+            partial.lastOffset = 0
+        } else if (partial.lastOffset < 0 || offset != partial.lastOffset) {
+            Log.w("TetherBle", "Security write chunk out of order for $key: offset=$offset expected=${partial.lastOffset}")
+            securityWriteReassembly.remove(key)
+            return false
+        }
+
+        if (offset + value.size > expected) {
+            Log.w("TetherBle", "Security write overflow for $key: offset=$offset size=${value.size} expected=$expected")
+            securityWriteReassembly.remove(key)
+            return false
+        }
+
+        System.arraycopy(value, 0, partial.buffer, offset, value.size)
+        partial.lastOffset = offset + value.size
+        partial.lastUpdateMs = now
+
+        if (offset + value.size == expected) {
+            securityWriteReassembly.remove(key)
+            return processCompletePayloadSync(device, uuid, partial.buffer)
+        }
+        return true
+    }
+
     private val selfHealingHandler = Handler(Looper.getMainLooper())
     private val gattLock = Any()
     private var lastStackRefreshTime = SystemClock.elapsedRealtime()
@@ -476,8 +563,10 @@ class BleGattServerService : Service() {
                 val stale = notificationSubscriptions.keys().asSequence().filter { it.startsWith("$address-") }.toList()
                 stale.forEach { notificationSubscriptions.remove(it) }
                 deviceMtuMap.remove(address)
-                val pendingKeys = pendingExecuteWrites.keys().asSequence().filter { it.startsWith("$address-") }.toList()
-                pendingKeys.forEach { pendingExecuteWrites.remove(it) }
+                val staleKeys = pendingExecuteWrites.keys().asSequence().filter { it.startsWith("$address-") }.toList()
+                staleKeys.forEach { pendingExecuteWrites.remove(it) }
+                val staleReassembly = securityWriteReassembly.keys().asSequence().filter { it.startsWith("$address-") }.toList()
+                staleReassembly.forEach { securityWriteReassembly.remove(it) }
                 windowsPublicKeys.remove(address)
 
                 if (authenticatedDevicesMap.isEmpty()) {
@@ -528,7 +617,7 @@ class BleGattServerService : Service() {
                                    (uuid == WINDOWS_PUBLIC_KEY_CHAR_UUID)
 
             if (securityRelevant) {
-                val accepted = processCompletePayloadSync(device, uuid, value)
+                val accepted = handleSecurityWrite(device, uuid, offset, value)
                 if (responseNeeded) {
                     try {
                         synchronized(gattLock) {
@@ -761,26 +850,52 @@ class BleGattServerService : Service() {
                         authenticatedDevicesMap[address] = device
                         notifyStateToInterface()
 
-                        mainHandler.postDelayed(
-                            {
-                                val commandChar = commandCharacteristic
-                                val server = bluetoothGattServer
-                                if ((server != null) && (commandChar != null)) {
-                                    synchronized(gattLock) {
-                                        val reply = "auth_ok".toByteArray(Charsets.UTF_8)
-                                        @Suppress("DEPRECATION")
-                                        commandChar.value = reply
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                            server.notifyCharacteristicChanged(device, commandChar, false, reply)
-                                        } else {
-                                            @Suppress("DEPRECATION")
-                                            server.notifyCharacteristicChanged(device, commandChar, false)
-                                        }
-                                    }
+                        mainHandler.postDelayed({
+                            val commandChar = commandCharacteristic
+                            val server = bluetoothGattServer
+                            val sessionKey = sessionKeysMap[address]
+
+                            if ((server == null) || (commandChar == null)) {
+                                Log.w("TetherBle", "auth_ok skipped: server or commandChar null for $address")
+                                return@postDelayed
+                            }
+                            if ((sessionKey == null) || (sessionKey.size != 32)) {
+                                Log.w("TetherBle", "auth_ok skipped: no session key for $address")
+                                return@postDelayed
+                            }
+
+                            val framed = try {
+                                val nonce = ByteArray(12)
+                                SecureRandom().nextBytes(nonce)
+                                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                                cipher.init(
+                                    Cipher.ENCRYPT_MODE,
+                                    SecretKeySpec(sessionKey, "AES"),
+                                    GCMParameterSpec(128, nonce),
+                                )
+                                val ciphertext = cipher.doFinal("auth_ok".toByteArray(Charsets.UTF_8))
+                                ByteArray(nonce.size + ciphertext.size).also {
+                                    System.arraycopy(nonce, 0, it, 0, nonce.size)
+                                    System.arraycopy(ciphertext, 0, it, nonce.size, ciphertext.size)
                                 }
-                            },
-                            50L,
-                        )
+                            } catch (e: Exception) {
+                                Log.e("TetherBle", "auth_ok encryption failed for $address: ${e.message}")
+                                return@postDelayed
+                            }
+
+                            synchronized(gattLock) {
+                                try {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        server.notifyCharacteristicChanged(device, commandChar, false, framed)
+                                    } else {
+                                        @Suppress("DEPRECATION")
+                                        commandChar.value = framed
+                                        @Suppress("DEPRECATION")
+                                        server.notifyCharacteristicChanged(device, commandChar, false)
+                                    }
+                                } catch (_: SecurityException) {}
+                            }
+                        }, 50L)
                         return true
                     } else {
                         Log.e("TetherBle", "Handshake failed: Signature verification rejected. Trusted: $isKeyTrusted")
@@ -1196,6 +1311,7 @@ class BleGattServerService : Service() {
             sessionKeysMap.clear()
             deviceMtuMap.clear()
             pendingExecuteWrites.clear()
+            securityWriteReassembly.clear()
             windowsPublicKeys.clear()
             pendingNonces.clear()
 
@@ -1292,6 +1408,7 @@ class BleGattServerService : Service() {
             sessionKeysMap.clear()
             deviceMtuMap.clear()
             pendingExecuteWrites.clear()
+            securityWriteReassembly.clear()
             windowsPublicKeys.clear()
             pendingNonces.clear()
             try {

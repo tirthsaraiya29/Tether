@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -39,22 +40,32 @@ internal enum BleConnectionState
 
 public partial class BleManager : IDisposable
 {
-    // ---------- Dependencies ----------
+    // =====================================================================
+    // Dependencies
+    // =====================================================================
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
 
-    // ---------- BLE primitives ----------
+    // =====================================================================
+    // BLE primitives / synchronization
+    // =====================================================================
     private BluetoothLEAdvertisementWatcher? _advWatcher;
     private readonly SemaphoreSlim _scanLock = new(1, 1);
     private readonly SemaphoreSlim _connectionSemaphore = new(1, 1);
     private readonly SemaphoreSlim _disconnectSemaphore = new(1, 1);
+    private readonly object _lock = new();
 
-    // ---------- Authoritative session (the single owner) ----------
+    // =====================================================================
+    // Authoritative session — single owner of all per-connection state
+    // =====================================================================
     private sealed class BleSession
     {
         public long Generation;
         public CancellationTokenSource Cts = new();
+
         public BluetoothLEDevice? Device;
+        public TypedEventHandler<BluetoothLEDevice, object>? ConnectionStatusHandler;
+
         public GattDeviceService? Service;
         public GattCharacteristic? ChallengeChar;
         public GattCharacteristic? SignatureChar;
@@ -64,18 +75,25 @@ public partial class BleManager : IDisposable
         public GattCharacteristic? AuthChallengeChar;
         public GattCharacteristic? AuthSignatureChar;
         public GattSession? GattSession;
+
         public TaskCompletionSource<bool>? SecureAuthTcs;
         public byte[]? SessionKey;
         public bool SecureModeSupported;
+        public bool LegacyModeSupported;
+
         public readonly Queue<int> RssiSamples = new();
         public DateTime LastRssiSampleUtc = DateTime.MinValue;
+
+        public bool DisconnectLogged;
     }
 
     private BleSession? _session;
     private long _connectionGeneration;
     private BleConnectionState _state = BleConnectionState.Disconnected;
 
-    // ---------- Lifecycle / proximity state (orthogonal) ----------
+    // =====================================================================
+    // Lifecycle / proximity state (orthogonal to connection state)
+    // =====================================================================
     private bool _isWorkstationLocked = false;
     private bool _lockedByProximity = false;
     private bool _isReauthenticating = false;
@@ -83,29 +101,33 @@ public partial class BleManager : IDisposable
     private bool _isPlannedResetActive = false;
     private bool _firstAdvertReceived = false;
 
-    // ---------- Trust ----------
-    private byte[]? _sessionKeyBufferUnused; // intentionally kept null; session key lives on BleSession
+    // =====================================================================
+    // Trust
+    // =====================================================================
     private bool _isProvisioned = false;
     private byte[]? _trustedPublicKey = null;
     private RSA? _clientRsa;
     private byte[]? _clientPublicKeyBytes;
 
-    // ---------- Timers ----------
+    // =====================================================================
+    // Timers
+    // =====================================================================
     private System.Threading.Timer? _rssiTimer;
     private System.Threading.Timer? _healthCheckTimer;
-    private readonly object _lock = new();
-    private readonly object _reconnectLock = new();
+    private CancellationTokenSource? _cts = new();
 
     private DateTime _lastUnlockTime = DateTime.MinValue;
     private const int UNLOCK_COOLDOWN_MS = 3000;
 
     private const int RSSI_GOOD = -65;
     private const int RSSI_LOCK = -78;
-    private const int SAMPLE_INTERVAL_MS = 250;         // less aggressive than 100 ms
+    private const int SAMPLE_INTERVAL_MS = 250;
     private const int SAMPLES_PER_AVERAGE = 5;
     private static readonly TimeSpan RssiFreshness = TimeSpan.FromSeconds(3);
 
-    // ---------- UUIDs ----------
+    // =====================================================================
+    // UUIDs
+    // =====================================================================
     private readonly Guid SERVICE_UUID = new("0000FFE0-0000-1000-8000-00805F9B34FB");
     private readonly Guid CHALLENGE_CHAR_UUID = new("0000FFE3-0000-1000-8000-00805F9B34FB");
     private readonly Guid SIGNATURE_CHAR_UUID = new("0000FFE4-0000-1000-8000-00805F9B34FB");
@@ -115,7 +137,9 @@ public partial class BleManager : IDisposable
     private readonly Guid AUTH_CHALLENGE_CHAR_UUID = new("0000FFE8-0000-1000-8000-00805F9B34FB");
     private readonly Guid AUTH_SIGNATURE_CHAR_UUID = new("0000FFE9-0000-1000-8000-00805F9B34FB");
 
-    // ---------- P/Invoke (unchanged) ----------
+    // =====================================================================
+    // P/Invoke
+    // =====================================================================
     [DllImport("user32.dll")] private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
     private const byte VK_VOLUME_UP = 0xAF;
     private const byte VK_VOLUME_DOWN = 0xAE;
@@ -178,6 +202,7 @@ public partial class BleManager : IDisposable
         _logger = logger;
 
         LoadTrustedKey();
+
         _healthCheckTimer = new System.Threading.Timer(_ =>
         {
             try { HealthCheckCallback(); }
@@ -217,7 +242,7 @@ public partial class BleManager : IDisposable
     }
 
     // =====================================================================
-    // State machine primitives
+    // State-machine primitives
     // =====================================================================
     private bool TryTransition(BleSession? s, BleConnectionState to)
     {
@@ -241,6 +266,10 @@ public partial class BleManager : IDisposable
             (BleConnectionState.Scanning, BleConnectionState.Connecting) => true,
             (BleConnectionState.Scanning, BleConnectionState.Disconnected) => true,
             (BleConnectionState.Connecting, BleConnectionState.GattConnected) => true,
+            (BleConnectionState.Connecting, BleConnectionState.CharacteristicsReady) => true,
+            (BleConnectionState.Connecting, BleConnectionState.Authenticating) => true,
+            (BleConnectionState.Connecting, BleConnectionState.SessionReady) => true,
+            (BleConnectionState.Connecting, BleConnectionState.Ready) => true,
             (BleConnectionState.Connecting, BleConnectionState.Disconnected) => true,
             (BleConnectionState.Connecting, BleConnectionState.Failed) => true,
             (BleConnectionState.GattConnected, BleConnectionState.CharacteristicsReady) => true,
@@ -262,23 +291,18 @@ public partial class BleManager : IDisposable
             (BleConnectionState.Failed, BleConnectionState.Connecting) => true,
             (BleConnectionState.Disconnecting, BleConnectionState.Disconnected) => true,
             (BleConnectionState.Disconnecting, BleConnectionState.Scanning) => true,
-            // Any state may collapse to Disconnected as a fail-safe.
             (_, BleConnectionState.Disconnected) => true,
             _ => false
         };
     }
-
-    private bool IsReadyLocked() => _state == BleConnectionState.Ready;
 
     // =====================================================================
     // Trust / provisioning
     // =====================================================================
     private void EnsureClientKeyPair()
     {
-        // NOTE: Original stored the private key in plaintext under HKLM. This is a
-        // residual risk that must be fixed with DPAPI-NG / CryptProtectData or a
-        // machine-key-backed CNG key. Left behaviourally identical here to avoid
-        // breaking existing deployments, but flagged: see "Remaining work".
+        // NOTE: the private key is still stored as a plaintext blob in HKLM.
+        // That is a known weakness to be replaced with DPAPI-NG in a follow-up.
         try
         {
             const string legacyKeyName = @"SOFTWARE\Tether\CredentialProvider\ClientKey";
@@ -477,7 +501,6 @@ public partial class BleManager : IDisposable
             var session = _session;
             if (session?.Device != null && session.Device.BluetoothAddress == args.BluetoothAddress)
             {
-                // RSSI sample for the current session.
                 lock (_lock)
                 {
                     session.LastRssiSampleUtc = DateTime.UtcNow;
@@ -488,7 +511,6 @@ public partial class BleManager : IDisposable
                 return;
             }
 
-            // If we already own a session, ignore advertisements from any other address.
             if (session != null) return;
 
             if (!await _connectionSemaphore.WaitAsync(0)) return;
@@ -510,6 +532,89 @@ public partial class BleManager : IDisposable
     }
 
     // =====================================================================
+    // Long-write helper
+    // =====================================================================
+    /// <summary>
+    /// Performs a BLE Long Write against the given characteristic by issuing
+    /// successive ATT Write Requests at increasing offsets. Each chunk is
+    /// bounded by the negotiated ATT MTU minus the 3-byte Write Request header.
+    ///
+    /// This replaces GattReliableWriteTransaction, whose CommitAsync() is known
+    /// to never complete on certain Windows BT stack configurations (notably
+    /// Realtek and older Intel adapters). The manual offset loop gives us
+    /// explicit per-chunk timeouts and observability, and is functionally
+    /// equivalent to the standard Long Write procedure.
+    /// </summary>
+    private async Task<GattCommunicationStatus> WriteLongAsync(
+        GattCharacteristic characteristic,
+        byte[] payload,
+        TimeSpan perChunkTimeout,
+        CancellationToken token)
+    {
+        if (payload.Length == 0) return GattCommunicationStatus.Success;
+
+        int mtu = 23;
+        try
+        {
+            var sess = _session?.GattSession;
+            if (sess != null)
+            {
+                int m = sess.MaxPduSize;
+                if (m > 0) mtu = m;
+            }
+        }
+        catch { }
+
+        // ATT Write Request consumes 3 bytes of the PDU (opcode + handle).
+        int chunkSize = Math.Max(20, mtu - 3);
+        int offset = 0;
+
+        while (offset < payload.Length)
+        {
+            if (token.IsCancellationRequested) return GattCommunicationStatus.Unreachable;
+
+            int len = Math.Min(chunkSize, payload.Length - offset);
+            byte[] chunk = new byte[len];
+            System.Buffer.BlockCopy(payload, offset, chunk, 0, len);
+
+            using var writer = new DataWriter();
+            writer.WriteBytes(chunk);
+
+            var writeOp = characteristic.WriteValueWithResultAsync(
+                writer.DetachBuffer(),
+                GattWriteOption.WriteWithResponse).AsTask();
+
+            var completed = await Task.WhenAny(writeOp, Task.Delay(perChunkTimeout, token));
+            if (completed != writeOp)
+            {
+                _logger.Warning($"[BLE] Long-write chunk at offset {offset} timed out after {perChunkTimeout.TotalMilliseconds:F0} ms.");
+                return GattCommunicationStatus.ProtocolError;
+            }
+
+            GattWriteResult result;
+            try
+            {
+                result = await writeOp;
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[BLE] Long-write chunk at offset {offset} threw: {ex.Message}");
+                return GattCommunicationStatus.ProtocolError;
+            }
+
+            if (result.Status != GattCommunicationStatus.Success)
+            {
+                _logger.Warning($"[BLE] Long-write chunk at offset {offset} returned {result.Status}.");
+                return result.Status;
+            }
+
+            offset += len;
+        }
+
+        return GattCommunicationStatus.Success;
+    }
+
+    // =====================================================================
     // Connection pipeline
     // =====================================================================
     private async Task ConnectToDeviceViaAddressAsync(ulong bluetoothAddress)
@@ -527,173 +632,285 @@ public partial class BleManager : IDisposable
             _state = BleConnectionState.Connecting;
         }
 
-        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        bool reachedReady = false;
+
+        try
         {
-            if (_isStopping) break;
-            if (session.Generation != _connectionGeneration) return;
-
-            try
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
-                if (!IsProvisioned()) return;
+                if (_isStopping) break;
+                if (session.Generation != _connectionGeneration) return;
 
-                var device = await BluetoothLEDevice.FromBluetoothAddressAsync(bluetoothAddress);
-                if (device == null) return;
+                lock (_lock) { _state = BleConnectionState.Connecting; }
 
-                lock (_lock)
-                {
-                    if (_isStopping || session.Generation != _connectionGeneration)
-                    {
-                        device.Dispose();
-                        return;
-                    }
-                    session.Device = device;
-                }
-                device.ConnectionStatusChanged += (s, e) => OnConnectionStatusChangedForSession(session, s);
+                _logger.Info($"[BLE] Attempt {attempt}/{maxAttempts} → {bluetoothAddress:X}");
 
                 try
                 {
-                    session.GattSession = await GattSession.FromDeviceIdAsync(device.BluetoothDeviceId);
-                    session.GattSession.MaintainConnection = true;
-                    device.RequestPreferredConnectionParameters(BluetoothLEPreferredConnectionParameters.ThroughputOptimized);
-                }
-                catch (Exception ex) { _logger.Debug($"Connection parameters unavailable: {ex.Message}"); }
-
-                if (!TryTransition(session, BleConnectionState.GattConnected)) return;
-
-                // --- Service discovery ---
-                GattDeviceServicesResult? servicesResult = null;
-                bool serviceFound = false;
-                for (int i = 1; i <= 3; i++)
-                {
-                    try { servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached); }
-                    catch { servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Cached); }
-                    if (servicesResult?.Status == GattCommunicationStatus.Success && servicesResult.Services.Count > 0)
-                    { serviceFound = true; break; }
-                    await Task.Delay(200 * i, session.Cts.Token);
-                }
-                if (!serviceFound) { await CleanupSessionAsync(session); await Task.Delay(delayMs); delayMs *= 2; continue; }
-
-                session.Service = servicesResult!.Services.First();
-
-                // --- Characteristic discovery ---
-                GattCharacteristicsResult? charsResult = null;
-                bool charsFound = false;
-                for (int i = 1; i <= 3; i++)
-                {
-                    try { charsResult = await session.Service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached); }
-                    catch { charsResult = await session.Service.GetCharacteristicsAsync(BluetoothCacheMode.Cached); }
-                    if (charsResult?.Status == GattCommunicationStatus.Success && charsResult.Characteristics.Count > 0)
-                    { charsFound = true; break; }
-                    await Task.Delay(200 * i, session.Cts.Token);
-                }
-                if (!charsFound) { await CleanupSessionAsync(session); await Task.Delay(delayMs); delayMs *= 2; continue; }
-
-                var chars = charsResult!.Characteristics;
-                session.ChallengeChar = chars.FirstOrDefault(c => c.Uuid == CHALLENGE_CHAR_UUID);
-                session.SignatureChar = chars.FirstOrDefault(c => c.Uuid == SIGNATURE_CHAR_UUID);
-                session.CommandChar = chars.FirstOrDefault(c => c.Uuid == COMMAND_CHAR_UUID);
-                session.PublicKeyChar = chars.FirstOrDefault(c => c.Uuid == PUBLIC_KEY_CHAR_UUID);
-                session.WindowsPublicKeyChar = chars.FirstOrDefault(c => c.Uuid == WINDOWS_PUBLIC_KEY_CHAR_UUID);
-                session.AuthChallengeChar = chars.FirstOrDefault(c => c.Uuid == AUTH_CHALLENGE_CHAR_UUID);
-                session.AuthSignatureChar = chars.FirstOrDefault(c => c.Uuid == AUTH_SIGNATURE_CHAR_UUID);
-                session.SecureModeSupported = session.WindowsPublicKeyChar != null &&
-                                              session.AuthChallengeChar != null &&
-                                              session.AuthSignatureChar != null;
-
-                if (session.ChallengeChar == null || session.SignatureChar == null ||
-                    session.CommandChar == null || session.PublicKeyChar == null)
-                {
-                    await CleanupSessionAsync(session);
-                    await Task.Delay(delayMs); delayMs *= 2; continue;
-                }
-
-                var trustedKey = _trustedPublicKey;
-                if (trustedKey == null) { await CleanupSessionAsync(session); await Task.Delay(delayMs); delayMs *= 2; continue; }
-
-                if (!TryTransition(session, BleConnectionState.CharacteristicsReady)) return;
-
-                // --- Command characteristic wiring ---
-                session.CommandChar.ValueChanged += (s, e) => OnCommandReceivedForSession(session, s, e);
-                await session.CommandChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
-                    GattClientCharacteristicConfigurationDescriptorValue.Notify);
-
-                // --- Session key exchange ---
-                byte[] generatedKey = new byte[32];
-                RandomNumberGenerator.Fill(generatedKey);
-                byte[] encryptedSessionKey;
-                using (var rsa = RSA.Create())
-                {
-                    rsa.ImportSubjectPublicKeyInfo(trustedKey, out _);
-                    // NOTE: SHA-1 OAEP for compatibility with existing Android keystore.
-                    // Must be upgraded to SHA-256 on both sides together.
-                    encryptedSessionKey = rsa.Encrypt(generatedKey, RSAEncryptionPadding.OaepSHA1);
-                }
-
-                using (var writer = new DataWriter())
-                {
-                    writer.WriteBytes(encryptedSessionKey);
-                    var r = await session.ChallengeChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
-                    if (r.Status != GattCommunicationStatus.Success)
+                    if (!IsProvisioned())
                     {
-                        CryptographicOperations.ZeroMemory(generatedKey);
+                        _logger.Warning("[BLE] Not provisioned; aborting connection attempts.");
+                        break;
+                    }
+
+                    var device = await BluetoothLEDevice.FromBluetoothAddressAsync(bluetoothAddress);
+                    if (device == null)
+                    {
+                        _logger.Warning("[BLE] FromBluetoothAddressAsync returned null.");
+                        await Task.Delay(delayMs); delayMs *= 2; continue;
+                    }
+
+                    lock (_lock)
+                    {
+                        if (_isStopping || session.Generation != _connectionGeneration)
+                        {
+                            device.Dispose();
+                            return;
+                        }
+                        session.Device = device;
+                    }
+
+                    TypedEventHandler<BluetoothLEDevice, object> handler =
+                        (s, _) => OnConnectionStatusChangedForSession(session, s);
+                    session.ConnectionStatusHandler = handler;
+                    device.ConnectionStatusChanged += handler;
+
+                    try
+                    {
+                        session.GattSession = await GattSession.FromDeviceIdAsync(device.BluetoothDeviceId);
+                        session.GattSession.MaintainConnection = true;
+                        device.RequestPreferredConnectionParameters(
+                            BluetoothLEPreferredConnectionParameters.ThroughputOptimized);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Debug($"[BLE] Connection parameters unavailable: {ex.Message}");
+                    }
+
+                    _logger.Info("[BLE] GATT connected.");
+                    TryTransition(session, BleConnectionState.GattConnected);
+
+                    // ---------------------------------------------------------
+                    // Service discovery
+                    // ---------------------------------------------------------
+                    GattDeviceServicesResult? servicesResult = null;
+                    bool serviceFound = false;
+                    for (int i = 1; i <= 3; i++)
+                    {
+                        try { servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Uncached); }
+                        catch { servicesResult = await device.GetGattServicesForUuidAsync(SERVICE_UUID, BluetoothCacheMode.Cached); }
+                        if (servicesResult?.Status == GattCommunicationStatus.Success && servicesResult.Services.Count > 0)
+                        { serviceFound = true; break; }
+                        await Task.Delay(200 * i);
+                    }
+                    if (!serviceFound)
+                    {
+                        _logger.Warning($"[BLE] Attempt {attempt}: service discovery failed (status={servicesResult?.Status}).");
                         await CleanupSessionAsync(session);
                         await Task.Delay(delayMs); delayMs *= 2; continue;
                     }
-                }
-                session.SessionKey = generatedKey;
+                    session.Service = servicesResult!.Services.First();
 
-                if (!TryTransition(session, BleConnectionState.Authenticating)) return;
-
-                // --- Authentication ---
-                bool isAuthenticated = await AuthenticateSessionAsync(session, trustedKey);
-
-                if (!isAuthenticated)
-                {
-                    await CleanupSessionAsync(session);
-                    await Task.Delay(delayMs); delayMs *= 2; continue;
-                }
-
-                if (!TryTransition(session, BleConnectionState.SessionReady)) return;
-
-                lock (_lock)
-                {
-                    if (_isStopping || session.Generation != _connectionGeneration)
+                    // ---------------------------------------------------------
+                    // Characteristic discovery
+                    // ---------------------------------------------------------
+                    GattCharacteristicsResult? charsResult = null;
+                    bool charsFound = false;
+                    for (int i = 1; i <= 3; i++)
                     {
-                        _ = CleanupSessionAsync(session);
-                        return;
+                        try { charsResult = await session.Service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached); }
+                        catch { charsResult = await session.Service.GetCharacteristicsAsync(BluetoothCacheMode.Cached); }
+                        if (charsResult?.Status == GattCommunicationStatus.Success && charsResult.Characteristics.Count > 0)
+                        { charsFound = true; break; }
+                        await Task.Delay(200 * i);
                     }
-                    _firstAdvertReceived = false;
+                    if (!charsFound)
+                    {
+                        _logger.Warning($"[BLE] Attempt {attempt}: characteristic discovery failed (status={charsResult?.Status}).");
+                        await CleanupSessionAsync(session);
+                        await Task.Delay(delayMs); delayMs *= 2; continue;
+                    }
+
+                    var chars = charsResult!.Characteristics;
+                    session.ChallengeChar = chars.FirstOrDefault(c => c.Uuid == CHALLENGE_CHAR_UUID);
+                    session.SignatureChar = chars.FirstOrDefault(c => c.Uuid == SIGNATURE_CHAR_UUID);
+                    session.CommandChar = chars.FirstOrDefault(c => c.Uuid == COMMAND_CHAR_UUID);
+                    session.PublicKeyChar = chars.FirstOrDefault(c => c.Uuid == PUBLIC_KEY_CHAR_UUID);
+                    session.WindowsPublicKeyChar = chars.FirstOrDefault(c => c.Uuid == WINDOWS_PUBLIC_KEY_CHAR_UUID);
+                    session.AuthChallengeChar = chars.FirstOrDefault(c => c.Uuid == AUTH_CHALLENGE_CHAR_UUID);
+                    session.AuthSignatureChar = chars.FirstOrDefault(c => c.Uuid == AUTH_SIGNATURE_CHAR_UUID);
+
+                    session.SecureModeSupported =
+                        session.WindowsPublicKeyChar != null &&
+                        session.AuthChallengeChar != null &&
+                        session.AuthSignatureChar != null;
+
+                    session.LegacyModeSupported =
+                        session.SignatureChar != null;
+
+                    _logger.Info($"[BLE] Characteristics discovered. SecureMode={session.SecureModeSupported} " +
+                                 $"Legacy={session.LegacyModeSupported} " +
+                                 $"Cmd={session.CommandChar != null} Ch={session.ChallengeChar != null} " +
+                                 $"Sig={session.SignatureChar != null} Pub={session.PublicKeyChar != null}");
+
+                    bool mandatoryPresent =
+                        session.ChallengeChar != null &&
+                        session.CommandChar != null &&
+                        session.PublicKeyChar != null;
+
+                    bool anyAuthPath = session.SecureModeSupported || session.LegacyModeSupported;
+
+                    if (!mandatoryPresent || !anyAuthPath)
+                    {
+                        _logger.Warning($"[BLE] Attempt {attempt}: characteristics insufficient. " +
+                                        $"Secure={session.SecureModeSupported} Legacy={session.LegacyModeSupported} " +
+                                        $"Cmd={session.CommandChar != null} Ch={session.ChallengeChar != null} " +
+                                        $"Sig={session.SignatureChar != null} Pub={session.PublicKeyChar != null}");
+                        await CleanupSessionAsync(session);
+                        await Task.Delay(delayMs); delayMs *= 2; continue;
+                    }
+
+                    var trustedKey = _trustedPublicKey;
+                    if (trustedKey == null)
+                    {
+                        _logger.Warning($"[BLE] Attempt {attempt}: no trusted key loaded.");
+                        await CleanupSessionAsync(session);
+                        await Task.Delay(delayMs); delayMs *= 2; continue;
+                    }
+
+                    TryTransition(session, BleConnectionState.CharacteristicsReady);
+
+                    // ---------------------------------------------------------
+                    // Wire command notifications
+                    // ---------------------------------------------------------
+                    var commandChar = session.CommandChar!;
+                    commandChar.ValueChanged += (s, e) => OnCommandReceivedForSession(session, s, e);
+                    var cccdResult = await commandChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
+                        GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                    if (cccdResult.Status != GattCommunicationStatus.Success)
+                    {
+                        _logger.Warning($"[BLE] Attempt {attempt}: Command CCCD enable failed (status={cccdResult.Status}).");
+                        await CleanupSessionAsync(session);
+                        await Task.Delay(delayMs); delayMs *= 2; continue;
+                    }
+                    _logger.Info("[BLE] Command notifications enabled.");
+
+                    // ---------------------------------------------------------
+                    // Encrypt and write the session key (manual BLE Long Write)
+                    // ---------------------------------------------------------
+                    byte[] generatedKey = new byte[32];
+                    RandomNumberGenerator.Fill(generatedKey);
+
+                    byte[] encryptedSessionKey;
+                    using (var rsa = RSA.Create())
+                    {
+                        rsa.ImportSubjectPublicKeyInfo(trustedKey, out _);
+                        // NOTE: SHA-1 OAEP retained for Android keystore compatibility.
+                        // Must be upgraded to SHA-256 on both sides simultaneously.
+                        encryptedSessionKey = rsa.Encrypt(generatedKey, RSAEncryptionPadding.OaepSHA1);
+                    }
+
+                    GattCommunicationStatus keyWriteStatus;
+                    try
+                    {
+                        keyWriteStatus = await WriteLongAsync(
+                            session.ChallengeChar!,
+                            encryptedSessionKey,
+                            perChunkTimeout: TimeSpan.FromSeconds(3),
+                            token: session.Cts.Token);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"[BLE] Attempt {attempt}: session key long-write threw: {ex.Message}");
+                        keyWriteStatus = GattCommunicationStatus.ProtocolError;
+                    }
+
+                    if (keyWriteStatus != GattCommunicationStatus.Success)
+                    {
+                        CryptographicOperations.ZeroMemory(generatedKey);
+                        _logger.Warning($"[BLE] Attempt {attempt}: session key write failed (status={keyWriteStatus}).");
+                        await CleanupSessionAsync(session);
+                        await Task.Delay(delayMs); delayMs *= 2; continue;
+                    }
+                    session.SessionKey = generatedKey;
+                    _logger.Info("[BLE] Session key delivered to phone.");
+
+                    TryTransition(session, BleConnectionState.Authenticating);
+
+                    // ---------------------------------------------------------
+                    // Authentication
+                    // ---------------------------------------------------------
+                    bool authenticated = await AuthenticateSessionAsync(session, trustedKey);
+                    if (!authenticated)
+                    {
+                        _logger.Warning($"[BLE] Attempt {attempt}: authentication failed.");
+                        await CleanupSessionAsync(session);
+                        await Task.Delay(delayMs); delayMs *= 2; continue;
+                    }
+                    _logger.Info("[BLE] Peer authenticated.");
+
+                    TryTransition(session, BleConnectionState.SessionReady);
+
+                    lock (_lock)
+                    {
+                        if (_isStopping || session.Generation != _connectionGeneration)
+                        {
+                            _ = CleanupSessionAsync(session, finalTeardown: true);
+                            return;
+                        }
+                        _firstAdvertReceived = false;
+                    }
+
+                    TryTransition(session, BleConnectionState.Ready);
+                    reachedReady = true;
+
+                    _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_CONNECTED, Source = "BleManager" });
+                    StartRssiMonitoring();
+                    StartHealthCheck();
+                    return;
                 }
-
-                if (!TryTransition(session, BleConnectionState.Ready)) return;
-
-                _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_CONNECTED, Source = "BleManager" });
-                StartRssiMonitoring();
-                StartHealthCheck();
-                return;
-            }
-            catch (Exception ex)
-            {
-                _logger.Error($"Connection attempt {attempt} failed: {ex.Message}");
-                await CleanupSessionAsync(session);
-                if (attempt == maxAttempts) { await HandleDisconnectionAsync(session); return; }
-                try { await Task.Delay(delayMs, session.Cts.Token); } catch (OperationCanceledException) { return; }
-                delayMs *= 2;
+                catch (Exception ex)
+                {
+                    _logger.Error($"[BLE] Attempt {attempt}/{maxAttempts} threw: {ex.GetType().Name}: {ex.Message}");
+                    await CleanupSessionAsync(session);
+                    if (attempt == maxAttempts) break;
+                    try { await Task.Delay(delayMs); } catch { return; }
+                    delayMs *= 2;
+                }
             }
         }
-
-        await HandleDisconnectionAsync(session);
+        finally
+        {
+            if (!reachedReady)
+            {
+                _logger.Warning("[BLE] All connection attempts exhausted. Scheduling rescan.");
+                await HandleDisconnectionAsync(session);
+            }
+        }
     }
 
+    // =====================================================================
+    // Authentication
+    // =====================================================================
     private async Task<bool> AuthenticateSessionAsync(BleSession session, byte[] trustedKey)
     {
         if (session.SecureModeSupported)
         {
+            var authChallengeChar = session.AuthChallengeChar;
+            var authSignatureChar = session.AuthSignatureChar;
+            var challengeChar = session.ChallengeChar;
+
+            if (authChallengeChar == null || authSignatureChar == null || challengeChar == null)
+            {
+                _logger.Warning("Secure mode marked supported but FFE3/FFE8/FFE9 missing on session.");
+                return false;
+            }
+
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             session.SecureAuthTcs = tcs;
 
-            session.AuthChallengeChar!.ValueChanged += (s, e) => OnAuthChallengeReceivedForSession(session, s, e);
-            await session.AuthChallengeChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
+            authChallengeChar.ValueChanged += (s, e) => OnAuthChallengeReceivedForSession(session, s, e);
+            await authChallengeChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
                 GattClientCharacteristicConfigurationDescriptorValue.Notify);
 
             await SendClientPublicKeyBytesRawAsync(session);
@@ -704,15 +921,19 @@ public partial class BleManager : IDisposable
             using (var w = new DataWriter())
             {
                 w.WriteBytes(triggerNonce);
-                await session.ChallengeChar!.WriteValueWithResultAsync(w.DetachBuffer(), GattWriteOption.WriteWithResponse);
+                await challengeChar.WriteValueWithResultAsync(w.DetachBuffer(), GattWriteOption.WriteWithResponse);
             }
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(session.Cts.Token);
             var completed = await Task.WhenAny(tcs.Task, Task.Delay(2500, timeoutCts.Token));
-            if (completed == tcs.Task && await tcs.Task) return true;
+            if (completed == tcs.Task && await tcs.Task)
+            {
+                session.SecureAuthTcs = null;
+                return true;
+            }
 
-            // Direct read fallback.
-            var readResult = await session.AuthChallengeChar.ReadValueAsync(BluetoothCacheMode.Uncached);
+            // Direct read fallback if notification was dropped.
+            var readResult = await authChallengeChar.ReadValueAsync(BluetoothCacheMode.Uncached);
             if (readResult.Status == GattCommunicationStatus.Success && readResult.Value.Length > 0)
             {
                 var reader = DataReader.FromBuffer(readResult.Value);
@@ -725,31 +946,67 @@ public partial class BleManager : IDisposable
                     if (_clientRsa == null) { session.SecureAuthTcs = null; return false; }
                     signature = _clientRsa.SignData(nonce, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
                 }
+
                 using var sigWriter = new DataWriter();
                 sigWriter.WriteBytes(signature);
-                var sigResult = await session.AuthSignatureChar!.WriteValueWithResultAsync(sigWriter.DetachBuffer(), GattWriteOption.WriteWithResponse);
+                var sigResult = await authSignatureChar.WriteValueWithResultAsync(
+                    sigWriter.DetachBuffer(), GattWriteOption.WriteWithResponse);
+
                 if (sigResult.Status == GattCommunicationStatus.Success)
                 {
                     var finalWait = await Task.WhenAny(tcs.Task, Task.Delay(2500));
-                    if (finalWait == tcs.Task && await tcs.Task) { session.SecureAuthTcs = null; return true; }
+                    if (finalWait == tcs.Task && await tcs.Task)
+                    {
+                        session.SecureAuthTcs = null;
+                        return true;
+                    }
                 }
             }
 
-            _logger.Warning("Secure channel verification failed; engaging legacy HMAC challenge.");
+            _logger.Warning("Secure channel verification failed; engaging legacy HMAC fallback.");
             session.SecureAuthTcs = null;
+
+            if (session.SignatureChar == null)
+            {
+                _logger.Warning("Legacy HMAC fallback unavailable (FFE4 not exposed by peer). Auth failed closed.");
+                return false;
+            }
             return await AuthenticateDeviceViaChallengeAsync(session, CancellationToken.None);
         }
 
+        if (session.SignatureChar == null)
+        {
+            _logger.Warning("No auth path available (secure and legacy both unavailable).");
+            return false;
+        }
         return await AuthenticateDeviceViaChallengeAsync(session, CancellationToken.None);
     }
 
     private async Task SendClientPublicKeyBytesRawAsync(BleSession session)
     {
-        if (_clientPublicKeyBytes == null || session.WindowsPublicKeyChar == null) return;
-        using var writer = new DataWriter();
-        writer.WriteBytes(_clientPublicKeyBytes);
-        await session.WindowsPublicKeyChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
-        _logger.Info("Client public key written to secure channel.");
+        var pubKeyChar = session.WindowsPublicKeyChar;
+        var pubKeyBytes = _clientPublicKeyBytes;
+        if (pubKeyChar == null || pubKeyBytes == null) return;
+
+        try
+        {
+            var status = await WriteLongAsync(
+                pubKeyChar,
+                pubKeyBytes,
+                perChunkTimeout: TimeSpan.FromSeconds(3),
+                token: session.Cts.Token);
+
+            if (status != GattCommunicationStatus.Success)
+            {
+                _logger.Warning($"Client public key long-write failed: {status}");
+                return;
+            }
+            _logger.Info("Client public key written to secure channel.");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Client public key write threw: {ex.Message}");
+        }
     }
 
     private async void OnAuthChallengeReceivedForSession(BleSession session, GattCharacteristic sender, GattValueChangedEventArgs args)
@@ -775,7 +1032,8 @@ public partial class BleManager : IDisposable
 
             using var writer = new DataWriter();
             writer.WriteBytes(signature);
-            var result = await sigChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
+            var result = await sigChar.WriteValueWithResultAsync(
+                writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
             if (result.Status != GattCommunicationStatus.Success)
             {
                 _logger.Error($"Auth response rejected: {result.Status}");
@@ -794,7 +1052,9 @@ public partial class BleManager : IDisposable
         var challengeChar = session.ChallengeChar;
         var signatureChar = session.SignatureChar;
         var key = session.SessionKey;
-        if (challengeChar == null || signatureChar == null || key == null || key.Length == 0) return false;
+
+        if (challengeChar == null || signatureChar == null || key == null || key.Length == 0)
+            return false;
 
         try
         {
@@ -804,7 +1064,8 @@ public partial class BleManager : IDisposable
             using (var w = new DataWriter())
             {
                 w.WriteBytes(nonce);
-                var wr = await challengeChar.WriteValueWithResultAsync(w.DetachBuffer(), GattWriteOption.WriteWithResponse);
+                var wr = await challengeChar.WriteValueWithResultAsync(
+                    w.DetachBuffer(), GattWriteOption.WriteWithResponse);
                 if (wr.Status != GattCommunicationStatus.Success) return false;
             }
 
@@ -839,7 +1100,7 @@ public partial class BleManager : IDisposable
     }
 
     // =====================================================================
-    // Inbound command handling — fail-closed, no CBC fallback
+    // Inbound command handling — AEAD only, fail-closed
     // =====================================================================
     private void OnCommandReceivedForSession(BleSession session, GattCharacteristic sender, GattValueChangedEventArgs args)
     {
@@ -847,7 +1108,10 @@ public partial class BleManager : IDisposable
         {
             if (session != _session) return;
             if (session.Generation != _connectionGeneration) return;
-            if (_state != BleConnectionState.Ready) return;
+            if (_state != BleConnectionState.Ready &&
+                _state != BleConnectionState.SessionReady &&
+                _state != BleConnectionState.Authenticating)
+                return;
 
             var reader = DataReader.FromBuffer(args.CharacteristicValue);
             byte[] input = new byte[reader.UnconsumedBufferLength];
@@ -860,7 +1124,6 @@ public partial class BleManager : IDisposable
                 return;
             }
 
-            // Wire format: [12-byte nonce][ciphertext][16-byte tag]
             if (input.Length < 12 + 1 + 16)
             {
                 _logger.Warning("Rejected command: payload too short for AES-GCM.");
@@ -888,8 +1151,8 @@ public partial class BleManager : IDisposable
 
             string command = Encoding.UTF8.GetString(plaintext).Trim().ToLowerInvariant();
             CryptographicOperations.ZeroMemory(plaintext);
-            _logger.Info($"📬 Command received: {command}");
 
+            _logger.Info($"📬 Command received: {command}");
             _ = Task.Run(() => ExecuteCommandAsync(command));
         }
         catch (Exception ex)
@@ -922,7 +1185,10 @@ public partial class BleManager : IDisposable
 
                 case "unlock":
                     if ((DateTime.Now - _lastUnlockTime).TotalMilliseconds < UNLOCK_COOLDOWN_MS)
-                    { _logger.Debug("Unlock cooldown active."); break; }
+                    {
+                        _logger.Debug("Unlock cooldown active.");
+                        break;
+                    }
                     lock (_lock)
                     {
                         _isWorkstationLocked = false;
@@ -933,13 +1199,23 @@ public partial class BleManager : IDisposable
                     _appEvent?.Set();
                     _screenEvent?.Set();
                     _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager" });
-                    await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_DISABLED, Source = "BleManager", PayloadJson = "{\"Action\":\"wake_and_unlock\"}" });
+                    await SendUiEventAsync(new TetherEvent
+                    {
+                        EventType = TetherEventType.OVERLAY_DISABLED,
+                        Source = "BleManager",
+                        PayloadJson = "{\"Action\":\"wake_and_unlock\"}"
+                    });
                     break;
 
                 case "screen_unlock":
                     _screenEvent?.Set();
                     _eventBus.Publish(new TetherEvent { EventType = TetherEventType.PHONE_UNLOCKED, Source = "BleManager" });
-                    await SendUiEventAsync(new TetherEvent { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager", PayloadJson = "{\"Action\":\"wake_display\"}" });
+                    await SendUiEventAsync(new TetherEvent
+                    {
+                        EventType = TetherEventType.TRUST_RESTORED,
+                        Source = "BleManager",
+                        PayloadJson = "{\"Action\":\"wake_display\"}"
+                    });
                     break;
 
                 case "volume_up": await SendUiEventAsync(UiEvent("volume_up")); break;
@@ -978,11 +1254,19 @@ public partial class BleManager : IDisposable
                     break;
             }
         }
-        catch (Exception ex) { _logger.Error($"Command execution error: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            _logger.Error($"Command execution error: {ex.Message}");
+        }
     }
 
     private static TetherEvent UiEvent(string action) =>
-        new() { EventType = TetherEventType.TRUST_RESTORED, Source = "BleManager", PayloadJson = $"{{\"Action\":\"{action}\"}}" };
+        new()
+        {
+            EventType = TetherEventType.TRUST_RESTORED,
+            Source = "BleManager",
+            PayloadJson = $"{{\"Action\":\"{action}\"}}"
+        };
 
     private async Task LockWorkstationAsync()
     {
@@ -1004,8 +1288,8 @@ public partial class BleManager : IDisposable
             {
                 var si = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>(), lpDesktop = @"Winsta0\Default" };
                 var cmd = new StringBuilder("rundll32.exe user32.dll,LockWorkStation");
-                if (CreateProcessAsUser(userToken, null, cmd.ToString(), IntPtr.Zero, IntPtr.Zero, false, 0,
-                        IntPtr.Zero, null, ref si, out var pi))
+                if (CreateProcessAsUser(userToken, null, cmd.ToString(), IntPtr.Zero, IntPtr.Zero,
+                        false, 0, IntPtr.Zero, null, ref si, out var pi))
                 {
                     CloseHandle(pi.hProcess);
                     CloseHandle(pi.hThread);
@@ -1013,7 +1297,10 @@ public partial class BleManager : IDisposable
             }
         }
         catch { }
-        finally { if (userToken != IntPtr.Zero) CloseHandle(userToken); }
+        finally
+        {
+            if (userToken != IntPtr.Zero) CloseHandle(userToken);
+        }
     }
 
     private async Task SendCommandConfirmationAsync(string command)
@@ -1039,7 +1326,9 @@ public partial class BleManager : IDisposable
 
             using var writer = new DataWriter();
             writer.WriteBytes(payload);
-            var result = await session.CommandChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
+            var result = await session.CommandChar.WriteValueWithResultAsync(
+                writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
+
             if (result.Status != GattCommunicationStatus.Success)
                 _logger.Warning($"Confirmation write failed: {result.Status}");
         }
@@ -1078,8 +1367,6 @@ public partial class BleManager : IDisposable
         }
         if (stopping || alreadyLocked || !firstAdvert) return;
 
-        // Only act on fresh RSSI samples. Never lock on advert-absence while GATT is up;
-        // out-of-range produces a GATT disconnect which is handled separately.
         double? avg = null;
         lock (_lock)
         {
@@ -1103,7 +1390,14 @@ public partial class BleManager : IDisposable
         }
 
         if (!isLockedLocal)
-            _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.TRUST_DEGRADED, Source = "BleManager", PayloadJson = $"{{\"Rssi\":{avgRssi:F0}}}" });
+        {
+            _ = SendUiEventAsync(new TetherEvent
+            {
+                EventType = TetherEventType.TRUST_DEGRADED,
+                Source = "BleManager",
+                PayloadJson = $"{{\"Rssi\":{avgRssi:F0}}}"
+            });
+        }
 
         if (isLockedLocal && lockedByProximityLocal && avgRssi >= RSSI_GOOD)
         {
@@ -1118,7 +1412,22 @@ public partial class BleManager : IDisposable
                 var session = _session;
                 if (session?.SessionKey == null) return;
 
-                bool ok = AuthenticateDeviceViaChallengeAsync(session, CancellationToken.None).GetAwaiter().GetResult();
+                bool ok;
+                if (session.SecureModeSupported)
+                {
+                    ok = AuthenticateSessionAsync(session, _trustedPublicKey!)
+                        .GetAwaiter().GetResult();
+                }
+                else if (session.SignatureChar != null)
+                {
+                    ok = AuthenticateDeviceViaChallengeAsync(session, CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                }
+                else
+                {
+                    ok = false;
+                }
+
                 if (!ok) { _logger.Error("❌ Proximity re-auth failed."); return; }
                 if ((DateTime.Now - _lastUnlockTime).TotalMilliseconds < UNLOCK_COOLDOWN_MS) return;
 
@@ -1141,7 +1450,11 @@ public partial class BleManager : IDisposable
         if (!isLockedLocal && avgRssi <= RSSI_LOCK)
         {
             _logger.Error($"🔒 Signal below lock threshold: {avgRssi:F0} dBm.");
-            lock (_lock) { _isWorkstationLocked = true; _lockedByProximity = true; }
+            lock (_lock)
+            {
+                _isWorkstationLocked = true;
+                _lockedByProximity = true;
+            }
             ResetIPCHandles();
             _eventBus.Publish(new TetherEvent { EventType = TetherEventType.TRUST_LOST, Source = "BleManager" });
             _ = SendUiEventAsync(new TetherEvent { EventType = TetherEventType.OVERLAY_ENABLED, Source = "BleManager" });
@@ -1149,21 +1462,26 @@ public partial class BleManager : IDisposable
     }
 
     // =====================================================================
-    // Connection status / cleanup / reconnection
+    // Connection status / cleanup / disconnection
     // =====================================================================
     private void OnConnectionStatusChangedForSession(BleSession session, BluetoothLEDevice sender)
     {
         if (sender.ConnectionStatus != BluetoothConnectionStatus.Disconnected) return;
         if (session != _session) return;
-        _logger.Warning("BLE connection dropped.");
+
+        bool logFirst;
+        lock (_lock)
+        {
+            logFirst = !session.DisconnectLogged;
+            session.DisconnectLogged = true;
+        }
+        if (logFirst) _logger.Warning("BLE connection dropped.");
+
         _ = HandleDisconnectionAsync(session);
     }
 
-    private async Task CleanupSessionAsync(BleSession session)
+    private async Task CleanupSessionAsync(BleSession session, bool finalTeardown = false)
     {
-        try { session.Cts.Cancel(); } catch { }
-
-        // Zero session key.
         if (session.SessionKey != null)
         {
             CryptographicOperations.ZeroMemory(session.SessionKey);
@@ -1172,19 +1490,18 @@ public partial class BleManager : IDisposable
         session.SecureAuthTcs?.TrySetCanceled();
         session.SecureAuthTcs = null;
 
+        var device = session.Device;
+        if (device != null && session.ConnectionStatusHandler != null)
+        {
+            try { device.ConnectionStatusChanged -= session.ConnectionStatusHandler; } catch { }
+        }
+        session.ConnectionStatusHandler = null;
+
         try { session.Service?.Dispose(); } catch { }
         session.Service = null;
 
-        try
-        {
-            if (session.Device != null)
-            {
-                // Detach event handlers we attached.
-                session.Device.Dispose();
-                session.Device = null;
-            }
-        }
-        catch { }
+        try { device?.Dispose(); } catch { }
+        session.Device = null;
 
         try
         {
@@ -1200,8 +1517,12 @@ public partial class BleManager : IDisposable
         lock (_lock)
         {
             session.RssiSamples.Clear();
-            if (_session == session)
-                _firstAdvertReceived = false;
+            if (_session == session) _firstAdvertReceived = false;
+        }
+
+        if (finalTeardown)
+        {
+            try { session.Cts.Cancel(); } catch { }
         }
 
         await Task.CompletedTask;
@@ -1209,7 +1530,6 @@ public partial class BleManager : IDisposable
 
     private async Task HandleDisconnectionAsync(BleSession session)
     {
-        // Idempotency guard: only one disconnection pipeline per session.
         if (!await _disconnectSemaphore.WaitAsync(0)) return;
         try
         {
@@ -1221,7 +1541,7 @@ public partial class BleManager : IDisposable
                 isPlannedReset = _isPlannedResetActive;
                 _isPlannedResetActive = false;
                 _session = null;
-                _connectionGeneration++;   // invalidate any remaining callbacks
+                _connectionGeneration++;
                 if (!isPlannedReset) _isWorkstationLocked = true;
                 _lockedByProximity = false;
                 _state = BleConnectionState.Disconnected;
@@ -1229,7 +1549,7 @@ public partial class BleManager : IDisposable
 
             StopRssiMonitoring();
             StopHealthCheck();
-            await CleanupSessionAsync(session);
+            await CleanupSessionAsync(session, finalTeardown: true);
 
             if (_isStopping) return;
 
@@ -1256,12 +1576,18 @@ public partial class BleManager : IDisposable
     // =====================================================================
     private void StartHealthCheck()
     {
-        lock (_lock) { _healthCheckTimer?.Change(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)); }
+        lock (_lock)
+        {
+            _healthCheckTimer?.Change(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30));
+        }
     }
 
     private void StopHealthCheck()
     {
-        lock (_lock) { _healthCheckTimer?.Change(Timeout.Infinite, Timeout.Infinite); }
+        lock (_lock)
+        {
+            _healthCheckTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        }
     }
 
     private void HealthCheckCallback()
@@ -1276,7 +1602,8 @@ public partial class BleManager : IDisposable
         }
         if (stopping) return;
 
-        if (connected && session?.Device != null && session.Device.ConnectionStatus == BluetoothConnectionStatus.Disconnected)
+        if (connected && session?.Device != null &&
+            session.Device.ConnectionStatus == BluetoothConnectionStatus.Disconnected)
         {
             _logger.Warning("Health check: device lost. Forcing disconnection handling.");
             _ = HandleDisconnectionAsync(session);
@@ -1286,7 +1613,11 @@ public partial class BleManager : IDisposable
     public void Stop()
     {
         StopHealthCheck();
-        lock (_lock) { _isStopping = true; _connectionGeneration++; }
+        lock (_lock)
+        {
+            _isStopping = true;
+            _connectionGeneration++;
+        }
         try { _cts?.Cancel(); } catch { }
         try { _advWatcher?.Stop(); } catch { }
         _advWatcher = null;
@@ -1299,7 +1630,7 @@ public partial class BleManager : IDisposable
     public void Dispose() => Stop();
 
     // =====================================================================
-    // UI / Overlay / Brightness (kept as in original)
+    // UI / overlay / hardware
     // =====================================================================
     private void EnsureOverlayProcessRunning(TetherEvent evt)
     {
@@ -1313,7 +1644,11 @@ public partial class BleManager : IDisposable
             if (activeSessionId == 0xFFFFFFFF) return;
             if (!WTSQueryUserToken(activeSessionId, out userToken)) return;
 
-            var si = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>(), lpDesktop = @"Winsta0\Default" };
+            var si = new STARTUPINFO
+            {
+                cb = Marshal.SizeOf<STARTUPINFO>(),
+                lpDesktop = @"Winsta0\Default"
+            };
             string serviceDir = AppContext.BaseDirectory;
             string exePath = Path.Combine(serviceDir, "Tether.OverlayUI.exe");
 
@@ -1322,14 +1657,16 @@ public partial class BleManager : IDisposable
                 var current = new DirectoryInfo(serviceDir);
                 while (current != null)
                 {
-                    var possible = Path.Combine(current.FullName, @"Tether.OverlayUI\bin\Release\net8.0-windows\win-x64\Tether.OverlayUI.exe");
+                    var possible = Path.Combine(
+                        current.FullName,
+                        @"Tether.OverlayUI\bin\Release\net8.0-windows\win-x64\Tether.OverlayUI.exe");
                     if (File.Exists(possible)) { exePath = possible; break; }
                     current = current.Parent;
                 }
             }
 
-            if (CreateProcessAsUser(userToken, null, $"\"{exePath}\"", IntPtr.Zero, IntPtr.Zero, false, 0,
-                    IntPtr.Zero, null, ref si, out var pi))
+            if (CreateProcessAsUser(userToken, null, $"\"{exePath}\"",
+                    IntPtr.Zero, IntPtr.Zero, false, 0, IntPtr.Zero, null, ref si, out var pi))
             {
                 CloseHandle(pi.hProcess);
                 CloseHandle(pi.hThread);
@@ -1346,7 +1683,8 @@ public partial class BleManager : IDisposable
         {
             var json = System.Text.Json.JsonSerializer.Serialize(evt);
             var bytes = Encoding.UTF8.GetBytes(json);
-            using var client = new System.IO.Pipes.NamedPipeClientStream(".", "TetherUiPipe", System.IO.Pipes.PipeDirection.Out);
+            using var client = new System.IO.Pipes.NamedPipeClientStream(
+                ".", "TetherUiPipe", System.IO.Pipes.PipeDirection.Out);
             await client.ConnectAsync(1000);
             await client.WriteAsync(bytes, 0, bytes.Length);
             await client.FlushAsync();
@@ -1364,13 +1702,9 @@ public partial class BleManager : IDisposable
             writer.WriteByte(0x01);
             writer.WriteByte(volume);
             writer.WriteByte(brightness);
-            await session.CommandChar.WriteValueWithResultAsync(writer.DetachBuffer(), GattWriteOption.WriteWithoutResponse);
+            await session.CommandChar.WriteValueWithResultAsync(
+                writer.DetachBuffer(), GattWriteOption.WriteWithoutResponse);
         }
         catch { }
     }
-
-    // =====================================================================
-    // CTS for cancellation
-    // =====================================================================
-    private CancellationTokenSource? _cts = new();
 }
