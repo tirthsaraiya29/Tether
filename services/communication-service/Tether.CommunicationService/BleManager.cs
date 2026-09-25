@@ -92,7 +92,7 @@ public partial class BleManager : IDisposable
     private BleConnectionState _state = BleConnectionState.Disconnected;
 
     // =====================================================================
-    // Lifecycle / proximity state (orthogonal to connection state)
+    // Lifecycle / proximity state
     // =====================================================================
     private bool _isWorkstationLocked = false;
     private bool _lockedByProximity = false;
@@ -301,8 +301,8 @@ public partial class BleManager : IDisposable
     // =====================================================================
     private void EnsureClientKeyPair()
     {
-        // NOTE: the private key is still stored as a plaintext blob in HKLM.
-        // That is a known weakness to be replaced with DPAPI-NG in a follow-up.
+        // NOTE: the private key is stored as a plaintext blob in HKLM. Known
+        // weakness; to be replaced with DPAPI-NG in a follow-up.
         try
         {
             const string legacyKeyName = @"SOFTWARE\Tether\CredentialProvider\ClientKey";
@@ -531,19 +531,18 @@ public partial class BleManager : IDisposable
         }
     }
 
-    // =====================================================================
-    // Long-write helper
-    // =====================================================================
     /// <summary>
-    /// Performs a BLE Long Write against the given characteristic by issuing
-    /// successive ATT Write Requests at increasing offsets. Each chunk is
-    /// bounded by the negotiated ATT MTU minus the 3-byte Write Request header.
+    /// Writes a payload to the characteristic. Payloads ≤ 18 bytes go in one PDU
+    /// (raw, no header). Larger payloads are fragmented into 18-byte data blocks
+    /// each prefixed with a 2-byte big-endian offset header, yielding exactly
+    /// 20-byte ATT Write Requests that fit in the ATT default MTU of 23.
     ///
-    /// This replaces GattReliableWriteTransaction, whose CommitAsync() is known
-    /// to never complete on certain Windows BT stack configurations (notably
-    /// Realtek and older Intel adapters). The manual offset loop gives us
-    /// explicit per-chunk timeouts and observability, and is functionally
-    /// equivalent to the standard Long Write procedure.
+    /// Wire format for chunked writes: [offset_hi][offset_lo][data...]
+    ///
+    /// We do NOT use GattReliableWriteTransaction because CommitAsync hangs on
+    /// several Windows BT stack versions. We do NOT trust GattSession.MaxPduSize
+    /// because it reports the theoretical maximum even when the negotiated
+    /// ATT_MTU is 23.
     /// </summary>
     private async Task<GattCommunicationStatus> WriteLongAsync(
         GattCharacteristic characteristic,
@@ -553,58 +552,71 @@ public partial class BleManager : IDisposable
     {
         if (payload.Length == 0) return GattCommunicationStatus.Success;
 
-        int mtu = 23;
-        try
+        const int singlePduMax = 18;
+        const int chunkDataSize = 18;
+
+        // ---- Fast path: entire payload fits in one PDU ----
+        if (payload.Length <= singlePduMax)
         {
-            var sess = _session?.GattSession;
-            if (sess != null)
+            using var w0 = new DataWriter();
+            w0.WriteBytes(payload);
+            var op0 = characteristic.WriteValueWithResultAsync(
+                w0.DetachBuffer(), GattWriteOption.WriteWithResponse).AsTask();
+
+            var done0 = await Task.WhenAny(op0, Task.Delay(perChunkTimeout, token));
+            if (done0 != op0)
             {
-                int m = sess.MaxPduSize;
-                if (m > 0) mtu = m;
+                _logger.Warning($"[BLE] Single-PDU write timed out after {perChunkTimeout.TotalMilliseconds:F0} ms.");
+                return GattCommunicationStatus.ProtocolError;
             }
+            GattWriteResult r0;
+            try { r0 = await op0; }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[BLE] Single-PDU write threw: {ex.Message}");
+                return GattCommunicationStatus.ProtocolError;
+            }
+            return r0.Status;
         }
-        catch { }
 
-        // ATT Write Request consumes 3 bytes of the PDU (opcode + handle).
-        int chunkSize = Math.Max(20, mtu - 3);
+        // ---- Chunked path: prefix each chunk with its offset ----
         int offset = 0;
-
         while (offset < payload.Length)
         {
             if (token.IsCancellationRequested) return GattCommunicationStatus.Unreachable;
 
-            int len = Math.Min(chunkSize, payload.Length - offset);
-            byte[] chunk = new byte[len];
-            System.Buffer.BlockCopy(payload, offset, chunk, 0, len);
+            int len = Math.Min(chunkDataSize, payload.Length - offset);
+            byte[] framed = new byte[len + 2];
+            framed[0] = (byte)((offset >> 8) & 0xFF);
+            framed[1] = (byte)(offset & 0xFF);
+            System.Buffer.BlockCopy(payload, offset, framed, 2, len);
 
             using var writer = new DataWriter();
-            writer.WriteBytes(chunk);
+            writer.WriteBytes(framed);
 
-            var writeOp = characteristic.WriteValueWithResultAsync(
-                writer.DetachBuffer(),
-                GattWriteOption.WriteWithResponse).AsTask();
+            var op = characteristic.WriteValueWithResultAsync(
+                writer.DetachBuffer(), GattWriteOption.WriteWithResponse).AsTask();
 
-            var completed = await Task.WhenAny(writeOp, Task.Delay(perChunkTimeout, token));
-            if (completed != writeOp)
+            var completed = await Task.WhenAny(op, Task.Delay(perChunkTimeout, token));
+            if (completed != op)
             {
-                _logger.Warning($"[BLE] Long-write chunk at offset {offset} timed out after {perChunkTimeout.TotalMilliseconds:F0} ms.");
+                _logger.Warning($"[BLE] Chunk at offset {offset} timed out.");
                 return GattCommunicationStatus.ProtocolError;
             }
 
             GattWriteResult result;
-            try
-            {
-                result = await writeOp;
-            }
+            try { result = await op; }
             catch (Exception ex)
             {
-                _logger.Warning($"[BLE] Long-write chunk at offset {offset} threw: {ex.Message}");
+                _logger.Warning($"[BLE] Chunk at offset {offset} threw: {ex.Message}");
                 return GattCommunicationStatus.ProtocolError;
             }
 
             if (result.Status != GattCommunicationStatus.Success)
             {
-                _logger.Warning($"[BLE] Long-write chunk at offset {offset} returned {result.Status}.");
+                string attCode = result.ProtocolError.HasValue
+                    ? $"0x{result.ProtocolError.Value:X2}" : "none";
+                _logger.Warning($"[BLE] Chunk at offset {offset} (len={len}) returned {result.Status}; ATT={attCode}.");
                 return result.Status;
             }
 
@@ -745,8 +757,7 @@ public partial class BleManager : IDisposable
                         session.AuthChallengeChar != null &&
                         session.AuthSignatureChar != null;
 
-                    session.LegacyModeSupported =
-                        session.SignatureChar != null;
+                    session.LegacyModeSupported = session.SignatureChar != null;
 
                     _logger.Info($"[BLE] Characteristics discovered. SecureMode={session.SecureModeSupported} " +
                                  $"Legacy={session.LegacyModeSupported} " +
@@ -796,7 +807,7 @@ public partial class BleManager : IDisposable
                     _logger.Info("[BLE] Command notifications enabled.");
 
                     // ---------------------------------------------------------
-                    // Encrypt and write the session key (manual BLE Long Write)
+                    // Encrypt and write the session key
                     // ---------------------------------------------------------
                     byte[] generatedKey = new byte[32];
                     RandomNumberGenerator.Fill(generatedKey);
@@ -805,8 +816,6 @@ public partial class BleManager : IDisposable
                     using (var rsa = RSA.Create())
                     {
                         rsa.ImportSubjectPublicKeyInfo(trustedKey, out _);
-                        // NOTE: SHA-1 OAEP retained for Android keystore compatibility.
-                        // Must be upgraded to SHA-256 on both sides simultaneously.
                         encryptedSessionKey = rsa.Encrypt(generatedKey, RSAEncryptionPadding.OaepSHA1);
                     }
 
@@ -910,8 +919,12 @@ public partial class BleManager : IDisposable
             session.SecureAuthTcs = tcs;
 
             authChallengeChar.ValueChanged += (s, e) => OnAuthChallengeReceivedForSession(session, s, e);
-            await authChallengeChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
+            var cccdResult = await authChallengeChar.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
                 GattClientCharacteristicConfigurationDescriptorValue.Notify);
+            if (cccdResult.Status != GattCommunicationStatus.Success)
+            {
+                _logger.Warning($"Auth-challenge CCCD enable failed (status={cccdResult.Status}); read fallback will be used.");
+            }
 
             await SendClientPublicKeyBytesRawAsync(session);
             await Task.Delay(100, session.Cts.Token);
@@ -933,12 +946,14 @@ public partial class BleManager : IDisposable
             }
 
             // Direct read fallback if notification was dropped.
+            _logger.Info("Auth challenge notification not received; attempting direct read fallback.");
             var readResult = await authChallengeChar.ReadValueAsync(BluetoothCacheMode.Uncached);
             if (readResult.Status == GattCommunicationStatus.Success && readResult.Value.Length > 0)
             {
                 var reader = DataReader.FromBuffer(readResult.Value);
                 byte[] nonce = new byte[reader.UnconsumedBufferLength];
                 reader.ReadBytes(nonce);
+                _logger.Info($"Read auth challenge nonce directly ({nonce.Length} bytes). Signing...");
 
                 byte[] signature;
                 lock (_lock)
@@ -947,12 +962,22 @@ public partial class BleManager : IDisposable
                     signature = _clientRsa.SignData(nonce, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
                 }
 
-                using var sigWriter = new DataWriter();
-                sigWriter.WriteBytes(signature);
-                var sigResult = await authSignatureChar.WriteValueWithResultAsync(
-                    sigWriter.DetachBuffer(), GattWriteOption.WriteWithResponse);
+                GattCommunicationStatus sigStatus;
+                try
+                {
+                    sigStatus = await WriteLongAsync(
+                        authSignatureChar,
+                        signature,
+                        perChunkTimeout: TimeSpan.FromSeconds(3),
+                        token: session.Cts.Token);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"Signature long-write threw: {ex.Message}");
+                    sigStatus = GattCommunicationStatus.ProtocolError;
+                }
 
-                if (sigResult.Status == GattCommunicationStatus.Success)
+                if (sigStatus == GattCommunicationStatus.Success)
                 {
                     var finalWait = await Task.WhenAny(tcs.Task, Task.Delay(2500));
                     if (finalWait == tcs.Task && await tcs.Task)
@@ -961,6 +986,14 @@ public partial class BleManager : IDisposable
                         return true;
                     }
                 }
+                else
+                {
+                    _logger.Warning($"Signature write failed (status={sigStatus}).");
+                }
+            }
+            else
+            {
+                _logger.Warning($"Direct read of auth challenge failed (status={readResult.Status}).");
             }
 
             _logger.Warning("Secure channel verification failed; engaging legacy HMAC fallback.");
@@ -990,6 +1023,7 @@ public partial class BleManager : IDisposable
 
         try
         {
+            _logger.Info($"Writing client public key ({pubKeyBytes.Length} bytes) to secure channel...");
             var status = await WriteLongAsync(
                 pubKeyChar,
                 pubKeyBytes,
@@ -1019,6 +1053,7 @@ public partial class BleManager : IDisposable
             var reader = DataReader.FromBuffer(args.CharacteristicValue);
             byte[] nonce = new byte[reader.UnconsumedBufferLength];
             reader.ReadBytes(nonce);
+            _logger.Info($"Auth challenge notification received ({nonce.Length} bytes). Signing...");
 
             byte[] signature;
             lock (_lock)
@@ -1030,14 +1065,30 @@ public partial class BleManager : IDisposable
             var sigChar = session.AuthSignatureChar;
             if (sigChar == null) return;
 
-            using var writer = new DataWriter();
-            writer.WriteBytes(signature);
-            var result = await sigChar.WriteValueWithResultAsync(
-                writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
-            if (result.Status != GattCommunicationStatus.Success)
+            GattCommunicationStatus status;
+            try
             {
-                _logger.Error($"Auth response rejected: {result.Status}");
+                status = await WriteLongAsync(
+                    sigChar,
+                    signature,
+                    perChunkTimeout: TimeSpan.FromSeconds(3),
+                    token: session.Cts.Token);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Auth signature long-write threw: {ex.Message}");
                 session.SecureAuthTcs?.TrySetResult(false);
+                return;
+            }
+
+            if (status != GattCommunicationStatus.Success)
+            {
+                _logger.Error($"Auth response rejected: {status}");
+                session.SecureAuthTcs?.TrySetResult(false);
+            }
+            else
+            {
+                _logger.Info("Auth signature delivered to phone.");
             }
         }
         catch (Exception ex)
@@ -1324,13 +1375,14 @@ public partial class BleManager : IDisposable
             System.Buffer.BlockCopy(ciphertext, 0, payload, 12, ciphertext.Length);
             System.Buffer.BlockCopy(tag, 0, payload, 12 + ciphertext.Length, 16);
 
-            using var writer = new DataWriter();
-            writer.WriteBytes(payload);
-            var result = await session.CommandChar.WriteValueWithResultAsync(
-                writer.DetachBuffer(), GattWriteOption.WriteWithResponse);
+            var status = await WriteLongAsync(
+                session.CommandChar,
+                payload,
+                perChunkTimeout: TimeSpan.FromSeconds(3),
+                token: session.Cts.Token);
 
-            if (result.Status != GattCommunicationStatus.Success)
-                _logger.Warning($"Confirmation write failed: {result.Status}");
+            if (status != GattCommunicationStatus.Success)
+                _logger.Warning($"Confirmation write failed: {status}");
         }
         catch (Exception ex)
         {
@@ -1490,19 +1542,7 @@ public partial class BleManager : IDisposable
         session.SecureAuthTcs?.TrySetCanceled();
         session.SecureAuthTcs = null;
 
-        var device = session.Device;
-        if (device != null && session.ConnectionStatusHandler != null)
-        {
-            try { device.ConnectionStatusChanged -= session.ConnectionStatusHandler; } catch { }
-        }
-        session.ConnectionStatusHandler = null;
-
-        try { session.Service?.Dispose(); } catch { }
-        session.Service = null;
-
-        try { device?.Dispose(); } catch { }
-        session.Device = null;
-
+        // 1. Relinquish GATT session lock FIRST
         try
         {
             if (session.GattSession != null)
@@ -1513,6 +1553,29 @@ public partial class BleManager : IDisposable
             }
         }
         catch { }
+
+        // 2. Unwire connection event handlers
+        var device = session.Device;
+        if (device != null && session.ConnectionStatusHandler != null)
+        {
+            try { device.ConnectionStatusChanged -= session.ConnectionStatusHandler; } catch { }
+        }
+        session.ConnectionStatusHandler = null;
+
+        // 3. Dispose GATT services and characteristics
+        try { session.Service?.Dispose(); } catch { }
+        session.Service = null;
+        session.ChallengeChar = null;
+        session.SignatureChar = null;
+        session.CommandChar = null;
+        session.PublicKeyChar = null;
+        session.WindowsPublicKeyChar = null;
+        session.AuthChallengeChar = null;
+        session.AuthSignatureChar = null;
+
+        // 4. Dispose Bluetooth device handle
+        try { device?.Dispose(); } catch { }
+        session.Device = null;
 
         lock (_lock)
         {
@@ -1525,7 +1588,8 @@ public partial class BleManager : IDisposable
             try { session.Cts.Cancel(); } catch { }
         }
 
-        await Task.CompletedTask;
+        // Give the Windows Bluetooth stack time to tear down HCI ACL links
+        await Task.Delay(250);
     }
 
     private async Task HandleDisconnectionAsync(BleSession session)

@@ -38,6 +38,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.edit
 import org.json.JSONObject
 import java.security.SecureRandom
 import java.util.Arrays
@@ -114,64 +115,93 @@ class BleGattServerService : Service() {
         }
     }
     private val securityWriteReassembly = ConcurrentHashMap<String, PartialWrite>()
+    private val expectedDynamicSizes = ConcurrentHashMap<String, Int>()
 
-    private fun expectedSecurityWriteSize(uuid: UUID): Int? = when (uuid) {
-        CHALLENGE_CHAR_UUID -> 256
-        WINDOWS_PUBLIC_KEY_CHAR_UUID -> 294
-        AUTH_SIGNATURE_CHAR_UUID -> 256
-        else -> null
+    private fun resolveExpectedSize(uuid: UUID, key: String, firstChunkData: ByteArray?): Int? {
+        when (uuid) {
+            CHALLENGE_CHAR_UUID -> return 256
+            AUTH_SIGNATURE_CHAR_UUID -> return 256
+            WINDOWS_PUBLIC_KEY_CHAR_UUID -> {
+                expectedDynamicSizes[key]?.let { return it }
+                if (firstChunkData != null && firstChunkData.size >= 4) {
+                    // Check ASN.1 DER SEQUENCE Header: 0x30, 0x82, [len_hi], [len_lo]
+                    val b0 = firstChunkData[0].toInt() and 0xFF
+                    val b1 = firstChunkData[1].toInt() and 0xFF
+                    if (b0 == 0x30 && b1 == 0x82) {
+                        val bodyLen = ((firstChunkData[2].toInt() and 0xFF) shl 8) or (firstChunkData[3].toInt() and 0xFF)
+                        val totalDerLen = bodyLen + 4
+                        expectedDynamicSizes[key] = totalDerLen
+                        Log.d("TetherBle", "Detected ASN.1 SPKI DER total length: $totalDerLen bytes")
+                        return totalDerLen
+                    }
+                }
+                return 294 // Fallback if header is unavailable
+            }
+            else -> return null
+        }
     }
 
     private fun handleSecurityWrite(device: BluetoothDevice, uuid: UUID, offset: Int, value: ByteArray): Boolean {
         val address = device.address
         val key = "$address-$uuid"
-        val expected = expectedSecurityWriteSize(uuid)
-            ?: return processCompletePayloadSync(device, uuid, value)
 
-        // Fast path: single-PDU write carrying the whole payload.
-        if (offset == 0 && value.size == expected) {
+        // Fast path: FFE3 16-byte trigger nonce (raw, no header).
+        if (uuid == CHALLENGE_CHAR_UUID && offset == 0 && value.size == 16) {
             securityWriteReassembly.remove(key)
+            expectedDynamicSizes.remove(key)
             return processCompletePayloadSync(device, uuid, value)
         }
 
-        // Trigger nonce special case for FFE3.
-        if (uuid == CHALLENGE_CHAR_UUID && offset == 0 && value.size == 16) {
+        // Chunked write: [offset_hi][offset_lo][data...]
+        if (value.size < 3) {
+            Log.w("TetherBle", "Chunk too small for offset framing: size=${value.size}")
             securityWriteReassembly.remove(key)
+            expectedDynamicSizes.remove(key)
+            return false
+        }
+
+        val chunkOffset = ((value[0].toInt() and 0xFF) shl 8) or (value[1].toInt() and 0xFF)
+        val dataLen = value.size - 2
+        val chunkData = value.copyOfRange(2, value.size)
+
+        // Resolve expected length dynamically if chunkOffset is 0
+        val expected = resolveExpectedSize(uuid, key, if (chunkOffset == 0) chunkData else null)
+            ?: return processCompletePayloadSync(device, uuid, value)
+
+        // Fast path: entire payload arrived in one raw ATT Write without header
+        if (offset == 0 && value.size == expected) {
+            securityWriteReassembly.remove(key)
+            expectedDynamicSizes.remove(key)
             return processCompletePayloadSync(device, uuid, value)
+        }
+
+        if (chunkOffset < 0 || chunkOffset + dataLen > expected) {
+            Log.w("TetherBle", "Chunk out of range: chunkOffset=$chunkOffset dataLen=$dataLen expected=$expected")
+            securityWriteReassembly.remove(key)
+            expectedDynamicSizes.remove(key)
+            return false
         }
 
         val now = SystemClock.elapsedRealtime()
         val existing = securityWriteReassembly[key]
         if (existing != null && (now - existing.lastUpdateMs > 5000L)) {
             securityWriteReassembly.remove(key)
+            expectedDynamicSizes.remove(key)
         }
 
         val partial = securityWriteReassembly.getOrPut(key) {
-            PartialWrite(uuid, ByteArray(expected), -1, now)
+            PartialWrite(uuid, ByteArray(expected), 0, now)
         }
 
-        if (offset == 0) {
-            partial.buffer = ByteArray(expected)
-            partial.lastOffset = 0
-        } else if (partial.lastOffset < 0 || offset != partial.lastOffset) {
-            Log.w("TetherBle", "Security write chunk out of order for $key: offset=$offset expected=${partial.lastOffset}")
-            securityWriteReassembly.remove(key)
-            return false
-        }
-
-        if (offset + value.size > expected) {
-            Log.w("TetherBle", "Security write overflow for $key: offset=$offset size=${value.size} expected=$expected")
-            securityWriteReassembly.remove(key)
-            return false
-        }
-
-        System.arraycopy(value, 0, partial.buffer, offset, value.size)
-        partial.lastOffset = offset + value.size
+        System.arraycopy(value, 2, partial.buffer, chunkOffset, dataLen)
+        partial.lastOffset = chunkOffset + dataLen
         partial.lastUpdateMs = now
 
-        if (offset + value.size == expected) {
+        if (partial.lastOffset == expected) {
+            val complete = partial.buffer
             securityWriteReassembly.remove(key)
-            return processCompletePayloadSync(device, uuid, partial.buffer)
+            expectedDynamicSizes.remove(key)
+            return processCompletePayloadSync(device, uuid, complete)
         }
         return true
     }
@@ -344,6 +374,12 @@ class BleGattServerService : Service() {
             Log.e("TetherBle", "Failed to initialize security engine: ${e.message}")
             stopSelf()
             return
+        }
+
+        val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
+        if (securityEngine.getPinnedKeyDecrypted(this) == null) {
+            prefs.edit { putLong("pairing_window_start_time", System.currentTimeMillis()) }
+            Log.i("TetherBle", "Initialized 180-second pairing grace window for initial device setup.")
         }
 
         powerManager = getSystemService(POWER_SERVICE) as PowerManager
@@ -567,6 +603,8 @@ class BleGattServerService : Service() {
                 staleKeys.forEach { pendingExecuteWrites.remove(it) }
                 val staleReassembly = securityWriteReassembly.keys().asSequence().filter { it.startsWith("$address-") }.toList()
                 staleReassembly.forEach { securityWriteReassembly.remove(it) }
+                val staleDynamicSizes = expectedDynamicSizes.keys().asSequence().filter { it.startsWith("$address-") }.toList()
+                staleDynamicSizes.forEach { expectedDynamicSizes.remove(it) }
                 windowsPublicKeys.remove(address)
 
                 if (authenticatedDevicesMap.isEmpty()) {
@@ -1312,6 +1350,7 @@ class BleGattServerService : Service() {
             deviceMtuMap.clear()
             pendingExecuteWrites.clear()
             securityWriteReassembly.clear()
+            expectedDynamicSizes.clear()
             windowsPublicKeys.clear()
             pendingNonces.clear()
 
@@ -1409,6 +1448,7 @@ class BleGattServerService : Service() {
             deviceMtuMap.clear()
             pendingExecuteWrites.clear()
             securityWriteReassembly.clear()
+            expectedDynamicSizes.clear()
             windowsPublicKeys.clear()
             pendingNonces.clear()
             try {
