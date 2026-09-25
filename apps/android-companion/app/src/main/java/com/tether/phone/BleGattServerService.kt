@@ -40,8 +40,10 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
 import java.security.SecureRandom
+import java.util.Arrays
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -53,6 +55,8 @@ class BleGattServerService : Service() {
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var advertiser: BluetoothLeAdvertiser? = null
     private var isAdvertising = false
+
+    private val advertisingLock = Any()
 
     private lateinit var securityEngine: ProductionSecurityEngine
     private var commandCharacteristic: BluetoothGattCharacteristic? = null
@@ -97,6 +101,18 @@ class BleGattServerService : Service() {
 
     private var alarmManager: AlarmManager? = null
     private var alarmPendingIntent: PendingIntent? = null
+
+    private fun bumpGeneration(address: String): Long {
+        val g = generationCounter.incrementAndGet()
+        connectionGenerations[address] = g
+        return g
+    }
+
+    private fun currentGeneration(address: String): Long = connectionGenerations[address] ?: 0L
+
+    private fun invalidateGeneration(address: String) {
+        connectionGenerations[address] = generationCounter.incrementAndGet()
+    }
 
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -206,32 +222,39 @@ class BleGattServerService : Service() {
         private const val REQ_CODE_HEALTH_CHECK = 0x7E71
         private const val REQ_CODE_TASK_REMOVED = 0x7E72
         const val ACTION_TASK_REMOVED_RESTART = "com.tether.phone.ACTION_TASK_REMOVED_RESTART"
+
+        private val connectionGenerations = ConcurrentHashMap<String, Long>()
+        private val generationCounter = AtomicLong(0)
     }
 
-    @SuppressLint("MissingPermission")
-    override fun onCreate() {
-        super.onCreate()
-        createNotificationChannel()
-
-        if (!hasRequiredRuntimePermissions()) {
-            stopSelf()
-            return
-        }
-
+    private fun ensureForeground() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(NOTIFICATION_ID, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
             } else {
                 startForeground(NOTIFICATION_ID, createNotification())
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e("TetherBle", "Failed to start foreground service: ${e.message}")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+        ensureForeground()
+
+        if (!hasRequiredRuntimePermissions()) {
+            Log.w("TetherBle", "Missing runtime permissions. Stopping service.")
             stopSelf()
             return
         }
 
         securityEngine = try {
             ProductionSecurityEngine()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e("TetherBle", "Failed to initialize security engine: ${e.message}")
             stopSelf()
             return
         }
@@ -254,6 +277,7 @@ class BleGattServerService : Service() {
         bluetoothAdapter = bluetoothManager?.adapter
 
         if (bluetoothAdapter?.isEnabled != true) {
+            Log.w("TetherBle", "Bluetooth adapter not enabled. Stopping service.")
             stopSelf()
             return
         }
@@ -261,7 +285,8 @@ class BleGattServerService : Service() {
         synchronized(gattLock) {
             bluetoothGattServer = try {
                 bluetoothManager?.openGattServer(this, gattServerCallback)
-            } catch (_: SecurityException) {
+            } catch (e: Exception) {
+                Log.e("TetherBle", "Failed to open GATT server: ${e.message}")
                 stopSelf()
                 return
             }
@@ -281,25 +306,11 @@ class BleGattServerService : Service() {
 
     @SuppressLint("MissingPermission")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ensureForeground()
+
         if (!hasRequiredRuntimePermissions()) {
-            try {
-                startForeground(NOTIFICATION_ID, createNotification())
-            } catch (_: Exception) {}
             stopSelf()
             return START_NOT_STICKY
-        }
-
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIFICATION_ID, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
-            } else {
-                startForeground(NOTIFICATION_ID, createNotification())
-            }
-        } catch (e: Exception) {
-            Log.e("TetherBle", "Failed to start foreground: ${e.message}")
-            try {
-                startForeground(NOTIFICATION_ID, createNotification())
-            } catch (_: Exception) {}
         }
 
         if (wakeLock?.isHeld == false) {
@@ -425,47 +436,49 @@ class BleGattServerService : Service() {
     private val gattServerCallback = object : BluetoothGattServerCallback() {
         override fun onServiceAdded(status: Int, service: BluetoothGattService?) {}
 
+        @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(device: BluetoothDevice?, status: Int, newState: Int) {
             if (device == null) return
             val address = device.address
             Log.d("TetherBle", "onConnectionStateChange: $address status=$status newState=$newState")
 
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                val gen = bumpGeneration(address)
                 unauthenticatedConnections[address] = SystemClock.elapsedRealtime()
 
-                mainHandler.postDelayed(
-                    {
-                        if (!authenticatedDevicesMap.containsKey(address) && unauthenticatedConnections.containsKey(address)) {
-                            Log.w("TetherBle", "Validation window expired. Purging node: $address")
-                            unauthenticatedConnections.remove(address)
-                            synchronized(gattLock) {
-                                try {
-                                    @SuppressLint("MissingPermission")
-                                    bluetoothGattServer?.cancelConnection(device)
-                                } catch (_: Exception) {}
-                            }
+                mainHandler.postDelayed({
+                    // Stale-callback guard.
+                    if (currentGeneration(address) != gen) return@postDelayed
+                    if (!authenticatedDevicesMap.containsKey(address) && unauthenticatedConnections.containsKey(address)) {
+                        Log.w("TetherBle", "Validation window expired. Purging $address")
+                        unauthenticatedConnections.remove(address)
+                        invalidateGeneration(address)
+                        synchronized(gattLock) {
+                            try { bluetoothGattServer?.cancelConnection(device) } catch (_: Exception) {}
                         }
-                    },
-                    45000L,
-                )
+                    }
+                }, 45000L)
 
-                mainHandler.post {
-                    startAdvertising(connectable = false)
-                }
+                mainHandler.post { startAdvertising(connectable = false) }
 
-            } else if ((newState == BluetoothProfile.STATE_DISCONNECTED) || (status != BluetoothGatt.GATT_SUCCESS)) {
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
+                invalidateGeneration(address)
                 authenticatedDevicesMap.remove(address)
                 unauthenticatedConnections.remove(address)
                 deviceChallenges.remove(address)
+                pendingNonces.remove(address)
 
-                val subscriptionsToRemove = notificationSubscriptions.keys().asSequence().filter { it.startsWith("$address-") }.toList()
-                subscriptionsToRemove.forEach { notificationSubscriptions.remove(it) }
+                // Wipe session key bytes before dropping reference.
+                sessionKeysMap.remove(address)?.let { key ->
+                    Arrays.fill(key, 0)
+                }
 
-                sessionKeysMap.remove(address)
+                val stale = notificationSubscriptions.keys().asSequence().filter { it.startsWith("$address-") }.toList()
+                stale.forEach { notificationSubscriptions.remove(it) }
                 deviceMtuMap.remove(address)
-
-                val keysToRemove = pendingExecuteWrites.keys().asSequence().filter { it.startsWith("$address-") }.toList()
-                keysToRemove.forEach { pendingExecuteWrites.remove(it) }
+                val pendingKeys = pendingExecuteWrites.keys().asSequence().filter { it.startsWith("$address-") }.toList()
+                pendingKeys.forEach { pendingExecuteWrites.remove(it) }
+                windowsPublicKeys.remove(address)
 
                 if (authenticatedDevicesMap.isEmpty()) {
                     mainHandler.postDelayed({ startAdvertising(connectable = true) }, 300)
@@ -508,10 +521,33 @@ class BleGattServerService : Service() {
                 return
             }
 
-            if (responseNeeded) {
-                try { synchronized(gattLock) { bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value) } } catch (_: Exception) {}
+            // Security-relevant characteristics: validate before ACK so the client knows
+            // whether the server accepted the payload.
+            val securityRelevant = (uuid == AUTH_SIGNATURE_CHAR_UUID) ||
+                                   (uuid == CHALLENGE_CHAR_UUID) ||
+                                   (uuid == WINDOWS_PUBLIC_KEY_CHAR_UUID)
+
+            if (securityRelevant) {
+                val accepted = processCompletePayloadSync(device, uuid, value)
+                if (responseNeeded) {
+                    try {
+                        synchronized(gattLock) {
+                            bluetoothGattServer?.sendResponse(
+                                device, requestId,
+                                if (accepted) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_FAILURE,
+                                offset, null,
+                            )
+                        }
+                    } catch (_: Exception) {}
+                }
+                return
             }
 
+            if (responseNeeded) {
+                try { synchronized(gattLock) {
+                    bluetoothGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+                } } catch (_: Exception) {}
+            }
             mainHandler.post { processCompletePayload(device, uuid, value) }
         }
 
@@ -635,32 +671,48 @@ class BleGattServerService : Service() {
         }
     }
 
-    @SuppressLint("MissingPermission")
     private fun processCompletePayload(device: BluetoothDevice, uuid: UUID, payload: ByteArray) {
+        processCompletePayloadSync(device, uuid, payload)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun processCompletePayloadSync(device: BluetoothDevice, uuid: UUID, payload: ByteArray): Boolean {
         val address = device.address
         Log.d("TetherBle", "Processing payload for $uuid from $address, size=${payload.size}")
         try {
             when (uuid) {
                 WINDOWS_PUBLIC_KEY_CHAR_UUID -> {
+                    if (payload.isEmpty() || payload.size > 4096) {
+                        Log.w("TetherBle", "Rejected Windows public key: size=${payload.size}")
+                        return false
+                    }
                     windowsPublicKeys[address] = payload
                     Log.d("TetherBle", "Received Windows Public Key for $address (${payload.size} bytes)")
                     initiateAuthChallengeIfPossible(device)
+                    return true
                 }
 
                 CHALLENGE_CHAR_UUID -> {
+                    if (payload.isEmpty() || payload.size > 512) {
+                        Log.w("TetherBle", "Rejected Challenge: size=${payload.size}")
+                        return false
+                    }
                     if (payload.size >= 256) {
                         Log.d("TetherBle", "Received encrypted session key")
-                        try {
+                        return try {
                             val sessionKey = securityEngine.decryptSessionKey(payload)
                             sessionKeysMap[address] = sessionKey
                             Log.d("TetherBle", "Session key decrypted successfully")
+                            true
                         } catch (e: Exception) {
                             Log.e("TetherBle", "Failed to decrypt session key: ${e.message}")
+                            false
                         }
                     } else {
                         Log.d("TetherBle", "Received direct challenge token from client")
                         deviceChallenges[address] = payload
                         initiateAuthChallengeIfPossible(device)
+                        return true
                     }
                 }
 
@@ -669,7 +721,7 @@ class BleGattServerService : Service() {
                     val nonce = pendingNonces.remove(address)
                     if (nonce == null) {
                         Log.e("TetherBle", "No pending nonce found for $address")
-                        return
+                        return false
                     }
 
                     val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
@@ -683,9 +735,9 @@ class BleGattServerService : Service() {
                     if (freshKey == null) {
                         Log.e("TetherBle", "Handshake failed: No public key transmitted by client for $address")
                         synchronized(gattLock) {
-                            try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
+                            try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {} catch (_: Exception) {}
                         }
-                        return
+                        return false
                     }
 
                     val isKeyTrusted = if (pinnedKeyBytes != null) {
@@ -695,6 +747,11 @@ class BleGattServerService : Service() {
                     }
 
                     if (isKeyTrusted && securityEngine.verifySignature(nonce, payload, freshKey)) {
+                        val gen = currentGeneration(address)
+                        if (gen == 0L || gen != connectionGenerations[address]) {
+                            Log.w("TetherBle", "Auth completed for stale generation. Dropping.")
+                            return false
+                        }
                         if (pinnedKeyBytes == null) {
                             Log.i("TetherBle", "Initial pairing successful. Pinning trusted Windows public key via Hardware Keystore Encryption.")
                             securityEngine.storePinnedKeySecurely(this, freshKey)
@@ -724,27 +781,28 @@ class BleGattServerService : Service() {
                             },
                             50L,
                         )
+                        return true
                     } else {
                         Log.e("TetherBle", "Handshake failed: Signature verification rejected. Trusted: $isKeyTrusted")
                         synchronized(gattLock) {
-                            try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {}
+                            try { bluetoothGattServer?.cancelConnection(device) } catch (_: SecurityException) {} catch (_: Exception) {}
                         }
+                        return false
                     }
                 }
 
                 COMMAND_CHAR_UUID -> {
-                    if (!authenticatedDevicesMap.containsKey(address)) return
+                    if (!authenticatedDevicesMap.containsKey(address)) return false
 
-                    // Authenticated AES-GCM path. Wire format: [12-byte nonce][ciphertext||16-byte tag]
                     if (payload.size < 29) {
                         Log.w("TetherBle", "Rejected command payload: too short for GCM framing (${payload.size} bytes)")
-                        return
+                        return false
                     }
 
                     val sessionKey = sessionKeysMap[address]
                     if ((sessionKey == null) || (sessionKey.size != 32)) {
                         Log.w("TetherBle", "Rejected command payload: no valid AES session key for $address")
-                        return
+                        return false
                     }
 
                     val decryptedString: String = try {
@@ -760,10 +818,10 @@ class BleGattServerService : Service() {
                         String(cipher.doFinal(ciphertextWithTag), Charsets.UTF_8)
                     } catch (_: AEADBadTagException) {
                         Log.e("TetherBle", "GCM authentication tag verification failed for $address — frame rejected")
-                        return
+                        return false
                     } catch (e: Exception) {
                         Log.e("TetherBle", "GCM decryption error for $address: ${e.message}")
-                        return
+                        return false
                     }
 
                     if (decryptedString.startsWith("confirm_")) {
@@ -818,9 +876,17 @@ class BleGattServerService : Service() {
                         }
                         sendBroadcast(intent)
                     }
+                    return true
                 }
+                else -> return false
             }
-        } catch (_: Exception) {}
+        } catch (_: AEADBadTagException) {
+            Log.w("TetherBle", "GCM tag verification failed for $address")
+            return false
+        } catch (e: Exception) {
+            Log.e("TetherBle", "Payload processing failed: ${e.message}", e)
+            return false
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -847,7 +913,10 @@ class BleGattServerService : Service() {
                     System.arraycopy(ciphertext, 0, combined, nonce.size, ciphertext.size)
                     combined
                 } catch (e: Exception) {
-                    Log.e("TetherBle", "Failed to encrypt command notification for ${device.address}: ${e.message}")
+                    Log.e("TetherBle", "Failed to encrypt for ${device.address}: ${e.message}")
+                    // Drop this device from the authenticated set so the next command doesn't silently fail.
+                    authenticatedDevicesMap.remove(device.address)
+                    sessionKeysMap.remove(device.address)?.let { Arrays.fill(it, 0) }
                     continue
                 }
             } else {
@@ -969,34 +1038,37 @@ class BleGattServerService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun startAdvertising(connectable: Boolean = true) {
-        if (isAdvertising) {
-            stopAdvertising()
-        }
+        synchronized(advertisingLock) {
+            if (isAdvertising) {
+                try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) {}
+                isAdvertising = false
+            }
 
-        val serverAdvertiser = bluetoothAdapter?.bluetoothLeAdvertiser ?: return
-        advertiser = serverAdvertiser
+            val serverAdvertiser = bluetoothAdapter?.bluetoothLeAdvertiser ?: return
+            advertiser = serverAdvertiser
 
-        val settings = AdvertiseSettings.Builder()
-            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-            .setConnectable(connectable)
-            .setTimeout(0)
-            .build()
+            val settings = AdvertiseSettings.Builder()
+                .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+                .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+                .setConnectable(connectable)
+                .setTimeout(0)
+                .build()
 
-        val advertiseData = AdvertiseData.Builder()
-            .setIncludeDeviceName(true)
-            .addServiceUuid(ParcelUuid(SERVICE_UUID))
-            .build()
+            val advertiseData = AdvertiseData.Builder()
+                .setIncludeDeviceName(true)
+                .addServiceUuid(ParcelUuid(SERVICE_UUID))
+                .build()
 
-        val scanResponseData = AdvertiseData.Builder()
-            .setIncludeTxPowerLevel(true)
-            .build()
+            val scanResponseData = AdvertiseData.Builder()
+                .setIncludeTxPowerLevel(true)
+                .build()
 
-        try {
-            advertiser?.startAdvertising(settings, advertiseData, scanResponseData, advertiseCallback)
-            Log.i("TetherBle", "Proximity Advertisement Deployed (Connectable: $connectable)")
-        } catch (e: Exception) {
-            Log.e("TetherBle", "Failed to initialize advertiser array: ${e.message}")
+            try {
+                advertiser?.startAdvertising(settings, advertiseData, scanResponseData, advertiseCallback)
+                Log.i("TetherBle", "Proximity Advertisement Deployed (Connectable: $connectable)")
+            } catch (e: Exception) {
+                Log.e("TetherBle", "Advertise failed: ${e.message}")
+            }
         }
     }
 
@@ -1097,11 +1169,14 @@ class BleGattServerService : Service() {
         alarmPendingIntent = null
     }
 
+    @SuppressLint("MissingPermission")
     private fun stopAdvertising() {
-        try {
-            advertiser?.stopAdvertising(advertiseCallback)
-        } catch (_: SecurityException) {} catch (_: Exception) {}
-        isAdvertising = false
+        synchronized(advertisingLock) {
+            try {
+                advertiser?.stopAdvertising(advertiseCallback)
+            } catch (_: SecurityException) {} catch (_: Exception) {}
+            isAdvertising = false
+        }
     }
 
     private fun restartGattServer() {
@@ -1117,6 +1192,7 @@ class BleGattServerService : Service() {
             unauthenticatedConnections.clear()
             deviceChallenges.clear()
             notificationSubscriptions.clear()
+            sessionKeysMap.values.forEach { key -> Arrays.fill(key, 0) }
             sessionKeysMap.clear()
             deviceMtuMap.clear()
             pendingExecuteWrites.clear()
@@ -1212,6 +1288,7 @@ class BleGattServerService : Service() {
             authenticatedDevicesMap.clear()
             deviceChallenges.clear()
             notificationSubscriptions.clear()
+            sessionKeysMap.values.forEach { key -> Arrays.fill(key, 0) }
             sessionKeysMap.clear()
             deviceMtuMap.clear()
             pendingExecuteWrites.clear()
