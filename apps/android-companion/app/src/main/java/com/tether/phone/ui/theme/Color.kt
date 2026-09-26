@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package com.tether.phone.ui.theme
 
 import androidx.compose.ui.graphics.Color

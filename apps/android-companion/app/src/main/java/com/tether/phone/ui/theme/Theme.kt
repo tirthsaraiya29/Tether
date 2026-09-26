@@ -36,18 +36,18 @@ private val LiquidGlassColorScheme = darkColorScheme(
     onSurface = TextPrimary,
     surfaceVariant = SurfaceVeneer,
     onSurfaceVariant = TextSecondary,
-    outline = GlassBorder
+    outline = GlassBorder,
 )
 
 @Composable
 fun TetherTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    @Suppress("UNUSED_PARAMETER") darkTheme: Boolean = isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
     dynamicColor: Boolean = false,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+        dynamicColor && (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) -> {
             val context = LocalContext.current
             dynamicDarkColorScheme(context)
         }
@@ -61,7 +61,9 @@ fun TetherTheme(
             val window = activity.window
             
             // Set true dark mode background for status and nav bars
+            @Suppress("DEPRECATION")
             window.statusBarColor = colorScheme.background.toArgb()
+            @Suppress("DEPRECATION")
             window.navigationBarColor = colorScheme.background.toArgb()
 
             val insetsController = WindowCompat.getInsetsController(window, view)
@@ -76,6 +78,6 @@ fun TetherTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
-        content = content
+        content = content,
     )
 }
