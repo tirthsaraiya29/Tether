@@ -139,12 +139,12 @@ class ProductionSecurityEngine {
     }
 
     fun computePublicKeyFingerprint(publicKeyBytes: ByteArray?): String {
-        if (publicKeyBytes == null || publicKeyBytes.isEmpty()) return "NONE"
+        if ((publicKeyBytes == null) || publicKeyBytes.isEmpty()) return "NONE"
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
             val hash = digest.digest(publicKeyBytes)
             hash.joinToString(":") { String.format("%02X", it) }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             "INVALID"
         }
     }

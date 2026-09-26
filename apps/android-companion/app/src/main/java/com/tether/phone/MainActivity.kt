@@ -79,6 +79,10 @@ class MainActivity : FragmentActivity() {
     private var currentIntegrityScore = mutableIntStateOf(value = 100)
     private var isLoading = mutableStateOf(value = true)
 
+    private var trustState = mutableStateOf(TrustState.UNPAIRED)
+    private var phoneFingerprint = mutableStateOf("")
+    private var windowsFingerprint = mutableStateOf("")
+
     private var activePendingCommand = mutableStateOf<String?>(null)
     private var isCommandConfirmed = mutableStateOf(value = false)
     private var dismissalJob: Job? = null
@@ -104,22 +108,63 @@ class MainActivity : FragmentActivity() {
             if (intent?.action == TetherLanService.ACTION_LAN_STATE_CHANGED) {
                 val count = intent.getIntExtra(TetherLanService.EXTRA_CONNECTION_COUNT, 0)
                 val stateName = intent.getStringExtra(TetherLanService.EXTRA_TRANSPORT_STATE) ?: "DISCONNECTED"
-                Log.d("TetherActivity", "LAN transport state changed: $stateName ($count)")
+                val trustStateName = intent.getStringExtra(TetherLanService.EXTRA_TRUST_STATE) ?: "UNPAIRED"
+                val phoneFp = intent.getStringExtra(TetherLanService.EXTRA_PHONE_FINGERPRINT) ?: ""
+                val winFp = intent.getStringExtra(TetherLanService.EXTRA_WINDOWS_FINGERPRINT) ?: ""
+
+                Log.d("TetherActivity", "LAN transport state changed: $stateName ($count), trustState=$trustStateName")
                 runOnUiThread {
                     isConnected.value = count > 0
-                    if (count > 0) {
-                        uiStatusText.value = getString(R.string.status_link_active)
-                        uiStatusColor.value = IntegrityGreen
-                        uiConnectionStatusText.value = getString(R.string.status_secure_nodes, count)
-                    } else if (stateName == "HOTSPOT_UNSUPPORTED") {
-                        uiStatusText.value = "HOTSPOT UNSUPPORTED"
-                        uiStatusColor.value = AlertRed
-                        uiConnectionStatusText.value = "CONNECT PHONE & WINDOWS TO SAME WI-FI"
-                    } else {
-                        if (!isPanicActive.value) {
-                            uiStatusText.value = getString(R.string.status_broadcasting)
-                            uiStatusColor.value = LiquidCyan
-                            uiConnectionStatusText.value = getString(R.string.status_scanning_host)
+                    phoneFingerprint.value = phoneFp
+                    windowsFingerprint.value = winFp
+
+                    try {
+                        trustState.value = TrustState.valueOf(trustStateName)
+                    } catch (_: Exception) {}
+
+                    when (trustState.value) {
+                        TrustState.KEY_MISMATCH -> {
+                            uiStatusText.value = "KEY MISMATCH"
+                            uiStatusColor.value = AlertRed
+                            uiConnectionStatusText.value = "UNTRUSTED HOST - PUBLIC KEY CHANGED"
+                        }
+                        TrustState.PAIRING_DENIED -> {
+                            uiStatusText.value = "PAIRING DENIED"
+                            uiStatusColor.value = AlertRed
+                            uiConnectionStatusText.value = "PAIRING REJECTED BY WINDOWS PC"
+                        }
+                        TrustState.PAIRING_REQUESTED -> {
+                            uiStatusText.value = "PAIRING REQUESTED"
+                            uiStatusColor.value = MatrixGold
+                            uiConnectionStatusText.value = "AWAITING APPROVAL ON WINDOWS PC..."
+                        }
+                        TrustState.UNPAIRED, TrustState.REPAIRING -> {
+                            if (count > 0) {
+                                uiStatusText.value = "UNPAIRED HOST CONNECTED"
+                                uiStatusColor.value = MatrixGold
+                                uiConnectionStatusText.value = "INITIATE PAIRING TO COMPLETE TRUST"
+                            } else {
+                                uiStatusText.value = "UNPAIRED"
+                                uiStatusColor.value = TextSecondary
+                                uiConnectionStatusText.value = "PAIRING REQUIRED TO ESTABLISH LINK"
+                            }
+                        }
+                        TrustState.PAIRED -> {
+                            if (count > 0) {
+                                uiStatusText.value = getString(R.string.status_link_active)
+                                uiStatusColor.value = IntegrityGreen
+                                uiConnectionStatusText.value = getString(R.string.status_secure_nodes, count)
+                            } else if (stateName == "HOTSPOT_UNSUPPORTED") {
+                                uiStatusText.value = "HOTSPOT UNSUPPORTED"
+                                uiStatusColor.value = AlertRed
+                                uiConnectionStatusText.value = "CONNECT PHONE & WINDOWS TO SAME WI-FI"
+                            } else {
+                                if (!isPanicActive.value) {
+                                    uiStatusText.value = getString(R.string.status_broadcasting)
+                                    uiStatusColor.value = LiquidCyan
+                                    uiConnectionStatusText.value = getString(R.string.status_scanning_host)
+                                }
+                            }
                         }
                     }
                 }
@@ -226,6 +271,9 @@ class MainActivity : FragmentActivity() {
                                 isPanicActive = isPanicActive.value,
                                 verificationStep = currentVerificationStep.value,
                                 selectedTimeoutMs = selectedTimeoutMs.longValue,
+                                trustState = trustState.value,
+                                phoneFingerprint = phoneFingerprint.value,
+                                windowsFingerprint = windowsFingerprint.value,
                                 onUnlockClick = {
                                     val currentTime = System.currentTimeMillis()
                                     val needsAuth = ((currentTime - lastBiometricAuthTime) > 10000)
@@ -294,6 +342,9 @@ class MainActivity : FragmentActivity() {
                                     showPairingQRCode()
                                 },
                                 onRestartServer = ::restartLanServer,
+                                onInitiatePairing = ::initiatePairing,
+                                onCancelPairing = ::cancelPairing,
+                                onForgetTrust = ::forgetTrust,
                             )
 
                             pendingPowerAction.value?.let { action: PowerAction ->
@@ -745,6 +796,39 @@ class MainActivity : FragmentActivity() {
             startForegroundService(lanIntent)
         } catch (e: Exception) {
             Log.e("TetherActivity", "Failed to start LAN service", e)
+        }
+    }
+
+    private fun initiatePairing() {
+        val intent = Intent(this, TetherLanService::class.java).apply {
+            action = TetherLanService.ACTION_INITIATE_PAIRING
+        }
+        try {
+            startForegroundService(intent)
+        } catch (e: Exception) {
+            Log.e("TetherActivity", "Failed to send initiate pairing action", e)
+        }
+    }
+
+    private fun cancelPairing() {
+        val intent = Intent(this, TetherLanService::class.java).apply {
+            action = TetherLanService.ACTION_CANCEL_PAIRING
+        }
+        try {
+            startForegroundService(intent)
+        } catch (e: Exception) {
+            Log.e("TetherActivity", "Failed to send cancel pairing action", e)
+        }
+    }
+
+    private fun forgetTrust() {
+        val intent = Intent(this, TetherLanService::class.java).apply {
+            action = TetherLanService.ACTION_FORGET_TRUST
+        }
+        try {
+            startForegroundService(intent)
+        } catch (e: Exception) {
+            Log.e("TetherActivity", "Failed to send forget trust action", e)
         }
     }
 

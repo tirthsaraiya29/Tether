@@ -479,8 +479,12 @@ fun BiometricVerificationStep(onVerify: () -> Unit) {
 @Composable
 fun SettingsScreen(
     selectedTimeoutMs: Long,
+    trustState: TrustState = TrustState.UNPAIRED,
+    phoneFingerprint: String = "",
+    windowsFingerprint: String = "",
     onTimeoutChanged: (Long) -> Unit,
-    onRestartServer: () -> Unit
+    onRestartServer: () -> Unit,
+    onForgetTrust: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
@@ -560,6 +564,55 @@ fun SettingsScreen(
                                 )
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 150)) + 
+                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 150)) { it / 3 }
+        ) {
+            ProfessionalGlassSurface {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "TRUST & CRYPTOGRAPHIC IDENTITY",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = stringResource(R.string.label_phone_fingerprint),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LiquidCyan
+                    )
+                    Text(
+                        text = if (phoneFingerprint.isNotBlank()) phoneFingerprint else "COMPUTING...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextPrimary,
+                        fontSize = 11.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.label_windows_fingerprint),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LiquidCyan
+                    )
+                    Text(
+                        text = if (windowsFingerprint.isNotBlank() && windowsFingerprint != "NONE") windowsFingerprint else "NOT PINNED",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (trustState == TrustState.PAIRED) IntegrityGreen else AlertRed,
+                        fontSize = 11.sp
+                    )
+
+                    if (trustState == TrustState.PAIRED) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TacticalAction(
+                            label = stringResource(R.string.label_forget_trust),
+                            accentColor = AlertRed,
+                            onClick = onForgetTrust
+                        )
                     }
                 }
             }
@@ -759,16 +812,26 @@ fun MetricRow(label: String, pass: Boolean) {
 }
 
 @Composable
-fun PairingScreen(onShowQR: () -> Unit) {
+fun PairingScreen(
+    trustState: TrustState = TrustState.UNPAIRED,
+    phoneFingerprint: String = "",
+    windowsFingerprint: String = "",
+    onInitiatePairing: () -> Unit = {},
+    onCancelPairing: () -> Unit = {},
+    onForgetTrust: () -> Unit = {},
+    onShowQR: () -> Unit
+) {
     var visible by remember { mutableStateOf(value = false) }
     LaunchedEffect(Unit) { visible = true }
+
+    val scrollState = rememberScrollState()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(scrollState)
             .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         AnimatedVisibility(
             visible = visible,
@@ -784,36 +847,121 @@ fun PairingScreen(onShowQR: () -> Unit) {
             )
         }
         Spacer(modifier = Modifier.height(20.dp))
+
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 200))
         ) {
-            Text(
-                text = stringResource(R.string.desc_pairing),
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary,
-                textAlign = TextAlign.Center
-            )
+            ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "PAIRING STATUS",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LiquidCyan
+                    )
+                    val (statusMsg, statusColor) = when (trustState) {
+                        TrustState.UNPAIRED, TrustState.REPAIRING -> stringResource(R.string.desc_unpaired_status) to TextSecondary
+                        TrustState.PAIRING_REQUESTED -> stringResource(R.string.desc_pairing_requested_status) to MatrixGold
+                        TrustState.PAIRED -> stringResource(R.string.desc_paired_status) to IntegrityGreen
+                        TrustState.PAIRING_DENIED -> stringResource(R.string.desc_pairing_denied_status) to AlertRed
+                        TrustState.KEY_MISMATCH -> stringResource(R.string.desc_key_mismatch_status) to AlertRed
+                    }
+                    Text(
+                        text = statusMsg,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = statusColor,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
-        Spacer(modifier = Modifier.height(56.dp))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 300))
+        ) {
+            ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "CRYPTOGRAPHIC IDENTITY",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LiquidCyan
+                    )
+                    Text(
+                        text = stringResource(R.string.label_phone_fingerprint),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
+                    )
+                    Text(
+                        text = if (phoneFingerprint.isNotBlank()) phoneFingerprint else "COMPUTING...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextPrimary,
+                        fontSize = 11.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.label_windows_fingerprint),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
+                    )
+                    Text(
+                        text = if (windowsFingerprint.isNotBlank() && windowsFingerprint != "NONE") windowsFingerprint else "NOT PINNED",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (trustState == TrustState.PAIRED) IntegrityGreen else AlertRed,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
 
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 400)) + 
                     slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 400)) { it / 2 }
         ) {
-            ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                when (trustState) {
+                    TrustState.UNPAIRED, TrustState.REPAIRING, TrustState.PAIRING_DENIED -> {
+                        TacticalAction(
+                            label = stringResource(R.string.label_initiate_pairing),
+                            accentColor = LiquidCyan,
+                            onClick = onInitiatePairing
+                        )
+                    }
+                    TrustState.PAIRING_REQUESTED -> {
+                        TacticalAction(
+                            label = stringResource(R.string.label_cancel_pairing),
+                            accentColor = AlertRed,
+                            onClick = onCancelPairing
+                        )
+                    }
+                    TrustState.PAIRED -> {
+                        TacticalAction(
+                            label = stringResource(R.string.label_forget_trust),
+                            accentColor = AlertRed,
+                            onClick = onForgetTrust
+                        )
+                    }
+                    TrustState.KEY_MISMATCH -> {
+                        TacticalAction(
+                            label = stringResource(R.string.label_forget_trust),
+                            accentColor = AlertRed,
+                            onClick = onForgetTrust
+                        )
+                    }
+                }
+
                 TacticalAction(
                     label = stringResource(R.string.btn_show_pairing_qr),
-                    accentColor = LiquidCyan,
+                    accentColor = TextSecondary,
                     onClick = onShowQR
-                )
-                Spacer(modifier = Modifier.height(20.dp))
-                Text(
-                    text = stringResource(R.string.desc_pairing_key),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextMuted,
-                    textAlign = TextAlign.Center
                 )
             }
         }
@@ -830,6 +978,9 @@ fun TetherNavigationShell(
     isPanicActive: Boolean,
     verificationStep: TrustVerificationStep,
     selectedTimeoutMs: Long,
+    trustState: TrustState = TrustState.UNPAIRED,
+    phoneFingerprint: String = "",
+    windowsFingerprint: String = "",
     onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
@@ -839,7 +990,10 @@ fun TetherNavigationShell(
     onTimeoutChanged: (Long) -> Unit,
     onLaptopActionClick: (String) -> Unit,
     onShowQR: () -> Unit,
-    onRestartServer: () -> Unit
+    onRestartServer: () -> Unit,
+    onInitiatePairing: () -> Unit = {},
+    onCancelPairing: () -> Unit = {},
+    onForgetTrust: () -> Unit = {}
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -953,11 +1107,23 @@ fun TetherNavigationShell(
                         )
                         AppScreen.SECURITY_SETTINGS -> SettingsScreen(
                             selectedTimeoutMs = selectedTimeoutMs,
+                            trustState = trustState,
+                            phoneFingerprint = phoneFingerprint,
+                            windowsFingerprint = windowsFingerprint,
                             onTimeoutChanged = onTimeoutChanged,
-                            onRestartServer = onRestartServer
+                            onRestartServer = onRestartServer,
+                            onForgetTrust = onForgetTrust
                         )
                         AppScreen.LAPTOP_CONTROL -> Box(Modifier.fillMaxSize())
-                        AppScreen.PAIRING -> PairingScreen(onShowQR = onShowQR)
+                        AppScreen.PAIRING -> PairingScreen(
+                            trustState = trustState,
+                            phoneFingerprint = phoneFingerprint,
+                            windowsFingerprint = windowsFingerprint,
+                            onInitiatePairing = onInitiatePairing,
+                            onCancelPairing = onCancelPairing,
+                            onForgetTrust = onForgetTrust,
+                            onShowQR = onShowQR
+                        )
                     }
                 }
             }
