@@ -6,69 +6,74 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
 import androidx.core.content.edit
-import java.security.KeyFactory
-import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.MessageDigest
-import java.security.Signature
-import java.security.spec.MGF1ParameterSpec
-import java.security.spec.X509EncodedKeySpec
+import java.security.PrivateKey
+import java.security.KeyPairGenerator
+import java.security.cert.X509Certificate
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
-import javax.crypto.Mac
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.OAEPParameterSpec
-import javax.crypto.spec.PSource
-import javax.crypto.spec.SecretKeySpec
+import javax.security.auth.x500.X500Principal
 
+/**
+ * Core cryptographic engine for Tether Android Companion.
+ * Uses AndroidKeyStore for hardware-backed long-lived EC identity keys,
+ * AES-256 GCM hardware key storage for pinned Windows identities,
+ * self-signed X.509 certificate retrieval, and SHA-256 fingerprinting.
+ */
 class ProductionSecurityEngine {
 
     companion object {
-        private const val KEY_ALIAS = "TetherAsymmetricKey_v3"
-        private const val STORAGE_KEY_ALIAS = "TetherStorageKey_v1"
+        private const val TAG = "ProductionSecurityEngine"
+        private const val EC_IDENTITY_ALIAS = "TetherIdentityKey_v1"
+        private const val STORAGE_KEY_ALIAS = "TetherStorageKey_v2"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        private const val PREFS_NAME = "tether_secure_prefs"
+        private const val PINNED_WINDOWS_KEY_PREF = "pinned_windows_public_key_enc"
     }
 
     init {
-        ensureKeyPairExists()
+        ensureIdentityKeyPairExists()
         ensureStorageKeyExists()
     }
 
-    private fun ensureKeyPairExists() {
+    private fun ensureIdentityKeyPairExists() {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        if (!keyStore.containsAlias(KEY_ALIAS)) {
+        if (!keyStore.containsAlias(EC_IDENTITY_ALIAS)) {
+            Log.i(TAG, "Generating new hardware-backed EC identity key pair in AndroidKeyStore...")
             val kpg = KeyPairGenerator.getInstance(
-                KeyProperties.KEY_ALGORITHM_RSA,
-                ANDROID_KEYSTORE,
+                KeyProperties.KEY_ALGORITHM_EC,
+                ANDROID_KEYSTORE
             )
 
             val parameterSpec = KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
-                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY or KeyProperties.PURPOSE_DECRYPT,
+                EC_IDENTITY_ALIAS,
+                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
             )
-                .setBlockModes(KeyProperties.BLOCK_MODE_ECB)
-                .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA1)
-                .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_RSA_OAEP)
-                .setKeySize(2048)
+                .setCertificateSubject(X500Principal("CN=TetherAndroidDevice, O=Tether, OU=Mobile"))
+                .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
+                .setKeySize(256)
                 .build()
 
             kpg.initialize(parameterSpec)
             kpg.generateKeyPair()
+            Log.i(TAG, "EC identity key pair successfully created.")
         }
     }
 
     private fun ensureStorageKeyExists() {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         if (!keyStore.containsAlias(STORAGE_KEY_ALIAS)) {
+            Log.i(TAG, "Generating hardware AES-256 storage key in AndroidKeyStore...")
             val keyGenerator = KeyGenerator.getInstance(
                 KeyProperties.KEY_ALGORITHM_AES,
-                ANDROID_KEYSTORE,
+                ANDROID_KEYSTORE
             )
             val parameterSpec = KeyGenParameterSpec.Builder(
                 STORAGE_KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
@@ -78,6 +83,24 @@ class ProductionSecurityEngine {
             keyGenerator.init(parameterSpec)
             keyGenerator.generateKey()
         }
+    }
+
+    fun getIdentityPrivateKey(): PrivateKey {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        return keyStore.getKey(EC_IDENTITY_ALIAS, null) as PrivateKey
+    }
+
+    fun getIdentityCertificate(): X509Certificate {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        val cert = keyStore.getCertificate(EC_IDENTITY_ALIAS)
+        if (cert is X509Certificate) {
+            return cert
+        }
+        throw IllegalStateException("Failed to load X509Certificate for alias $EC_IDENTITY_ALIAS")
+    }
+
+    fun getIdentityPublicKeyBytes(): ByteArray {
+        return getIdentityCertificate().publicKey.encoded
     }
 
     fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray) {
@@ -91,24 +114,23 @@ class ProductionSecurityEngine {
             val iv = cipher.iv
             val encryptedBytes = cipher.doFinal(publicKeyBytes)
 
-            // Pack the IV block alongside encrypted chunk data seamlessly
             val combined = ByteArray(iv.size + encryptedBytes.size)
             System.arraycopy(iv, 0, combined, 0, iv.size)
             System.arraycopy(encryptedBytes, 0, combined, iv.size, encryptedBytes.size)
 
             val encodedStr = Base64.encodeToString(combined, Base64.NO_WRAP)
-            val prefs = context.getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
-            prefs.edit { putString("pinned_windows_public_key_enc", encodedStr) }
-            Log.i("TetherSecurity", "Public key encrypted with hardware AES key and persisted successfully.")
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit { putString(PINNED_WINDOWS_KEY_PREF, encodedStr) }
+            Log.i(TAG, "Pinned Windows public identity key encrypted and saved to secure storage.")
         } catch (e: Exception) {
-            Log.e("TetherSecurity", "Failed to encrypt and store public key securely: ${e.message}", e)
+            Log.e(TAG, "Failed to store pinned key securely: ${e.message}", e)
         }
     }
 
     fun getPinnedKeyDecrypted(context: Context): ByteArray? {
         try {
-            val prefs = context.getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
-            val encodedStr = prefs.getString("pinned_windows_public_key_enc", null) ?: return null
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val encodedStr = prefs.getString(PINNED_WINDOWS_KEY_PREF, null) ?: return null
             val combined = Base64.decode(encodedStr, Base64.NO_WRAP)
 
             if (combined.size <= 12) return null
@@ -123,23 +145,23 @@ class ProductionSecurityEngine {
             cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
             return cipher.doFinal(ciphertext)
         } catch (e: Exception) {
-            Log.e("TetherSecurity", "Failed to decrypt and retrieve pinned public key: ${e.message}", e)
+            Log.e(TAG, "Failed to decrypt pinned public key: ${e.message}", e)
             return null
         }
     }
 
     fun clearPinnedKey(context: Context) {
         try {
-            val prefs = context.getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
-            prefs.edit { remove("pinned_windows_public_key_enc") }
-            Log.i("TetherSecurity", "Pinned Windows public key cleared from secure storage.")
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit { remove(PINNED_WINDOWS_KEY_PREF) }
+            Log.i(TAG, "Cleared pinned Windows public key from storage.")
         } catch (e: Exception) {
-            Log.e("TetherSecurity", "Failed to clear pinned public key: ${e.message}", e)
+            Log.e(TAG, "Failed to clear pinned key: ${e.message}", e)
         }
     }
 
     fun computePublicKeyFingerprint(publicKeyBytes: ByteArray?): String {
-        if ((publicKeyBytes == null) || publicKeyBytes.isEmpty()) return "NONE"
+        if (publicKeyBytes == null || publicKeyBytes.isEmpty()) return "NONE"
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
             val hash = digest.digest(publicKeyBytes)
@@ -150,48 +172,6 @@ class ProductionSecurityEngine {
     }
 
     fun getPublicKeyBytes(): ByteArray {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        val publicKey = keyStore.getCertificate(KEY_ALIAS).publicKey
-        return publicKey.encoded
-    }
-
-    fun decryptSessionKey(encryptedKey: ByteArray): ByteArray {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        val privateKeyEntry = keyStore.getEntry(KEY_ALIAS, null) as KeyStore.PrivateKeyEntry
-        val privateKey = privateKeyEntry.privateKey
-
-        val cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-1AndMGF1Padding")
-        val oaepSpec = OAEPParameterSpec(
-            "SHA-1",
-            "MGF1",
-            MGF1ParameterSpec.SHA1,
-            PSource.PSpecified.DEFAULT,
-        )
-
-        cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepSpec)
-        return cipher.doFinal(encryptedKey)
-    }
-
-    fun computeHmac(nonce: ByteArray, sessionKey: ByteArray): ByteArray {
-        val hmac = Mac.getInstance("HmacSHA256")
-        val secretKey = SecretKeySpec(sessionKey, "HmacSHA256")
-        hmac.init(secretKey)
-        return hmac.doFinal(nonce)
-    }
-
-    fun verifySignature(data: ByteArray, signature: ByteArray, publicKeyBytes: ByteArray): Boolean {
-        return try {
-            val keyFactory = KeyFactory.getInstance("RSA")
-            val publicKey = keyFactory.generatePublic(X509EncodedKeySpec(publicKeyBytes))
-            val sig = Signature.getInstance("SHA256withRSA")
-            sig.initVerify(publicKey)
-            sig.update(data)
-            val result = sig.verify(signature)
-            Log.d("TetherSecurity", "Signature verification result: $result")
-            result
-        } catch (e: Exception) {
-            Log.e("TetherSecurity", "Signature verification error: ${e.message}", e)
-            false
-        }
+        return getIdentityPublicKeyBytes()
     }
 }
