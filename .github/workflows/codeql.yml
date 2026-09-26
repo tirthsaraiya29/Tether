@@ -1,64 +1,76 @@
 name: "CodeQL Advanced"
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  schedule:
-    - cron: '21 20 * * 2'
+push:
+branches:
+- main
+- canary
+
+pull_request:
+branches:
+- main
+- canary
+
+schedule:
+- cron: "33 12 * * 4"
+
+workflow_dispatch:
+
+permissions:
+contents: read
 
 jobs:
-  analyze:
-    name: Analyze (${{ matrix.language }})
-    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
-    permissions:
-      security-events: write
-      packages: read
-      actions: read
-      contents: read
+analyze:
+name: Analyze (${{ matrix.language }})
+runs-on: ubuntu-latest
 
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - language: c-cpp
-            build-mode: none
-          - language: csharp
-            build-mode: none
-          - language: java-kotlin
-            build-mode: manual # 1. Changed from 'autobuild' to 'manual'
+```
+permissions:
+  security-events: write
+  packages: read
+  actions: read
+  contents: read
 
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+strategy:
+  fail-fast: false
+  matrix:
+    include:
 
-    # 2. Add JDK setup so Gradle can compile your Android app
-    - name: Set up JDK 17
-      if: matrix.language == 'java-kotlin'
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      # GitHub Actions workflow security
+      - language: actions
+        build-mode: none
 
-    # Initializes the CodeQL tools for scanning.
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v4
-      with:
-        languages: ${{ matrix.language }}
-        build-mode: ${{ matrix.build-mode }}
+      # Tether Windows implementation
+      - language: csharp
+        build-mode: autobuild
 
-    # 3. Replace the placeholder manual build block with your actual Gradle build command
-    - name: Run manual build steps
-      if: matrix.build-mode == 'manual'
-      shell: bash
-      run: |
-        echo "Navigating to the android app folder..."
-        cd apps/android-companion
-        chmod +x gradlew
-        ./gradlew compileDebugJavaWithJavac
-        
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4
-      with:
-        category: "/language:${{matrix.language}}"
+      # Tether native/C++ implementation
+      - language: c-cpp
+        build-mode: autobuild
+
+      # Tether Android implementation
+      # Includes Kotlin and Java
+      - language: java-kotlin
+        build-mode: autobuild
+
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v6
+
+  - name: Initialize CodeQL
+    uses: github/codeql-action/init@v4
+    with:
+      languages: ${{ matrix.language }}
+      build-mode: ${{ matrix.build-mode }}
+      queries: security-extended
+      dependency-caching: true
+
+  - name: Autobuild
+    if: matrix.build-mode == 'autobuild'
+    uses: github/codeql-action/autobuild@v4
+
+  - name: Perform CodeQL Analysis
+    uses: github/codeql-action/analyze@v4
+    with:
+      category: "/language:${{ matrix.language }}"
+```
