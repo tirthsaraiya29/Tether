@@ -190,11 +190,10 @@ public sealed class LanTransportServer : IDisposable
         {
             _mdnsDiscovery = new ServiceDiscovery();
 
-            // Service type MUST be "_tether._tcp" (no trailing dot for Makaretu).
             _mdnsProfile = new ServiceProfile(
-                instanceName: "TetherWindows",
-                serviceType: "_tether._tcp",
-                port: (ushort)LISTEN_PORT);
+                "TetherWindows",
+                "tether",
+                (ushort)LISTEN_PORT);
 
             _mdnsProfile.AddProperty("version", "1.0");
             _mdnsProfile.AddProperty("proto", "aes-256-gcm+rsa2048");
