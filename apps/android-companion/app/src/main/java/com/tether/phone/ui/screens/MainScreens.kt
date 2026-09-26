@@ -2,6 +2,9 @@ package com.tether.phone.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.RenderEffect
+import android.graphics.Shader
+import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.animation.*
@@ -11,7 +14,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,8 +28,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -52,7 +61,7 @@ fun TetherAppScreen(
     onSideRestore: () -> Unit,
     onSelectLaptop: () -> Unit,
     onTriggerStepVerification: (TrustVerificationStep) -> Unit,
-    onBleActionRequested: (String) -> Unit,
+    onLanActionRequested: (String) -> Unit,
 ) {
     val scrollState = rememberScrollState()
     var visible by remember { mutableStateOf(value = false) }
@@ -108,14 +117,14 @@ fun TetherAppScreen(
                     TacticalAction(
                         label = stringResource(R.string.label_sleep),
                         accentColor = MatrixGold,
-                        onClick = { onBleActionRequested("PWR_SLEEP") },
+                        onClick = { onLanActionRequested("PWR_SLEEP") },
                         modifier = Modifier.weight(1f),
                         enabled = isConnected
                     )
                     TacticalAction(
                         label = stringResource(R.string.label_reboot),
                         accentColor = TextPrimary,
-                        onClick = { onBleActionRequested("PWR_REBOOT") },
+                        onClick = { onLanActionRequested("PWR_REBOOT") },
                         modifier = Modifier.weight(1f),
                         enabled = isConnected
                     )
@@ -124,7 +133,7 @@ fun TetherAppScreen(
                 TacticalAction(
                     label = stringResource(R.string.label_halt_system),
                     accentColor = AlertRed,
-                    onClick = { onBleActionRequested("PWR_SHUTDOWN") },
+                    onClick = { onLanActionRequested("PWR_SHUTDOWN") },
                     enabled = isConnected
                 )
             }
@@ -809,3 +818,147 @@ fun PairingScreen(onShowQR: () -> Unit) {
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TetherNavigationShell(
+    statusText: String,
+    statusColor: Color,
+    connectionStatus: String,
+    isConnected: Boolean,
+    isPanicActive: Boolean,
+    verificationStep: TrustVerificationStep,
+    selectedTimeoutMs: Long,
+    onUnlockClick: () -> Unit,
+    onLockClick: () -> Unit,
+    onPanicClick: () -> Unit,
+    onSideRestore: () -> Unit,
+    onSelectLaptop: () -> Unit,
+    onTriggerStepVerification: (TrustVerificationStep) -> Unit,
+    onTimeoutChanged: (Long) -> Unit,
+    onLaptopActionClick: (String) -> Unit,
+    onShowQR: () -> Unit,
+    onRestartServer: () -> Unit
+) {
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+    var currentScreen by remember { mutableStateOf(AppScreen.TELEMETRY_DASHBOARD) }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = Color.Transparent,
+                drawerContentColor = TextSecondary,
+                modifier = Modifier.width(320.dp).fillMaxHeight()
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(DeepSpace.copy(alpha = 0.85f))
+                            .graphicsLayer {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    renderEffect = RenderEffect
+                                        .createBlurEffect(40f, 40f, Shader.TileMode.CLAMP)
+                                        .asComposeRenderEffect()
+                                }
+                            }
+                    )
+                    Column(modifier = Modifier.fillMaxSize().padding(32.dp)) {
+                        Spacer(modifier = Modifier.height(64.dp))
+                        Text(
+                            text = stringResource(R.string.nav_command_interface),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = LiquidCyan
+                        )
+                        Spacer(modifier = Modifier.height(48.dp))
+
+                        val navItems = listOf(
+                            Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
+                            Triple(stringResource(R.string.nav_security), Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
+                            Triple(stringResource(R.string.nav_pair), Icons.Default.QrCode, AppScreen.PAIRING)
+                        )
+
+                        navItems.forEach { (label, icon, screen) ->
+                            NavigationDrawerItem(
+                                label = { Text(label, style = MaterialTheme.typography.labelLarge) },
+                                selected = currentScreen == screen,
+                                icon = { Icon(icon, contentDescription = null) },
+                                colors = NavigationDrawerItemDefaults.colors(
+                                    selectedContainerColor = LiquidCyan.copy(alpha = 0.12f),
+                                    unselectedContainerColor = Color.Transparent,
+                                    selectedIconColor = LiquidCyan,
+                                    unselectedIconColor = TextSecondary,
+                                    selectedTextColor = LiquidCyan,
+                                    unselectedTextColor = TextSecondary
+                                ),
+                                shape = RoundedCornerShape(20.dp),
+                                onClick = {
+                                    currentScreen = screen
+                                    scope.launch { drawerState.close() }
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                    }
+                }
+            }
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                CenterAlignedTopAppBar(
+                    title = {
+                        Text(
+                            text = stringResource(R.string.app_title),
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = TextPrimary
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, contentDescription = null, tint = LiquidCyan)
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = onSelectLaptop) {
+                            Icon(Icons.Default.Settings, contentDescription = null, tint = TextSecondary)
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                )
+            },
+            containerColor = Color.Transparent
+        ) { paddingValues ->
+            Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                AnimatedContent(
+                    targetState = currentScreen,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessLow)) + 
+                         scaleIn(initialScale = 0.96f, animationSpec = spring(stiffness = Spring.StiffnessLow)))
+                            .togetherWith(fadeOut(animationSpec = spring(stiffness = Spring.StiffnessLow)) + 
+                                         scaleOut(targetScale = 1.04f, animationSpec = spring(stiffness = Spring.StiffnessLow)))
+                    },
+                    label = "ScreenTransition"
+                ) { screen ->
+                    when (screen) {
+                        AppScreen.TELEMETRY_DASHBOARD -> TetherAppScreen(
+                            statusText, statusColor, connectionStatus, isConnected, isPanicActive, verificationStep,
+                            onUnlockClick, onLockClick, onPanicClick, onSideRestore, onSelectLaptop,
+                            onTriggerStepVerification, onLanActionRequested = onLaptopActionClick
+                        )
+                        AppScreen.SECURITY_SETTINGS -> SettingsScreen(
+                            selectedTimeoutMs = selectedTimeoutMs,
+                            onTimeoutChanged = onTimeoutChanged,
+                            onRestartServer = onRestartServer
+                        )
+                        AppScreen.LAPTOP_CONTROL -> Box(Modifier.fillMaxSize())
+                        AppScreen.PAIRING -> PairingScreen(onShowQR = onShowQR)
+                    }
+                }
+            }
+        }
+    }
+}
+

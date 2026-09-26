@@ -2,15 +2,15 @@
     <string name="app_name">Tether</string>
     <string name="title_tether_phone">🔒 Tether Phone</string>
     <string name="status_starting">Starting&#8230;</string>
-    <string name="status_ble_active">Bluetooth LE Active</string>
+    <string name="status_ble_active">Wi-Fi LAN Active</string>
     <string name="btn_panic_mode">🚨 PANIC MODE</string>
     <string name="status_initializing">Initializing&#8230;</string>
     <string name="status_not_connected">Not connected to PC</string>
-    <string name="status_starting_ble">Starting BLE service&#8230;</string>
+    <string name="status_starting_ble">Starting LAN service&#8230;</string>
     <string name="status_tether_active">✅ Tether Active\nPhone ready</string>
     <string name="error_permissions_denied">Permissions denied - app cannot function</string>
     <string name="toast_panic_sent">PANIC sent to Windows</string>
-    <string name="toast_permissions_required">Bluetooth permissions required for Tether to work</string>
+    <string name="toast_permissions_required">Network permissions required for Tether to work</string>
     <string name="action_lock">INITIATE LOCK SYSTEM</string>
     <string name="action_panic">FORCE TERMINATE LINK</string>
     <string name="shortcut_lock_short_label">Lock Laptop</string>
@@ -24,15 +24,15 @@
     <string name="shortcut_reboot_short_label">Reboot Laptop</string>
     <string name="shortcut_reboot_long_label">Execute system restart on target host</string>
 
-    <string name="status_scanning">SCANNING</string>
-    <string name="status_initializing_stack">INITIALIZING SECURE STACK</string>
-    <string name="status_link_active">ENCRYPTED LINK ACTIVE</string>
+    <string name="status_scanning">DISCOVERING</string>
+    <string name="status_initializing_stack">INITIALIZING SECURE LAN STACK</string>
+    <string name="status_link_active">ENCRYPTED LAN LINK ACTIVE</string>
     <string name="status_secure_nodes">SECURE NODES: %1$d</string>
-    <string name="status_broadcasting">BROADCASTING</string>
-    <string name="status_scanning_host">SCANNING FOR HOST...</string>
+    <string name="status_broadcasting">DISCOVERING LAN</string>
+    <string name="status_scanning_host">SCANNING WI-FI LAN FOR HOST...</string>
     <string name="status_hardware_offline">HARDWARE OFFLINE</string>
-    <string name="status_restarting_stack">RESTARTING SECURE STACK...</string>
-    <string name="status_link_severed">BLUETOOTH LINK SEVERED</string>
+    <string name="status_restarting_stack">RESTARTING LAN TRANSPORT...</string>
+    <string name="status_link_severed">LAN LINK SEVERED</string>
     <string name="status_access_denied">ACCESS DENIED</string>
     <string name="status_verifying_environment">VERIFYING ENVIRONMENT...</string>
     <string name="toast_unlock_dispatched">🔓 UNLOCK COMMAND DISPATCHED</string>
@@ -59,7 +59,7 @@
     <string name="toast_auth_chain_severed">AUTHENTICATION CHAIN SEVERED</string>
     <string name="notification_trust_restored_title">TRUST RESTORED</string>
     <string name="notification_trust_restored_text">Local validation pipeline successful.</string>
-    <string name="toast_bluetooth_offline">BLUETOOTH OFFLINE</string>
+    <string name="toast_bluetooth_offline">WI-FI DISCONNECTED</string>
     <string name="toast_no_paired_nodes">NO PAIRED NODES FOUND</string>
     <string name="dialog_select_host">SELECT TARGET HOST</string>
     <string name="toast_target_acquired">TARGET ACQUIRED: %1$s</string>
@@ -100,7 +100,7 @@
     <string name="desc_battery_unrestricted">Unrestricted background access active.</string>
     <string name="label_service_control">SERVICE CONTROL</string>
     <string name="label_restart_server">RESTART SERVER</string>
-    <string name="desc_restart_server">Purge GATT handles and re-initialize radio mesh.</string>
+    <string name="desc_restart_server">Purge LAN sockets and restart Network Discovery.</string>
     <string name="btn_fix">FIX</string>
     <string name="header_integrity_core">INTEGRITY CORE</string>
     <string name="header_hardware_interface">HARDWARE INTERFACE</string>
@@ -120,7 +120,7 @@
     <string name="auth_unlock_subtitle">Biometric verification required to unlock host</string>
 
     <string name="label_no_host">NO HOST</string>
-    <string name="label_broadcasting_mesh">BROADCASTING MESH</string>
+    <string name="label_broadcasting_mesh">LAN DISCOVERY ACTIVE</string>
     <string name="label_bootloader">BOOTLOADER</string>
     <string name="label_root">ROOT</string>
     <string name="label_dev_module">DEV MODULE</string>
@@ -133,8 +133,8 @@
     <string name="toast_voice_reboot">🔄 VOICE SHORTCUT: EXECUTING REBOOT</string>
 
     <string name="notification_title">Tether Shield Active</string>
-    <string name="notification_text">Maintaining local cryptographically continuous background radio mesh links...</string>
-    <string name="notification_channel_name">Tether Proximity Services</string>
+    <string name="notification_text">Maintaining secure local Wi-Fi / LAN communication link...</string>
+    <string name="notification_channel_name">Tether LAN Services</string>
 
     <string name="tier_trusted">VAULT SECURED</string>
     <string name="tier_elevated_risk">ELEVATED RISK</string>

@@ -2,9 +2,9 @@ package com.tether.phone
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothManager
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -13,11 +13,14 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Base64
 import android.util.Log
 import android.view.WindowManager
+import android.widget.ImageView
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.*
@@ -46,10 +49,13 @@ import com.tether.phone.ui.components.*
 import com.tether.phone.ui.screens.*
 import com.tether.phone.ui.theme.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.time.Duration
 
 class MainActivity : FragmentActivity() {
     private val requestPermissionsCode = 101
@@ -68,7 +74,6 @@ class MainActivity : FragmentActivity() {
     private var currentVerificationStep = mutableStateOf(value = TrustVerificationStep.NOT_IN_PANIC)
 
     private var isAppLocked = mutableStateOf(value = false)
-    // Mandatory Security Features
     private var isBiometricSettingEnabled = mutableStateOf(value = true)
     private var selectedTimeoutMs = mutableLongStateOf(value = 0L)
 
@@ -82,7 +87,7 @@ class MainActivity : FragmentActivity() {
 
     private var activePendingCommand = mutableStateOf<String?>(null)
     private var isCommandConfirmed = mutableStateOf(value = false)
-    private var dismissalJob: kotlinx.coroutines.Job? = null
+    private var dismissalJob: Job? = null
 
     private var pendingPowerAction = mutableStateOf<PowerAction?>(null)
     private data class PowerAction(val command: String, val title: String)
@@ -100,18 +105,22 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private val gattStateReceiver = object : BroadcastReceiver() {
+    private val lanStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == BleGattServerService.ACTION_GATT_STATE_CHANGED) {
-                val count = intent.getIntExtra(BleGattServerService.EXTRA_CONNECTION_COUNT, 0)
-                Log.d("TetherActivity", "GATT state changed. Connection count: $count")
+            if (intent?.action == TetherLanService.ACTION_LAN_STATE_CHANGED) {
+                val count = intent.getIntExtra(TetherLanService.EXTRA_CONNECTION_COUNT, 0)
+                val stateName = intent.getStringExtra(TetherLanService.EXTRA_TRANSPORT_STATE) ?: "DISCONNECTED"
+                Log.d("TetherActivity", "LAN transport state changed: $stateName ($count)")
                 runOnUiThread {
                     isConnected.value = count > 0
-                    Log.d("TetherActivity", "isConnected set to: ${isConnected.value}")
                     if (count > 0) {
                         uiStatusText.value = getString(R.string.status_link_active)
                         uiStatusColor.value = IntegrityGreen
                         uiConnectionStatusText.value = getString(R.string.status_secure_nodes, count)
+                    } else if (stateName == "HOTSPOT_UNSUPPORTED") {
+                        uiStatusText.value = "HOTSPOT UNSUPPORTED"
+                        uiStatusColor.value = AlertRed
+                        uiConnectionStatusText.value = "CONNECT PHONE & WINDOWS TO SAME WI-FI"
                     } else {
                         if (!isPanicActive.value) {
                             uiStatusText.value = getString(R.string.status_broadcasting)
@@ -126,46 +135,17 @@ class MainActivity : FragmentActivity() {
 
     private val commandConfirmedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == "com.tether.phone.ACTION_COMMAND_CONFIRMED") {
+            if (intent?.action == TetherLanService.ACTION_COMMAND_CONFIRMED) {
                 runOnUiThread {
                     isCommandConfirmed.value = true
                     dismissalJob?.cancel()
                     dismissalJob = lifecycleScope.launch {
-                        kotlinx.coroutines.delay(kotlin.time.Duration.parse("2s"))
+                        delay(Duration.parse("2s"))
                         activePendingCommand.value = null
                         isCommandConfirmed.value = false
                     }
                 }
             }
-        }
-    }
-
-    private val bluetoothStateReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
-                when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
-                    BluetoothAdapter.STATE_OFF -> {
-                        if (!isPanicActive.value) {
-                            uiStatusText.value = getString(R.string.status_hardware_offline)
-                            uiStatusColor.value = AlertRed
-                            uiConnectionStatusText.value = getString(R.string.status_link_severed)
-                        }
-                        stopService(Intent(this@MainActivity, BleGattServerService::class.java))
-                        isConnected.value = false
-                    }
-                    BluetoothAdapter.STATE_ON -> {
-                        if (!isAppLocked.value && checkPermissions()) startBleService()
-                    }
-                }
-            }
-        }
-    }
-
-    private val enableBluetoothLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == RESULT_OK) startBleService()
-        else {
-            uiStatusText.value = getString(R.string.status_access_denied)
-            uiStatusColor.value = AlertRed
         }
     }
 
@@ -179,12 +159,11 @@ class MainActivity : FragmentActivity() {
 
         val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
         isPanicActive.value = prefs.getBoolean(panicStateKey, false)
-        // Force security settings to true regardless of saved state
         isBiometricSettingEnabled.value = true
         isPrivacyMaskEnabled.value = true
         isBlockScreenReadingEnabled.value = true
         isHideInRecentsEnabled.value = true
-        
+
         selectedTimeoutMs.longValue = prefs.getLong(appLockTimeoutKey, 0L)
 
         applyWindowSecurityFlags()
@@ -198,7 +177,7 @@ class MainActivity : FragmentActivity() {
         val shouldStartImmediately = !isBiometricSettingEnabled.value
         if (shouldStartImmediately) {
             if (checkPermissions()) {
-                startBleService()
+                startLanService()
             } else {
                 requestPermissions()
             }
@@ -211,7 +190,7 @@ class MainActivity : FragmentActivity() {
                 currentIntegrityScore.intValue = report.score
                 if (report.score < 70) {
                     isEnvironmentRestricted.value = true
-                    stopService(Intent(this@MainActivity, BleGattServerService::class.java))
+                    stopService(Intent(this@MainActivity, TetherLanService::class.java))
                 } else {
                     isEnvironmentRestricted.value = false
                     if (isBiometricSettingEnabled.value) {
@@ -225,8 +204,6 @@ class MainActivity : FragmentActivity() {
         }
 
         setContent {
-            // PRODUCTION FIX: Removed erroneous remember wrappers that insulate states from background receiver updates.
-            // Reading class-level MutableState handles directly guarantees immediate recomposition tracking.
             TetherTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -268,18 +245,18 @@ class MainActivity : FragmentActivity() {
                                             if (success) {
                                                 runOnUiThread {
                                                     lastBiometricAuthTime = System.currentTimeMillis()
-                                                    triggerBleAction("unlock")
+                                                    triggerLanAction("unlock")
                                                 }
                                             }
                                         }
                                     } else {
-                                        triggerBleAction("unlock")
+                                        triggerLanAction("unlock")
                                     }
                                 },
-                                onLockClick = { triggerBleAction("lock_now") },
+                                onLockClick = { triggerLanAction("lock_now") },
                                 onPanicClick = {
                                     persistPanicState(active = true)
-                                    triggerBleAction("panic")
+                                    triggerLanAction("panic")
                                 },
                                 onSideRestore = {
                                     executeVerificationPipeline(TrustVerificationStep.DEVICE_CREDENTIAL)
@@ -312,7 +289,7 @@ class MainActivity : FragmentActivity() {
                                             )
                                         }
                                         else -> {
-                                            triggerBleAction(command)
+                                            triggerLanAction(command)
                                         }
                                     }
                                 },
@@ -322,7 +299,7 @@ class MainActivity : FragmentActivity() {
                                     }
                                     showPairingQRCode()
                                 },
-                                onRestartServer = { restartBleServer() }
+                                onRestartServer = { restartLanServer() }
                             )
 
                             pendingPowerAction.value?.let { action: PowerAction ->
@@ -330,7 +307,7 @@ class MainActivity : FragmentActivity() {
                                     title = action.title,
                                     message = getString(R.string.dialog_confirm_message, action.command),
                                     onConfirm = {
-                                        triggerBleAction(action.command)
+                                        triggerLanAction(action.command)
                                         pendingPowerAction.value = null
                                     },
                                     onDismiss = { pendingPowerAction.value = null }
@@ -368,28 +345,22 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        ContextCompat.registerReceiver(
-            this,
-            bluetoothStateReceiver,
-            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
-            ContextCompat.RECEIVER_EXPORTED
-        )
         val filter = IntentFilter(Intent.ACTION_USER_PRESENT)
         ContextCompat.registerReceiver(this, screenUnlockReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
         ContextCompat.registerReceiver(
             this,
-            gattStateReceiver,
-            IntentFilter(BleGattServerService.ACTION_GATT_STATE_CHANGED),
+            lanStateReceiver,
+            IntentFilter(TetherLanService.ACTION_LAN_STATE_CHANGED),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         ContextCompat.registerReceiver(
             this,
             commandConfirmedReceiver,
-            IntentFilter("com.tether.phone.ACTION_COMMAND_CONFIRMED"),
+            IntentFilter(TetherLanService.ACTION_COMMAND_CONFIRMED),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
 
-        val statusIntent = Intent(this, BleGattServerService::class.java).apply {
+        val statusIntent = Intent(this, TetherLanService::class.java).apply {
             action = "ACTION_GET_STATUS"
         }
         try {
@@ -415,7 +386,7 @@ class MainActivity : FragmentActivity() {
         if (commandType != null || (action == "com.tether.phone.ACTION_VOICE_COMMAND")) {
             val command = commandType ?: "unknown"
             if (!isEnvironmentRestricted.value && !isAppLocked.value) {
-                val bleCommand = when (command) {
+                val lanCommand = when (command) {
                     "lock_now" -> "lock_now"
                     "unlock" -> "unlock"
                     "shutdown" -> "shutdown"
@@ -423,7 +394,7 @@ class MainActivity : FragmentActivity() {
                     "reboot" -> "reboot"
                     else -> return
                 }
-                triggerBleAction(bleCommand)
+                triggerLanAction(lanCommand)
                 finish()
             }
         }
@@ -443,7 +414,7 @@ class MainActivity : FragmentActivity() {
     private val screenUnlockReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_USER_PRESENT) {
-                triggerBleAction("screen_unlock")
+                triggerLanAction("screen_unlock")
             }
         }
     }
@@ -490,11 +461,10 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
-        try { unregisterReceiver(gattStateReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(lanStateReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(commandConfirmedReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(screenUnlockReceiver) } catch (_: Exception) {}
-        try { unregisterReceiver(bluetoothStateReceiver) } catch (_: Exception) {}
-        
+
         executor.shutdown()
         super.onDestroy()
     }
@@ -513,11 +483,11 @@ class MainActivity : FragmentActivity() {
                         putLong(appLockBackgroundTimestampKey, 0L)
                     }
                     if (checkPermissions()) {
-                        checkAndEnableBluetooth()
+                        startLanService()
                     } else {
                         requestPermissions()
                     }
-                    syncBleState()
+                    syncLanState()
                     handleVoiceIntent(intent)
                 }
             } else {
@@ -538,7 +508,7 @@ class MainActivity : FragmentActivity() {
         } else {
             currentVerificationStep.value = TrustVerificationStep.NOT_IN_PANIC
             if (checkPermissions()) {
-                startBleService()
+                startLanService()
             }
         }
     }
@@ -548,7 +518,6 @@ class MainActivity : FragmentActivity() {
         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
             Log.w("TetherUI", "App is not exempted from battery optimizations. Requesting exemption.")
             try {
-                // NOTE: Using ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is subject to Play Store policy.
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                     data = "package:$packageName".toUri()
                 }
@@ -572,29 +541,29 @@ class MainActivity : FragmentActivity() {
     private fun showPairingQRCode() {
         try {
             val publicKeyBytes = ProductionSecurityEngine().getPublicKeyBytes()
-            val base64Key = android.util.Base64.encodeToString(publicKeyBytes, android.util.Base64.NO_WRAP)
+            val base64Key = Base64.encodeToString(publicKeyBytes, Base64.NO_WRAP)
 
             val qrContent = "TETHER:KEY:$base64Key"
             val qrBitmap = QRCodeGenerator.generateQRCode(qrContent)
 
             runOnUiThread {
-                val imageView = android.widget.ImageView(this).apply {
+                val imageView = ImageView(this).apply {
                     setImageBitmap(qrBitmap)
                     setPadding(40, 40, 40, 40)
                 }
 
-                androidx.appcompat.app.AlertDialog.Builder(this)
+                AlertDialog.Builder(this)
                     .setTitle(getString(R.string.dialog_pairing_title))
                     .setMessage(getString(R.string.dialog_pairing_message))
                     .setView(imageView)
-                    .setPositiveButton(getString(R.string.btn_done)) { _, _ -> 
+                    .setPositiveButton(getString(R.string.btn_done)) { _, _ ->
                         getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
                             putLong("pairing_window_start_time", 0L)
                         }
                     }
                     .setNegativeButton(getString(R.string.btn_copy_key)) { _, _ ->
-                        val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("TetherPublicKey", base64Key))
+                        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("TetherPublicKey", base64Key))
                     }
                     .setOnDismissListener {
                         getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
@@ -684,72 +653,38 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    @SuppressLint("MissingPermission")
     private fun showLaptopSelectionDialog() {
-        try {
-            val bluetoothManager = getSystemService(BluetoothManager::class.java)
-            val adapter = bluetoothManager?.adapter
-            if (adapter == null || !adapter.isEnabled) {
-                return
-            }
-            val pairedDevices = adapter.bondedDevices
-            if (pairedDevices.isEmpty()) {
-                return
-            }
-            val unknownLabel = getString(R.string.label_unknown)
-            val deviceList = pairedDevices.map { "${it.name ?: unknownLabel} (${it.address})" }.toTypedArray()
-            val deviceAddresses = pairedDevices.map { it.address }.toTypedArray()
-            androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle(getString(R.string.dialog_select_host))
-                .setItems(deviceList) { _, which ->
-                    val mac = deviceAddresses[which]
-                    getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
-                        putString("laptop_mac", mac)
-                    }
-                }
-                .setNegativeButton(getString(R.string.btn_cancel), null)
+        runOnUiThread {
+            AlertDialog.Builder(this)
+                .setTitle("Wi-Fi / LAN Tether Discovery")
+                .setMessage("Tether automatically discovers Windows Tether hosts on your local Wi-Fi network via NSD and UDP broadcast.\n\nEnsure phone and PC are connected to the same Wi-Fi network.")
+                .setPositiveButton(getString(R.string.btn_done), null)
                 .show()
-        } catch (e: Exception) {
-            Log.e("TetherActivity", "Laptop selection error", e)
         }
     }
 
-    private fun triggerBleAction(action: String) {
+    private fun triggerLanAction(action: String) {
         if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
-        
-        Log.d("TetherActivity", "Triggering BLE action: $action")
+
+        Log.d("TetherActivity", "Triggering LAN action: $action")
         dismissalJob?.cancel()
         activePendingCommand.value = action
         isCommandConfirmed.value = false
 
-        val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
+        val serviceIntent = Intent(this, TetherLanService::class.java).apply {
             this.action = action
         }
         try {
             startForegroundService(serviceIntent)
         } catch (e: Exception) {
-            Log.e("TetherActivity", "Failed to start BLE service for action: $action", e)
+            Log.e("TetherActivity", "Failed to start LAN service for action: $action", e)
         }
     }
 
     private fun checkPermissions(): Boolean {
         val required = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            required.addAll(
-                listOf(
-                    Manifest.permission.BLUETOOTH_SCAN,
-                    Manifest.permission.BLUETOOTH_CONNECT,
-                    Manifest.permission.BLUETOOTH_ADVERTISE,
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                )
-            )
-        } else {
-            required.addAll(listOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.BLUETOOTH,
-                Manifest.permission.BLUETOOTH_ADMIN
-            ))
-        }
+        required.add(Manifest.permission.ACCESS_FINE_LOCATION)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             required.add(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -761,7 +696,7 @@ class MainActivity : FragmentActivity() {
         if (requestCode == requestPermissionsCode) {
             if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
                 if (!isAppLocked.value) {
-                    checkAndEnableBluetooth()
+                    startLanService()
                 }
             } else {
                 uiStatusText.value = getString(R.string.status_permissions_required)
@@ -772,211 +707,47 @@ class MainActivity : FragmentActivity() {
 
     private fun requestPermissions() {
         val required = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            required.addAll(
-                listOf(
-                    Manifest.permission.BLUETOOTH_SCAN,
-                    Manifest.permission.BLUETOOTH_CONNECT,
-                    Manifest.permission.BLUETOOTH_ADVERTISE,
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                )
-            )
-        } else {
-            required.addAll(listOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.BLUETOOTH,
-                Manifest.permission.BLUETOOTH_ADMIN
-            ))
-        }
+        required.add(Manifest.permission.ACCESS_FINE_LOCATION)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             required.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         ActivityCompat.requestPermissions(this, required.toTypedArray(), requestPermissionsCode)
     }
 
-    private fun checkAndEnableBluetooth() {
-        val bluetoothManager = getSystemService(BluetoothManager::class.java)
-        val bluetoothAdapter = bluetoothManager?.adapter ?: return
-        if (bluetoothAdapter.isEnabled) startBleService()
-        else enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-    }
-
-    private fun startBleService() {
+    private fun startLanService() {
         if (isPanicActive.value || isEnvironmentRestricted.value) return
-        val bleIntent = Intent(this, BleGattServerService::class.java).apply {
+        val lanIntent = Intent(this, TetherLanService::class.java).apply {
             action = "ACTION_GET_STATUS"
         }
         try {
-            startForegroundService(bleIntent)
+            startForegroundService(lanIntent)
         } catch (e: Exception) {
-            Log.e("TetherActivity", "Failed to start BLE service", e)
+            Log.e("TetherActivity", "Failed to start LAN service", e)
         }
     }
 
-    private fun restartBleServer() {
-        val intent = Intent(this, BleGattServerService::class.java).apply {
-            action = BleGattServerService.ACTION_RESTART_SERVER
+    private fun restartLanServer() {
+        val intent = Intent(this, TetherLanService::class.java).apply {
+            action = TetherLanService.ACTION_RESTART_SERVER
         }
         try {
             startForegroundService(intent)
             uiConnectionStatusText.value = getString(R.string.status_restarting_stack)
         } catch (e: Exception) {
-            Log.e("TetherActivity", "Failed to restart server", e)
+            Log.e("TetherActivity", "Failed to restart LAN transport", e)
         }
     }
 
-    private fun syncBleState() {
+    private fun syncLanState() {
         if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
-        val serviceIntent = Intent(this, BleGattServerService::class.java).apply {
+        val serviceIntent = Intent(this, TetherLanService::class.java).apply {
             action = "ACTION_GET_STATUS"
         }
         try {
             startForegroundService(serviceIntent)
         } catch (e: Exception) {
-            Log.e("TetherActivity", "Failed to sync BLE state", e)
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun TetherNavigationShell(
-    statusText: String,
-    statusColor: Color,
-    connectionStatus: String,
-    isConnected: Boolean,
-    isPanicActive: Boolean,
-    verificationStep: TrustVerificationStep,
-    selectedTimeoutMs: Long,
-    onUnlockClick: () -> Unit,
-    onLockClick: () -> Unit,
-    onPanicClick: () -> Unit,
-    onSideRestore: () -> Unit,
-    onSelectLaptop: () -> Unit,
-    onTriggerStepVerification: (TrustVerificationStep) -> Unit,
-    onTimeoutChanged: (Long) -> Unit,
-    onLaptopActionClick: (String) -> Unit,
-    onShowQR: () -> Unit,
-    onRestartServer: () -> Unit
-) {
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
-    var currentScreen by remember { mutableStateOf(AppScreen.TELEMETRY_DASHBOARD) }
-
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet(
-                drawerContainerColor = Color.Transparent,
-                drawerContentColor = TextSecondary,
-                modifier = Modifier.width(320.dp).fillMaxHeight()
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(DeepSpace.copy(alpha = 0.85f))
-                            .graphicsLayer {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    renderEffect = android.graphics.RenderEffect
-                                        .createBlurEffect(40f, 40f, android.graphics.Shader.TileMode.CLAMP)
-                                        .asComposeRenderEffect()
-                                }
-                            }
-                    )
-                    Column(modifier = Modifier.fillMaxSize().padding(32.dp)) {
-                        Spacer(modifier = Modifier.height(64.dp))
-                        Text(
-                            text = stringResource(R.string.nav_command_interface),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = LiquidCyan
-                        )
-                        Spacer(modifier = Modifier.height(48.dp))
-
-                        val navItems = listOf(
-                            Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
-                            Triple(stringResource(R.string.nav_security), Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
-                            Triple(stringResource(R.string.nav_pair), Icons.Default.QrCode, AppScreen.PAIRING)
-                        )
-
-                        navItems.forEach { (label, icon, screen) ->
-                            NavigationDrawerItem(
-                                label = { Text(label, style = MaterialTheme.typography.labelLarge) },
-                                selected = currentScreen == screen,
-                                icon = { Icon(icon, contentDescription = null) },
-                                colors = NavigationDrawerItemDefaults.colors(
-                                    selectedContainerColor = LiquidCyan.copy(alpha = 0.12f),
-                                    unselectedContainerColor = Color.Transparent,
-                                    selectedIconColor = LiquidCyan,
-                                    unselectedIconColor = TextSecondary,
-                                    selectedTextColor = LiquidCyan,
-                                    unselectedTextColor = TextSecondary
-                                ),
-                                shape = RoundedCornerShape(20.dp),
-                                onClick = {
-                                    currentScreen = screen
-                                    scope.launch { drawerState.close() }
-                                }
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-                    }
-                }
-            }
-        }
-    ) {
-        Scaffold(
-            topBar = {
-                CenterAlignedTopAppBar(
-                    title = {
-                        Text(
-                            text = stringResource(R.string.app_title),
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = TextPrimary
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, contentDescription = null, tint = LiquidCyan)
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = onSelectLaptop) {
-                            Icon(Icons.Default.Settings, contentDescription = null, tint = TextSecondary)
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-                )
-            },
-            containerColor = Color.Transparent
-        ) { paddingValues ->
-            Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-                AnimatedContent(
-                    targetState = currentScreen,
-                    transitionSpec = {
-                        (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessLow)) + 
-                         scaleIn(initialScale = 0.96f, animationSpec = spring(stiffness = Spring.StiffnessLow)))
-                            .togetherWith(fadeOut(animationSpec = spring(stiffness = Spring.StiffnessLow)) + 
-                                         scaleOut(targetScale = 1.04f, animationSpec = spring(stiffness = Spring.StiffnessLow)))
-                    },
-                    label = "ScreenTransition"
-                ) { screen ->
-                    when (screen) {
-                        AppScreen.TELEMETRY_DASHBOARD -> TetherAppScreen(
-                            statusText, statusColor, connectionStatus, isConnected, isPanicActive, verificationStep,
-                            onUnlockClick, onLockClick, onPanicClick, onSideRestore, onSelectLaptop,
-                            onTriggerStepVerification, onBleActionRequested = onLaptopActionClick
-                        )
-                        AppScreen.SECURITY_SETTINGS -> SettingsScreen(
-                            selectedTimeoutMs = selectedTimeoutMs,
-                            onTimeoutChanged = onTimeoutChanged,
-                            onRestartServer = onRestartServer
-                        )
-                        AppScreen.LAPTOP_CONTROL -> Box(Modifier.fillMaxSize()) // Removed
-                        AppScreen.PAIRING -> PairingScreen(onShowQR = onShowQR)
-                    }
-                }
-            }
+            Log.e("TetherActivity", "Failed to sync LAN state", e)
         }
     }
 }

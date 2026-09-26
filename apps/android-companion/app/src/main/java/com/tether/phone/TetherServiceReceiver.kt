@@ -13,7 +13,7 @@ class TetherServiceReceiver : BroadcastReceiver() {
             (action == Intent.ACTION_LOCKED_BOOT_COMPLETED)) {
             
             Log.i("TetherReceiver", "Critical trigger received ($action) - Pinging service")
-            val serviceIntent = Intent(context, BleGattServerService::class.java).apply {
+            val serviceIntent = Intent(context, TetherLanService::class.java).apply {
                 this.action = "ACTION_GET_STATUS"
             }
             try {
