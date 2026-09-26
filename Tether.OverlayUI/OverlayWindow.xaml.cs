@@ -100,14 +100,31 @@ namespace Tether.OverlayUI
                     {
                         await server.WaitForConnectionAsync(token);
 
-                        byte[] buffer = new byte[1024];
+                        byte[] buffer = new byte[4096];
                         int bytesRead = await server.ReadAsync(buffer, 0, buffer.Length, token);
                         if (bytesRead > 0)
                         {
                             string json = Encoding.UTF8.GetString(buffer, 0, bytesRead);
                             var tetherEvent = JsonSerializer.Deserialize<TetherEventMinimal>(json);
 
-                            if (tetherEvent != null && (tetherEvent.EventType == "OVERLAY_DISABLED" || tetherEvent.EventType == "TRUST_RESTORED"))
+                            if (tetherEvent == null) continue;
+
+                            // ── TOFU PAIRING ─────────────────────────────────
+                            // First-time pairing request from an unprovisioned phone.
+                            // The service has already broadcast PAIRING_REQUESTED over
+                            // IEventBus and is now blocked awaiting our decision on
+                            // IpcConstants.PipeName ("TetherPipe"). Do NOT break the
+                            // listener loop here — the overlay may still need to react
+                            // to OVERLAY_DISABLED later.
+                            if (tetherEvent.EventType == "PAIRING_REQUESTED")
+                            {
+                                _ = HandlePairingRequestAsync(tetherEvent.PayloadJson);
+                                continue;
+                            }
+                            // ─────────────────────────────────────────────────
+
+                            if (tetherEvent.EventType == "OVERLAY_DISABLED" ||
+                                tetherEvent.EventType == "TRUST_RESTORED")
                             {
                                 await Dispatcher.InvokeAsync(() =>
                                 {
@@ -129,6 +146,130 @@ namespace Tether.OverlayUI
                 }
             }
         }
+
+        // ── TOFU PAIRING ─────────────────────────────────────────────────
+        /// <summary>
+        /// Displays the "New device wants to pair" dialog and, on user selection,
+        /// sends a PAIRING_DECISION event over IpcConstants.PipeName ("TetherPipe")
+        /// back to LanTransportServer. The service independently re-verifies the
+        /// RequestId + phone key against its own pending-request state, so this
+        /// process cannot self-authorize a pairing.
+        /// </summary>
+        private async Task HandlePairingRequestAsync(string payloadJson)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(payloadJson)) return;
+
+                PairingRequestPayloadMinimal? payload;
+                try
+                {
+                    payload = JsonSerializer.Deserialize<PairingRequestPayloadMinimal>(payloadJson);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"PAIRING_REQUESTED payload parse failed: {ex.Message}");
+                    return;
+                }
+
+                if (payload == null || string.IsNullOrEmpty(payload.RequestId))
+                    return;
+
+                // Marshal onto the UI thread and show the confirmation dialog.
+                bool allowed = await Dispatcher.InvokeAsync(() =>
+                {
+                    var result = MessageBox.Show(
+                        this,
+                        $"A new phone wants to pair with this PC.\n\n" +
+                        $"Device fingerprint:\n{payload.Fingerprint}\n\n" +
+                        $"Only allow this if you just initiated pairing on your phone.",
+                        "Tether — Pairing Request",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Question,
+                        MessageBoxResult.No);
+
+                    return result == MessageBoxResult.Yes;
+                });
+
+                await SendPairingDecisionAsync(
+                    payload.RequestId,
+                    payload.PhonePublicKeyBase64,
+                    payload.Fingerprint,
+                    allowed);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"HandlePairingRequestAsync failed: {ex.Message}");
+            }
+        }
+
+        private async Task SendPairingDecisionAsync(
+            string requestId,
+            string phonePublicKeyBase64,
+            string fingerprint,
+            bool allowed)
+        {
+            try
+            {
+                // Build the outer TetherEvent envelope manually (the shared TetherEvent
+                // type is serialized with an enum-as-string converter on the service side;
+                // match it exactly by using the same strongly-typed class).
+                var decisionPayload = new PairingDecisionPayloadMinimal
+                {
+                    RequestId = requestId,
+                    PhonePublicKeyBase64 = phonePublicKeyBase64,
+                    Fingerprint = fingerprint,
+                    Allowed = allowed
+                };
+
+                var evt = new Tether.Shared.Events.TetherEvent
+                {
+                    EventType = Tether.Shared.Events.TetherEventType.PAIRING_DECISION,
+                    Source = "OverlayUI",
+                    PayloadJson = JsonSerializer.Serialize(decisionPayload)
+                };
+
+                var json = JsonSerializer.Serialize(evt);
+                var bytes = Encoding.UTF8.GetBytes(json);
+
+                using var client = new NamedPipeClientStream(
+                    ".",
+                    Tether.Shared.IPC.IpcConstants.PipeName,
+                    PipeDirection.Out,
+                    PipeOptions.Asynchronous);
+
+                await client.ConnectAsync(500);
+                await client.WriteAsync(bytes, 0, bytes.Length);
+                await client.FlushAsync();
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"PAIRING_DECISION sent (RequestId={requestId}, Allowed={allowed})");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"PAIRING_DECISION send failed: {ex.Message}");
+            }
+        }
+
+        // Local mirrors of the shared DTOs so this file has no compile-time dependency
+        // on Tether.Shared.DTO. Field names MUST match PairingRequestPayload /
+        // PairingDecisionPayload exactly for JsonSerializer round-tripping.
+        private class PairingRequestPayloadMinimal
+        {
+            public string RequestId { get; set; } = string.Empty;
+            public string PhonePublicKeyBase64 { get; set; } = string.Empty;
+            public string Fingerprint { get; set; } = string.Empty;
+            public long TimestampUtcTicks { get; set; }
+        }
+
+        private class PairingDecisionPayloadMinimal
+        {
+            public string RequestId { get; set; } = string.Empty;
+            public string PhonePublicKeyBase64 { get; set; } = string.Empty;
+            public string Fingerprint { get; set; } = string.Empty;
+            public bool Allowed { get; set; }
+        }
+        // ─────────────────────────────────────────────────────────────────
 
         private void Window_Deactivated(object sender, EventArgs e)
         {
@@ -227,6 +368,9 @@ namespace Tether.OverlayUI
         {
             public string EventType { get; set; } = string.Empty;
             public string Source { get; set; } = string.Empty;
+            // ── TOFU PAIRING ──
+            // Populated by LanTransportServer when it broadcasts PAIRING_REQUESTED.
+            public string PayloadJson { get; set; } = string.Empty;
         }
     }
 }

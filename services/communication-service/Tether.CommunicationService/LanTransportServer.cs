@@ -24,15 +24,6 @@ using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService;
 
-/// <summary>
-/// Wi-Fi / LAN transport server. Replaces BLE entirely.
-/// Speaks the same wire protocol as Android's TetherLanService:
-///   - mDNS advertisement of "_tether._tcp" (via Makaretu.Dns.Multicast)
-///   - UDP broadcast discovery on port 37123 (TETHER_DISCOVER_REQ/RESP)
-///   - TCP listener on port 37123
-///   - Mutual RSA handshake + AES-256-GCM framed commands
-/// NO BLE. NO RSSI. NO PROXIMITY. Same-subnet enforcement only.
-/// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class LanTransportServer : IDisposable
 {
@@ -42,11 +33,13 @@ public sealed class LanTransportServer : IDisposable
     private const int UNLOCK_COOLDOWN_MS = 3000;
     private const int HEARTBEAT_INTERVAL_MS = 30_000;
     private const int HEARTBEAT_TIMEOUT_MS = 120_000;
+    private const int PAIRING_DECISION_TIMEOUT_SEC = 30;
+    private const string REG_BASE = @"SOFTWARE\Tether\CredentialProvider";
 
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
+    private readonly PairingCoordinator _pairingCoordinator;
 
-    // Network
     private TcpListener? _tcpListener;
     private UdpClient? _udpDiscovery;
     private CancellationTokenSource? _cts;
@@ -58,11 +51,9 @@ public sealed class LanTransportServer : IDisposable
     private NetworkStream? _stream;
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
 
-    // mDNS
     private ServiceDiscovery? _mdnsDiscovery;
     private ServiceProfile? _mdnsProfile;
 
-    // Session / crypto state
     private readonly object _sessionLock = new();
     private byte[]? _sessionKey;
     private bool _isAuthenticated;
@@ -71,27 +62,21 @@ public sealed class LanTransportServer : IDisposable
     private bool _isPlannedResetActive;
 
     private RSA? _serverRsa;
-    private byte[]? _serverPublicKeyBytes;    // SubjectPublicKeyInfo
-    private byte[]? _trustedPhonePublicKey;   // SubjectPublicKeyInfo (pinned)
+    private byte[]? _serverPublicKeyBytes;
+    private byte[]? _trustedPhonePublicKey;
     private bool _isProvisioned;
-
     private bool _isStopping;
 
-    // IPC handles for the Windows credential provider
     private EventWaitHandle? _appEvent;
     private EventWaitHandle? _screenEvent;
     private readonly object _ipcLock = new();
 
-    // ---------- Win32 ----------
     [DllImport("kernel32.dll", SetLastError = false)]
     private static extern uint WTSGetActiveConsoleSessionId();
-
     [DllImport("wtsapi32.dll", SetLastError = true)]
     private static extern bool WTSQueryUserToken(uint SessionId, out IntPtr phToken);
-
     [DllImport("kernel32.dll", SetLastError = false)]
     private static extern bool CloseHandle(IntPtr hObject);
-
     [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern bool CreateProcessAsUser(
         IntPtr hToken, string? lpApplicationName, string? lpCommandLine,
@@ -115,27 +100,45 @@ public sealed class LanTransportServer : IDisposable
         public IntPtr hProcess; public IntPtr hThread; public int dwProcessId; public int dwThreadId;
     }
 
-    public LanTransportServer(IEventBus eventBus, ITetherLogger logger)
+    public LanTransportServer(IEventBus eventBus, ITetherLogger logger, PairingCoordinator pairingCoordinator)
     {
         _eventBus = eventBus;
         _logger = logger;
+        _pairingCoordinator = pairingCoordinator;
 
         LoadTrustedPhoneKey();
 
         _eventBus.Subscribe(evt =>
         {
-            if (evt.EventType == TetherEventType.PROVISION_PHONE && !string.IsNullOrEmpty(evt.PayloadJson))
+            try
             {
-                try
+                switch (evt.EventType)
                 {
-                    var payload = JsonSerializer.Deserialize<ProvisionPayload>(evt.PayloadJson);
-                    if (payload != null && !string.IsNullOrEmpty(payload.PublicKeyBase64))
-                        ProvisionPhone(payload.PublicKeyBase64);
+                    case TetherEventType.PROVISION_PHONE:
+                        if (!string.IsNullOrEmpty(evt.PayloadJson))
+                        {
+                            var payload = JsonSerializer.Deserialize<ProvisionPayload>(evt.PayloadJson);
+                            if (payload != null && !string.IsNullOrEmpty(payload.PublicKeyBase64))
+                                ProvisionPhone(payload.PublicKeyBase64);
+                        }
+                        break;
+
+                    case TetherEventType.PAIRING_DECISION:
+                        if (!string.IsNullOrEmpty(evt.PayloadJson))
+                        {
+                            var payload = JsonSerializer.Deserialize<PairingDecisionPayload>(evt.PayloadJson);
+                            if (payload != null) HandlePairingDecision(payload);
+                        }
+                        break;
+
+                    case TetherEventType.FORGET_PHONE:
+                        ForgetPhone();
+                        break;
                 }
-                catch (Exception ex)
-                {
-                    _logger.Error($"Provisioning event failed: {ex.Message}");
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"LanTransportServer event handling failed ({evt.EventType}): {ex.Message}");
             }
         });
     }
@@ -152,7 +155,7 @@ public sealed class LanTransportServer : IDisposable
         MigrateOldKeys();
 
         if (!IsProvisioned())
-            _logger.Warning("LAN transport: no trusted phone provisioned. Waiting for pairing via IPC.");
+            _logger.Warning("LAN transport: no trusted phone provisioned. Awaiting first-time pairing (TOFU).");
 
         InitializeIpcHandles();
         StartMdnsAdvertisement();
@@ -259,7 +262,6 @@ public sealed class LanTransportServer : IDisposable
                 continue;
             }
 
-            // ----- Same-subnet enforcement -----
             var remoteEp = incoming.Client.RemoteEndPoint as IPEndPoint;
             if (remoteEp == null || !IsSameSubnet(remoteEp.Address))
             {
@@ -287,11 +289,7 @@ public sealed class LanTransportServer : IDisposable
         peer.NoDelay = true;
         peer.ReceiveTimeout = HEARTBEAT_TIMEOUT_MS;
 
-        // Enable OS-level TCP keepalive for half-open detection
-        try
-        {
-            peer.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
-        }
+        try { peer.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true); }
         catch { /* best effort */ }
 
         var remote = (IPEndPoint)peer.Client.RemoteEndPoint!;
@@ -316,22 +314,68 @@ public sealed class LanTransportServer : IDisposable
                 return;
             }
 
-            if (!IsProvisioned())
-            {
-                _logger.Warning("Peer attempted handshake but no trusted phone key is provisioned. Dropping.");
-                return;
-            }
-
             string phonePubB64 = helloRoot.GetProperty("phonePublicKey").GetString()!;
             string phoneNonceB64 = helloRoot.GetProperty("phoneNonce").GetString()!;
+            bool pairingRequest =
+                helloRoot.TryGetProperty("pairingRequest", out var prEl) &&
+                prEl.ValueKind == JsonValueKind.True;
+
             byte[] phonePub = Convert.FromBase64String(phonePubB64);
             byte[] phoneNonce = Convert.FromBase64String(phoneNonceB64);
 
-            if (_trustedPhonePublicKey == null ||
-                !CryptographicOperations.FixedTimeEquals(phonePub, _trustedPhonePublicKey))
+            bool pairingAccepted;
+
+            // -------------------------------------------------------------
+            //  CASE A: already provisioned
+            // -------------------------------------------------------------
+            if (IsProvisioned())
             {
-                _logger.Error("🚫 Phone public key does NOT match pinned identity. Dropping handshake.");
-                return;
+                if (_trustedPhonePublicKey == null ||
+                    !CryptographicOperations.FixedTimeEquals(phonePub, _trustedPhonePublicKey))
+                {
+                    _logger.Error("🚫 Phone public key does NOT match pinned identity. Dropping handshake. (No UI prompt.)");
+                    return;
+                }
+
+                _logger.Info("Existing trusted phone reconnected — pinned key matched, no UI prompt.");
+                pairingAccepted = true;
+            }
+            // -------------------------------------------------------------
+            //  CASE B: first-time pairing (TOFU)
+            // -------------------------------------------------------------
+            else
+            {
+                if (!pairingRequest)
+                {
+                    _logger.Warning("No trusted key provisioned and pairingRequest is false. Dropping connection.");
+                    return;
+                }
+
+                _logger.Info("🔐 First-time pairing request received. Querying DesktopUI for user authorization...");
+
+                pairingAccepted = await RequestPairingDecisionAsync(phonePub, phonePubB64, ct);
+
+                if (!pairingAccepted)
+                {
+                    _logger.Warning("Pairing denied or timed out. Sending rejection and dropping connection.");
+
+                    try
+                    {
+                        var reject = new
+                        {
+                            type = "HANDSHAKE_RESPONSE",
+                            pairingAccepted = false
+                        };
+                        await SendJsonFrameAsync(JsonSerializer.Serialize(reject), ct);
+                    }
+                    catch { /* best effort */ }
+
+                    return;
+                }
+
+                // User approved -> pin the key (registry), persist provisioned state.
+                ProvisionPhone(phonePubB64);
+                _logger.Info("✅ Pairing approved by user; phone key pinned.");
             }
 
             // ------- Key agreement -------
@@ -361,7 +405,8 @@ public sealed class LanTransportServer : IDisposable
                 encryptedSessionKey = Convert.ToBase64String(encryptedSessionKey),
                 windowsPublicKey = Convert.ToBase64String(_serverPublicKeyBytes!),
                 windowsNonce = Convert.ToBase64String(windowsNonce),
-                signature = Convert.ToBase64String(signature)
+                signature = Convert.ToBase64String(signature),
+                pairingAccepted = true
             };
             await SendJsonFrameAsync(JsonSerializer.Serialize(respObj), ct);
 
@@ -458,6 +503,112 @@ public sealed class LanTransportServer : IDisposable
     }
 
     // =====================================================================
+    //  PAIRING (TOFU) FLOW
+    // =====================================================================
+
+    private async Task<bool> RequestPairingDecisionAsync(byte[] phonePub, string phonePubB64, CancellationToken ct)
+    {
+        var pending = _pairingCoordinator.Register(phonePub);
+
+        try
+        {
+            var payload = new PairingRequestPayload
+            {
+                RequestId = pending.RequestId,
+                PhonePublicKeyBase64 = phonePubB64,
+                Fingerprint = pending.Fingerprint,
+                TimestampUtcTicks = DateTime.UtcNow.Ticks
+            };
+
+            _eventBus.Publish(new TetherEvent
+            {
+                EventType = TetherEventType.PAIRING_REQUESTED,
+                Source = nameof(LanTransportServer),
+                PayloadJson = JsonSerializer.Serialize(payload)
+            });
+
+            _logger.Info($"📣 PAIRING_REQUESTED broadcast (RequestId={pending.RequestId}, Fingerprint={pending.Fingerprint}). " +
+                         $"Awaiting DesktopUI decision (timeout {PAIRING_DECISION_TIMEOUT_SEC}s)...");
+
+            var delayTask = Task.Delay(TimeSpan.FromSeconds(PAIRING_DECISION_TIMEOUT_SEC), ct);
+            var completed = await Task.WhenAny(pending.Decision.Task, delayTask);
+
+            if (completed != pending.Decision.Task)
+            {
+                _logger.Warning($"⏱️ Pairing request {pending.RequestId} timed out after {PAIRING_DECISION_TIMEOUT_SEC}s. Failing closed.");
+                pending.Decision.TrySetResult(false);
+            }
+
+            return await pending.Decision.Task.ConfigureAwait(false);
+        }
+        finally
+        {
+            _pairingCoordinator.Remove(pending.RequestId);
+        }
+    }
+
+    private void HandlePairingDecision(PairingDecisionPayload payload)
+    {
+        if (string.IsNullOrEmpty(payload.RequestId))
+        {
+            _logger.Warning("Ignoring PAIRING_DECISION with empty RequestId.");
+            return;
+        }
+
+        byte[] presentedKey;
+        try
+        {
+            presentedKey = Convert.FromBase64String(payload.PhonePublicKeyBase64 ?? "");
+        }
+        catch
+        {
+            _logger.Warning($"PAIRING_DECISION {payload.RequestId} contained invalid base64 key. Failing closed.");
+            _pairingCoordinator.TryResolve(payload.RequestId, Array.Empty<byte>(), allowed: false);
+            return;
+        }
+
+        bool known = _pairingCoordinator.TryResolve(payload.RequestId, presentedKey, payload.Allowed);
+
+        if (!known)
+        {
+            _logger.Warning($"PAIRING_DECISION for unknown/expired RequestId {payload.RequestId} ignored.");
+            return;
+        }
+
+        _logger.Info($"Pairing decision applied for {payload.RequestId}: {(payload.Allowed ? "ALLOW" : "DENY")}");
+    }
+
+    /// <summary>
+    /// Clears the pinned phone key. Used for explicit re-pairing (FORGET_PHONE).
+    /// Not exposed over LAN — only via authenticated IPC event or local admin.
+    /// </summary>
+    public void ForgetPhone()
+    {
+        try
+        {
+            using (var key = Registry.LocalMachine.OpenSubKey(REG_BASE, true))
+            {
+                if (key != null)
+                {
+                    key.DeleteValue("TrustedPhonePublicKey", throwOnMissingValue: false);
+                    key.SetValue("Provisioned", 0, RegistryValueKind.DWord);
+                }
+            }
+
+            LoadTrustedPhoneKey();
+            _logger.Info("🗑️ Trusted phone key cleared from registry. Device is now UNPAIRED.");
+
+            // Disconnect any active session so the next connection re-pairs cleanly.
+            try { _stream?.Close(); } catch { }
+            try { _client?.Close(); } catch { }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"ForgetPhone failed: {ex.Message}");
+        }
+    }
+
+    // =====================================================================
     //  UDP DISCOVERY
     // =====================================================================
 
@@ -515,7 +666,7 @@ public sealed class LanTransportServer : IDisposable
     }
 
     // =====================================================================
-    //  HEARTBEAT (replaces RSSI proximity watchdog)
+    //  HEARTBEAT
     // =====================================================================
 
     private async Task HeartbeatLoopAsync(CancellationToken ct)
@@ -554,12 +705,6 @@ public sealed class LanTransportServer : IDisposable
     // =====================================================================
     //  FRAMING
     // =====================================================================
-    //  Wire format (both directions):
-    //      [4-byte big-endian length][ payload bytes ]
-    //
-    //  Handshake phase:  payload is UTF-8 JSON
-    //  Command  phase:   payload is  [12-byte IV][ciphertext][16-byte tag]
-    //                    (AES-256-GCM, IV random per frame)
 
     private async Task<string?> ReadJsonFrameAsync(CancellationToken ct)
     {
@@ -696,7 +841,6 @@ public sealed class LanTransportServer : IDisposable
                 case "volume_down":
                 case "brightness_up":
                 case "brightness_down":
-                    // Hook into your existing hardware command plumbing if needed.
                     break;
 
                 case "sleep":
@@ -712,7 +856,6 @@ public sealed class LanTransportServer : IDisposable
                     break;
 
                 case "PING":
-                    // Heartbeat from Android periodic health check
                     break;
             }
         }
@@ -875,8 +1018,8 @@ public sealed class LanTransportServer : IDisposable
     {
         try
         {
-            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider");
-            if (key == null) { _isProvisioned = false; return; }
+            using var key = Registry.LocalMachine.OpenSubKey(REG_BASE);
+            if (key == null) { _isProvisioned = false; _trustedPhonePublicKey = null; return; }
 
             var provisioned = key.GetValue("Provisioned") as int?;
             var storedKey = key.GetValue("TrustedPhonePublicKey") as string;
@@ -889,6 +1032,7 @@ public sealed class LanTransportServer : IDisposable
             }
             else
             {
+                _trustedPhonePublicKey = null;
                 _isProvisioned = false;
             }
         }
@@ -896,6 +1040,7 @@ public sealed class LanTransportServer : IDisposable
         {
             _logger.Error($"LoadTrustedPhoneKey failed: {ex.Message}");
             _isProvisioned = false;
+            _trustedPhonePublicKey = null;
         }
     }
 
@@ -903,7 +1048,7 @@ public sealed class LanTransportServer : IDisposable
     {
         try
         {
-            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
+            using var key = Registry.LocalMachine.OpenSubKey(REG_BASE, true);
             if (key == null) return;
 
             foreach (var name in key.GetValueNames().Where(n => n.StartsWith("Key_")).ToList())
@@ -928,7 +1073,7 @@ public sealed class LanTransportServer : IDisposable
             var bytes = Convert.FromBase64String(base64PublicKey);
             if (bytes.Length < 64) { _logger.Error("Provisioning failed: key too short."); return; }
 
-            using var key = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider");
+            using var key = Registry.LocalMachine.CreateSubKey(REG_BASE);
             key.SetValue("TrustedPhonePublicKey", base64PublicKey, RegistryValueKind.String);
             key.SetValue("Provisioned", 1, RegistryValueKind.DWord);
 

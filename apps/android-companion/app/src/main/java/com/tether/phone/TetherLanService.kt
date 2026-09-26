@@ -1,5 +1,8 @@
+@file:Suppress("DEPRECATION")
+
 package com.tether.phone
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.Notification
@@ -11,14 +14,14 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
-import android.net.nsd.NsdManager
-import android.net.nsd.NsdServiceInfo
-import android.net.wifi.WifiManager
+import android.net.NetworkInfo
+import android.net.wifi.p2p.WifiP2pConfig
+import android.net.wifi.p2p.WifiP2pDevice
+import android.net.wifi.p2p.WifiP2pInfo
+import android.net.wifi.p2p.WifiP2pManager
+import android.net.wifi.WpsInfo
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -28,16 +31,14 @@ import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import org.json.JSONObject
 import java.io.DataInputStream
 import java.io.DataOutputStream
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.net.Socket
-import java.net.SocketTimeoutException
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 import java.util.UUID
@@ -63,6 +64,8 @@ class TetherLanService : Service() {
 
     companion object {
         const val TAG = "TetherLanService"
+
+        @Suppress("Unused")
         const val SERVICE_TYPE = "_tether._tcp."
         const val DEFAULT_PORT = 37123
 
@@ -120,9 +123,17 @@ class TetherLanService : Service() {
     @Volatile
     private var connectedHostPort: Int = DEFAULT_PORT
 
-    private var nsdManager: NsdManager? = null
-    private var discoveryListener: NsdManager.DiscoveryListener? = null
-    private var multicastLock: WifiManager.MulticastLock? = null
+    // Wi-Fi Direct (Wi-Fi P2P) components
+    private var wifiP2pManager: WifiP2pManager? = null
+    private var p2pChannel: WifiP2pManager.Channel? = null
+    private var p2pReceiver: BroadcastReceiver? = null
+    private var serverSocket: ServerSocket? = null
+
+    @Volatile
+    private var isP2pEnabled = false
+
+    @Volatile
+    private var isP2pConnecting = false
 
     private var activeSocket: Socket? = null
     private var dataInputStream: DataInputStream? = null
@@ -133,18 +144,12 @@ class TetherLanService : Service() {
 
     private val processedRequestIds = ConcurrentHashMap<String, Long>()
 
-    private var connectivityManager: ConnectivityManager? = null
-    private var networkCallback: ConnectivityManager.NetworkCallback? = null
-
-    @Volatile
-    private var isUdpDiscovering = false
-
-    private val broadcastReceiver = object : BroadcastReceiver() {
+    private val powerSaveReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 PowerManager.ACTION_POWER_SAVE_MODE_CHANGED -> {
                     if (currentState == TransportState.DISCONNECTED) {
-                        startLanDiscovery()
+                        startP2pDiscovery()
                     }
                 }
             }
@@ -183,9 +188,9 @@ class TetherLanService : Service() {
             wakeLock?.acquire(10 * 60 * 1000L)
         } catch (_: Exception) {}
 
-        registerReceiver(broadcastReceiver, IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED))
+        registerReceiver(powerSaveReceiver, IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED))
 
-        setupNetworkCallback()
+        setupWifiP2p()
         scheduleAlarmForHealthCheck()
     }
 
@@ -214,13 +219,13 @@ class TetherLanService : Service() {
             "ACTION_GET_STATUS" -> {
                 notifyStateToInterface()
                 if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED)) {
-                    startLanDiscovery()
+                    startP2pDiscovery()
                 }
                 return START_STICKY
             }
             ACTION_RESTART_SERVER -> {
                 Log.w(TAG, "Manual server/transport restart requested")
-                restartLanTransport()
+                restartP2pTransport()
                 return START_STICKY
             }
             ACTION_CONNECT_DIRECT -> {
@@ -230,16 +235,16 @@ class TetherLanService : Service() {
                     getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
                         putString("saved_host_ip", targetIp)
                     }
-                    onHostDiscovered(targetIp, DEFAULT_PORT)
+                    connectToTcpHost(targetIp)
                 } else {
-                    restartLanTransport()
+                    restartP2pTransport()
                 }
                 return START_STICKY
             }
             ACTION_INITIATE_PAIRING -> {
                 Log.i(TAG, "Explicit pairing requested by user.")
                 trustState = TrustState.PAIRING_REQUESTED
-                restartLanTransport()
+                restartP2pTransport()
                 return START_STICKY
             }
             ACTION_CANCEL_PAIRING -> {
@@ -259,12 +264,11 @@ class TetherLanService : Service() {
             }
             null -> {
                 if (currentState == TransportState.DISCONNECTED) {
-                    startLanDiscovery()
+                    startP2pDiscovery()
                 }
                 return START_STICKY
             }
             else -> {
-                // Command requested via action
                 if (action.isNotEmpty()) {
                     dispatchCommand(action)
                 }
@@ -274,292 +278,228 @@ class TetherLanService : Service() {
         return START_STICKY
     }
 
-    // Strict Same Wi-Fi and Hotspot Checks
-    private fun isHotspotActive(): Boolean {
-        return try {
-            val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
-            val method = wifiManager.javaClass.getDeclaredMethod("isWifiApEnabled")
-            method.isAccessible = true
-            (method.invoke(wifiManager) as? Boolean) == true
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun isConnectedToInfrastructureWifi(): Boolean {
-        val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-        val activeNetwork = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
-
-        // Must be on Wi-Fi (TRANSPORT_WIFI)
-        val isWifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-        if (!isWifi) return false
-
-        // Check hotspot status: phone must be a Wi-Fi CLIENT, not an AP/hotspot
-        if (isHotspotActive()) {
-            Log.w(TAG, "Phone is operating as Mobile Hotspot. Hotspot mode is UNSUPPORTED for Tether LAN transport.")
-            return false
+    // Wi-Fi Direct (P2P) Initialization & Receiver Registration
+    private fun setupWifiP2p() {
+        wifiP2pManager = getSystemService(WIFI_P2P_SERVICE) as? WifiP2pManager
+        p2pChannel = wifiP2pManager?.initialize(this, mainLooper) {
+            Log.w(TAG, "Wi-Fi P2P channel disconnected. Re-initializing...")
+            setupWifiP2p()
         }
 
-        return true
-    }
+        val filter = IntentFilter().apply {
+            addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
+            addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
+            addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
+            addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION)
+        }
 
-    @SuppressLint("MissingPermission")
-    private fun setupNetworkCallback() {
-        connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-        val request = NetworkRequest.Builder()
-            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-            .build()
-
-        networkCallback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                Log.i(TAG, "Wi-Fi network available: $network")
-                mainHandler.post {
-                    if (isHotspotActive()) {
-                        currentState = TransportState.HOTSPOT_UNSUPPORTED
-                    } else {
-                        restartLanTransport()
+        p2pReceiver = object : BroadcastReceiver() {
+            @SuppressLint("MissingPermission")
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION -> {
+                        val state = intent.getIntExtra(WifiP2pManager.EXTRA_WIFI_STATE, -1)
+                        isP2pEnabled = (state == WifiP2pManager.WIFI_P2P_STATE_ENABLED)
+                        Log.i(TAG, "Wi-Fi P2P state changed: enabled=$isP2pEnabled")
+                        if (!isP2pEnabled) {
+                            currentState = TransportState.HOTSPOT_UNSUPPORTED
+                        } else if (currentState == TransportState.DISCONNECTED || currentState == TransportState.HOTSPOT_UNSUPPORTED) {
+                            startP2pDiscovery()
+                        }
                     }
-                }
-            }
-
-            override fun onLost(network: Network) {
-                Log.w(TAG, "Wi-Fi network lost: $network")
-                mainHandler.post {
-                    disconnectActiveSession("Wi-Fi network disconnected")
-                    currentState = TransportState.DISCONNECTED
-                }
-            }
-
-            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-                if (isHotspotActive()) {
-                    mainHandler.post {
-                        disconnectActiveSession("Mobile Hotspot detected")
-                        currentState = TransportState.HOTSPOT_UNSUPPORTED
+                    WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION -> {
+                        if (hasP2pPermissions()) {
+                            wifiP2pManager?.requestPeers(p2pChannel) { peerList ->
+                                onPeersDiscovered(peerList.deviceList)
+                            }
+                        }
+                    }
+                    WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> {
+                        @Suppress("DEPRECATION")
+                        val networkInfo = intent.getParcelableExtra<NetworkInfo>(WifiP2pManager.EXTRA_NETWORK_INFO)
+                        Log.d(TAG, "WIFI_P2P_CONNECTION_CHANGED: isConnected=${networkInfo?.isConnected}")
+                        if (networkInfo?.isConnected == true) {
+                            wifiP2pManager?.requestConnectionInfo(p2pChannel) { info ->
+                                onConnectionInfoAvailable(info)
+                            }
+                        } else {
+                            if (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED || currentState == TransportState.CONNECTING) {
+                                disconnectActiveSession("Wi-Fi Direct link disconnected")
+                                startP2pDiscovery()
+                            }
+                        }
+                    }
+                    WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION -> {
+                        @Suppress("DEPRECATION")
+                        val device = intent.getParcelableExtra<WifiP2pDevice>(WifiP2pManager.EXTRA_WIFI_P2P_DEVICE)
+                        Log.d(TAG, "This P2P device: ${device?.deviceName} status=${device?.status}")
                     }
                 }
             }
         }
 
         try {
-            connectivityManager?.registerNetworkCallback(request, networkCallback!!)
+            registerReceiver(p2pReceiver, filter)
+            Log.i(TAG, "Wi-Fi P2P broadcast receiver registered successfully.")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to register network callback: ${e.message}")
+            Log.e(TAG, "Failed to register P2P receiver: ${e.message}")
         }
     }
 
-    private fun acquireMulticastLock() {
-        if (multicastLock == null) {
-            val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
-            multicastLock = wifiManager.createMulticastLock("TetherLanMulticastLock").apply {
-                setReferenceCounted(false)
-            }
-        }
-        if (multicastLock?.isHeld == false) {
-            try {
-                multicastLock?.acquire()
-                Log.i(TAG, "MulticastLock acquired for Wi-Fi LAN mDNS/UDP discovery.")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed acquiring MulticastLock: ${e.message}")
-            }
-        }
+    private fun hasP2pPermissions(): Boolean {
+        val fineLoc = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val nearby = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
+        } else true
+        return fineLoc && nearby
     }
 
-    private fun releaseMulticastLock() {
-        if (multicastLock?.isHeld == true) {
-            try {
-                multicastLock?.release()
-                Log.i(TAG, "MulticastLock released.")
-            } catch (_: Exception) {}
-        }
-    }
-
-    // LAN Discovery (NSD + UDP Broadcast)
+    // Peer Discovery & Targeted Connection
     @Synchronized
-    private fun startLanDiscovery() {
-        if (!isConnectedToInfrastructureWifi()) {
-            currentState = if (isHotspotActive()) TransportState.HOTSPOT_UNSUPPORTED
-                           else TransportState.DISCONNECTED
+    private fun startP2pDiscovery() {
+        if (currentState == TransportState.AUTHENTICATED || currentState == TransportState.READY || currentState == TransportState.CONNECTING) {
             return
         }
 
-        if ((currentState == TransportState.AUTHENTICATED) ||
-            (currentState == TransportState.READY) ||
-            (currentState == TransportState.CONNECTING)) {
+        if (!hasP2pPermissions()) {
+            Log.w(TAG, "Cannot start P2P discovery: missing required location/nearby permissions.")
+            currentState = TransportState.DISCONNECTED
             return
         }
-
-        acquireMulticastLock()
 
         currentState = TransportState.DISCOVERING
-        stopLanDiscovery()
 
-        // Try the saved host first (fastest path)
+        // Fast path: Attempt connection to saved host IP if manually specified or previously saved
         val savedHostIp = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
             .getString("saved_host_ip", null)
         if (!savedHostIp.isNullOrBlank()) {
             Log.i(TAG, "Attempting connection to saved target host IP: $savedHostIp")
-            onHostDiscovered(savedHostIp, DEFAULT_PORT)
-            return
-        }
-
-        // PRIMARY: UDP broadcast (works without any system permission chooser)
-        startUdpDiscoveryScan()
-
-        // SECONDARY: NSD
-        startNsdDiscovery()
-    }
-
-    private fun startNsdDiscovery() {
-        nsdManager = getSystemService(NSD_SERVICE) as NsdManager
-
-        discoveryListener = object : NsdManager.DiscoveryListener {
-            override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {
-                Log.e(TAG, "NSD Discovery start failed with error $errorCode")
-                nsdManager?.stopServiceDiscovery(this)
-            }
-
-            override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {
-                Log.e(TAG, "NSD Discovery stop failed with error $errorCode")
-            }
-
-            override fun onDiscoveryStarted(serviceType: String?) {
-                Log.i(TAG, "NSD Discovery started for $serviceType")
-            }
-
-            override fun onDiscoveryStopped(serviceType: String?) {
-                Log.i(TAG, "NSD Discovery stopped")
-            }
-
-            @Suppress("DEPRECATION")
-            override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
-                val type = serviceInfo?.serviceType?.lowercase().orEmpty()
-                val name = serviceInfo?.serviceName.orEmpty()
-                Log.i(TAG, "NSD Service found: $name ($type)")
-
-                val isTetherType = type.startsWith("_tether._tcp")
-                val isTetherName = name.startsWith("TetherWindows") || name.contains("Tether")
-
-                if (isTetherType || isTetherName) {
-                    try {
-                        nsdManager?.resolveService(
-                            serviceInfo,
-                            object : NsdManager.ResolveListener {
-                                override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
-                                    Log.e(TAG, "NSD Resolve failed with code $errorCode")
-                                }
-
-                                override fun onServiceResolved(serviceInfo: NsdServiceInfo?) {
-                                    val host = serviceInfo?.host?.hostAddress
-                                    val port = serviceInfo?.port ?: DEFAULT_PORT
-                                    if (host != null) {
-                                        Log.i(TAG, "NSD Resolved host: $host:$port")
-                                        onHostDiscovered(host, port)
-                                    }
-                                }
-                            },
-                        )
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error resolving NSD service: ${e.message}")
-                    }
-                }
-            }
-
-            override fun onServiceLost(serviceInfo: NsdServiceInfo?) {
-                Log.w(TAG, "NSD Service lost: ${serviceInfo?.serviceName}")
-            }
+            connectToTcpHost(savedHostIp)
         }
 
         try {
-            nsdManager?.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed starting NSD service discovery: ${e.message}")
-        }
-    }
-
-    private fun stopLanDiscovery() {
-        discoveryListener?.let {
-            try {
-                nsdManager?.stopServiceDiscovery(it)
-            } catch (_: Exception) {}
-            discoveryListener = null
-        }
-        isUdpDiscovering = false
-    }
-
-    private fun startUdpDiscoveryScan() {
-        if (isUdpDiscovering) return
-        isUdpDiscovering = true
-
-        networkExecutor.execute {
-            var socket: DatagramSocket? = null
-            try {
-                socket = DatagramSocket()
-                socket.broadcast = true
-                socket.soTimeout = 3000
-
-                val reqJson = JSONObject().apply {
-                    put("type", "TETHER_DISCOVER_REQ")
-                    put("client", "AndroidCompanion")
-                    put("timestamp", System.currentTimeMillis())
-                }.toString().toByteArray(StandardCharsets.UTF_8)
-
-                val broadcastAddr = InetAddress.getByName("255.255.255.255")
-                val packet = DatagramPacket(reqJson, reqJson.size, broadcastAddr, DEFAULT_PORT)
-
-                var attempts = 0
-                while (isUdpDiscovering && attempts < 5 && currentState == TransportState.DISCOVERING) {
-                    attempts++
-                    Log.d(TAG, "Sending UDP discovery broadcast request (Attempt $attempts)...")
-                    try {
-                        socket.send(packet)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "UDP broadcast send error: ${e.message}")
-                    }
-
-                    val recvBuf = ByteArray(2048)
-                    val recvPacket = DatagramPacket(recvBuf, recvBuf.size)
-                    try {
-                        socket.receive(recvPacket)
-                        val respStr = String(recvPacket.data, 0, recvPacket.length, StandardCharsets.UTF_8)
-                        val json = JSONObject(respStr)
-                        if (json.optString("type") == "TETHER_DISCOVER_RESP") {
-                            val hostIp = recvPacket.address?.hostAddress ?: return@execute
-                            val hostPort = json.optInt("port", DEFAULT_PORT)
-                            Log.i(TAG, "Discovered Tether Windows host via UDP broadcast: $hostIp:$hostPort")
-                            isUdpDiscovering = false
-                            onHostDiscovered(hostIp, hostPort)
-                            break
-                        }
-                    } catch (_: SocketTimeoutException) {
-                        // Retry loop
-                    }
-                    Thread.sleep(1000)
+            wifiP2pManager?.discoverPeers(p2pChannel, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    Log.i(TAG, "Wi-Fi Direct peer discovery initiated successfully.")
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "UDP discovery scan error: ${e.message}")
-            } finally {
-                socket?.close()
-                isUdpDiscovering = false
+
+                override fun onFailure(reason: Int) {
+                    Log.e(TAG, "Wi-Fi Direct peer discovery failed with reason: $reason")
+                }
+            })
+        } catch (e: SecurityException) {
+            Log.e(TAG, "SecurityException during discoverPeers: ${e.message}")
+        }
+    }
+
+    private fun onPeersDiscovered(peers: Collection<WifiP2pDevice>) {
+        Log.d(TAG, "Discovered ${peers.size} Wi-Fi Direct peer(s)")
+        if (currentState == TransportState.AUTHENTICATED || currentState == TransportState.READY) return
+
+        // Target devices advertising names matching "TetherWindows*" or similar filter criteria
+        val targetDevice = peers.firstOrNull { device ->
+            val name = device.deviceName.orEmpty()
+            name.contains("TetherWindows", ignoreCase = true) ||
+            name.contains("Tether", ignoreCase = true) ||
+            name.startsWith("Tether", ignoreCase = true)
+        }
+
+        if (targetDevice != null) {
+            Log.i(TAG, "Discovered target Windows peer: ${targetDevice.deviceName} (${targetDevice.deviceAddress}) status=${targetDevice.status}")
+            if (currentState == TransportState.DISCOVERING || currentState == TransportState.DISCONNECTED || currentState == TransportState.HOST_FOUND) {
+                currentState = TransportState.HOST_FOUND
+                connectToP2pPeer(targetDevice)
             }
         }
     }
 
-    private fun onHostDiscovered(hostAddress: String, port: Int) {
-        if (currentState == TransportState.AUTHENTICATED || currentState == TransportState.READY || currentState == TransportState.CONNECTING) return
+    @SuppressLint("MissingPermission")
+    private fun connectToP2pPeer(device: WifiP2pDevice) {
+        if (isP2pConnecting || currentState == TransportState.AUTHENTICATING || currentState == TransportState.AUTHENTICATED || currentState == TransportState.READY) {
+            return
+        }
 
-        connectedHostAddress = hostAddress
-        connectedHostPort = port
-        currentState = TransportState.HOST_FOUND
+        if (device.status == WifiP2pDevice.CONNECTED) {
+            Log.i(TAG, "Device ${device.deviceName} already connected at P2P layer. Requesting connection info...")
+            wifiP2pManager?.requestConnectionInfo(p2pChannel) { info ->
+                onConnectionInfoAvailable(info)
+            }
+            return
+        }
 
-        stopLanDiscovery()
-        connectToHost(hostAddress, port)
+        val config = WifiP2pConfig().apply {
+            deviceAddress = device.deviceAddress
+            wps.setup = WpsInfo.PBC
+            groupOwnerIntent = 0 // Prefer Windows host to act as Group Owner (GO)
+        }
+
+        currentState = TransportState.CONNECTING
+        isP2pConnecting = true
+
+        try {
+            wifiP2pManager?.connect(p2pChannel, config, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    Log.i(TAG, "P2P connection request sent to ${device.deviceName} (${device.deviceAddress})")
+                }
+
+                override fun onFailure(reason: Int) {
+                    Log.e(TAG, "P2P connect failed with reason code: $reason")
+                    isP2pConnecting = false
+                    disconnectActiveSession("P2P connect failed ($reason)")
+                    mainHandler.postDelayed({ startP2pDiscovery() }, 3000)
+                }
+            })
+        } catch (e: SecurityException) {
+            Log.e(TAG, "SecurityException initiating P2P connection: ${e.message}")
+            isP2pConnecting = false
+        }
     }
 
-    // TCP Secure Session & Handshake
-    private fun connectToHost(hostAddress: String, port: Int) {
-        if (currentState == TransportState.CONNECTING || currentState == TransportState.AUTHENTICATING) return
+    // Group Negotiation & IP Addressing Callback
+    private fun onConnectionInfoAvailable(info: WifiP2pInfo) {
+        Log.i(TAG, "P2P Connection info: groupFormed=${info.groupFormed}, isGroupOwner=${info.isGroupOwner}, GO Address=${info.groupOwnerAddress?.hostAddress}")
+        isP2pConnecting = false
+
+        if (!info.groupFormed) return
+
+        if (info.isGroupOwner) {
+            // Android device became Group Owner -> bind ServerSocket(37123) and await Windows peer
+            startServerSocketListener()
+        } else {
+            // Windows host is Group Owner -> extract info.groupOwnerAddress.hostAddress and connect TCP socket
+            val goIp = info.groupOwnerAddress?.hostAddress
+            if (!goIp.isNullOrBlank()) {
+                connectedHostAddress = goIp
+                connectToTcpHost(goIp)
+            }
+        }
+    }
+
+    private fun startServerSocketListener() {
+        if (serverSocket != null && !serverSocket!!.isClosed) return
+
+        networkExecutor.execute {
+            try {
+                serverSocket?.close()
+                val server = ServerSocket(DEFAULT_PORT)
+                serverSocket = server
+                Log.i(TAG, "Android is Group Owner. ServerSocket listening on port $DEFAULT_PORT...")
+
+                currentState = TransportState.CONNECTING
+                val socket = server.accept()
+                socket.soTimeout = 15000
+                connectedHostAddress = socket.inetAddress?.hostAddress ?: "P2P_CLIENT"
+                Log.i(TAG, "Accepted TCP connection from Windows peer: $connectedHostAddress")
+
+                setupSocketAndStartHandshake(socket)
+            } catch (e: Exception) {
+                Log.e(TAG, "ServerSocket error: ${e.message}")
+            }
+        }
+    }
+
+    private fun connectToTcpHost(hostAddress: String, port: Int = DEFAULT_PORT) {
+        if (currentState == TransportState.AUTHENTICATING || currentState == TransportState.AUTHENTICATED || currentState == TransportState.READY) return
         currentState = TransportState.CONNECTING
 
         networkExecutor.execute {
@@ -569,24 +509,29 @@ class TetherLanService : Service() {
                 socket.connect(InetSocketAddress(hostAddress, port), 5000)
                 socket.soTimeout = 15000
 
-                activeSocket = socket
-                dataInputStream = DataInputStream(socket.getInputStream())
-                dataOutputStream = DataOutputStream(socket.getOutputStream())
-
-                Log.i(TAG, "TCP socket connected. Initiating cryptographic handshake...")
-                performCryptographicHandshake()
+                connectedHostAddress = hostAddress
+                connectedHostPort = port
+                setupSocketAndStartHandshake(socket)
             } catch (e: Exception) {
                 Log.e(TAG, "TCP Connection failed to $hostAddress:$port: ${e.message}")
-                disconnectActiveSession("Connection failed")
+                disconnectActiveSession("TCP connection failed")
                 mainHandler.postDelayed({
-                    if (isConnectedToInfrastructureWifi()) {
-                        startLanDiscovery()
-                    }
+                    startP2pDiscovery()
                 }, 3000)
             }
         }
     }
 
+    private fun setupSocketAndStartHandshake(socket: Socket) {
+        activeSocket = socket
+        dataInputStream = DataInputStream(socket.getInputStream())
+        dataOutputStream = DataOutputStream(socket.getOutputStream())
+
+        Log.i(TAG, "Direct TCP socket connected over P2P link. Initiating cryptographic handshake...")
+        performCryptographicHandshake()
+    }
+
+    // Cryptographic Handshake & Session Encryption
     private fun performCryptographicHandshake() {
         currentState = TransportState.AUTHENTICATING
         try {
@@ -610,7 +555,6 @@ class TetherLanService : Service() {
             Log.i(TAG, "Sending INIT_HANDSHAKE (pairingRequest=$isPairingReq)...")
             sendRawFrame(handshakeReq.toString())
 
-            // Read Response
             val responseStr = readRawFrame() ?: throw IllegalStateException("No handshake response from host")
             val respJson = JSONObject(responseStr)
 
@@ -641,7 +585,6 @@ class TetherLanService : Service() {
 
             // Step 3: Enforce Trust and Key Pinning
             if (pinnedKeyBytes != null) {
-                // Already paired: Windows public key MUST match pinned key!
                 if (!winPubKeyBytes.contentEquals(pinnedKeyBytes)) {
                     trustState = TrustState.KEY_MISMATCH
                     val presentedFp = securityEngine.computePublicKeyFingerprint(winPubKeyBytes)
@@ -651,14 +594,12 @@ class TetherLanService : Service() {
                 }
                 trustState = TrustState.PAIRED
             } else {
-                // First pairing: Windows response must explicitly contain pairingAccepted: true
                 if (!pairingAccepted) {
                     trustState = TrustState.PAIRING_DENIED
                     Log.w(TAG, "Pairing request was denied or rejected by Windows host.")
                     throw SecurityException("Pairing rejected by Windows host (pairingAccepted=false).")
                 }
 
-                // Pairing accepted & cryptographically verified -> Pin Windows Public Key
                 Log.i(TAG, "First pairing accepted by Windows and cryptographically verified. Pinning Windows public key.")
                 securityEngine.storePinnedKeySecurely(this, winPubKeyBytes)
                 trustState = TrustState.PAIRED
@@ -675,14 +616,13 @@ class TetherLanService : Service() {
             }
             sendRawFrame(authConfirmReq.toString())
 
-            Log.i(TAG, "Cryptographic handshake completed successfully! Session authenticated.")
+            Log.i(TAG, "Cryptographic handshake completed successfully over Wi-Fi Direct! Session authenticated.")
             currentState = TransportState.AUTHENTICATED
 
             mainHandler.postDelayed({
                 currentState = TransportState.READY
             }, 200)
 
-            // Start socket listener loop
             networkExecutor.execute { listenSocketLoop() }
 
         } catch (e: Exception) {
@@ -692,7 +632,7 @@ class TetherLanService : Service() {
                 currentState = TransportState.FAILED
             }
             mainHandler.postDelayed({
-                if (isConnectedToInfrastructureWifi()) startLanDiscovery()
+                startP2pDiscovery()
             }, 5000)
         }
     }
@@ -815,18 +755,13 @@ class TetherLanService : Service() {
         }
     }
 
-    // Public Command Dispatcher
+    // Command Dispatcher
     fun dispatchCommand(actionCommand: String) {
-        if (!isConnectedToInfrastructureWifi()) {
-            Log.e(TAG, "Cannot dispatch command: Wi-Fi infrastructure connection unavailable.")
-            return
-        }
-
         networkExecutor.execute {
             try {
                 if (currentState != TransportState.READY && currentState != TransportState.AUTHENTICATED) {
-                    Log.w(TAG, "Transport not ready ($currentState). Queuing command and starting discovery...")
-                    startLanDiscovery()
+                    Log.w(TAG, "Transport not ready ($currentState). Queuing command and starting P2P discovery...")
+                    startP2pDiscovery()
                     Thread.sleep(1000)
                 }
 
@@ -839,7 +774,7 @@ class TetherLanService : Service() {
                 }
 
                 sendEncryptedFrame(cmdJson)
-                Log.i(TAG, "Dispatched command frame over secure LAN: $actionCommand (reqId=$reqId)")
+                Log.i(TAG, "Dispatched command frame over secure P2P: $actionCommand (reqId=$reqId)")
 
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to dispatch command ($actionCommand): ${e.message}")
@@ -851,31 +786,24 @@ class TetherLanService : Service() {
         Log.w(TAG, "Disconnecting active session: $reason")
         sessionKey = null
         try { activeSocket?.close() } catch (_: Exception) {}
+        try { serverSocket?.close() } catch (_: Exception) {}
         activeSocket = null
+        serverSocket = null
         dataInputStream = null
         dataOutputStream = null
         currentState = TransportState.DISCONNECTED
+        isP2pConnecting = false
     }
 
-    private fun restartLanTransport() {
+    private fun restartP2pTransport() {
         disconnectActiveSession("Transport restart requested")
-        startLanDiscovery()
+        startP2pDiscovery()
     }
 
     private fun performHealthCheck() {
-        if (!isConnectedToInfrastructureWifi()) {
-            if (isHotspotActive()) {
-                currentState = TransportState.HOTSPOT_UNSUPPORTED
-            } else {
-                currentState = TransportState.DISCONNECTED
-            }
-            return
-        }
-
         if (currentState == TransportState.DISCONNECTED || currentState == TransportState.FAILED) {
-            startLanDiscovery()
+            startP2pDiscovery()
         } else if (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED) {
-            // Ping host
             dispatchCommand("PING")
         }
     }
@@ -944,14 +872,14 @@ class TetherLanService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        try { unregisterReceiver(broadcastReceiver) } catch (_: Exception) {}
-        networkCallback?.let {
-            try { connectivityManager?.unregisterNetworkCallback(it) } catch (_: Exception) {}
-        }
+        try { unregisterReceiver(powerSaveReceiver) } catch (_: Exception) {}
+        try { p2pReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
+
+        try {
+            p2pChannel?.close()
+        } catch (_: Exception) {}
 
         cancelAlarm()
-        stopLanDiscovery()
-        releaseMulticastLock()
         disconnectActiveSession("Service destroyed")
 
         wakeLock?.let { if (it.isHeld) it.release() }

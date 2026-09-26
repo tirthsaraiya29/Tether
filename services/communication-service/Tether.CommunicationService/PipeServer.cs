@@ -52,6 +52,25 @@ public class PipeServer : IDisposable
         _logger = logger;
     }
 
+    // ── TOFU PAIRING ─────────────────────────────────────────────────────
+    /// <summary>
+    /// Allow-list for events DesktopUI may publish over IPC.
+    ///
+    /// SECURITY: PHONE_UNLOCKED / AUTH_SUCCESS / TRUST_RESTORED are deliberately
+    /// excluded. Those state transitions must ONLY be emitted by LanTransportServer
+    /// after a successful AES-GCM authenticated session. DesktopUI is a *user
+    /// authorization* surface, not a cryptographic authority.
+    ///
+    /// PAIRING_DECISION is allowed because LanTransportServer re-verifies the
+    /// RequestId + phone key against its own pending-request state before honoring it.
+    /// </summary>
+    public static bool IsAllowedIpcEvent(TetherEventType type) =>
+        type == TetherEventType.PROVISION_PHONE ||
+        type == TetherEventType.PANIC_TRIGGERED ||
+        type == TetherEventType.PAIRING_DECISION ||
+        type == TetherEventType.FORGET_PHONE;
+    // ─────────────────────────────────────────────────────────────────────
+
     public void Start()
     {
         _cts = new CancellationTokenSource();
@@ -223,9 +242,9 @@ public class PipeServer : IDisposable
 
                 if (evt != null)
                 {
-                    // CRITICAL FIX: Explicitly reject state spoofing events over IPC.
-                    // Authentication and unlock confirmations must strictly flow through 
-                    // the verified cryptographic channel inside BleManager.cs.
+                    // CRITICAL: Reject state spoofing events over IPC. Authentication and
+                    // unlock confirmations must strictly flow through the crypto-verified
+                    // LAN transport (LanTransportServer), never from the UI.
                     if (evt.EventType == TetherEventType.PHONE_UNLOCKED ||
                         evt.EventType == TetherEventType.AUTH_SUCCESS)
                     {
@@ -233,12 +252,14 @@ public class PipeServer : IDisposable
                         continue;
                     }
 
-                    if (evt.EventType != TetherEventType.PROVISION_PHONE &&
-                        evt.EventType != TetherEventType.PANIC_TRIGGERED)
+                    // ── TOFU PAIRING ──────────────────────────────────────
+                    // Allow-list check replaces the previous two-event filter.
+                    if (!IsAllowedIpcEvent(evt.EventType))
                     {
                         _logger.Warning($"Rejected disallowed event type: {evt.EventType}");
                         continue;
                     }
+                    // ──────────────────────────────────────────────────────
 
                     _logger.Debug($"IPC received event: {evt.EventType} from Desktop UI");
                     _eventBus.Publish(evt);
