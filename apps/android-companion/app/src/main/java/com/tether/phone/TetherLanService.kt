@@ -23,9 +23,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
 import org.json.JSONObject
-import java.io.DataInputStream
-import java.io.DataOutputStream
-import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -44,13 +41,10 @@ enum class TransportState {
     FAILED
 }
 
-class TetherLanService : Service() {
+class TetherLanService : Service(), TetherDiscoveryListener {
 
     companion object {
         const val TAG = "TetherLanService"
-
-        const val SERVICE_TYPE = "_tether._tcp."
-        const val DEFAULT_PORT = 37123
 
         const val ACTION_LAN_STATE_CHANGED = "com.tether.phone.ACTION_GATT_STATE_CHANGED"
         const val ACTION_COMMAND_CONFIRMED = "com.tether.phone.ACTION_COMMAND_CONFIRMED"
@@ -78,6 +72,11 @@ class TetherLanService : Service() {
     private val networkExecutor = Executors.newCachedThreadPool()
 
     private lateinit var securityEngine: ProductionSecurityEngine
+    private lateinit var discoveryManager: TetherDiscoveryManager
+    private lateinit var pairingManager: TetherPairingManager
+    private lateinit var capabilityManager: TetherCapabilityManager
+    private var activeTransport: TetherTransport? = null
+
     private lateinit var powerManager: PowerManager
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -104,11 +103,7 @@ class TetherLanService : Service() {
     private var connectedHostAddress: String? = null
 
     @Volatile
-    private var connectedHostPort: Int = DEFAULT_PORT
-
-    private var activeSocket: Socket? = null
-    private var dataInputStream: DataInputStream? = null
-    private var dataOutputStream: DataOutputStream? = null
+    private var connectedHostPort: Int = TetherDiscoveryManager.DEFAULT_PORT
 
     private val processedRequestIds = ConcurrentHashMap<String, Long>()
 
@@ -146,6 +141,12 @@ class TetherLanService : Service() {
             stopSelf()
             return
         }
+
+        discoveryManager = TetherDiscoveryManager(this, securityEngine)
+        discoveryManager.setDiscoveryListener(this)
+
+        pairingManager = TetherPairingManager(this, securityEngine)
+        capabilityManager = TetherCapabilityManager()
 
         val pinnedKey = securityEngine.getPinnedKeyDecrypted(this)
         trustState = if (pinnedKey != null) TrustState.PAIRED else TrustState.UNPAIRED
@@ -196,12 +197,13 @@ class TetherLanService : Service() {
             }
             ACTION_CONNECT_DIRECT -> {
                 val targetIp = intent.getStringExtra("target_ip")
+                val targetPort = intent.getIntExtra("target_port", TetherDiscoveryManager.DEFAULT_PORT)
                 if (!targetIp.isNullOrBlank()) {
-                    Log.i(TAG, "Direct target connection requested: $targetIp")
+                    Log.i(TAG, "Direct target connection requested: $targetIp:$targetPort")
                     getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
                         putString("saved_host_ip", targetIp)
                     }
-                    connectToHost(targetIp)
+                    connectToHost(targetIp, targetPort)
                 } else {
                     restartTransport()
                 }
@@ -250,14 +252,154 @@ class TetherLanService : Service() {
             return
         }
         currentState = TransportState.DISCOVERING
-        Log.i(TAG, "Local discovery initiated.")
+        Log.i(TAG, "Starting mDNS local discovery & advertisement...")
+
+        discoveryManager.startDiscovery()
+        discoveryManager.advertiseService()
+
+        val savedHostIp = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
+            .getString("saved_host_ip", null)
+        if (!savedHostIp.isNullOrBlank()) {
+            Log.i(TAG, "Attempting connection to saved target host IP: $savedHostIp")
+            connectToHost(savedHostIp)
+        }
     }
 
-    fun connectToHost(hostAddress: String, port: Int = DEFAULT_PORT) {
+    override fun onDeviceDiscovered(device: DiscoveredDevice) {
+        Log.i(TAG, "mDNS Discovered Tether device: ${device.name} at ${device.hostAddress}:${device.port}")
+        if (currentState == TransportState.DISCOVERING || currentState == TransportState.DISCONNECTED) {
+            currentState = TransportState.HOST_FOUND
+            connectToHost(device.hostAddress, device.port)
+        }
+    }
+
+    override fun onDeviceLost(deviceId: String) {
+        Log.i(TAG, "mDNS Device lost: $deviceId")
+    }
+
+    override fun onDiscoveryError(errorCode: Int, message: String) {
+        Log.e(TAG, "mDNS Discovery error: $errorCode - $message")
+    }
+
+    fun connectToHost(hostAddress: String, port: Int = TetherDiscoveryManager.DEFAULT_PORT) {
         if (currentState == TransportState.AUTHENTICATING || currentState == TransportState.AUTHENTICATED || currentState == TransportState.READY) return
+
         currentState = TransportState.CONNECTING
         connectedHostAddress = hostAddress
         connectedHostPort = port
+
+        networkExecutor.execute {
+            try {
+                val transport = TetherTlsTransport(securityEngine)
+                currentState = TransportState.TLS_HANDSHAKE
+                transport.connect(hostAddress, port)
+
+                activeTransport = transport
+                currentState = TransportState.AUTHENTICATING
+
+                val result = pairingManager.executeHandshake(
+                    transport = transport,
+                    isUserInitiatedPairing = (trustState == TrustState.PAIRING_REQUESTED || trustState == TrustState.REPAIRING)
+                )
+
+                when (result) {
+                    is PairingResult.Authenticated -> {
+                        Log.i(TAG, "Successfully authenticated with Windows host ${result.peerDeviceId}!")
+                        trustState = TrustState.PAIRED
+                        currentState = TransportState.AUTHENTICATED
+                        capabilityManager.negotiateCapabilities("CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
+
+                        mainHandler.postDelayed({
+                            currentState = TransportState.READY
+                        }, 200)
+
+                        listenSocketLoop(transport)
+                    }
+                    is PairingResult.PairingRequired -> {
+                        Log.i(TAG, "Pairing approval requested on Windows Desktop UI.")
+                        trustState = TrustState.PAIRING_REQUESTED
+                        currentState = TransportState.PAIRING_REQUIRED
+                    }
+                    is PairingResult.PairingDenied -> {
+                        Log.w(TAG, "Pairing denied by Windows host: ${result.reason}")
+                        trustState = TrustState.PAIRING_DENIED
+                        disconnectActiveSession("Pairing denied")
+                    }
+                    is PairingResult.KeyMismatch -> {
+                        Log.e(TAG, "SECURITY ALERT: Public key mismatch for Windows host! Failing closed.")
+                        trustState = TrustState.KEY_MISMATCH
+                        disconnectActiveSession("Key mismatch")
+                    }
+                    is PairingResult.Error -> {
+                        Log.e(TAG, "Pairing/Handshake error: ${result.message}")
+                        currentState = TransportState.FAILED
+                        disconnectActiveSession(result.message)
+                        mainHandler.postDelayed({ startDiscovery() }, 5000)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Connection failed to $hostAddress:$port: ${e.message}", e)
+                currentState = TransportState.FAILED
+                disconnectActiveSession("Connection error: ${e.message}")
+                mainHandler.postDelayed({ startDiscovery() }, 5000)
+            }
+        }
+    }
+
+    private fun listenSocketLoop(transport: TetherTransport) {
+        try {
+            while (currentState == TransportState.AUTHENTICATED || currentState == TransportState.READY) {
+                val frameBytes = transport.readFrame() ?: break
+                val jsonStr = String(frameBytes, StandardCharsets.UTF_8)
+                processIncomingFrame(JSONObject(jsonStr))
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Transport socket loop terminated: ${e.message}")
+        } finally {
+            disconnectActiveSession("Socket loop terminated")
+        }
+    }
+
+    private fun processIncomingFrame(json: JSONObject) {
+        val requestId = json.optString("requestId", "")
+        if (requestId.isNotEmpty() && processedRequestIds.containsKey(requestId)) {
+            Log.w(TAG, "Duplicate frame ignored: $requestId")
+            return
+        }
+        if (requestId.isNotEmpty()) {
+            processedRequestIds[requestId] = System.currentTimeMillis()
+        }
+
+        val type = json.optString("type", "")
+        val command = json.optString("command", "")
+
+        Log.d(TAG, "Incoming frame type=$type command=$command")
+
+        when (type) {
+            "CONFIRM_COMMAND" -> {
+                val confirmedCmd = json.optString("confirmedCommand", command)
+                Log.i(TAG, "Command confirmed by Windows host: $confirmedCmd")
+                mainHandler.post {
+                    val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
+                        putExtra("confirmed_command", confirmedCmd)
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "HARDWARE_METRICS" -> {
+                val vol = json.optInt("volumeLevel", -1)
+                val bright = json.optInt("brightnessLevel", -1)
+                if (vol >= 0 || bright >= 0) {
+                    val intent = Intent("com.tether.phone.ACTION_SYNC_HARDWARE_METRICS").apply {
+                        putExtra("VOLUME_LEVEL", vol)
+                        putExtra("BRIGHTNESS_LEVEL", bright)
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+        }
     }
 
     fun dispatchCommand(actionCommand: String) {
@@ -266,9 +408,31 @@ class TetherLanService : Service() {
                 if (currentState != TransportState.READY && currentState != TransportState.AUTHENTICATED) {
                     Log.w(TAG, "Transport not ready ($currentState). Queuing command and starting discovery...")
                     startDiscovery()
+                    Thread.sleep(1000)
                 }
+
+                if (!capabilityManager.canExecuteCommand(actionCommand)) {
+                    Log.w(TAG, "Capability check failed for command: $actionCommand")
+                    return@execute
+                }
+
                 val reqId = UUID.randomUUID().toString()
-                Log.i(TAG, "Dispatched command: $actionCommand (reqId=$reqId)")
+                val cmdJson = JSONObject().apply {
+                    put("type", "COMMAND_EXECUTE")
+                    put("requestId", reqId)
+                    put("command", actionCommand)
+                    put("timestamp", System.currentTimeMillis())
+                }
+
+                val transport = activeTransport
+                if (transport != null && transport.isConnected()) {
+                    transport.sendFrame(cmdJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    Log.i(TAG, "Dispatched command frame over TLS 1.3: $actionCommand (reqId=$reqId)")
+                } else {
+                    Log.w(TAG, "Active transport disconnected. Re-initiating discovery...")
+                    startDiscovery()
+                }
+
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to dispatch command ($actionCommand): ${e.message}")
             }
@@ -277,10 +441,8 @@ class TetherLanService : Service() {
 
     fun disconnectActiveSession(reason: String) {
         Log.w(TAG, "Disconnecting active session: $reason")
-        try { activeSocket?.close() } catch (_: Exception) {}
-        activeSocket = null
-        dataInputStream = null
-        dataOutputStream = null
+        try { activeTransport?.disconnect(reason) } catch (_: Exception) {}
+        activeTransport = null
         currentState = TransportState.DISCONNECTED
     }
 
@@ -362,6 +524,9 @@ class TetherLanService : Service() {
 
     override fun onDestroy() {
         try { unregisterReceiver(powerSaveReceiver) } catch (_: Exception) {}
+
+        discoveryManager.stopDiscovery()
+        discoveryManager.stopAdvertising()
 
         cancelAlarm()
         disconnectActiveSession("Service destroyed")
