@@ -5,12 +5,15 @@ on:
     branches:
       - main
       - canary
+
   pull_request:
     branches:
       - main
       - canary
+
   schedule:
     - cron: "33 12 * * 4"
+
   workflow_dispatch:
 
 permissions:
@@ -19,7 +22,7 @@ permissions:
 jobs:
   analyze:
     name: "Analyze (${{ matrix.language }})"
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     permissions:
       security-events: write
@@ -31,23 +34,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # GitHub Actions
           - language: actions
             build-mode: none
+            os: ubuntu-latest
 
+          # C# / .NET
           - language: csharp
-            build-mode: autobuild
+            build-mode: manual
+            os: windows-latest
 
+          # Windows Credential Provider
           - language: c-cpp
-            build-mode: autobuild
+            build-mode: manual
+            os: windows-latest
 
+          # Android / Kotlin
           - language: java-kotlin
-            build-mode: autobuild
+            build-mode: manual
+            os: ubuntu-latest
 
     steps:
-      - name: "Checkout repository"
+      - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: "Initialize CodeQL"
+      - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
@@ -55,11 +66,92 @@ jobs:
           queries: security-extended
           dependency-caching: true
 
-      - name: "Autobuild"
-        if: matrix.build-mode == 'autobuild'
-        uses: github/codeql-action/autobuild@v4
+      # ---------------------------------------------------------
+      # C# / .NET
+      # ---------------------------------------------------------
 
-      - name: "Perform CodeQL Analysis"
+      - name: Setup .NET
+        if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build C# projects
+        if: matrix.language == 'csharp'
+        shell: pwsh
+        run: |
+          $projects = @(
+            "apps/desktop-ui/Tether.Configuration/Tether.Configuration.csproj",
+            "apps/desktop-ui/Tether.DesktopUI/Tether.DesktopUI.csproj",
+            "services/communication-service/Tether.CommunicationService/Tether.CommunicationService.csproj",
+            "services/enforcement-engine/Tether.EnforcementEngine/Tether.EnforcementEngine.csproj",
+            "services/event-bus/Tether.EventBus/Tether.EventBus.csproj",
+            "services/panic-engine/Tether.PanicEngine/Tether.PanicEngine.csproj",
+            "services/recovery-engine/Tether.RecoveryEngine/Tether.RecoveryEngine.csproj",
+            "services/trust-engine/Tether.TrustEngine/Tether.TrustEngine.csproj",
+            "shared/Tether.Shared/Tether.Shared.csproj",
+            "tests/PipeTest/PipeTest.csproj",
+            "Tether.OverlayUI/Tether.OverlayUI.csproj"
+          )
+
+          foreach ($project in $projects) {
+            Write-Host "Building $project"
+            dotnet build $project `
+              --configuration Release `
+              --verbosity minimal
+
+            if ($LASTEXITCODE -ne 0) {
+              throw "Build failed: $project"
+            }
+          }
+
+      # ---------------------------------------------------------
+      # C++ / Windows Credential Provider
+      # ---------------------------------------------------------
+
+      - name: Setup MSBuild
+        if: matrix.language == 'c-cpp'
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Credential Provider
+        if: matrix.language == 'c-cpp'
+        shell: pwsh
+        run: |
+          msbuild `
+            TetherCredentialProvider/TetherCredentialProvider.vcxproj `
+            /m `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /verbosity:minimal
+
+      # ---------------------------------------------------------
+      # Android / Kotlin
+      # ---------------------------------------------------------
+
+      - name: Setup Java
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        if: matrix.language == 'java-kotlin'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Android application
+        if: matrix.language == 'java-kotlin'
+        shell: bash
+        working-directory: apps/android-companion
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      # ---------------------------------------------------------
+      # CodeQL
+      # ---------------------------------------------------------
+
+      - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
