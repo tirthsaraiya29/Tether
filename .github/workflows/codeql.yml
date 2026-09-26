@@ -5,15 +5,12 @@ on:
     branches:
       - main
       - canary
-
   pull_request:
     branches:
       - main
       - canary
-
   schedule:
     - cron: "33 12 * * 4"
-
   workflow_dispatch:
 
 permissions:
@@ -34,22 +31,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # GitHub Actions
           - language: actions
             build-mode: none
             os: ubuntu-latest
 
-          # C# / .NET
           - language: csharp
             build-mode: manual
             os: windows-latest
 
-          # Windows Credential Provider
           - language: c-cpp
             build-mode: manual
             os: windows-latest
 
-          # Android / Kotlin
           - language: java-kotlin
             build-mode: manual
             os: ubuntu-latest
@@ -66,13 +59,13 @@ jobs:
           queries: security-extended
           dependency-caching: true
 
-      # ---------------------------------------------------------
+      # =========================
       # C# / .NET
-      # ---------------------------------------------------------
+      # =========================
 
       - name: Setup .NET
         if: matrix.language == 'csharp'
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "8.0.x"
 
@@ -96,6 +89,7 @@ jobs:
 
           foreach ($project in $projects) {
             Write-Host "Building $project"
+
             dotnet build $project `
               --configuration Release `
               --verbosity minimal
@@ -105,39 +99,68 @@ jobs:
             }
           }
 
-      # ---------------------------------------------------------
-      # C++ / Windows Credential Provider
-      # ---------------------------------------------------------
+      # =========================
+      # C++ / Credential Provider
+      # =========================
 
-      - name: Setup MSBuild
+      - name: Locate MSBuild
         if: matrix.language == 'c-cpp'
-        uses: microsoft/setup-msbuild@v2
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+
+          if (-not (Test-Path $vswhere)) {
+            throw "vswhere.exe was not found."
+          }
+
+          $msbuild = & $vswhere `
+            -latest `
+            -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -find MSBuild\**\Bin\MSBuild.exe
+
+          if (-not $msbuild) {
+            throw "MSBuild with C++ tools was not found."
+          }
+
+          $msbuild = $msbuild | Select-Object -First 1
+
+          Write-Host "Using MSBuild:"
+          Write-Host $msbuild
+
+          "MSBUILD_PATH=$msbuild" | Out-File `
+            -FilePath $env:GITHUB_ENV `
+            -Append
 
       - name: Build Credential Provider
         if: matrix.language == 'c-cpp'
         shell: pwsh
         run: |
-          msbuild `
-            TetherCredentialProvider/TetherCredentialProvider.vcxproj `
+          & "$env:MSBUILD_PATH" `
+            "TetherCredentialProvider/TetherCredentialProvider.vcxproj" `
             /m `
             /p:Configuration=Release `
             /p:Platform=x64 `
             /verbosity:minimal
 
-      # ---------------------------------------------------------
+          if ($LASTEXITCODE -ne 0) {
+            throw "Credential Provider build failed."
+          }
+
+      # =========================
       # Android / Kotlin
-      # ---------------------------------------------------------
+      # =========================
 
       - name: Setup Java
         if: matrix.language == 'java-kotlin'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Setup Gradle
         if: matrix.language == 'java-kotlin'
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       - name: Build Android application
         if: matrix.language == 'java-kotlin'
@@ -147,9 +170,9 @@ jobs:
           chmod +x ./gradlew
           ./gradlew --no-daemon assembleDebug
 
-      # ---------------------------------------------------------
-      # CodeQL
-      # ---------------------------------------------------------
+      # =========================
+      # CodeQL Analysis
+      # =========================
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
