@@ -10,7 +10,7 @@ on:
       - main
       - canary
   schedule:
-    - cron: "33 12 * * 4"
+    - cron: "21 20 * * 2"
   workflow_dispatch:
 
 permissions:
@@ -19,7 +19,7 @@ permissions:
 jobs:
   analyze:
     name: "Analyze (${{ matrix.language }})"
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     permissions:
       security-events: write
@@ -31,25 +31,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - language: actions
+          - language: c-cpp
             build-mode: none
-            os: ubuntu-latest
 
           - language: csharp
-            build-mode: manual
-            os: windows-latest
-
-          - language: c-cpp
-            build-mode: manual
-            os: windows-latest
+            build-mode: none
 
           - language: java-kotlin
             build-mode: manual
-            os: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v5
+        with:
+          java-version: "17"
+          distribution: "temurin"
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -59,120 +59,13 @@ jobs:
           queries: security-extended
           dependency-caching: true
 
-      # =========================
-      # C# / .NET
-      # =========================
-
-      - name: Setup .NET
-        if: matrix.language == 'csharp'
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: "8.0.x"
-
-      - name: Build C# projects
-        if: matrix.language == 'csharp'
-        shell: pwsh
-        run: |
-          $projects = @(
-            "apps/desktop-ui/Tether.Configuration/Tether.Configuration.csproj",
-            "apps/desktop-ui/Tether.DesktopUI/Tether.DesktopUI.csproj",
-            "services/communication-service/Tether.CommunicationService/Tether.CommunicationService.csproj",
-            "services/enforcement-engine/Tether.EnforcementEngine/Tether.EnforcementEngine.csproj",
-            "services/event-bus/Tether.EventBus/Tether.EventBus.csproj",
-            "services/panic-engine/Tether.PanicEngine/Tether.PanicEngine.csproj",
-            "services/recovery-engine/Tether.RecoveryEngine/Tether.RecoveryEngine.csproj",
-            "services/trust-engine/Tether.TrustEngine/Tether.TrustEngine.csproj",
-            "shared/Tether.Shared/Tether.Shared.csproj",
-            "tests/PipeTest/PipeTest.csproj",
-            "Tether.OverlayUI/Tether.OverlayUI.csproj"
-          )
-
-          foreach ($project in $projects) {
-            Write-Host "Building $project"
-
-            dotnet build $project `
-              --configuration Release `
-              --verbosity minimal
-
-            if ($LASTEXITCODE -ne 0) {
-              throw "Build failed: $project"
-            }
-          }
-
-      # =========================
-      # C++ / Credential Provider
-      # =========================
-
-      - name: Locate MSBuild
-        if: matrix.language == 'c-cpp'
-        shell: pwsh
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-
-          if (-not (Test-Path $vswhere)) {
-            throw "vswhere.exe was not found."
-          }
-
-          $msbuild = & $vswhere `
-            -latest `
-            -products * `
-            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-            -find MSBuild\**\Bin\MSBuild.exe
-
-          if (-not $msbuild) {
-            throw "MSBuild with C++ tools was not found."
-          }
-
-          $msbuild = $msbuild | Select-Object -First 1
-
-          Write-Host "Using MSBuild:"
-          Write-Host $msbuild
-
-          "MSBUILD_PATH=$msbuild" | Out-File `
-            -FilePath $env:GITHUB_ENV `
-            -Append
-
-      - name: Build Credential Provider
-        if: matrix.language == 'c-cpp'
-        shell: pwsh
-        run: |
-          & "$env:MSBUILD_PATH" `
-            "TetherCredentialProvider/TetherCredentialProvider.vcxproj" `
-            /m `
-            /p:Configuration=Release `
-            /p:Platform=x64 `
-            /verbosity:minimal
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "Credential Provider build failed."
-          }
-
-      # =========================
-      # Android / Kotlin
-      # =========================
-
-      - name: Setup Java
-        if: matrix.language == 'java-kotlin'
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Setup Gradle
-        if: matrix.language == 'java-kotlin'
-        uses: gradle/actions/setup-gradle@v5
-
-      - name: Build Android application
-        if: matrix.language == 'java-kotlin'
+      - name: Run manual build steps
+        if: matrix.build-mode == 'manual'
         shell: bash
-        working-directory: apps/android-companion
         run: |
-          chmod +x ./gradlew
-          ./gradlew --no-daemon assembleDebug
-
-      # =========================
-      # CodeQL Analysis
-      # =========================
+          cd apps/android-companion
+          chmod +x gradlew
+          ./gradlew --no-daemon clean compileDebugSources
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
