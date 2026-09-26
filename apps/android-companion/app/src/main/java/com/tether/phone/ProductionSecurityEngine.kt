@@ -9,6 +9,7 @@ import androidx.core.content.edit
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.KeyStore
+import java.security.MessageDigest
 import java.security.Signature
 import java.security.spec.MGF1ParameterSpec
 import java.security.spec.X509EncodedKeySpec
@@ -124,6 +125,27 @@ class ProductionSecurityEngine {
         } catch (e: Exception) {
             Log.e("TetherSecurity", "Failed to decrypt and retrieve pinned public key: ${e.message}", e)
             return null
+        }
+    }
+
+    fun clearPinnedKey(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
+            prefs.edit { remove("pinned_windows_public_key_enc") }
+            Log.i("TetherSecurity", "Pinned Windows public key cleared from secure storage.")
+        } catch (e: Exception) {
+            Log.e("TetherSecurity", "Failed to clear pinned public key: ${e.message}", e)
+        }
+    }
+
+    fun computePublicKeyFingerprint(publicKeyBytes: ByteArray?): String {
+        if (publicKeyBytes == null || publicKeyBytes.isEmpty()) return "NONE"
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val hash = digest.digest(publicKeyBytes)
+            hash.joinToString(":") { String.format("%02X", it) }
+        } catch (e: Exception) {
+            "INVALID"
         }
     }
 

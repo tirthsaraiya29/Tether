@@ -69,8 +69,15 @@ class TetherLanService : Service() {
         const val ACTION_LAN_STATE_CHANGED = "com.tether.phone.ACTION_GATT_STATE_CHANGED"
         const val ACTION_COMMAND_CONFIRMED = "com.tether.phone.ACTION_COMMAND_CONFIRMED"
         const val ACTION_CONNECT_DIRECT = "com.tether.phone.ACTION_CONNECT_DIRECT"
+        const val ACTION_INITIATE_PAIRING = "com.tether.phone.ACTION_INITIATE_PAIRING"
+        const val ACTION_CANCEL_PAIRING = "com.tether.phone.ACTION_CANCEL_PAIRING"
+        const val ACTION_FORGET_TRUST = "com.tether.phone.ACTION_FORGET_TRUST"
+
         const val EXTRA_CONNECTION_COUNT = "extra_connection_count"
         const val EXTRA_TRANSPORT_STATE = "extra_transport_state"
+        const val EXTRA_TRUST_STATE = "extra_trust_state"
+        const val EXTRA_PHONE_FINGERPRINT = "extra_phone_fingerprint"
+        const val EXTRA_WINDOWS_FINGERPRINT = "extra_windows_fingerprint"
 
         const val ALARM_ACTION = "com.tether.phone.ALARM_HEALTH_CHECK"
         const val ACTION_RESTART_SERVER = "com.tether.phone.ACTION_RESTART_SERVER"
@@ -96,6 +103,14 @@ class TetherLanService : Service() {
         private set(value) {
             field = value
             Log.i(TAG, "Transport state changed to: $value")
+            notifyStateToInterface()
+        }
+
+    @Volatile
+    var trustState: TrustState = TrustState.UNPAIRED
+        private set(value) {
+            field = value
+            Log.i(TAG, "Trust state changed to: $value")
             notifyStateToInterface()
         }
 
