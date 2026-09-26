@@ -154,10 +154,6 @@ class MainActivity : FragmentActivity() {
                                 uiStatusText.value = getString(R.string.status_link_active)
                                 uiStatusColor.value = IntegrityGreen
                                 uiConnectionStatusText.value = getString(R.string.status_secure_nodes, count)
-                            } else if (stateName == "HOTSPOT_UNSUPPORTED") {
-                                uiStatusText.value = "WI-FI P2P DISABLED"
-                                uiStatusColor.value = AlertRed
-                                uiConnectionStatusText.value = "ENABLE WI-FI DIRECT / P2P TO CONNECT"
                             } else {
                                 if (!isPanicActive.value) {
                                     uiStatusText.value = getString(R.string.status_broadcasting)
@@ -703,18 +699,12 @@ class MainActivity : FragmentActivity() {
         if (!raw.startsWith("TETHER:JOIN:")) return
         val body = raw.removePrefix("TETHER:JOIN:")
         val parts = body.split("|")
-        if (parts.size < 4) return
-
-        val ssid = parts[0]
-        val pass = parts[1]
-        val ip = parts[2]
-        val portStr = parts[3]
+        val ip = if (parts.size >= 3) parts[2] else parts[0]
+        val portStr = if (parts.size >= 4) parts[3] else "37123"
         val port = portStr.toIntOrNull() ?: 37123
 
         val intent = Intent(this, TetherLanService::class.java).apply {
-            action = TetherLanService.ACTION_CONNECT_WIFI_DIRECT
-            putExtra("ssid", ssid)
-            putExtra("passphrase", pass)
+            action = TetherLanService.ACTION_CONNECT_DIRECT
             putExtra("target_ip", ip)
             putExtra("target_port", port)
         }
@@ -727,15 +717,15 @@ class MainActivity : FragmentActivity() {
             val currentSavedIp = prefs.getString("saved_host_ip", "") ?: ""
 
             val input = EditText(this).apply {
-                hint = "e.g. 192.168.1.100 or TETHER:JOIN:..."
+                hint = "e.g. 192.168.1.100"
                 setText(currentSavedIp)
                 inputType = InputType.TYPE_CLASS_TEXT
                 setPadding(50, 30, 50, 30)
             }
 
             AlertDialog.Builder(this)
-                .setTitle("Wi-Fi Direct Target Host")
-                .setMessage("Tether auto-discovers Windows hosts via Wi-Fi Direct (P2P).\n\nEnter Windows PC IP address or paste TETHER:JOIN: QR payload below:")
+                .setTitle("Target Host IP")
+                .setMessage("Tether automatically discovers Windows hosts on local network.\n\nOptionally enter Windows PC IP address below:")
                 .setView(input)
                 .setPositiveButton("CONNECT") { _, _ ->
                     val enteredText = input.text.toString().trim()
