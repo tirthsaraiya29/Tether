@@ -513,7 +513,7 @@ HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
     {
         if (!g_fPhoneAppTriggered.load())
         {
-            SHStrDupW(L"Tether App transmission signal undetected. Verify Bluetooth connectivity.",
+            SHStrDupW(L"Tether App transmission signal undetected. Verify Wi-Fi connectivity and phone app status.",
                 ppwszOptionalStatusText);
             *pcpsiOptionalStatusIcon = CPSI_WARNING;
             return S_FALSE;

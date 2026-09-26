@@ -34,7 +34,7 @@ namespace Tether.CommunicationService
                     services.AddSingleton<EnforcementManager>();
                     services.AddSingleton<PanicManager>();
                     services.AddSingleton<RecoveryManager>();
-                    services.AddSingleton<BleManager>();
+                    services.AddSingleton<LanTransportServer>();
                     services.AddSingleton<PipeServer>();
 
                     services.AddHostedService<Worker>();
