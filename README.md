@@ -92,16 +92,33 @@ The system creates a secure trust relationship between a Windows machine and an 
 
 - Kotlin
 - Jetpack Compose
-- Android SDK (API 33+)
-- Bluetooth Low Energy (BLE)
+- Android SDK (API 34+)
+- Wi-Fi / LAN Network Service Discovery (mDNS/NSD & UDP Broadcast)
 - Android Keystore / StrongBox
 
-## Communication
+## Communication (Canary Transport Architecture)
 
-- BLE (GATT)
-- RSA + AES encrypted communication
-- Named Pipes
+- **Local Wi-Fi / LAN Only** (AES-256-GCM Encrypted TCP Socket on Port 37123)
+- RSA-2048 + AES-256 Cryptographic Mutual Handshake
+- Named Pipes (Windows IPC)
 - Global Event Handles
+
+```
+Android Tether App
+│
+│ Local Wi-Fi / LAN (AES-256-GCM Encrypted TCP Socket)
+▼
+Tether Windows Service (Port 37123)
+│
+▼
+Windows APIs / SYSTEM operations
+
+BLE                 → NOT USED FOR COMMAND TRANSPORT
+Internet            → NOT REQUIRED
+Cloud Relay         → NOT USED
+Mobile Hotspot      → NOT SUPPORTED
+VPN / Port Forward  → NOT SUPPORTED
+```
 
 ---
 

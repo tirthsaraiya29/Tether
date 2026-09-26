@@ -1,8 +1,6 @@
-# Tether Proximity Shield - Optimized R8/ProGuard Rules
-
-# 1. Keep BLE Service and related GATT components
--keep class com.tether.phone.BleGattServerService { *; }
--keep class com.tether.phone.BleGattServerService$* { *; }
+# 1. Keep Tether LAN Service and related components
+-keep class com.tether.phone.TetherLanService { *; }
+-keep class com.tether.phone.TetherLanService$* { *; }
 
 # 2. Keep Security Engine and Keystore interactions
 # Obfuscation can break Keystore alias lookups or reflection-based cryptographic providers
