@@ -31,8 +31,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.roundToInt
-import com.tether.phone.*
 import com.tether.phone.R
 import com.tether.phone.ui.theme.*
 
@@ -55,15 +53,17 @@ fun ProfessionalGlassSurface(
         animationSpec = infiniteRepeatable(
             animation = tween(8000, easing = TetherEase),
             repeatMode = RepeatMode.Reverse,
-        ), label = "TiltX"
+        ),
+        label = "TiltX",
     )
     val tiltY by infiniteTransition.animateFloat(
         initialValue = -1.2f,
         targetValue = 1.2f,
         animationSpec = infiniteRepeatable(
             animation = tween(6500, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse
-        ), label = "TiltY"
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "TiltY",
     )
 
     Box(
@@ -82,14 +82,14 @@ fun ProfessionalGlassSurface(
                         1.0f to Color.Transparent,
                         center = Offset(
                             (size.width / 2) + (tiltX * 5.dp.toPx()),
-                            (size.height / 2) + (tiltY * 5.dp.toPx())
+                            (size.height / 2) + (tiltY * 5.dp.toPx()),
                         ),
-                        radius = size.width.coerceAtLeast(size.height)
+                        radius = size.width.coerceAtLeast(size.height),
                     ),
                     radius = size.width.coerceAtLeast(size.height),
                     center = Offset(
                         (size.width / 2) + (tiltX * 5.dp.toPx()),
-                        (size.height / 2) + (tiltY * 5.dp.toPx())
+                        (size.height / 2) + (tiltY * 5.dp.toPx()),
                     ),
                 )
             }
@@ -99,12 +99,12 @@ fun ProfessionalGlassSurface(
                     listOf(
                         Color.White.copy(alpha = 0.35f),
                         Color.White.copy(alpha = 0.05f),
-                        Color.White.copy(alpha = 0.25f)
+                        Color.White.copy(alpha = 0.25f),
                     ),
                     start = Offset(0f, 0f),
-                    end = Offset(1000f, 1000f)
+                    end = Offset(1000f, 1000f),
                 ),
-                shape = RoundedCornerShape(28.dp)
+                shape = RoundedCornerShape(28.dp),
             )
     ) {
         Box(
@@ -499,14 +499,14 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.graphicsLayer {
-                    scaleX = pulse * 0.05f + 0.95f
-                    scaleY = pulse * 0.05f + 0.95f
+                    scaleX = (pulse * 0.05f) + 0.95f
+                    scaleY = (pulse * 0.05f) + 0.95f
                 }
             ) {
                 Text(
                     text = "🔒",
                     fontSize = 90.sp,
-                    modifier = Modifier.graphicsLayer { alpha = pulse * 0.3f + 0.7f }
+                    modifier = Modifier.graphicsLayer { alpha = (pulse * 0.3f) + 0.7f },
                 )
                 Spacer(modifier = Modifier.height(48.dp))
                 Text(
@@ -543,9 +543,9 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                         brush = Brush.horizontalGradient(
                             listOf(Color.Transparent, LiquidCyan, Color.Transparent)
                         ),
-                        start = Offset(x = scanLinePos * size.width - size.width, y = 0f),
-                        end = Offset(x = scanLinePos * size.width + size.width, y = 0f),
-                        strokeWidth = 2.dp.toPx()
+                        start = Offset(x = (scanLinePos * size.width) - size.width, y = 0f),
+                        end = Offset(x = (scanLinePos * size.width) + size.width, y = 0f),
+                        strokeWidth = 2.dp.toPx(),
                     )
                 }
             }

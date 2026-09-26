@@ -29,23 +29,26 @@ fun DeepSpaceCanvasVisualizer() {
         targetValue = gridStep,
         animationSpec = infiniteRepeatable(
             animation = tween(25000, easing = LinearEasing),
-        ), label = "Shift"
+        ),
+        label = "Shift",
     )
     val nebAlpha by transition.animateFloat(
         initialValue = 0.04f,
         targetValue = 0.18f,
         animationSpec = infiniteRepeatable(
             animation = tween(15000, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse
-        ), label = "Nebula"
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "Nebula",
     )
     val starShimmer by transition.animateFloat(
         initialValue = 0.1f,
         targetValue = 0.6f,
         animationSpec = infiniteRepeatable(
             animation = tween(4000, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse
-        ), label = "Stars"
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "Stars",
     )
 
     Canvas(modifier = Modifier.fillMaxSize()) {
@@ -59,7 +62,7 @@ fun DeepSpaceCanvasVisualizer() {
                 color = LiquidCyan.copy(alpha = 0.04f),
                 start = Offset(x + distortion, 0f),
                 end = Offset(x + distortion, size.height),
-                strokeWidth = 0.5.dp.toPx()
+                strokeWidth = 0.5.dp.toPx(),
             )
             x += gridStep
         }
@@ -70,7 +73,7 @@ fun DeepSpaceCanvasVisualizer() {
                 color = LiquidCyan.copy(alpha = 0.04f),
                 start = Offset(0f, y + distortion),
                 end = Offset(size.width, y + distortion),
-                strokeWidth = 0.5.dp.toPx()
+                strokeWidth = 0.5.dp.toPx(),
             )
             y += gridStep
         }
@@ -82,10 +85,10 @@ fun DeepSpaceCanvasVisualizer() {
                 0.6f to LiquidCyan.copy(alpha = nebAlpha * 0.3f),
                 1.0f to Color.Transparent,
                 center = Offset(size.width * 0.2f, size.height * 0.2f),
-                radius = 1200.dp.toPx()
+                radius = 1200.dp.toPx(),
             ),
             center = Offset(size.width * 0.2f, size.height * 0.2f),
-            radius = 1200.dp.toPx()
+            radius = 1200.dp.toPx(),
         )
 
         // Nebula Plasma Core 2 (Green - Bottom Right)
@@ -95,10 +98,10 @@ fun DeepSpaceCanvasVisualizer() {
                 0.7f to IntegrityGreen.copy(alpha = nebAlpha * 0.1f),
                 1.0f to Color.Transparent,
                 center = Offset(size.width * 0.8f, size.height * 0.8f),
-                radius = 1000.dp.toPx()
+                radius = 1000.dp.toPx(),
             ),
             center = Offset(size.width * 0.8f, size.height * 0.8f),
-            radius = 1000.dp.toPx()
+            radius = 1000.dp.toPx(),
         )
 
         // Nebula Plasma Core 3 (Subtle Red - Center Right)
@@ -107,10 +110,10 @@ fun DeepSpaceCanvasVisualizer() {
                 0.0f to AlertRed.copy(alpha = nebAlpha * 0.4f),
                 0.8f to Color.Transparent,
                 center = Offset(size.width * 0.9f, size.height * 0.4f),
-                radius = 800.dp.toPx()
+                radius = 800.dp.toPx(),
             ),
             center = Offset(size.width * 0.9f, size.height * 0.4f),
-            radius = 800.dp.toPx()
+            radius = 800.dp.toPx(),
         )
 
         // High-Density Starfield
@@ -123,7 +126,7 @@ fun DeepSpaceCanvasVisualizer() {
             drawCircle(
                 color = Color.White.copy(alpha = individualShimmer),
                 radius = radius,
-                center = Offset(px, py)
+                center = Offset(px, py),
             )
         }
     }

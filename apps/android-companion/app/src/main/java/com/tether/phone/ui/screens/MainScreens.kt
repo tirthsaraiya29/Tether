@@ -84,13 +84,13 @@ fun TetherAppScreen(
                     .fillMaxWidth()
                     .height(360.dp)
                     .graphicsLayer { translationY = -scrollState.value * 0.2f },
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 if (isConnected) {
                     ActiveLinkVisualizer(
                         color = statusColor,
                         status = statusText,
-                        subStatus = connectionStatus
+                        subStatus = connectionStatus,
                     )
                 } else {
                     ScanningVisualizer(color = statusColor)
@@ -101,32 +101,32 @@ fun TetherAppScreen(
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 200)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 200)) { it / 2 }
+                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 200)) { it / 2 },
         ) {
             ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = stringResource(R.string.header_hardware_directives),
                     style = MaterialTheme.typography.labelMedium,
-                    color = LiquidCyan
+                    color = LiquidCyan,
                 )
                 Spacer(modifier = Modifier.height(28.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp)
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     TacticalAction(
                         label = stringResource(R.string.label_sleep),
                         accentColor = MatrixGold,
                         onClick = { onLanActionRequested("PWR_SLEEP") },
                         modifier = Modifier.weight(1f),
-                        enabled = isConnected
+                        enabled = isConnected,
                     )
                     TacticalAction(
                         label = stringResource(R.string.label_reboot),
                         accentColor = TextPrimary,
                         onClick = { onLanActionRequested("PWR_REBOOT") },
                         modifier = Modifier.weight(1f),
-                        enabled = isConnected
+                        enabled = isConnected,
                     )
                 }
                 Spacer(modifier = Modifier.height(20.dp))
@@ -134,7 +134,7 @@ fun TetherAppScreen(
                     label = stringResource(R.string.label_halt_system),
                     accentColor = AlertRed,
                     onClick = { onLanActionRequested("PWR_SHUTDOWN") },
-                    enabled = isConnected
+                    enabled = isConnected,
                 )
             }
         }
@@ -143,7 +143,7 @@ fun TetherAppScreen(
 
         AnimatedContent(
             targetState = verificationStep,
-            label = "Security"
+            label = "Security",
         ) { step ->
             Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 when (step) {
@@ -152,7 +152,7 @@ fun TetherAppScreen(
                             AnimatedVisibility(
                                 visible = visible,
                                 enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 400)) + 
-                                        scaleIn(initialScale = 0.9f)
+                                        scaleIn(initialScale = 0.9f),
                             ) {
                                 PanicRestoreCard(onSideRestore = onSideRestore)
                             }
@@ -160,43 +160,43 @@ fun TetherAppScreen(
                             AnimatedVisibility(
                                 visible = visible,
                                 enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 400)) + 
-                                        slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 400)) { it / 2 }
+                                        slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 400)) { it / 2 },
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(20.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(20.dp),
                                     ) {
                                         TacticalAction(
                                             label = stringResource(R.string.label_unlock),
                                             accentColor = IntegrityGreen,
                                             onClick = onUnlockClick,
                                             modifier = Modifier.weight(1f),
-                                            enabled = isConnected
+                                            enabled = isConnected,
                                         )
                                         TacticalAction(
                                             label = stringResource(R.string.label_lock),
                                             accentColor = LiquidCyan,
                                             onClick = onLockClick,
                                             modifier = Modifier.weight(1f),
-                                            enabled = isConnected
+                                            enabled = isConnected,
                                         )
                                     }
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(20.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(20.dp),
                                     ) {
                                         TacticalAction(
                                             label = stringResource(R.string.label_target),
                                             accentColor = TextSecondary,
                                             onClick = onSelectLaptop,
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.weight(1f),
                                         )
                                         TacticalAction(
                                             label = stringResource(R.string.label_panic),
                                             accentColor = AlertRed,
                                             onClick = onPanicClick,
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.weight(1f),
                                         )
                                     }
                                 }
@@ -222,21 +222,22 @@ fun ScanningVisualizer(color: Color) {
         initialValue = 0f,
         targetValue = radiusTargetPx,
         animationSpec = infiniteRepeatable(animation = tween(durationMillis = 3500, easing = LinearOutSlowInEasing)),
-        label = "R"
+        label = "R",
     )
     val alpha by infiniteTransition.animateFloat(
         initialValue = 1f,
         targetValue = 0f,
         animationSpec = infiniteRepeatable(animation = tween(durationMillis = 3500, easing = LinearOutSlowInEasing)),
-        label = "A"
+        label = "A",
     )
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
         targetValue = 1.1f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 2000, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse
-        ), label = "P"
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "P",
     )
 
     Box(contentAlignment = Alignment.Center) {
@@ -937,8 +938,10 @@ fun TetherNavigationShell(
                     transitionSpec = {
                         (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessLow)) + 
                          scaleIn(initialScale = 0.96f, animationSpec = spring(stiffness = Spring.StiffnessLow)))
-                            .togetherWith(fadeOut(animationSpec = spring(stiffness = Spring.StiffnessLow)) + 
-                                         scaleOut(targetScale = 1.04f, animationSpec = spring(stiffness = Spring.StiffnessLow)))
+                            .togetherWith(
+                                fadeOut(animationSpec = spring(stiffness = Spring.StiffnessLow)) + 
+                                scaleOut(targetScale = 1.04f, animationSpec = spring(stiffness = Spring.StiffnessLow)),
+                            )
                     },
                     label = "ScreenTransition"
                 ) { screen ->

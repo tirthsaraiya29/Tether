@@ -386,7 +386,7 @@ class TetherLanService : Service() {
             @Suppress("DEPRECATION")
             override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
                 Log.i(TAG, "NSD Service found: ${serviceInfo?.serviceName}")
-                if (serviceInfo?.serviceType?.contains("_tether") == true || serviceInfo?.serviceName?.contains("Tether") == true) {
+                if ((serviceInfo?.serviceType?.contains("_tether") == true) || (serviceInfo?.serviceName?.contains("Tether") == true)) {
                     try {
                         nsdManager?.resolveService(
                             serviceInfo,
