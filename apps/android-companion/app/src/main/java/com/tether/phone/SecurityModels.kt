@@ -10,6 +10,15 @@ enum class TrustVerificationStep {
     BIOMETRIC_FINGERPRINT
 }
 
+enum class TrustState {
+    UNPAIRED,
+    PAIRING_REQUESTED,
+    PAIRED,
+    REPAIRING,
+    PAIRING_DENIED,
+    KEY_MISMATCH
+}
+
 enum class AppScreen {
     TELEMETRY_DASHBOARD,
     SECURITY_SETTINGS,
