@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
+import androidx.core.content.edit
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.KeyStore
@@ -62,11 +63,11 @@ class ProductionSecurityEngine {
         if (!keyStore.containsAlias(STORAGE_KEY_ALIAS)) {
             val keyGenerator = KeyGenerator.getInstance(
                 KeyProperties.KEY_ALGORITHM_AES,
-                ANDROID_KEYSTORE
+                ANDROID_KEYSTORE,
             )
             val parameterSpec = KeyGenParameterSpec.Builder(
                 STORAGE_KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
@@ -96,7 +97,7 @@ class ProductionSecurityEngine {
 
             val encodedStr = Base64.encodeToString(combined, Base64.NO_WRAP)
             val prefs = context.getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
-            prefs.edit().putString("pinned_windows_public_key_enc", encodedStr).apply()
+            prefs.edit { putString("pinned_windows_public_key_enc", encodedStr) }
             Log.i("TetherSecurity", "Public key encrypted with hardware AES key and persisted successfully.")
         } catch (e: Exception) {
             Log.e("TetherSecurity", "Failed to encrypt and store public key securely: ${e.message}", e)
@@ -142,7 +143,7 @@ class ProductionSecurityEngine {
             "SHA-1",
             "MGF1",
             MGF1ParameterSpec.SHA1,
-            PSource.PSpecified.DEFAULT
+            PSource.PSpecified.DEFAULT,
         )
 
         cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepSpec)
@@ -164,10 +165,10 @@ class ProductionSecurityEngine {
             sig.initVerify(publicKey)
             sig.update(data)
             val result = sig.verify(signature)
-            android.util.Log.d("TetherSecurity", "Signature verification result: $result")
+            Log.d("TetherSecurity", "Signature verification result: $result")
             result
         } catch (e: Exception) {
-            android.util.Log.e("TetherSecurity", "Signature verification error: ${e.message}", e)
+            Log.e("TetherSecurity", "Signature verification error: ${e.message}", e)
             false
         }
     }

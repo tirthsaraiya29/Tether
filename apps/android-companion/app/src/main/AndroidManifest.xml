@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://tools.android.com/tools"
+    tools:ignore="ForegroundServiceType,FgsTypeCheck,ForegroundServicePermission"
     package="com.tether.phone">
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -18,12 +19,14 @@
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:ignore="ForegroundServices,ForegroundServiceType,ForegroundServicePermission,FgsTypeCheck" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="Tether"
         android:theme="@style/Theme.AppCompat.Light"
@@ -46,7 +49,11 @@
             android:name=".TetherLanService"
             android:exported="false"
             android:directBootAware="true"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="connectedDevice">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Tether continuous local Wi-Fi / LAN connection with paired Windows host" />
+        </service>
 
         <receiver
             android:name=".TetherServiceReceiver"

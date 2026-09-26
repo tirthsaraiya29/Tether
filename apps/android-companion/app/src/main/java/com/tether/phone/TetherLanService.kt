@@ -28,6 +28,7 @@ import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.edit
 import org.json.JSONObject
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -54,7 +55,6 @@ enum class TransportState {
     AUTHENTICATING,
     AUTHENTICATED,
     READY,
-    RECONNECTING,
     FAILED,
     HOTSPOT_UNSUPPORTED
 }
@@ -63,11 +63,12 @@ class TetherLanService : Service() {
 
     companion object {
         const val TAG = "TetherLanService"
-        const val SERVICE_TYPE = "_tether._tcp."
+        const val SERVICE_TYPE = "_tether._tcp"
         const val DEFAULT_PORT = 37123
 
         const val ACTION_LAN_STATE_CHANGED = "com.tether.phone.ACTION_GATT_STATE_CHANGED"
         const val ACTION_COMMAND_CONFIRMED = "com.tether.phone.ACTION_COMMAND_CONFIRMED"
+        const val ACTION_CONNECT_DIRECT = "com.tether.phone.ACTION_CONNECT_DIRECT"
         const val EXTRA_CONNECTION_COUNT = "extra_connection_count"
         const val EXTRA_TRANSPORT_STATE = "extra_transport_state"
 
@@ -106,6 +107,7 @@ class TetherLanService : Service() {
 
     private var nsdManager: NsdManager? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     private var activeSocket: Socket? = null
     private var dataInputStream: DataInputStream? = null
@@ -140,7 +142,7 @@ class TetherLanService : Service() {
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIFICATION_ID, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                startForeground(NOTIFICATION_ID, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
             } else {
                 startForeground(NOTIFICATION_ID, createNotification())
             }
@@ -172,7 +174,7 @@ class TetherLanService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIFICATION_ID, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                startForeground(NOTIFICATION_ID, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
             } else {
                 startForeground(NOTIFICATION_ID, createNotification())
             }
@@ -193,7 +195,7 @@ class TetherLanService : Service() {
             }
             "ACTION_GET_STATUS" -> {
                 notifyStateToInterface()
-                if (currentState == TransportState.DISCONNECTED || currentState == TransportState.FAILED) {
+                if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED)) {
                     startLanDiscovery()
                 }
                 return START_STICKY
@@ -201,6 +203,19 @@ class TetherLanService : Service() {
             ACTION_RESTART_SERVER -> {
                 Log.w(TAG, "Manual server/transport restart requested")
                 restartLanTransport()
+                return START_STICKY
+            }
+            ACTION_CONNECT_DIRECT -> {
+                val targetIp = intent.getStringExtra("target_ip")
+                if (!targetIp.isNullOrBlank()) {
+                    Log.i(TAG, "Direct target connection requested: $targetIp")
+                    getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
+                        putString("saved_host_ip", targetIp)
+                    }
+                    onHostDiscovered(targetIp, DEFAULT_PORT)
+                } else {
+                    restartLanTransport()
+                }
                 return START_STICKY
             }
             null -> {
@@ -295,6 +310,32 @@ class TetherLanService : Service() {
         }
     }
 
+    private fun acquireMulticastLock() {
+        if (multicastLock == null) {
+            val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+            multicastLock = wifiManager.createMulticastLock("TetherLanMulticastLock").apply {
+                setReferenceCounted(false)
+            }
+        }
+        if (multicastLock?.isHeld == false) {
+            try {
+                multicastLock?.acquire()
+                Log.i(TAG, "MulticastLock acquired for Wi-Fi LAN mDNS/UDP discovery.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed acquiring MulticastLock: ${e.message}")
+            }
+        }
+    }
+
+    private fun releaseMulticastLock() {
+        if (multicastLock?.isHeld == true) {
+            try {
+                multicastLock?.release()
+                Log.i(TAG, "MulticastLock released.")
+            } catch (_: Exception) {}
+        }
+    }
+
     // LAN Discovery (NSD + UDP Broadcast)
     @Synchronized
     private fun startLanDiscovery() {
@@ -307,12 +348,20 @@ class TetherLanService : Service() {
             return
         }
 
-        if (currentState == TransportState.AUTHENTICATED || currentState == TransportState.READY || currentState == TransportState.CONNECTING) {
+        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING)) {
             return
         }
 
+        acquireMulticastLock()
+
         currentState = TransportState.DISCOVERING
         stopLanDiscovery()
+
+        val savedHostIp = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).getString("saved_host_ip", null)
+        if (!savedHostIp.isNullOrBlank()) {
+            Log.i(TAG, "Attempting connection to saved target host IP: $savedHostIp")
+            onHostDiscovered(savedHostIp, DEFAULT_PORT)
+        }
 
         nsdManager = getSystemService(NSD_SERVICE) as NsdManager
 
@@ -334,24 +383,28 @@ class TetherLanService : Service() {
                 Log.i(TAG, "NSD Discovery stopped")
             }
 
+            @Suppress("DEPRECATION")
             override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
                 Log.i(TAG, "NSD Service found: ${serviceInfo?.serviceName}")
                 if (serviceInfo?.serviceType?.contains("_tether") == true || serviceInfo?.serviceName?.contains("Tether") == true) {
                     try {
-                        nsdManager?.resolveService(serviceInfo, object : NsdManager.ResolveListener {
-                            override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
-                                Log.e(TAG, "NSD Resolve failed with code $errorCode")
-                            }
-
-                            override fun onServiceResolved(serviceInfo: NsdServiceInfo?) {
-                                val host = serviceInfo?.host?.hostAddress
-                                val port = serviceInfo?.port ?: DEFAULT_PORT
-                                if (host != null) {
-                                    Log.i(TAG, "NSD Resolved host: $host:$port")
-                                    onHostDiscovered(host, port)
+                        nsdManager?.resolveService(
+                            serviceInfo,
+                            object : NsdManager.ResolveListener {
+                                override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
+                                    Log.e(TAG, "NSD Resolve failed with code $errorCode")
                                 }
-                            }
-                        })
+
+                                override fun onServiceResolved(serviceInfo: NsdServiceInfo?) {
+                                    val host = serviceInfo?.host?.hostAddress
+                                    val port = serviceInfo?.port ?: DEFAULT_PORT
+                                    if (host != null) {
+                                        Log.i(TAG, "NSD Resolved host: $host:$port")
+                                        onHostDiscovered(host, port)
+                                    }
+                                }
+                            },
+                        )
                     } catch (e: Exception) {
                         Log.e(TAG, "Error resolving NSD service: ${e.message}")
                     }
@@ -420,7 +473,7 @@ class TetherLanService : Service() {
                         val respStr = String(recvPacket.data, 0, recvPacket.length, StandardCharsets.UTF_8)
                         val json = JSONObject(respStr)
                         if (json.optString("type") == "TETHER_DISCOVER_RESP") {
-                            val hostIp = recvPacket.address.hostAddress
+                            val hostIp = recvPacket.address?.hostAddress ?: return@execute
                             val hostPort = json.optInt("port", DEFAULT_PORT)
                             Log.i(TAG, "Discovered Tether Windows host via UDP broadcast: $hostIp:$hostPort")
                             isUdpDiscovering = false
@@ -769,6 +822,7 @@ class TetherLanService : Service() {
         val intent = Intent(ACTION_LAN_STATE_CHANGED).apply {
             putExtra(EXTRA_CONNECTION_COUNT, count)
             putExtra(EXTRA_TRANSPORT_STATE, currentState.name)
+            putExtra("extra_host_address", connectedHostAddress ?: "")
             setPackage(packageName)
         }
         sendBroadcast(intent)
@@ -785,19 +839,11 @@ class TetherLanService : Service() {
         )
         alarmPendingIntent = pendingIntent
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarmManager?.setAndAllowWhileIdle(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + HEALTH_CHECK_INTERVAL_MS,
-                pendingIntent
-            )
-        } else {
-            alarmManager?.set(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + HEALTH_CHECK_INTERVAL_MS,
-                pendingIntent
-            )
-        }
+        alarmManager?.setAndAllowWhileIdle(
+            AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            SystemClock.elapsedRealtime() + HEALTH_CHECK_INTERVAL_MS,
+            pendingIntent
+        )
     }
 
     private fun cancelAlarm() {
@@ -831,6 +877,7 @@ class TetherLanService : Service() {
 
         cancelAlarm()
         stopLanDiscovery()
+        releaseMulticastLock()
         disconnectActiveSession("Service destroyed")
 
         wakeLock?.let { if (it.isHeld) it.release() }
