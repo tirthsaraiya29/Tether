@@ -16,7 +16,14 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.NetworkInfo
+import android.net.NetworkRequest
+import android.net.wifi.WifiConfiguration
+import android.net.wifi.WifiManager
+import android.net.wifi.WifiNetworkSpecifier
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pInfo
@@ -72,6 +79,7 @@ class TetherLanService : Service() {
         const val ACTION_LAN_STATE_CHANGED = "com.tether.phone.ACTION_GATT_STATE_CHANGED"
         const val ACTION_COMMAND_CONFIRMED = "com.tether.phone.ACTION_COMMAND_CONFIRMED"
         const val ACTION_CONNECT_DIRECT = "com.tether.phone.ACTION_CONNECT_DIRECT"
+        const val ACTION_CONNECT_WIFI_DIRECT = "com.tether.phone.ACTION_CONNECT_WIFI_DIRECT"
         const val ACTION_INITIATE_PAIRING = "com.tether.phone.ACTION_INITIATE_PAIRING"
         const val ACTION_CANCEL_PAIRING = "com.tether.phone.ACTION_CANCEL_PAIRING"
         const val ACTION_FORGET_TRUST = "com.tether.phone.ACTION_FORGET_TRUST"
@@ -124,6 +132,9 @@ class TetherLanService : Service() {
     private var connectedHostPort: Int = DEFAULT_PORT
 
     // Wi-Fi Direct (Wi-Fi P2P) components
+    private lateinit var connectivityManager: ConnectivityManager
+    private var softApNetworkCallback: ConnectivityManager.NetworkCallback? = null
+
     private var wifiP2pManager: WifiP2pManager? = null
     private var p2pChannel: WifiP2pManager.Channel? = null
     private var p2pReceiver: BroadcastReceiver? = null
@@ -190,6 +201,7 @@ class TetherLanService : Service() {
 
         registerReceiver(powerSaveReceiver, IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED))
 
+        connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         setupWifiP2p()
         scheduleAlarmForHealthCheck()
     }
@@ -239,6 +251,26 @@ class TetherLanService : Service() {
                 } else {
                     restartP2pTransport()
                 }
+                return START_STICKY
+            }
+            ACTION_CONNECT_WIFI_DIRECT -> {
+                val ssid = intent.getStringExtra("ssid")
+                val pass = intent.getStringExtra("passphrase")
+                val ip   = intent.getStringExtra("target_ip")
+
+                if (ssid.isNullOrBlank() || pass.isNullOrBlank() || ip.isNullOrBlank()) {
+                    Log.e(TAG, "ACTION_CONNECT_WIFI_DIRECT missing ssid/passphrase/ip")
+                    return START_STICKY
+                }
+
+                getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
+                    putString("softap_ssid", ssid)
+                    putString("softap_pass", pass)
+                    putString("saved_host_ip", ip)
+                }
+
+                Log.i(TAG, "Auto-joining SoftAP '$ssid' then connecting to $ip")
+                joinSoftApAndConnect(ssid, pass, ip)
                 return START_STICKY
             }
             ACTION_INITIATE_PAIRING -> {
@@ -494,6 +526,76 @@ class TetherLanService : Service() {
                 setupSocketAndStartHandshake(socket)
             } catch (e: Exception) {
                 Log.e(TAG, "ServerSocket error: ${e.message}")
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun joinSoftApAndConnect(ssid: String, passphrase: String, hostIp: String) {
+        networkExecutor.execute {
+            try {
+                val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val specifier = WifiNetworkSpecifier.Builder()
+                        .setSsid(ssid)
+                        .setWpa2Passphrase(passphrase)
+                        .build()
+
+                    val request = NetworkRequest.Builder()
+                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                        .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .setNetworkSpecifier(specifier)
+                        .build()
+
+                    val callback = object : ConnectivityManager.NetworkCallback() {
+                        override fun onAvailable(network: Network) {
+                            Log.i(TAG, "SoftAP network available — proceeding to TCP connect")
+                            runCatching {
+                                connectivityManager.bindProcessToNetwork(network)
+                            }
+                            connectToTcpHost(hostIp)
+                        }
+
+                        override fun onUnavailable() {
+                            Log.w(TAG, "SoftAP join unavailable (wrong password or AP down)")
+                            currentState = TransportState.FAILED
+                        }
+
+                        override fun onLost(network: Network) {
+                            Log.w(TAG, "SoftAP network lost")
+                            disconnectActiveSession("SoftAP lost")
+                        }
+                    }
+
+                    softApNetworkCallback = callback
+                    connectivityManager.requestNetwork(request, callback, 30_000)
+                } else {
+                    @Suppress("DEPRECATION")
+                    val config = WifiConfiguration().apply {
+                        SSID = "\"$ssid\""
+                        preSharedKey = "\"$passphrase\""
+                    }
+                    @Suppress("DEPRECATION")
+                    val netId = wifiManager.addNetwork(config)
+                    if (netId < 0) {
+                        Log.e(TAG, "Legacy addNetwork failed")
+                        currentState = TransportState.FAILED
+                        return@execute
+                    }
+                    @Suppress("DEPRECATION")
+                    wifiManager.disconnect()
+                    @Suppress("DEPRECATION")
+                    wifiManager.enableNetwork(netId, true)
+                    @Suppress("DEPRECATION")
+                    wifiManager.reconnect()
+
+                    Thread.sleep(2500)
+                    connectToTcpHost(hostIp)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "joinSoftApAndConnect failed: ${e.message}", e)
+                currentState = TransportState.FAILED
             }
         }
     }
@@ -874,6 +976,11 @@ class TetherLanService : Service() {
     override fun onDestroy() {
         try { unregisterReceiver(powerSaveReceiver) } catch (_: Exception) {}
         try { p2pReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
+
+        softApNetworkCallback?.let {
+            try { connectivityManager.unregisterNetworkCallback(it) } catch (_: Exception) {}
+        }
+        softApNetworkCallback = null
 
         try {
             p2pChannel?.close()
