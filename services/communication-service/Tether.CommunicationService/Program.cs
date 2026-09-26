@@ -30,6 +30,13 @@ namespace Tether.CommunicationService
                         return new InMemoryEventBus(logger);
                     });
 
+                    // ── TOFU PAIRING ──────────────────────────────────────────
+                    // Owns the pending-pairing state so it can be unit-tested in
+                    // isolation from sockets. Injected into LanTransportServer,
+                    // which remains the cryptographic authority.
+                    services.AddSingleton<PairingCoordinator>();
+                    // ──────────────────────────────────────────────────────────
+
                     services.AddSingleton<TrustStateManager>();
                     services.AddSingleton<EnforcementManager>();
                     services.AddSingleton<PanicManager>();

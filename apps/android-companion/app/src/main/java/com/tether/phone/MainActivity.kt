@@ -155,9 +155,9 @@ class MainActivity : FragmentActivity() {
                                 uiStatusColor.value = IntegrityGreen
                                 uiConnectionStatusText.value = getString(R.string.status_secure_nodes, count)
                             } else if (stateName == "HOTSPOT_UNSUPPORTED") {
-                                uiStatusText.value = "HOTSPOT UNSUPPORTED"
+                                uiStatusText.value = "WI-FI P2P DISABLED"
                                 uiStatusColor.value = AlertRed
-                                uiConnectionStatusText.value = "CONNECT PHONE & WINDOWS TO SAME WI-FI"
+                                uiConnectionStatusText.value = "ENABLE WI-FI DIRECT / P2P TO CONNECT"
                             } else {
                                 if (!isPanicActive.value) {
                                     uiStatusText.value = getString(R.string.status_broadcasting)
@@ -355,8 +355,9 @@ class MainActivity : FragmentActivity() {
                                         triggerLanAction(action.command)
                                         pendingPowerAction.value = null
                                     },
-                                    onDismiss = { pendingPowerAction.value = null },
-                                )
+                                ) {
+                                    pendingPowerAction.value = null
+                                }
                             }
 
                             AnimatedVisibility(
@@ -364,11 +365,9 @@ class MainActivity : FragmentActivity() {
                                 enter = fadeIn(animationSpec = tween(800, easing = TetherEase)),
                                 exit = fadeOut(animationSpec = tween(800, easing = TetherEase)),
                             ) {
-                                FuturisticLockOverlay(
-                                    onAuthorizeRequested = {
-                                        authenticateForAppUnlock()
-                                    },
-                                )
+                                FuturisticLockOverlay {
+                                    authenticateForAppUnlock()
+                                }
                             }
 
                             AnimatedVisibility(
@@ -380,8 +379,9 @@ class MainActivity : FragmentActivity() {
                                     CommandConfirmationDialog(
                                         command = command,
                                         isConfirmed = isCommandConfirmed.value,
-                                        onDismiss = { activePendingCommand.value = null },
-                                    )
+                                    ) {
+                                        activePendingCommand.value = null
+                                    }
                                 }
                             }
                         }
@@ -712,8 +712,8 @@ class MainActivity : FragmentActivity() {
             }
 
             AlertDialog.Builder(this)
-                .setTitle("Wi-Fi / LAN Target Host")
-                .setMessage("Tether auto-discovers Windows hosts on local Wi-Fi.\n\nIf auto-discovery is blocked by router or firewall, enter your Windows PC IP address below:")
+                .setTitle("Wi-Fi Direct Target Host")
+                .setMessage("Tether auto-discovers Windows hosts via Wi-Fi Direct (P2P).\n\nIf auto-discovery is blocked or target IP is fixed, enter your Windows PC IP address below:")
                 .setView(input)
                 .setPositiveButton("CONNECT TO IP") { _, _ ->
                     val enteredIp = input.text.toString().trim()
@@ -759,6 +759,7 @@ class MainActivity : FragmentActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             required.add(Manifest.permission.POST_NOTIFICATIONS)
+            required.add(Manifest.permission.NEARBY_WIFI_DEVICES)
         }
         return required.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
@@ -783,6 +784,7 @@ class MainActivity : FragmentActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             required.add(Manifest.permission.POST_NOTIFICATIONS)
+            required.add(Manifest.permission.NEARBY_WIFI_DEVICES)
         }
         ActivityCompat.requestPermissions(this, required.toTypedArray(), requestPermissionsCode)
     }

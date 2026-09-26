@@ -19,7 +19,10 @@
         AUTH_SUCCESS,
         AUTH_FAILURE,
         LOCK_WORKSTATION,
-        PROVISION_PHONE
+        PROVISION_PHONE,
+        PAIRING_REQUESTED,
+        PAIRING_DECISION,
+        FORGET_PHONE
     }
 
     public class TetherEvent
