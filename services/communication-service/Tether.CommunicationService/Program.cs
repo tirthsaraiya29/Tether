@@ -1,56 +1,45 @@
-using System;
-using System.Threading.Tasks;
+// services/communication-service/Tether.CommunicationService/Program.cs
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using System.Security.Principal;
 using Tether.CommunicationService;
+using Tether.CommunicationService.Discovery;
+using Tether.CommunicationService.Security;
+using Tether.CommunicationService.Transport;
+using Tether.CommunicationService.Trust;
 using Tether.EnforcementEngine;
 using Tether.EventBus;
 using Tether.PanicEngine;
 using Tether.RecoveryEngine;
+using Tether.Shared.Constants;
 using Tether.Shared.Logging;
 using Tether.TrustEngine;
 
-namespace Tether.CommunicationService
-{
-    public class Program
+var host = Host.CreateDefaultBuilder(args)
+    .UseWindowsService(options => { options.ServiceName = "TetherCommService"; })
+    .ConfigureServices((ctx, services) =>
     {
-        public static async Task Main(string[] args)
-        {
-            var host = Host.CreateDefaultBuilder(args)
-                .UseWindowsService(options =>
-                {
-                    options.ServiceName = "TetherCommService";
-                })
-                .ConfigureServices((hostContext, services) =>
-                {
-                    services.AddSingleton<ITetherLogger, SerilogTetherLogger>();
-                    services.AddSingleton<IEventBus>(sp =>
-                    {
-                        var logger = sp.GetRequiredService<ITetherLogger>();
-                        return new InMemoryEventBus(logger);
-                    });
+        services.AddSingleton<ITetherLogger, SerilogTetherLogger>();
+        services.AddSingleton<IEventBus>(sp =>
+            new InMemoryEventBus(sp.GetRequiredService<ITetherLogger>()));
 
-                    // ── TOFU PAIRING ──────────────────────────────────────────
-                    services.AddSingleton<PairingCoordinator>();
-                    // ──────────────────────────────────────────────────────────
+        // --- Windows connection stack ---
+        services.AddSingleton<WindowsIdentity>();
+        services.AddSingleton<TrustStore>();
+        services.AddSingleton<PairingCoordinator>();
+        services.AddSingleton<MdnsAdvertiser>();
+        services.AddSingleton<TetherTcpServer>();
 
-                    services.AddSingleton<TrustStateManager>();
-                    services.AddSingleton<EnforcementManager>();
-                    services.AddSingleton<PanicManager>();
-                    services.AddSingleton<RecoveryManager>();
+        // --- Engines (untouched) ---
+        services.AddSingleton<TrustStateManager>();
+        services.AddSingleton<EnforcementManager>();
+        services.AddSingleton<PanicManager>();
+        services.AddSingleton<RecoveryManager>();
 
-                    // ── TRANSPORT: Wi-Fi Direct replaces LAN ──────────────────
-                    services.AddSingleton<WiFiDirectTransportServer>();
-                    // ──────────────────────────────────────────────────────────
+        // --- IPC + worker ---
+        services.AddSingleton<PipeServer>();
+        services.AddHostedService<Worker>();
+    })
+    .Build();
 
-                    services.AddSingleton<PipeServer>();
-                    services.AddHostedService<Worker>();
-                })
-                .Build();
-
-            // DO NOT PUT CUSTOM INITIALIZATION HERE.
-            // RunAsync() must be hit immediately to avoid Error 1053.
-            await host.RunAsync();
-        }
-    }
-}
+await host.RunAsync();

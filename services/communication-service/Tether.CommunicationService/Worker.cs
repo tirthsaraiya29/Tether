@@ -1,96 +1,81 @@
+// services/communication-service/Tether.CommunicationService/Worker.cs
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
-using System.Text.Json;
+using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
+using Tether.CommunicationService.Discovery;
+using Tether.CommunicationService.Security;
+using Tether.CommunicationService.Transport;
 using Tether.EnforcementEngine;
 using Tether.EventBus;
 using Tether.PanicEngine;
 using Tether.RecoveryEngine;
-using Tether.Shared.DTO;
-using Tether.Shared.Events;
 using Tether.Shared.Logging;
 using Tether.TrustEngine;
 
-namespace Tether.CommunicationService
+namespace Tether.CommunicationService;
+
+public sealed class Worker : BackgroundService
 {
-    public class Worker : BackgroundService
+    private const string AdvertisedCaps = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED";
+
+    private readonly ILogger<Worker> _logger;
+    private readonly ITetherLogger _tetherLogger;
+    private readonly PipeServer _pipeServer;
+    private readonly TetherTcpServer _tcpServer;
+    private readonly MdnsAdvertiser _mdns;
+    private readonly WindowsIdentity _identity;
+
+    public Worker(
+        ILogger<Worker> logger,
+        ITetherLogger tetherLogger,
+        PipeServer pipeServer,
+        TetherTcpServer tcpServer,
+        MdnsAdvertiser mdns,
+        WindowsIdentity identity,
+        TrustStateManager trustStateManager,
+        EnforcementManager enforcementManager,
+        PanicManager panicManager,
+        RecoveryManager recoveryManager)
     {
-        private readonly ILogger<Worker> _logger;
-        private readonly ITetherLogger _tetherLogger;
-        private readonly IEventBus _eventBus;
-        private readonly PipeServer _pipeServer;
-        private readonly WiFiDirectTransportServer _wifiDirectServer;  // ← Wi-Fi Direct
+        _logger = logger;
+        _tetherLogger = tetherLogger;
+        _pipeServer = pipeServer;
+        _tcpServer = tcpServer;
+        _mdns = mdns;
+        _identity = identity;
+        // Engine singletons are resolved so they initialize; not otherwise referenced here.
+        _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager;
+    }
 
-        private readonly TrustStateManager _trustStateManager;
-        private readonly EnforcementManager _enforcementManager;
-        private readonly PanicManager _panicManager;
-        private readonly RecoveryManager _recoveryManager;
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _tetherLogger.Info("Tether Communication Service starting (mDNS + TLS 1.3 transport).");
+        _logger.LogInformation("Tether Communication Service running at {Time}", DateTimeOffset.Now);
 
-        public Worker(
-            ILogger<Worker> logger,
-            ITetherLogger tetherLogger,
-            IEventBus eventBus,
-            PipeServer pipeServer,
-            WiFiDirectTransportServer wifiDirectServer,   // ← Wi-Fi Direct
-            TrustStateManager trustStateManager,
-            EnforcementManager enforcementManager,
-            PanicManager panicManager,
-            RecoveryManager recoveryManager)
-        {
-            _logger = logger;
-            _tetherLogger = tetherLogger;
-            _eventBus = eventBus;
-            _pipeServer = pipeServer;
-            _wifiDirectServer = wifiDirectServer;
-            _trustStateManager = trustStateManager;
-            _enforcementManager = enforcementManager;
-            _panicManager = panicManager;
-            _recoveryManager = recoveryManager;
-        }
+        _pipeServer.Start();
+        _tcpServer.Start();
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-        {
-            _tetherLogger.Info("Worker starting: Initializing background engines (Wi-Fi Direct transport).");
-            _logger.LogInformation("Tether Communication Service running at: {time}", DateTimeOffset.Now);
+        _mdns.Start(
+            port: TetherTcpServer.ListenPort,
+            id: _identity.DeviceId,
+            name: _identity.DeviceName,
+            caps: AdvertisedCaps,
+            pqc: false);
 
-            _pipeServer.Start();
-            _wifiDirectServer.Start();   // ← starts advertisement + listener
+        _tetherLogger.Info($"Transport up. DeviceId={_identity.DeviceId}");
 
-            // Provisioning from the local UI pipe
-            _eventBus.Subscribe(evt =>
-            {
-                if (evt.EventType == TetherEventType.PROVISION_PHONE && !string.IsNullOrEmpty(evt.PayloadJson))
-                {
-                    try
-                    {
-                        var payload = JsonSerializer.Deserialize<ProvisionPayload>(evt.PayloadJson);
-                        if (payload != null && !string.IsNullOrEmpty(payload.PublicKeyBase64))
-                            _wifiDirectServer.ProvisionPhone(payload.PublicKeyBase64);
-                    }
-                    catch (Exception ex)
-                    {
-                        _tetherLogger.Error($"Provisioning failed: {ex.Message}");
-                    }
-                }
-            });
+        return Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_ => { }, TaskScheduler.Default);
+    }
 
-            _tetherLogger.Info("Wi-Fi Direct transport and named pipe server initialized successfully.");
-
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                await Task.Delay(30000, stoppingToken);
-                _tetherLogger.Debug("Service heartbeat - alive and listening for Wi-Fi Direct and IPC events");
-            }
-        }
-
-        public override async Task StopAsync(CancellationToken cancellationToken)
-        {
-            _tetherLogger.Info("Tether Communication Service is stopping");
-            _pipeServer?.Dispose();
-            _wifiDirectServer?.Stop();
-            await base.StopAsync(cancellationToken);
-        }
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _tetherLogger.Info("Tether Communication Service is stopping.");
+        _mdns.Stop();
+        _tcpServer.Stop();
+        _pipeServer.Dispose();
+        await base.StopAsync(cancellationToken);
     }
 }
