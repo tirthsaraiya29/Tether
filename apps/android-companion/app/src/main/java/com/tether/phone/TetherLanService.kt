@@ -174,6 +174,9 @@ class TetherLanService : Service() {
             return
         }
 
+        val pinnedKey = securityEngine.getPinnedKeyDecrypted(this)
+        trustState = if (pinnedKey != null) TrustState.PAIRED else TrustState.UNPAIRED
+
         powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
         try {
@@ -231,6 +234,27 @@ class TetherLanService : Service() {
                 } else {
                     restartLanTransport()
                 }
+                return START_STICKY
+            }
+            ACTION_INITIATE_PAIRING -> {
+                Log.i(TAG, "Explicit pairing requested by user.")
+                trustState = TrustState.PAIRING_REQUESTED
+                restartLanTransport()
+                return START_STICKY
+            }
+            ACTION_CANCEL_PAIRING -> {
+                Log.i(TAG, "Pairing request cancelled by user.")
+                if (trustState == TrustState.PAIRING_REQUESTED) {
+                    trustState = TrustState.UNPAIRED
+                }
+                disconnectActiveSession("Pairing cancelled by user")
+                return START_STICKY
+            }
+            ACTION_FORGET_TRUST -> {
+                Log.i(TAG, "Forget Windows trust requested by user.")
+                securityEngine.clearPinnedKey(this)
+                trustState = TrustState.REPAIRING
+                disconnectActiveSession("Trust cleared by user")
                 return START_STICKY
             }
             null -> {
@@ -572,12 +596,18 @@ class TetherLanService : Service() {
 
             val phonePublicKeyBase64 = Base64.encodeToString(securityEngine.getPublicKeyBytes(), Base64.NO_WRAP)
 
+            val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(this)
+
+            val isPairingReq = (pinnedKeyBytes == null && (trustState == TrustState.PAIRING_REQUESTED || trustState == TrustState.REPAIRING))
+
             val handshakeReq = JSONObject().apply {
                 put("type", "INIT_HANDSHAKE")
                 put("phonePublicKey", phonePublicKeyBase64)
                 put("phoneNonce", phoneNonceBase64)
+                put("pairingRequest", isPairingReq)
             }
 
+            Log.i(TAG, "Sending INIT_HANDSHAKE (pairingRequest=$isPairingReq)...")
             sendRawFrame(handshakeReq.toString())
 
             // Read Response
@@ -592,46 +622,51 @@ class TetherLanService : Service() {
             val winPubKeyBase64 = respJson.getString("windowsPublicKey")
             val winNonceBase64 = respJson.getString("windowsNonce")
             val winSigBase64 = respJson.getString("signature")
+            val pairingAccepted = respJson.optBoolean("pairingAccepted", false)
 
             val winPubKeyBytes = Base64.decode(winPubKeyBase64, Base64.NO_WRAP)
             val winSigBytes = Base64.decode(winSigBase64, Base64.NO_WRAP)
             val winNonceBytes = Base64.decode(winNonceBase64, Base64.NO_WRAP)
 
-            // Verify Windows Host Public Key against pinned key
-            val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(this)
-            val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
-            val pairingTimestamp = prefs.getLong("pairing_window_start_time", 0L)
-            val isPairingWindowOpen = (System.currentTimeMillis() - pairingTimestamp) < 120000
-
-            val isKeyTrusted = if (pinnedKeyBytes != null) {
-                winPubKeyBytes.contentEquals(pinnedKeyBytes)
-            } else {
-                isPairingWindowOpen
-            }
-
-            if (!isKeyTrusted) {
-                throw SecurityException("Windows Host Public Key untrusted and pairing window closed.")
-            }
-
-            // Verify Windows Signature over (phoneNonce + winNonce)
+            // Step 1: Verify Windows Host Signature over (phoneNonce + winNonce)
             val dataToVerify = phoneNonceBytes + winNonceBytes
             val sigValid = securityEngine.verifySignature(dataToVerify, winSigBytes, winPubKeyBytes)
             if (!sigValid) {
                 throw SecurityException("Windows Host signature verification failed.")
             }
 
-            // Decrypt Session Key using RSA Private Key
+            // Step 2: Decrypt Session Key using RSA Private Key in AndroidKeyStore
             val encSessionKeyBytes = Base64.decode(encSessionKeyBase64, Base64.NO_WRAP)
             val decryptedSessionKey = securityEngine.decryptSessionKey(encSessionKeyBytes)
-            this.sessionKey = decryptedSessionKey
 
-            // Pin Windows Public Key if new pairing
-            if (pinnedKeyBytes == null) {
-                Log.i(TAG, "Pairing successful. Storing pinned Windows public key securely in Keystore.")
+            // Step 3: Enforce Trust and Key Pinning
+            if (pinnedKeyBytes != null) {
+                // Already paired: Windows public key MUST match pinned key!
+                if (!winPubKeyBytes.contentEquals(pinnedKeyBytes)) {
+                    trustState = TrustState.KEY_MISMATCH
+                    val presentedFp = securityEngine.computePublicKeyFingerprint(winPubKeyBytes)
+                    val pinnedFp = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
+                    Log.e(TAG, "SECURITY ALERT: Windows host key mismatch! Presented: $presentedFp, Pinned: $pinnedFp")
+                    throw SecurityException("Windows Host Public Key mismatch against pinned identity. Failing closed.")
+                }
+                trustState = TrustState.PAIRED
+            } else {
+                // First pairing: Windows response must explicitly contain pairingAccepted: true
+                if (!pairingAccepted) {
+                    trustState = TrustState.PAIRING_DENIED
+                    Log.w(TAG, "Pairing request was denied or rejected by Windows host.")
+                    throw SecurityException("Pairing rejected by Windows host (pairingAccepted=false).")
+                }
+
+                // Pairing accepted & cryptographically verified -> Pin Windows Public Key
+                Log.i(TAG, "First pairing accepted by Windows and cryptographically verified. Pinning Windows public key.")
                 securityEngine.storePinnedKeySecurely(this, winPubKeyBytes)
+                trustState = TrustState.PAIRED
             }
 
-            // Send AUTH_CONFIRM frame
+            this.sessionKey = decryptedSessionKey
+
+            // Step 4: Send AUTH_CONFIRM frame
             val authConfirmData = winNonceBytes + decryptedSessionKey
             val confirmSig = securityEngine.computeHmac(authConfirmData, decryptedSessionKey)
             val authConfirmReq = JSONObject().apply {
@@ -653,7 +688,9 @@ class TetherLanService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Handshake failed: ${e.message}", e)
             disconnectActiveSession("Handshake failed: ${e.message}")
-            currentState = TransportState.FAILED
+            if (trustState != TrustState.KEY_MISMATCH && trustState != TrustState.PAIRING_DENIED) {
+                currentState = TransportState.FAILED
+            }
             mainHandler.postDelayed({
                 if (isConnectedToInfrastructureWifi()) startLanDiscovery()
             }, 5000)
@@ -847,9 +884,18 @@ class TetherLanService : Service() {
         val isConn = (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED)
         val count = if (isConn) 1 else 0
 
+        val phoneKeyBytes = securityEngine.getPublicKeyBytes()
+        val phoneFp = securityEngine.computePublicKeyFingerprint(phoneKeyBytes)
+
+        val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(this)
+        val winFp = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
+
         val intent = Intent(ACTION_LAN_STATE_CHANGED).apply {
             putExtra(EXTRA_CONNECTION_COUNT, count)
             putExtra(EXTRA_TRANSPORT_STATE, currentState.name)
+            putExtra(EXTRA_TRUST_STATE, trustState.name)
+            putExtra(EXTRA_PHONE_FINGERPRINT, phoneFp)
+            putExtra(EXTRA_WINDOWS_FINGERPRINT, winFp)
             putExtra("extra_host_address", connectedHostAddress ?: "")
             setPackage(packageName)
         }

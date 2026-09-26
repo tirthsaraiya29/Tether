@@ -140,4 +140,15 @@
     <string name="tier_elevated_risk">ELEVATED RISK</string>
     <string name="tier_restricted">LOCKDOWN ACTIVE</string>
     <string name="label_unknown">UNKNOWN</string>
+
+    <string name="label_phone_fingerprint">PHONE PUBLIC KEY FINGERPRINT</string>
+    <string name="label_windows_fingerprint">PINNED WINDOWS FINGERPRINT</string>
+    <string name="label_initiate_pairing">INITIATE PAIRING</string>
+    <string name="label_cancel_pairing">CANCEL PAIRING</string>
+    <string name="label_forget_trust">FORGET WINDOWS PC / RE-PAIR</string>
+    <string name="desc_unpaired_status">No Windows PC paired. Initiate pairing to connect.</string>
+    <string name="desc_pairing_requested_status">Pairing request sent. Please approve on your Windows PC.</string>
+    <string name="desc_paired_status">Pinned Windows PC cryptographically verified.</string>
+    <string name="desc_key_mismatch_status">SECURITY ALERT: Windows host key mismatch!</string>
+    <string name="desc_pairing_denied_status">Pairing request was denied by Windows PC.</string>
 </resources>
