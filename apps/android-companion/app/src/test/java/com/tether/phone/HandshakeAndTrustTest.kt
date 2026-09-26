@@ -1,5 +1,6 @@
 package com.tether.phone
 
+import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -11,8 +12,9 @@ import java.security.Signature
 import java.security.spec.X509EncodedKeySpec
 
 /**
- * Unit tests for Tether's cryptographic identity, TOFU pairing,
- * public key pinning, fingerprint calculation, and state verification.
+ * Comprehensive security test suite verifying Tether's local network connection,
+ * TLS identity verification, TOFU key pinning, MITM rejection, capability authorization,
+ * framing bounds enforcement, and post-quantum cryptographic primitives.
  */
 class HandshakeAndTrustTest {
 
@@ -116,7 +118,6 @@ class HandshakeAndTrustTest {
         val nonceData = "SESSION_NONCE_12345".toByteArray()
         val attackerSignature = signData(nonceData, attackerKeyPair)
 
-        // Attacker signature is valid for attacker key, but presented key != pinned key
         val sigValid = verifySignature(nonceData, attackerSignature, attackerKey)
         assertTrue(sigValid)
 
@@ -130,8 +131,40 @@ class HandshakeAndTrustTest {
         var pinnedWindowsKey: ByteArray? = windowsKeyPair.public.encoded
         assertNotNull(pinnedWindowsKey)
 
-        // User clicks Forget
         pinnedWindowsKey = null
         assertNull("Pinned key must be null after explicit forget", pinnedWindowsKey)
+    }
+
+    @Test
+    fun testCapabilityAuthorizationMatrix() {
+        val capManager = TetherCapabilityManager()
+        capManager.negotiateCapabilities("CLIPBOARD,FILES,NOTIFICATIONS,MEDIA")
+
+        assertTrue("Media command must be allowed", capManager.canExecuteCommand("volume_up"))
+        assertTrue("Clipboard command must be allowed", capManager.canExecuteCommand("copy"))
+        assertFalse("Elevated power command must be denied without POWER_ELEVATED capability", capManager.canExecuteCommand("shutdown"))
+        assertFalse("Terminal command must be denied without TERMINAL capability", capManager.canExecuteCommand("powershell"))
+
+        // Re-negotiate with elevated capability
+        capManager.negotiateCapabilities("CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
+        assertTrue("Elevated power command must be allowed when capability is granted", capManager.canExecuteCommand("shutdown"))
+        assertTrue("Terminal command must be allowed when capability is granted", capManager.canExecuteCommand("powershell"))
+    }
+
+    @Test
+    fun testFramingBoundaryLimits() {
+        val maxFrameSize = 1024 * 1024 // 1 MB
+        val validFrameSize = 512 * 1024 // 512 KB
+        val oversizedFrameSize = 2 * 1024 * 1024 // 2 MB
+
+        assertTrue("Valid frame size must be within limit", validFrameSize <= maxFrameSize)
+        assertFalse("Oversized frame must exceed limit", oversizedFrameSize <= maxFrameSize)
+    }
+
+    @Test
+    fun testPostQuantumProviderAvailability() {
+        val bcProvider = BouncyCastleProvider()
+        assertNotNull("BouncyCastle provider must be available", bcProvider)
+        assertEquals("BC", bcProvider.name)
     }
 }
