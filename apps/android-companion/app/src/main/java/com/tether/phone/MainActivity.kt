@@ -699,13 +699,35 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private fun handleScannedQr(raw: String) {
+        if (!raw.startsWith("TETHER:JOIN:")) return
+        val body = raw.removePrefix("TETHER:JOIN:")
+        val parts = body.split("|")
+        if (parts.size < 4) return
+
+        val ssid = parts[0]
+        val pass = parts[1]
+        val ip = parts[2]
+        val portStr = parts[3]
+        val port = portStr.toIntOrNull() ?: 37123
+
+        val intent = Intent(this, TetherLanService::class.java).apply {
+            action = TetherLanService.ACTION_CONNECT_WIFI_DIRECT
+            putExtra("ssid", ssid)
+            putExtra("passphrase", pass)
+            putExtra("target_ip", ip)
+            putExtra("target_port", port)
+        }
+        startForegroundService(intent)
+    }
+
     private fun showLaptopSelectionDialog() {
         runOnUiThread {
             val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
             val currentSavedIp = prefs.getString("saved_host_ip", "") ?: ""
 
             val input = EditText(this).apply {
-                hint = "e.g. 192.168.1.100"
+                hint = "e.g. 192.168.1.100 or TETHER:JOIN:..."
                 setText(currentSavedIp)
                 inputType = InputType.TYPE_CLASS_TEXT
                 setPadding(50, 30, 50, 30)
@@ -713,15 +735,17 @@ class MainActivity : FragmentActivity() {
 
             AlertDialog.Builder(this)
                 .setTitle("Wi-Fi Direct Target Host")
-                .setMessage("Tether auto-discovers Windows hosts via Wi-Fi Direct (P2P).\n\nIf auto-discovery is blocked or target IP is fixed, enter your Windows PC IP address below:")
+                .setMessage("Tether auto-discovers Windows hosts via Wi-Fi Direct (P2P).\n\nEnter Windows PC IP address or paste TETHER:JOIN: QR payload below:")
                 .setView(input)
-                .setPositiveButton("CONNECT TO IP") { _, _ ->
-                    val enteredIp = input.text.toString().trim()
-                    if (enteredIp.isNotEmpty()) {
-                        prefs.edit { putString("saved_host_ip", enteredIp) }
+                .setPositiveButton("CONNECT") { _, _ ->
+                    val enteredText = input.text.toString().trim()
+                    if (enteredText.startsWith("TETHER:JOIN:")) {
+                        handleScannedQr(enteredText)
+                    } else if (enteredText.isNotEmpty()) {
+                        prefs.edit { putString("saved_host_ip", enteredText) }
                         val intent = Intent(this, TetherLanService::class.java).apply {
                             action = TetherLanService.ACTION_CONNECT_DIRECT
-                            putExtra("target_ip", enteredIp)
+                            putExtra("target_ip", enteredText)
                         }
                         startForegroundService(intent)
                     }

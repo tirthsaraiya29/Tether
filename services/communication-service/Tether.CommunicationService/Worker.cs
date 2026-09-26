@@ -21,7 +21,7 @@ namespace Tether.CommunicationService
         private readonly ITetherLogger _tetherLogger;
         private readonly IEventBus _eventBus;
         private readonly PipeServer _pipeServer;
-        private readonly LanTransportServer _lanServer;   // ← was BleManager
+        private readonly WiFiDirectTransportServer _wifiDirectServer;  // ← Wi-Fi Direct
 
         private readonly TrustStateManager _trustStateManager;
         private readonly EnforcementManager _enforcementManager;
@@ -33,7 +33,7 @@ namespace Tether.CommunicationService
             ITetherLogger tetherLogger,
             IEventBus eventBus,
             PipeServer pipeServer,
-            LanTransportServer lanServer,
+            WiFiDirectTransportServer wifiDirectServer,   // ← Wi-Fi Direct
             TrustStateManager trustStateManager,
             EnforcementManager enforcementManager,
             PanicManager panicManager,
@@ -43,7 +43,7 @@ namespace Tether.CommunicationService
             _tetherLogger = tetherLogger;
             _eventBus = eventBus;
             _pipeServer = pipeServer;
-            _lanServer = lanServer;
+            _wifiDirectServer = wifiDirectServer;
             _trustStateManager = trustStateManager;
             _enforcementManager = enforcementManager;
             _panicManager = panicManager;
@@ -52,11 +52,11 @@ namespace Tether.CommunicationService
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _tetherLogger.Info("Worker starting: Initializing background engines (Wi-Fi LAN transport).");
+            _tetherLogger.Info("Worker starting: Initializing background engines (Wi-Fi Direct transport).");
             _logger.LogInformation("Tether Communication Service running at: {time}", DateTimeOffset.Now);
 
             _pipeServer.Start();
-            _lanServer.Start();   // ← listens on TCP/UDP 37123
+            _wifiDirectServer.Start();   // ← starts advertisement + listener
 
             // Provisioning from the local UI pipe
             _eventBus.Subscribe(evt =>
@@ -67,7 +67,7 @@ namespace Tether.CommunicationService
                     {
                         var payload = JsonSerializer.Deserialize<ProvisionPayload>(evt.PayloadJson);
                         if (payload != null && !string.IsNullOrEmpty(payload.PublicKeyBase64))
-                            _lanServer.ProvisionPhone(payload.PublicKeyBase64);
+                            _wifiDirectServer.ProvisionPhone(payload.PublicKeyBase64);
                     }
                     catch (Exception ex)
                     {
@@ -76,12 +76,12 @@ namespace Tether.CommunicationService
                 }
             });
 
-            _tetherLogger.Info("LAN transport and named pipe server initialized successfully.");
+            _tetherLogger.Info("Wi-Fi Direct transport and named pipe server initialized successfully.");
 
             while (!stoppingToken.IsCancellationRequested)
             {
                 await Task.Delay(30000, stoppingToken);
-                _tetherLogger.Debug("Service heartbeat - alive and listening for LAN and IPC events");
+                _tetherLogger.Debug("Service heartbeat - alive and listening for Wi-Fi Direct and IPC events");
             }
         }
 
@@ -89,7 +89,7 @@ namespace Tether.CommunicationService
         {
             _tetherLogger.Info("Tether Communication Service is stopping");
             _pipeServer?.Dispose();
-            _lanServer?.Stop();
+            _wifiDirectServer?.Stop();
             await base.StopAsync(cancellationToken);
         }
     }

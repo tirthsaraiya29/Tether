@@ -31,9 +31,6 @@ namespace Tether.CommunicationService
                     });
 
                     // ── TOFU PAIRING ──────────────────────────────────────────
-                    // Owns the pending-pairing state so it can be unit-tested in
-                    // isolation from sockets. Injected into LanTransportServer,
-                    // which remains the cryptographic authority.
                     services.AddSingleton<PairingCoordinator>();
                     // ──────────────────────────────────────────────────────────
 
@@ -41,9 +38,12 @@ namespace Tether.CommunicationService
                     services.AddSingleton<EnforcementManager>();
                     services.AddSingleton<PanicManager>();
                     services.AddSingleton<RecoveryManager>();
-                    services.AddSingleton<LanTransportServer>();
-                    services.AddSingleton<PipeServer>();
 
+                    // ── TRANSPORT: Wi-Fi Direct replaces LAN ──────────────────
+                    services.AddSingleton<WiFiDirectTransportServer>();
+                    // ──────────────────────────────────────────────────────────
+
+                    services.AddSingleton<PipeServer>();
                     services.AddHostedService<Worker>();
                 })
                 .Build();
