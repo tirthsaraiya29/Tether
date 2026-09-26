@@ -63,7 +63,7 @@ class TetherLanService : Service() {
 
     companion object {
         const val TAG = "TetherLanService"
-        const val SERVICE_TYPE = "_tether._tcp"
+        const val SERVICE_TYPE = "_tether._tcp."
         const val DEFAULT_PORT = 37123
 
         const val ACTION_LAN_STATE_CHANGED = "com.tether.phone.ACTION_GATT_STATE_CHANGED"
@@ -340,15 +340,14 @@ class TetherLanService : Service() {
     @Synchronized
     private fun startLanDiscovery() {
         if (!isConnectedToInfrastructureWifi()) {
-            if (isHotspotActive()) {
-                currentState = TransportState.HOTSPOT_UNSUPPORTED
-            } else {
-                currentState = TransportState.DISCONNECTED
-            }
+            currentState = if (isHotspotActive()) TransportState.HOTSPOT_UNSUPPORTED
+                           else TransportState.DISCONNECTED
             return
         }
 
-        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING)) {
+        if ((currentState == TransportState.AUTHENTICATED) ||
+            (currentState == TransportState.READY) ||
+            (currentState == TransportState.CONNECTING)) {
             return
         }
 
@@ -357,12 +356,23 @@ class TetherLanService : Service() {
         currentState = TransportState.DISCOVERING
         stopLanDiscovery()
 
-        val savedHostIp = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).getString("saved_host_ip", null)
+        // Try the saved host first (fastest path)
+        val savedHostIp = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
+            .getString("saved_host_ip", null)
         if (!savedHostIp.isNullOrBlank()) {
             Log.i(TAG, "Attempting connection to saved target host IP: $savedHostIp")
             onHostDiscovered(savedHostIp, DEFAULT_PORT)
+            return
         }
 
+        // PRIMARY: UDP broadcast (works without any system permission chooser)
+        startUdpDiscoveryScan()
+
+        // SECONDARY: NSD
+        startNsdDiscovery()
+    }
+
+    private fun startNsdDiscovery() {
         nsdManager = getSystemService(NSD_SERVICE) as NsdManager
 
         discoveryListener = object : NsdManager.DiscoveryListener {
@@ -385,8 +395,14 @@ class TetherLanService : Service() {
 
             @Suppress("DEPRECATION")
             override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
-                Log.i(TAG, "NSD Service found: ${serviceInfo?.serviceName}")
-                if ((serviceInfo?.serviceType?.contains("_tether") == true) || (serviceInfo?.serviceName?.contains("Tether") == true)) {
+                val type = serviceInfo?.serviceType?.lowercase().orEmpty()
+                val name = serviceInfo?.serviceName.orEmpty()
+                Log.i(TAG, "NSD Service found: $name ($type)")
+
+                val isTetherType = type.startsWith("_tether._tcp")
+                val isTetherName = name.startsWith("TetherWindows") || name.contains("Tether")
+
+                if (isTetherType || isTetherName) {
                     try {
                         nsdManager?.resolveService(
                             serviceInfo,
@@ -421,9 +437,6 @@ class TetherLanService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed starting NSD service discovery: ${e.message}")
         }
-
-        // UDP Broadcast scan fallback
-        startUdpDiscoveryScan()
     }
 
     private fun stopLanDiscovery() {

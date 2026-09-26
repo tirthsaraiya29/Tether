@@ -1,4 +1,5 @@
-﻿using Microsoft.Win32;
+﻿using Makaretu.Dns;
+using Microsoft.Win32;
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
@@ -26,6 +27,7 @@ namespace Tether.CommunicationService;
 /// <summary>
 /// Wi-Fi / LAN transport server. Replaces BLE entirely.
 /// Speaks the same wire protocol as Android's TetherLanService:
+///   - mDNS advertisement of "_tether._tcp" (via Makaretu.Dns.Multicast)
 ///   - UDP broadcast discovery on port 37123 (TETHER_DISCOVER_REQ/RESP)
 ///   - TCP listener on port 37123
 ///   - Mutual RSA handshake + AES-256-GCM framed commands
@@ -55,6 +57,10 @@ public sealed class LanTransportServer : IDisposable
     private TcpClient? _client;
     private NetworkStream? _stream;
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
+
+    // mDNS
+    private ServiceDiscovery? _mdnsDiscovery;
+    private ServiceProfile? _mdnsProfile;
 
     // Session / crypto state
     private readonly object _sessionLock = new();
@@ -149,6 +155,7 @@ public sealed class LanTransportServer : IDisposable
             _logger.Warning("LAN transport: no trusted phone provisioned. Waiting for pairing via IPC.");
 
         InitializeIpcHandles();
+        StartMdnsAdvertisement();
 
         _cts = new CancellationTokenSource();
         _tcpLoopTask = Task.Run(() => TcpAcceptLoopAsync(_cts.Token));
@@ -161,6 +168,9 @@ public sealed class LanTransportServer : IDisposable
     public void Stop()
     {
         _isStopping = true;
+
+        StopMdnsAdvertisement();
+
         try { _cts?.Cancel(); } catch { }
         try { _tcpListener?.Stop(); } catch { }
         try { _udpDiscovery?.Close(); } catch { }
@@ -169,6 +179,57 @@ public sealed class LanTransportServer : IDisposable
     }
 
     public void Dispose() => Stop();
+
+    // =====================================================================
+    //  mDNS ADVERTISEMENT
+    // =====================================================================
+
+    private void StartMdnsAdvertisement()
+    {
+        try
+        {
+            _mdnsDiscovery = new ServiceDiscovery();
+
+            // Service type MUST be "_tether._tcp" (no trailing dot for Makaretu).
+            _mdnsProfile = new ServiceProfile(
+                instanceName: "TetherWindows",
+                serviceType: "_tether._tcp",
+                port: (ushort)LISTEN_PORT);
+
+            _mdnsProfile.AddProperty("version", "1.0");
+            _mdnsProfile.AddProperty("proto", "aes-256-gcm+rsa2048");
+            _mdnsProfile.AddProperty("port", LISTEN_PORT.ToString());
+
+            _mdnsDiscovery.Advertise(_mdnsProfile);
+
+            _logger.Info($"✅ mDNS advertisement published: 'TetherWindows._tether._tcp.local' on port {LISTEN_PORT}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"❌ mDNS advertisement failed: {ex.Message}");
+        }
+    }
+
+    private void StopMdnsAdvertisement()
+    {
+        try
+        {
+            if (_mdnsDiscovery != null)
+            {
+                if (_mdnsProfile != null)
+                {
+                    try { _mdnsDiscovery.Unadvertise(_mdnsProfile); } catch { }
+                }
+                _mdnsDiscovery.Dispose();
+            }
+        }
+        catch { }
+        finally
+        {
+            _mdnsDiscovery = null;
+            _mdnsProfile = null;
+        }
+    }
 
     // =====================================================================
     //  TCP LISTENER
@@ -406,8 +467,10 @@ public sealed class LanTransportServer : IDisposable
         try
         {
             _udpDiscovery = new UdpClient();
-            _udpDiscovery.EnableBroadcast = true;
             _udpDiscovery.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            _udpDiscovery.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Broadcast, true);
+            _udpDiscovery.EnableBroadcast = true;
+            _udpDiscovery.ExclusiveAddressUse = false;
             _udpDiscovery.Client.Bind(new IPEndPoint(IPAddress.Any, LISTEN_PORT));
         }
         catch (Exception ex)
