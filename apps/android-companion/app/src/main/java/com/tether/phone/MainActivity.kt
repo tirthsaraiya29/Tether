@@ -13,9 +13,11 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.InputType
 import android.util.Base64
 import android.util.Log
 import android.view.WindowManager
+import android.widget.EditText
 import android.widget.ImageView
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -25,19 +27,11 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -285,7 +279,7 @@ class MainActivity : FragmentActivity() {
                                         "shutdown", "sleep", "reboot" -> {
                                             pendingPowerAction.value = PowerAction(
                                                 command = command,
-                                                title = getString(R.string.dialog_confirm_protocol, command.uppercase())
+                                                title = getString(R.string.dialog_confirm_protocol, command.uppercase()),
                                             )
                                         }
                                         else -> {
@@ -299,7 +293,7 @@ class MainActivity : FragmentActivity() {
                                     }
                                     showPairingQRCode()
                                 },
-                                onRestartServer = { restartLanServer() }
+                                onRestartServer = ::restartLanServer,
                             )
 
                             pendingPowerAction.value?.let { action: PowerAction ->
@@ -310,32 +304,32 @@ class MainActivity : FragmentActivity() {
                                         triggerLanAction(action.command)
                                         pendingPowerAction.value = null
                                     },
-                                    onDismiss = { pendingPowerAction.value = null }
+                                    onDismiss = { pendingPowerAction.value = null },
                                 )
                             }
 
                             AnimatedVisibility(
                                 visible = isAppLocked.value,
                                 enter = fadeIn(animationSpec = tween(800, easing = TetherEase)),
-                                exit = fadeOut(animationSpec = tween(800, easing = TetherEase))
+                                exit = fadeOut(animationSpec = tween(800, easing = TetherEase)),
                             ) {
                                 FuturisticLockOverlay(
                                     onAuthorizeRequested = {
                                         authenticateForAppUnlock()
-                                    }
+                                    },
                                 )
                             }
 
                             AnimatedVisibility(
                                 visible = activePendingCommand.value != null,
                                 enter = fadeIn(tween(400)),
-                                exit = fadeOut(tween(400)) + scaleOut(targetScale = 0.5f, animationSpec = tween(400, easing = TetherEase))
+                                exit = fadeOut(tween(400)) + scaleOut(targetScale = 0.5f, animationSpec = tween(400, easing = TetherEase)),
                             ) {
                                 activePendingCommand.value?.let { command: String ->
                                     CommandConfirmationDialog(
                                         command = command,
                                         isConfirmed = isCommandConfirmed.value,
-                                        onDismiss = { activePendingCommand.value = null }
+                                        onDismiss = { activePendingCommand.value = null },
                                     )
                                 }
                             }
@@ -351,13 +345,13 @@ class MainActivity : FragmentActivity() {
             this,
             lanStateReceiver,
             IntentFilter(TetherLanService.ACTION_LAN_STATE_CHANGED),
-            ContextCompat.RECEIVER_NOT_EXPORTED
+            ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         ContextCompat.registerReceiver(
             this,
             commandConfirmedReceiver,
             IntentFilter(TetherLanService.ACTION_COMMAND_CONFIRMED),
-            ContextCompat.RECEIVER_NOT_EXPORTED
+            ContextCompat.RECEIVER_NOT_EXPORTED,
         )
 
         val statusIntent = Intent(this, TetherLanService::class.java).apply {
@@ -383,7 +377,7 @@ class MainActivity : FragmentActivity() {
         val commandType = intent.getStringExtra("command_type") ?: intent.getStringExtra("action_command")
         val action = intent.action
 
-        if (commandType != null || (action == "com.tether.phone.ACTION_VOICE_COMMAND")) {
+        if ((commandType != null) || (action == "com.tether.phone.ACTION_VOICE_COMMAND")) {
             val command = commandType ?: "unknown"
             if (!isEnvironmentRestricted.value && !isAppLocked.value) {
                 val lanCommand = when (command) {
@@ -473,7 +467,7 @@ class MainActivity : FragmentActivity() {
         authenticateViaSystem(
             title = getString(R.string.auth_title),
             subtitle = getString(R.string.auth_subtitle),
-            allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+            allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG,
         ) { success ->
             if (success) {
                 runOnUiThread {
@@ -513,6 +507,7 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    @SuppressLint("BatteryLife")
     private fun requestBatteryOptimizationExemption() {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
@@ -592,7 +587,7 @@ class MainActivity : FragmentActivity() {
                 authenticateViaSystem(
                     title = getString(R.string.auth_trust_restoration),
                     subtitle = getString(R.string.auth_confirm_master_code),
-                    allowedAuthenticators = BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                    allowedAuthenticators = BiometricManager.Authenticators.DEVICE_CREDENTIAL,
                 ) { success ->
                     if (success) {
                         lastBiometricAuthTime = System.currentTimeMillis()
@@ -604,7 +599,7 @@ class MainActivity : FragmentActivity() {
                 authenticateViaSystem(
                     title = getString(R.string.auth_biometric_validation),
                     subtitle = getString(R.string.auth_scan_fingerprint),
-                    allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+                    allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG,
                 ) { success ->
                     if (success) {
                         lastBiometricAuthTime = System.currentTimeMillis()
@@ -655,10 +650,36 @@ class MainActivity : FragmentActivity() {
 
     private fun showLaptopSelectionDialog() {
         runOnUiThread {
+            val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
+            val currentSavedIp = prefs.getString("saved_host_ip", "") ?: ""
+
+            val input = EditText(this).apply {
+                hint = "e.g. 192.168.1.100"
+                setText(currentSavedIp)
+                inputType = InputType.TYPE_CLASS_TEXT
+                setPadding(50, 30, 50, 30)
+            }
+
             AlertDialog.Builder(this)
-                .setTitle("Wi-Fi / LAN Tether Discovery")
-                .setMessage("Tether automatically discovers Windows Tether hosts on your local Wi-Fi network via NSD and UDP broadcast.\n\nEnsure phone and PC are connected to the same Wi-Fi network.")
-                .setPositiveButton(getString(R.string.btn_done), null)
+                .setTitle("Wi-Fi / LAN Target Host")
+                .setMessage("Tether auto-discovers Windows hosts on local Wi-Fi.\n\nIf auto-discovery is blocked by router or firewall, enter your Windows PC IP address below:")
+                .setView(input)
+                .setPositiveButton("CONNECT TO IP") { _, _ ->
+                    val enteredIp = input.text.toString().trim()
+                    if (enteredIp.isNotEmpty()) {
+                        prefs.edit { putString("saved_host_ip", enteredIp) }
+                        val intent = Intent(this, TetherLanService::class.java).apply {
+                            action = TetherLanService.ACTION_CONNECT_DIRECT
+                            putExtra("target_ip", enteredIp)
+                        }
+                        startForegroundService(intent)
+                    }
+                }
+                .setNeutralButton("AUTO-DISCOVER") { _, _ ->
+                    prefs.edit { remove("saved_host_ip") }
+                    restartLanServer()
+                }
+                .setNegativeButton(getString(R.string.btn_cancel), null)
                 .show()
         }
     }
