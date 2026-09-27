@@ -5,12 +5,16 @@ package com.tether.phone
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import java.net.Inet4Address
+import java.net.Inet6Address
 import java.net.InetAddress
 import java.nio.charset.StandardCharsets
+import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
 
 data class DiscoveredDevice(
@@ -30,6 +34,120 @@ interface TetherDiscoveryListener {
     fun onDiscoveryError(errorCode: Int, message: String)
 }
 
+/**
+ * Validates whether the given address belongs to a private local area network scope.
+ */
+fun isPrivateAddress(address: InetAddress): Boolean {
+    if (address.isLoopbackAddress || address.isSiteLocalAddress || address.isLinkLocalAddress) {
+        return true
+    }
+    if (address is Inet4Address) {
+        val bytes = address.address
+        val firstOctet = bytes[0].toInt() and 0xFF
+        val secondOctet = bytes[1].toInt() and 0xFF
+        // CGNAT 100.64.0.0/10
+        if (firstOctet == 100 && (secondOctet and 0xC0) == 0x40) return true
+    } else if (address is Inet6Address) {
+        val bytes = address.address
+        val firstOctet = bytes[0].toInt() and 0xFF
+        // IPv6 Unique Local fc00::/7
+        if ((firstOctet and 0xFE) == 0xFC) return true
+    }
+    return false
+}
+
+/**
+ * Thread-safe queue for resolving NsdServiceInfo entries sequentially.
+ * Prevents NsdManager error 3 (FAILURE_ALREADY_ACTIVE) caused by concurrent resolutions.
+ */
+class NsdResolveQueue(private val nsdManager: NsdManager) {
+    private val lock = Any()
+
+    private data class PendingResolve(
+        val serviceInfo: NsdServiceInfo,
+        val onResolved: (NsdServiceInfo) -> Unit,
+        val onError: (NsdServiceInfo?, Int) -> Unit,
+    )
+
+    private val queue = ArrayDeque<PendingResolve>()
+    private var isResolving = false
+
+    fun resolveOrEnqueue(
+        serviceInfo: NsdServiceInfo,
+        onResolved: (NsdServiceInfo) -> Unit,
+        onError: (NsdServiceInfo?, Int) -> Unit,
+    ) {
+        synchronized(lock) {
+            val name = serviceInfo.serviceName
+            if (queue.any { it.serviceInfo.serviceName == name }) {
+                Log.d("NsdResolveQueue", "Suppressing duplicate resolve enqueue for: $name")
+                return
+            }
+            queue.addLast(PendingResolve(serviceInfo, onResolved, onError))
+            if (!isResolving) {
+                processNextLocked()
+            }
+        }
+    }
+
+    fun clear() {
+        synchronized(lock) {
+            queue.clear()
+            isResolving = false
+        }
+    }
+
+    private fun processNextLocked() {
+        if (queue.isEmpty()) {
+            isResolving = false
+            return
+        }
+        isResolving = true
+        val item = queue.first()
+
+        val resolveListener = object : NsdManager.ResolveListener {
+            override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
+                try {
+                    item.onError(serviceInfo, errorCode)
+                } finally {
+                    onComplete()
+                }
+            }
+
+            override fun onServiceResolved(resolvedInfo: NsdServiceInfo?) {
+                try {
+                    if (resolvedInfo != null) {
+                        item.onResolved(resolvedInfo)
+                    }
+                } finally {
+                    onComplete()
+                }
+            }
+
+            private fun onComplete() {
+                synchronized(lock) {
+                    if (queue.isNotEmpty()) {
+                        queue.removeFirst()
+                    }
+                    processNextLocked()
+                }
+            }
+        }
+
+        try {
+            nsdManager.resolveService(item.serviceInfo, resolveListener)
+        } catch (e: Exception) {
+            Log.e("NsdResolveQueue", "Exception invoking resolveService: ${e.message}")
+            synchronized(lock) {
+                if (queue.isNotEmpty()) {
+                    queue.removeFirst()
+                }
+                processNextLocked()
+            }
+        }
+    }
+}
+
 class TetherDiscoveryManager(
     context: Context,
     private val securityEngine: ProductionSecurityEngine,
@@ -39,9 +157,16 @@ class TetherDiscoveryManager(
         private const val TAG = "TetherDiscoveryManager"
         const val SERVICE_TYPE = "_tether._tcp."
         const val DEFAULT_PORT = 37123
+        private const val MULTICAST_LOCK_TAG = "TetherMdnsMulticastLock"
     }
 
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
+    private val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+    private val multicastLock: WifiManager.MulticastLock = wifiManager.createMulticastLock(MULTICAST_LOCK_TAG).apply {
+        setReferenceCounted(false)
+    }
+
+    private val nsdResolveQueue = NsdResolveQueue(nsdManager)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var discoveryListener: NsdManager.DiscoveryListener? = null
@@ -62,14 +187,18 @@ class TetherDiscoveryManager(
         this.externalListener = listener
     }
 
+    @Synchronized
     fun startDiscovery() {
         if (isSearching) return
         Log.i(TAG, "Starting mDNS discovery for service type $SERVICE_TYPE")
+
+        acquireMulticastLock()
 
         val listener = object : NsdManager.DiscoveryListener {
             override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {
                 Log.e(TAG, "Discovery start failed: errorCode=$errorCode")
                 isSearching = false
+                releaseMulticastLock()
                 externalListener?.onDiscoveryError(errorCode, "Failed to start discovery")
                 try { nsdManager.stopServiceDiscovery(this) } catch (_: Exception) {}
             }
@@ -77,6 +206,7 @@ class TetherDiscoveryManager(
             override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {
                 Log.e(TAG, "Discovery stop failed: errorCode=$errorCode")
                 isSearching = false
+                releaseMulticastLock()
             }
 
             override fun onDiscoveryStarted(serviceType: String?) {
@@ -87,6 +217,7 @@ class TetherDiscoveryManager(
             override fun onDiscoveryStopped(serviceType: String?) {
                 Log.i(TAG, "mDNS discovery stopped")
                 isSearching = false
+                releaseMulticastLock()
             }
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
@@ -115,20 +246,22 @@ class TetherDiscoveryManager(
         } catch (e: Exception) {
             Log.e(TAG, "Error initiating discoverServices: ${e.message}", e)
             isSearching = false
+            releaseMulticastLock()
         }
     }
 
     private fun resolveService(serviceInfo: NsdServiceInfo) {
-        val resolveListener = object : NsdManager.ResolveListener {
-            override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
-                Log.w(TAG, "Service resolve failed for ${serviceInfo?.serviceName}, error=$errorCode")
-            }
-
-            override fun onServiceResolved(resolvedInfo: NsdServiceInfo?) {
-                if (resolvedInfo == null) return
+        nsdResolveQueue.resolveOrEnqueue(
+            serviceInfo = serviceInfo,
+            onResolved = { resolvedInfo ->
                 val host: InetAddress? = resolvedInfo.host
                 val port: Int = resolvedInfo.port
-                val hostAddr = host?.hostAddress ?: return
+                val hostAddr = host?.hostAddress ?: return@resolveOrEnqueue
+
+                if (host != null && !isPrivateAddress(host)) {
+                    Log.w(TAG, "Discarding resolved mDNS address $hostAddr: Not a private LAN IP")
+                    return@resolveOrEnqueue
+                }
 
                 val txtAttributes = parseAttributes(resolvedInfo)
                 val deviceId = txtAttributes["id"] ?: resolvedInfo.serviceName
@@ -150,14 +283,11 @@ class TetherDiscoveryManager(
                 Log.i(TAG, "Resolved Tether device: $device")
                 discoveredDevices[deviceId] = device
                 mainHandler.post { externalListener?.onDeviceDiscovered(device) }
-            }
-        }
-
-        try {
-            nsdManager.resolveService(serviceInfo, resolveListener)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error resolving service ${serviceInfo.serviceName}: ${e.message}", e)
-        }
+            },
+            onError = { info, errorCode ->
+                Log.w(TAG, "Service resolve failed for ${info?.serviceName}, error=$errorCode")
+            },
+        )
     }
 
     private fun parseAttributes(info: NsdServiceInfo): Map<String, String> {
@@ -222,12 +352,15 @@ class TetherDiscoveryManager(
         }
     }
 
+    @Synchronized
     fun stopDiscovery() {
+        nsdResolveQueue.clear()
         discoveryListener?.let {
             try { nsdManager.stopServiceDiscovery(it) } catch (_: Exception) {}
         }
         discoveryListener = null
         isSearching = false
+        releaseMulticastLock()
     }
 
     fun stopAdvertising() {
@@ -238,7 +371,30 @@ class TetherDiscoveryManager(
         isAdvertising = false
     }
 
+    private fun acquireMulticastLock() {
+        try {
+            if (!multicastLock.isHeld) {
+                multicastLock.acquire()
+                Log.d(TAG, "Acquired WifiManager.MulticastLock for mDNS discovery")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed acquiring MulticastLock: ${e.message}")
+        }
+    }
+
+    private fun releaseMulticastLock() {
+        try {
+            if (multicastLock.isHeld) {
+                multicastLock.release()
+                Log.d(TAG, "Released WifiManager.MulticastLock")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed releasing MulticastLock: ${e.message}")
+        }
+    }
+
     fun getDiscoveredDevices(): List<DiscoveredDevice> {
         return discoveredDevices.values.toList()
     }
 }
+
