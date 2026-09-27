@@ -303,7 +303,7 @@ class TetherDiscoveryManager(
                         val json = JSONObject(responseStr)
                         val type = json.optString("type", "")
 
-                        if (type == "TETHER_DISCOVERY_RESPONSE" || type == "TETHER_DISCOVERY_PROBE") {
+                        if ((type == "TETHER_DISCOVERY_RESPONSE") || (type == "TETHER_DISCOVERY_PROBE")) {
                             val hostAddr = recvPacket.address.hostAddress ?: continue
                             val devId = json.optString("deviceId", hostAddr)
                             val devName = json.optString("deviceName", "Tether Windows PC")

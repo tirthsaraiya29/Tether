@@ -93,7 +93,7 @@ class TetherTlsTransport(
         this.connected = true
     }
 
-    @SuppressLint("CustomX509TrustManager")
+    @SuppressLint("CustomX509TrustManager", "TrustAllX509TrustManager")
     private fun createSslContext(): SSLContext {
         val trustAllCerts = arrayOf<TrustManager>(
             object : X509TrustManager {

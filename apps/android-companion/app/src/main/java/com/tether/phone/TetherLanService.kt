@@ -165,7 +165,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         override fun onAvailable(network: Network) {
             Log.i(TAG, "Wi-Fi network AVAILABLE. Resetting reconnect backoff...")
             resetReconnectBackoff()
-            if (currentState == TransportState.DISCONNECTED || currentState == TransportState.FAILED) {
+            if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED)) {
                 startDiscovery()
             }
         }
