@@ -3,14 +3,19 @@ package com.tether.phone
 import android.util.Log
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.EOFException
+import java.io.IOException
 import java.net.InetSocketAddress
+import java.net.SocketException
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
 interface TetherTransport {
+    val generationId: Long
     fun connect(host: String, port: Int, timeoutMs: Int = 10000)
     fun disconnect(reason: String = "Normal disconnect")
     fun isConnected(): Boolean
@@ -36,6 +41,8 @@ class TetherTlsTransport(
         }
     }
 
+    override val generationId: Long = System.nanoTime()
+
     private var sslSocket: SSLSocket? = null
     private var dataInputStream: DataInputStream? = null
     private var dataOutputStream: DataOutputStream? = null
@@ -58,7 +65,7 @@ class TetherTlsTransport(
     override fun connect(host: String, port: Int, timeoutMs: Int) {
         if (connected) disconnect("Reconnecting")
         val safeHost = sanitizeLog(host)
-        Log.i(TAG, "Initiating secure TLS 1.3 connection to $safeHost:$port...")
+        Log.i(TAG, "Initiating secure TLS 1.3 connection to $safeHost:$port (gen=$generationId)...")
 
         val sslContext = createSslContext()
         val factory: SSLSocketFactory = sslContext.socketFactory
@@ -102,9 +109,11 @@ class TetherTlsTransport(
         return sslContext
     }
 
+    @Synchronized
     override fun disconnect(reason: String) {
+        if (!connected && sslSocket == null) return
         val safeReason = sanitizeLog(reason)
-        Log.i(TAG, "Disconnecting TLS transport: $safeReason")
+        Log.i(TAG, "Disconnecting TLS transport (gen=$generationId): $safeReason")
         connected = false
         try { dataInputStream?.close() } catch (_: Exception) {}
         try { dataOutputStream?.close() } catch (_: Exception) {}
@@ -136,7 +145,26 @@ class TetherTlsTransport(
         if (!isConnected()) return null
         val dis = dataInputStream ?: return null
 
-        val length = try { dis.readInt() } catch (_: Exception) { return null }
+        val length = try {
+            dis.readInt()
+        } catch (e: EOFException) {
+            Log.i(TAG, "EOF reached on TLS socket (gen=$generationId)")
+            disconnect("Socket EOF")
+            return null
+        } catch (e: SocketException) {
+            Log.w(TAG, "SocketException reading frame: ${e.message}")
+            disconnect("SocketException: ${e.message}")
+            return null
+        } catch (e: SSLException) {
+            Log.w(TAG, "SSLException reading frame: ${e.message}")
+            disconnect("SSLException: ${e.message}")
+            return null
+        } catch (e: IOException) {
+            Log.w(TAG, "IOException reading frame: ${e.message}")
+            disconnect("IOException: ${e.message}")
+            return null
+        }
+
         if ((length < 1) || (length > maxSizeBytes)) {
             Log.e(TAG, "Invalid frame length received: $length bytes (limit: $maxSizeBytes)")
             disconnect("Oversized or invalid frame length: $length")
@@ -144,7 +172,13 @@ class TetherTlsTransport(
         }
 
         val buffer = ByteArray(length)
-        dis.readFully(buffer)
+        try {
+            dis.readFully(buffer)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed reading frame body ($length bytes): ${e.message}")
+            disconnect("Frame readFully error: ${e.message}")
+            return null
+        }
 
         val cipher = sessionCipher
         return cipher?.decrypt(buffer) ?: buffer
@@ -154,3 +188,4 @@ class TetherTlsTransport(
 
     override fun getPeerIdentityFingerprint(): String? = peerFingerprint
 }
+
