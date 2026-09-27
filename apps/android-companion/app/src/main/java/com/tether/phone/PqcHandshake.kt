@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package com.tether.phone
 
 import android.util.Log
@@ -20,7 +22,7 @@ data class PqcKeyPair(
     val kemPublicKey: ByteArray,
     val kemPrivateKey: ByteArray,
     val dsaPublicKey: ByteArray,
-    val dsaPrivateKey: ByteArray
+    val dsaPrivateKey: ByteArray,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -33,9 +35,9 @@ data class PqcKeyPair(
 
     override fun hashCode(): Int {
         var result = kemPublicKey.contentHashCode()
-        result = 31 * result + kemPrivateKey.contentHashCode()
-        result = 31 * result + dsaPublicKey.contentHashCode()
-        result = 31 * result + dsaPrivateKey.contentHashCode()
+        result = (31 * result) + kemPrivateKey.contentHashCode()
+        result = (31 * result) + dsaPublicKey.contentHashCode()
+        result = (31 * result) + dsaPrivateKey.contentHashCode()
         return result
     }
 }
@@ -69,7 +71,7 @@ object PqcHandshake {
             kemPublicKey = kemPub,
             kemPrivateKey = kemPriv,
             dsaPublicKey = dsaPub,
-            dsaPrivateKey = dsaPriv
+            dsaPrivateKey = dsaPriv,
         )
     }
 

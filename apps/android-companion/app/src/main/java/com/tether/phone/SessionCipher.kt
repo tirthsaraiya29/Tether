@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package com.tether.phone
 
 import android.util.Base64
@@ -6,18 +8,20 @@ import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Locale
 import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import kotlin.math.abs
 
 /**
  * Provides AES-256-GCM frame-level encryption and decryption for PQC-secured Tether sessions.
  * Derived using HKDF-SHA256 from the ML-KEM shared secret and handshake transcript hash.
  */
 class SessionCipher private constructor(
-    private val key: SecretKey
+    private val key: SecretKey,
 ) {
     companion object {
         private const val TAG = "SessionCipher"
@@ -32,17 +36,16 @@ class SessionCipher private constructor(
             System.arraycopy(transcriptHash, 0, ikm, mlkemSharedSecret.size, transcriptHash.size)
 
             val derivedKeyBytes = hkdfSha256(
-                salt = ByteArray(KEY_SIZE_BYTES), // 32-byte zero salt as per standard HKDF
+                salt = ByteArray(KEY_SIZE_BYTES),
                 ikm = ikm,
                 info = INFO_LABEL.toByteArray(StandardCharsets.UTF_8),
-                outputLength = KEY_SIZE_BYTES
             )
 
             val secretKey = SecretKeySpec(derivedKeyBytes, "AES")
             return SessionCipher(secretKey)
         }
 
-        private fun hkdfSha256(salt: ByteArray, ikm: ByteArray, info: ByteArray, outputLength: Int): ByteArray {
+        private fun hkdfSha256(salt: ByteArray, ikm: ByteArray, info: ByteArray): ByteArray {
             // HKDF-Extract: PRK = HMAC-Hash(salt, IKM)
             val mac = Mac.getInstance("HmacSHA256")
             val actualSalt = if (salt.isEmpty()) ByteArray(32) else salt
@@ -56,7 +59,7 @@ class SessionCipher private constructor(
             expandInput[info.size] = 0x01.toByte()
 
             val okm = mac.doFinal(expandInput)
-            return okm.copyOf(outputLength)
+            return okm.copyOf(KEY_SIZE_BYTES)
         }
 
         fun computeTranscriptHash(initJsonStr: String, responseJsonStr: String): ByteArray {
@@ -72,8 +75,8 @@ class SessionCipher private constructor(
                     ((transcriptHash[1].toInt() and 0xFF) shl 16) or
                     ((transcriptHash[2].toInt() and 0xFF) shl 8) or
                     (transcriptHash[3].toInt() and 0xFF)
-            val sasVal = Math.abs(num) % 1_000_000
-            return String.format("%06d", sasVal)
+            val sasVal = abs(num) % 1_000_000
+            return String.format(Locale.US, "%06d", sasVal)
         }
     }
 
