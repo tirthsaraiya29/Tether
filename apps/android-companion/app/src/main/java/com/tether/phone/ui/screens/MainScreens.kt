@@ -425,7 +425,7 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
             Text(
                 text = subStatus,
                 style = MaterialTheme.typography.labelMedium,
-                color = TextSecondary
+                color = TextSecondary,
             )
         }
     }
@@ -437,17 +437,20 @@ fun PanicRestoreCard(onSideRestore: () -> Unit) {
         Text(
             text = stringResource(R.string.status_lockdown_active),
             style = MaterialTheme.typography.labelMedium,
-            color = AlertRed
+            color = AlertRed,
         )
         Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = stringResource(R.string.panic_message),
             style = MaterialTheme.typography.bodyMedium,
-            color = TextSecondary
+            color = TextSecondary,
         )
         Spacer(modifier = Modifier.height(28.dp))
         TacticalAction(
             label = stringResource(R.string.label_restore),
+            accentColor = IntegrityGreen,
+            onClick = onSideRestore,
+        )
             accentColor = IntegrityGreen,
             onClick = onSideRestore
         )
