@@ -444,12 +444,7 @@ class MainActivity : FragmentActivity() {
 
     private fun applyWindowSecurityFlags() {
         runOnUiThread {
-            val shouldProtectScreen = isPrivacyMaskEnabled.value && isBlockScreenReadingEnabled.value
-            if (shouldProtectScreen) {
-                window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-            } else {
-                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-            }
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
     }
 
@@ -485,16 +480,12 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        if (isPrivacyMaskEnabled.value && isBlockScreenReadingEnabled.value) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
+        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
     }
 
     override fun onStop() {
         super.onStop()
-        if (isHideInRecentsEnabled.value) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
+        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         if (isBiometricSettingEnabled.value) {
             getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
                 putLong(appLockBackgroundTimestampKey, System.currentTimeMillis())
