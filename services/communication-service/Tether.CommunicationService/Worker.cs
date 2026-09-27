@@ -1,7 +1,7 @@
-// services/communication-service/Tether.CommunicationService/Worker.cs
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Tether.CommunicationService.Discovery;
@@ -25,6 +25,7 @@ public sealed class Worker : BackgroundService
     private readonly PipeServer _pipeServer;
     private readonly TetherTcpServer _tcpServer;
     private readonly MdnsAdvertiser _mdns;
+    private readonly UdpDiscovery _udpDiscovery;
     private readonly WindowsIdentity _identity;
 
     public Worker(
@@ -33,6 +34,7 @@ public sealed class Worker : BackgroundService
         PipeServer pipeServer,
         TetherTcpServer tcpServer,
         MdnsAdvertiser mdns,
+        UdpDiscovery udpDiscovery,
         WindowsIdentity identity,
         TrustStateManager trustStateManager,
         EnforcementManager enforcementManager,
@@ -44,6 +46,7 @@ public sealed class Worker : BackgroundService
         _pipeServer = pipeServer;
         _tcpServer = tcpServer;
         _mdns = mdns;
+        _udpDiscovery = udpDiscovery;
         _identity = identity;
         // Engine singletons are resolved so they initialize; not otherwise referenced here.
         _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager;
@@ -51,13 +54,14 @@ public sealed class Worker : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _tetherLogger.Info("Tether Communication Service starting (mDNS + TLS 1.3 transport).");
+        _tetherLogger.Info("Tether Communication Service starting (mDNS + UDP Broadcast + TLS 1.3 transport).");
         _logger.LogInformation("Tether Communication Service running at {Time}", DateTimeOffset.Now);
 
         EnsureFirewallRulesExist();
 
         _pipeServer.Start();
         _tcpServer.Start();
+        _udpDiscovery.Start();
 
         _mdns.Start(
             port: TetherTcpServer.ListenPort,
@@ -75,15 +79,25 @@ public sealed class Worker : BackgroundService
     {
         try
         {
-            var psi = new System.Diagnostics.ProcessStartInfo
+            var psiTcp = new ProcessStartInfo
             {
                 FileName = "netsh",
                 Arguments = "advfirewall firewall add rule name=\"Tether TCP 37123\" dir=in action=allow protocol=TCP localport=37123 profile=any",
                 CreateNoWindow = true,
                 UseShellExecute = false
             };
-            using var p = System.Diagnostics.Process.Start(psi);
-            p?.WaitForExit(2000);
+            using var p1 = Process.Start(psiTcp);
+            p1?.WaitForExit(2000);
+
+            var psiUdp = new ProcessStartInfo
+            {
+                FileName = "netsh",
+                Arguments = "advfirewall firewall add rule name=\"Tether UDP 37124\" dir=in action=allow protocol=UDP localport=37124 profile=any",
+                CreateNoWindow = true,
+                UseShellExecute = false
+            };
+            using var p2 = Process.Start(psiUdp);
+            p2?.WaitForExit(2000);
         }
         catch { /* best effort */ }
     }
@@ -92,6 +106,7 @@ public sealed class Worker : BackgroundService
     {
         _tetherLogger.Info("Tether Communication Service is stopping.");
         _mdns.Stop();
+        _udpDiscovery.Stop();
         _tcpServer.Stop();
         _pipeServer.Dispose();
         await base.StopAsync(cancellationToken);

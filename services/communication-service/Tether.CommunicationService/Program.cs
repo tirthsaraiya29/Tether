@@ -34,6 +34,7 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<CapabilityManager>();
         services.AddSingleton<PacketRouter>();
         services.AddSingleton<MdnsAdvertiser>();
+        services.AddSingleton<UdpDiscovery>();
         services.AddSingleton<TetherTcpServer>();
 
         // --- Engines ---
