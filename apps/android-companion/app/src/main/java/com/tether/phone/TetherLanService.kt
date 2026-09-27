@@ -309,7 +309,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     fun connectToHost(hostAddress: String, port: Int = TetherDiscoveryManager.DEFAULT_PORT) {
-        if (currentState == TransportState.AUTHENTICATING || currentState == TransportState.AUTHENTICATED || currentState == TransportState.READY) return
+        if ((currentState == TransportState.AUTHENTICATING) || (currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) return
 
         currentState = TransportState.CONNECTING
         connectedHostAddress = hostAddress
@@ -326,7 +326,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
                 val result = pairingManager.executeHandshake(
                     transport = transport,
-                    isUserInitiatedPairing = (trustState == TrustState.PAIRING_REQUESTED || trustState == TrustState.REPAIRING),
+                    isUserInitiatedPairing = ((trustState == TrustState.PAIRING_REQUESTED) || (trustState == TrustState.REPAIRING)),
                 )
 
                 when (result) {
@@ -558,15 +558,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun performHealthCheck() {
-        if (currentState == TransportState.DISCONNECTED || currentState == TransportState.FAILED) {
+        if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED)) {
             startDiscovery()
-        } else if (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED) {
+        } else if ((currentState == TransportState.READY) || (currentState == TransportState.AUTHENTICATED)) {
             dispatchCommand("PING")
         }
     }
 
     private fun notifyStateToInterface() {
-        val isConn = (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED)
+        val isConn = ((currentState == TransportState.READY) || (currentState == TransportState.AUTHENTICATED))
         val count = if (isConn) 1 else 0
 
         val phoneKeyBytes = securityEngine.getPublicKeyBytes()

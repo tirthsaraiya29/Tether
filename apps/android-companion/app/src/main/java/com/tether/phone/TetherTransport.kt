@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package com.tether.phone
 
 import android.util.Log
@@ -27,7 +29,7 @@ interface TetherTransport {
 }
 
 class TetherTlsTransport(
-    private val securityEngine: ProductionSecurityEngine
+    private val securityEngine: ProductionSecurityEngine,
 ) : TetherTransport {
 
     companion object {
@@ -76,7 +78,7 @@ class TetherTlsTransport(
         Log.i(TAG, "TLS 1.3 Handshake complete! Protocol=${session.protocol}, CipherSuite=${session.cipherSuite}")
 
         val peerCerts = session.peerCertificates
-        if (peerCerts.isNotEmpty() && peerCerts[0] is X509Certificate) {
+        if (peerCerts.isNotEmpty() && (peerCerts[0] is X509Certificate)) {
             val cert = peerCerts[0] as X509Certificate
             peerCertificate = cert
             peerFingerprint = securityEngine.computePublicKeyFingerprint(cert.publicKey.encoded)
@@ -92,6 +94,7 @@ class TetherTlsTransport(
     private fun createSslContext(): SSLContext {
         val sslContext = SSLContext.getInstance("TLSv1.3")
 
+        @Suppress("CustomX509TrustManager", "TrustAllX509TrustManager")
         val trustManager = object : X509TrustManager {
             @Suppress("TrustAllX509TrustManager")
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
@@ -142,7 +145,7 @@ class TetherTlsTransport(
         val dis = dataInputStream ?: return null
 
         val length = try { dis.readInt() } catch (_: Exception) { return null }
-        if (length <= 0 || length > maxSizeBytes) {
+        if ((length < 1) || (length > maxSizeBytes)) {
             Log.e(TAG, "Invalid frame length received: $length bytes (limit: $maxSizeBytes)")
             disconnect("Oversized or invalid frame length: $length")
             return null
@@ -152,11 +155,7 @@ class TetherTlsTransport(
         dis.readFully(buffer)
 
         val cipher = sessionCipher
-        return if (cipher != null) {
-            cipher.decrypt(buffer)
-        } else {
-            buffer
-        }
+        return cipher?.decrypt(buffer) ?: buffer
     }
 
     override fun getPeerCertificate(): X509Certificate? = peerCertificate
