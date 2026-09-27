@@ -21,14 +21,14 @@ class TetherCapabilityManager {
 
     companion object {
         private const val TAG = "TetherCapabilityManager"
-        
+
         val DEFAULT_ANDROID_CAPABILITIES = setOf(
             TetherCapability.CLIPBOARD,
             TetherCapability.FILES,
             TetherCapability.NOTIFICATIONS,
             TetherCapability.MEDIA,
             TetherCapability.TERMINAL,
-            TetherCapability.POWER_ELEVATED
+            TetherCapability.POWER_ELEVATED,
         )
     }
 
@@ -36,11 +36,12 @@ class TetherCapabilityManager {
 
     fun negotiateCapabilities(peerCapsString: String): Set<TetherCapability> {
         val peerCaps = peerCapsString.split(",")
+            .asSequence()
             .mapNotNull { TetherCapability.fromScopeName(it.trim()) }
             .toSet()
 
         negotiatedCapabilities = DEFAULT_ANDROID_CAPABILITIES.intersect(peerCaps)
-        Log.i(TAG, "Negotiated capabilities: ${negotiatedCapabilities.map { it.scopeName }}")
+        Log.i(TAG, "Negotiated capabilities: ${getNegotiatedCapabilitiesString()}")
         return negotiatedCapabilities
     }
 
@@ -60,7 +61,7 @@ class TetherCapabilityManager {
 
         val isGranted = isCapabilityGranted(requiredCap)
         if (!isGranted) {
-            Log.w(TAG, "Command execution denied for '$command': missing required capability ${requiredCap.scopeName}")
+            Log.w(TAG, "Command execution denied for '$command': missing required capability ${requiredCap.scopeName} (isElevated=${requiredCap.isElevated})")
         }
         return isGranted
     }
