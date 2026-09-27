@@ -41,8 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tether.phone.R
 import com.tether.phone.*
-import com.tether.phone.ui.components.ProfessionalGlassSurface
-import com.tether.phone.ui.components.TacticalAction
+import com.tether.phone.ui.components.*
 import com.tether.phone.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -103,39 +102,62 @@ fun TetherAppScreen(
             enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 200)) + 
                     slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 200)) { it / 2 },
         ) {
-            ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = stringResource(R.string.header_hardware_directives),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = LiquidCyan,
+            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                LiquidGlassVolumeControl(
+                    volumeLevel = 70,
+                    isMuted = false,
+                    onVolumeUp = { onLanActionRequested("VOL_UP") },
+                    onVolumeDown = { onLanActionRequested("VOL_DOWN") },
+                    onToggleMute = { onLanActionRequested("volume_mute") },
+                    enabled = isConnected
                 )
-                Spacer(modifier = Modifier.height(28.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp),
-                ) {
-                    TacticalAction(
-                        label = stringResource(R.string.label_sleep),
-                        accentColor = MatrixGold,
-                        onClick = { onLanActionRequested("PWR_SLEEP") },
-                        modifier = Modifier.weight(1f),
-                        enabled = isConnected,
+
+                LiquidGlassMediaControl(
+                    onPlayPause = { onLanActionRequested("media_play_pause") },
+                    onSkipNext = { onLanActionRequested("media_next") },
+                    onSkipPrev = { onLanActionRequested("media_prev") },
+                    enabled = isConnected
+                )
+
+                LiquidGlassAppLauncher(
+                    onLaunchApp = onLanActionRequested,
+                    enabled = isConnected
+                )
+
+                ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = stringResource(R.string.header_hardware_directives),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = LiquidCyan,
                     )
+                    Spacer(modifier = Modifier.height(28.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    ) {
+                        TacticalAction(
+                            label = stringResource(R.string.label_sleep),
+                            accentColor = MatrixGold,
+                            onClick = { onLanActionRequested("PWR_SLEEP") },
+                            modifier = Modifier.weight(1f),
+                            enabled = isConnected,
+                        )
+                        TacticalAction(
+                            label = stringResource(R.string.label_reboot),
+                            accentColor = TextPrimary,
+                            onClick = { onLanActionRequested("PWR_REBOOT") },
+                            modifier = Modifier.weight(1f),
+                            enabled = isConnected,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
                     TacticalAction(
-                        label = stringResource(R.string.label_reboot),
-                        accentColor = TextPrimary,
-                        onClick = { onLanActionRequested("PWR_REBOOT") },
-                        modifier = Modifier.weight(1f),
+                        label = stringResource(R.string.label_halt_system),
+                        accentColor = AlertRed,
+                        onClick = { onLanActionRequested("PWR_SHUTDOWN") },
                         enabled = isConnected,
                     )
                 }
-                Spacer(modifier = Modifier.height(20.dp))
-                TacticalAction(
-                    label = stringResource(R.string.label_halt_system),
-                    accentColor = AlertRed,
-                    onClick = { onLanActionRequested("PWR_SHUTDOWN") },
-                    enabled = isConnected,
-                )
             }
         }
 
