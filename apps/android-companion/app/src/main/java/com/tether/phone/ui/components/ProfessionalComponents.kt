@@ -1,10 +1,21 @@
-@file:Suppress("unused")
-
 package com.tether.phone.ui.components
 
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.os.Build
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -12,29 +23,67 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tether.phone.R
-import com.tether.phone.ui.theme.*
+import com.tether.phone.ui.theme.AlertRed
+import com.tether.phone.ui.theme.DeepSpace
+import com.tether.phone.ui.theme.GlassBorder
+import com.tether.phone.ui.theme.IntegrityGreen
+import com.tether.phone.ui.theme.LiquidCyan
+import com.tether.phone.ui.theme.MatrixGold
+import com.tether.phone.ui.theme.SurfaceElevated
+import com.tether.phone.ui.theme.TetherEase
+import com.tether.phone.ui.theme.TextMuted
+import com.tether.phone.ui.theme.TextPrimary
+import com.tether.phone.ui.theme.TextSecondary
 
 /**
  * High-End Professional Glass Surface
@@ -77,7 +126,6 @@ fun ProfessionalGlassSurface(
             }
             .clip(RoundedCornerShape(28.dp))
             .drawBehind {
-                // Refractive Shadow (3D depth effect)
                 drawCircle(
                     brush = Brush.radialGradient(
                         0.0f to Color.Black.copy(alpha = 0.4f),
@@ -122,13 +170,12 @@ fun ProfessionalGlassSurface(
                 )
                 .graphicsLayer {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        renderEffect = android.graphics.RenderEffect
-                            .createBlurEffect(blur, blur, android.graphics.Shader.TileMode.CLAMP)
+                        renderEffect = RenderEffect
+                            .createBlurEffect(blur, blur, Shader.TileMode.CLAMP)
                             .asComposeRenderEffect()
                     }
                 }
                 .drawBehind {
-                    // Specular highlight path (Fresnel-like effect)
                     val strokeWidth = 1.2.dp.toPx()
                     val highlightPath = Path().apply {
                         moveTo(0f, size.height * 0.3f)
@@ -151,7 +198,6 @@ fun ProfessionalGlassSurface(
                         style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
                     )
 
-                    // Secondary refractive highlight
                     drawArc(
                         color = Color.White.copy(alpha = 0.08f),
                         startAngle = 0f,
@@ -162,7 +208,6 @@ fun ProfessionalGlassSurface(
                         style = Stroke(width = 0.5.dp.toPx()),
                     )
 
-                    // Grain/Noise texture overlay for tactile depth
                     val noiseStep = 3f
                     for (x in 0 until size.width.toInt() step (noiseStep.toInt() * 4)) {
                         for (y in 0 until size.height.toInt() step (noiseStep.toInt() * 4)) {
@@ -175,11 +220,11 @@ fun ProfessionalGlassSurface(
                             }
                         }
                     }
-                }
+                },
         )
         Column(
             modifier = Modifier.padding(24.dp),
-            content = content
+            content = content,
         )
     }
 }
@@ -191,31 +236,31 @@ fun LiquidGlassVolumeControl(
     onVolumeUp: () -> Unit,
     onVolumeDown: () -> Unit,
     onToggleMute: () -> Unit,
-    enabled: Boolean = true
+    enabled: Boolean = true,
 ) {
     ProfessionalGlassSurface(
         tint = LiquidCyan,
         alpha = 0.15f,
-        blur = 40f
+        blur = 40f,
     ) {
         Column {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column {
                     Text(
                         text = stringResource(R.string.label_volume),
                         style = MaterialTheme.typography.labelSmall,
                         color = LiquidCyan,
-                        letterSpacing = 2.sp
+                        letterSpacing = 2.sp,
                     )
                     Text(
                         text = if (isMuted) "MUTED" else "$volumeLevel%",
                         style = MaterialTheme.typography.headlineMedium,
                         color = if (isMuted) AlertRed else TextPrimary,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
                     )
                 }
 
@@ -227,14 +272,14 @@ fun LiquidGlassVolumeControl(
                         .border(
                             width = 0.5.dp,
                             color = if (isMuted) AlertRed else LiquidCyan,
-                            shape = RoundedCornerShape(16.dp)
+                            shape = RoundedCornerShape(16.dp),
                         )
                         .clickable(enabled = enabled, onClick = onToggleMute),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = if (isMuted) "🔇" else "🔊",
-                        fontSize = 20.sp
+                        fontSize = 20.sp,
                     )
                 }
             }
@@ -243,21 +288,21 @@ fun LiquidGlassVolumeControl(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 TacticalAction(
                     label = "VOL -",
                     accentColor = TextSecondary,
                     onClick = onVolumeDown,
                     enabled = enabled,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
                 TacticalAction(
                     label = "VOL +",
                     accentColor = LiquidCyan,
                     onClick = onVolumeUp,
                     enabled = enabled,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
@@ -272,30 +317,29 @@ fun LiquidGlassMediaControl(
     onPlayPause: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrev: () -> Unit,
-    enabled: Boolean = true
+    enabled: Boolean = true,
 ) {
     ProfessionalGlassSurface(
         tint = MatrixGold,
         alpha = 0.14f,
-        blur = 40f
+        blur = 40f,
     ) {
         Column {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Artwork Glass Tile
                 Box(
                     modifier = Modifier
                         .size(64.dp)
                         .clip(RoundedCornerShape(18.dp))
                         .background(
                             Brush.linearGradient(
-                                listOf(MatrixGold.copy(alpha = 0.3f), LiquidCyan.copy(alpha = 0.2f))
-                            )
+                                listOf(MatrixGold.copy(alpha = 0.3f), LiquidCyan.copy(alpha = 0.2f)),
+                            ),
                         )
                         .border(0.5.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(18.dp)),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(text = "🎵", fontSize = 28.sp)
                 }
@@ -307,12 +351,12 @@ fun LiquidGlassMediaControl(
                         text = trackTitle,
                         style = MaterialTheme.typography.titleMedium,
                         color = TextPrimary,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
                     )
                     Text(
                         text = artistName,
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
+                        color = TextSecondary,
                     )
                 }
             }
@@ -321,28 +365,28 @@ fun LiquidGlassMediaControl(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 TacticalAction(
                     label = "PREV",
                     accentColor = TextSecondary,
                     onClick = onSkipPrev,
                     enabled = enabled,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
                 TacticalAction(
                     label = if (isPlaying) "PAUSE" else "PLAY",
                     accentColor = MatrixGold,
                     onClick = onPlayPause,
                     enabled = enabled,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
                 TacticalAction(
                     label = "NEXT",
                     accentColor = TextSecondary,
                     onClick = onSkipNext,
                     enabled = enabled,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
@@ -352,7 +396,7 @@ fun LiquidGlassMediaControl(
 @Composable
 fun LiquidGlassAppLauncher(
     onLaunchApp: (String) -> Unit,
-    enabled: Boolean = true
+    enabled: Boolean = true,
 ) {
     val apps = listOf(
         Triple("Browser", "🌐", "launch_browser"),
@@ -360,20 +404,20 @@ fun LiquidGlassAppLauncher(
         Triple("Task Manager", "📊", "launch_task_manager"),
         Triple("Explorer", "📁", "launch_explorer"),
         Triple("Settings", "⚙️", "launch_settings"),
-        Triple("Lock PC", "🔒", "lock_now")
+        Triple("Lock PC", "🔒", "lock_now"),
     )
 
     ProfessionalGlassSurface(
         tint = TextPrimary,
         alpha = 0.12f,
-        blur = 36f
+        blur = 36f,
     ) {
         Column {
             Text(
                 text = "SYSTEM APPLICATIONS",
                 style = MaterialTheme.typography.labelSmall,
                 color = LiquidCyan,
-                letterSpacing = 2.sp
+                letterSpacing = 2.sp,
             )
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -381,7 +425,7 @@ fun LiquidGlassAppLauncher(
                 apps.chunked(2).forEach { rowApps ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         rowApps.forEach { (name, icon, cmd) ->
                             Box(
@@ -393,23 +437,23 @@ fun LiquidGlassAppLauncher(
                                     .border(
                                         width = 0.5.dp,
                                         brush = Brush.linearGradient(
-                                            listOf(Color.White.copy(alpha = 0.25f), Color.White.copy(alpha = 0.05f))
+                                            listOf(Color.White.copy(alpha = 0.25f), Color.White.copy(alpha = 0.05f)),
                                         ),
-                                        shape = RoundedCornerShape(16.dp)
+                                        shape = RoundedCornerShape(16.dp),
                                     )
                                     .clickable(enabled = enabled) { onLaunchApp(cmd) },
-                                contentAlignment = Alignment.Center
+                                contentAlignment = Alignment.Center,
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
                                     Text(text = icon, fontSize = 18.sp)
                                     Text(
                                         text = name,
                                         style = MaterialTheme.typography.labelMedium,
                                         color = TextPrimary,
-                                        fontWeight = FontWeight.SemiBold
+                                        fontWeight = FontWeight.SemiBold,
                                     )
                                 }
                             }
@@ -420,8 +464,6 @@ fun LiquidGlassAppLauncher(
         }
     }
 }
-
-// TacticalSwitch and TacticalSlider removed to keep the interface clean
 
 @Composable
 fun TacticalAction(
@@ -443,17 +485,17 @@ fun TacticalAction(
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.94f else 1f,
         animationSpec = spring(dampingRatio = 0.5f, stiffness = 500f),
-        label = "Scale"
+        label = "Scale",
     )
     val glow by animateFloatAsState(
         targetValue = if (isPressed) 0.45f else 0.16f,
         animationSpec = tween(300, easing = LinearOutSlowInEasing),
-        label = "Glow"
+        label = "Glow",
     )
     val tilt by animateFloatAsState(
         targetValue = if (isPressed) 4f else 0f,
         animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
-        label = "Tilt"
+        label = "Tilt",
     )
 
     Box(
@@ -473,19 +515,19 @@ fun TacticalAction(
                     listOf(
                         accentColor.copy(alpha = glow),
                         accentColor.copy(alpha = glow * 0.6f),
-                        accentColor.copy(alpha = glow * 0.2f)
-                    )
-                )
+                        accentColor.copy(alpha = glow * 0.2f),
+                    ),
+                ),
             )
             .border(
                 width = 0.5.dp,
                 brush = Brush.linearGradient(
                     listOf(
                         accentColor.copy(alpha = if (isPressed) 0.9f else 0.5f),
-                        accentColor.copy(alpha = 0.05f)
-                    )
+                        accentColor.copy(alpha = 0.05f),
+                    ),
                 ),
-                shape = RoundedCornerShape(22.dp)
+                shape = RoundedCornerShape(22.dp),
             )
             .drawBehind {
                 if (isPressed) {
@@ -493,8 +535,8 @@ fun TacticalAction(
                         brush = Brush.radialGradient(
                             colors = listOf(accentColor.copy(alpha = 0.15f), Color.Transparent),
                             center = center,
-                            radius = size.width
-                        )
+                            radius = size.width,
+                        ),
                     )
                 }
             }
@@ -502,9 +544,9 @@ fun TacticalAction(
                 interactionSource = interactionSource,
                 indication = null,
                 enabled = enabled,
-                onClick = onClick
+                onClick = onClick,
             ),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
@@ -515,14 +557,14 @@ fun TacticalAction(
                 letterSpacing = 4.sp,
                 modifier = Modifier.graphicsLayer {
                     translationY = if (isPressed) 1.dp.toPx() else 0f
-                }
+                },
             )
             subLabel?.let {
                 Text(
                     text = it.uppercase(),
                     style = MaterialTheme.typography.labelSmall,
                     color = (if (enabled) accentColor else TextMuted).copy(alpha = 0.7f),
-                    letterSpacing = 2.sp
+                    letterSpacing = 2.sp,
                 )
             }
         }
@@ -534,7 +576,7 @@ fun CyberConfirmationDialog(
     title: String,
     message: String,
     onConfirm: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -542,21 +584,21 @@ fun CyberConfirmationDialog(
         modifier = Modifier.border(
             width = 0.5.dp,
             color = GlassBorder,
-            shape = RoundedCornerShape(28.dp)
+            shape = RoundedCornerShape(28.dp),
         ),
         shape = RoundedCornerShape(28.dp),
         title = {
             Text(
                 text = title,
                 color = AlertRed,
-                style = MaterialTheme.typography.titleLarge
+                style = MaterialTheme.typography.titleLarge,
             )
         },
         text = {
             Text(
                 text = message,
                 color = TextSecondary,
-                style = MaterialTheme.typography.bodyLarge
+                style = MaterialTheme.typography.bodyLarge,
             )
         },
         confirmButton = {
@@ -564,12 +606,12 @@ fun CyberConfirmationDialog(
                 onClick = onConfirm,
                 colors = ButtonDefaults.buttonColors(containerColor = AlertRed.copy(alpha = 0.12f)),
                 border = BorderStroke(width = 0.5.dp, color = AlertRed),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
             ) {
                 Text(
                     text = stringResource(R.string.btn_execute),
                     color = AlertRed,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
                 )
             }
         },
@@ -577,10 +619,10 @@ fun CyberConfirmationDialog(
             TextButton(onClick = onDismiss) {
                 Text(
                     text = stringResource(R.string.btn_abort),
-                    color = TextSecondary
+                    color = TextSecondary,
                 )
             }
-        }
+        },
     )
 }
 
@@ -590,7 +632,7 @@ fun CompromisedEnvironmentOverlay(score: Int) {
         modifier = Modifier
             .fillMaxSize()
             .background(DeepSpace),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         DeepSpaceCanvasVisualizer()
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -598,19 +640,19 @@ fun CompromisedEnvironmentOverlay(score: Int) {
                 text = stringResource(R.string.header_security_lockdown),
                 color = AlertRed,
                 style = MaterialTheme.typography.labelLarge,
-                letterSpacing = 8.sp
+                letterSpacing = 8.sp,
             )
             Spacer(modifier = Modifier.height(56.dp))
             Text(
                 text = score.toString(),
                 style = MaterialTheme.typography.headlineLarge,
                 color = AlertRed,
-                fontSize = 80.sp
+                fontSize = 80.sp,
             )
             Text(
                 text = stringResource(R.string.label_trust_index),
                 color = TextSecondary,
-                style = MaterialTheme.typography.labelMedium
+                style = MaterialTheme.typography.labelMedium,
             )
         }
     }
@@ -620,20 +662,20 @@ fun CompromisedEnvironmentOverlay(score: Int) {
 fun CommandConfirmationDialog(
     command: String,
     isConfirmed: Boolean,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(DeepSpace.copy(alpha = 0.94f))
             .clickable(enabled = false) {},
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         ProfessionalGlassSurface(
             modifier = Modifier.width(360.dp),
             tint = if (isConfirmed) IntegrityGreen else LiquidCyan,
             alpha = 0.3f,
-            blur = 60f
+            blur = 60f,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(contentAlignment = Alignment.Center) {
@@ -647,13 +689,13 @@ fun CommandConfirmationDialog(
                                 .graphicsLayer {
                                     scaleX = 1.1f
                                     scaleY = 1.1f
-                                }
+                                },
                         )
                     } else {
                         CircularProgressIndicator(
                             color = LiquidCyan,
                             strokeWidth = 3.5.dp,
-                            modifier = Modifier.size(80.dp)
+                            modifier = Modifier.size(80.dp),
                         )
                     }
                 }
@@ -665,7 +707,7 @@ fun CommandConfirmationDialog(
                     style = MaterialTheme.typography.titleLarge,
                     color = if (isConfirmed) IntegrityGreen else LiquidCyan,
                     textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.ExtraBold
+                    fontWeight = FontWeight.ExtraBold,
                 )
 
                 Spacer(modifier = Modifier.height(18.dp))
@@ -678,7 +720,7 @@ fun CommandConfirmationDialog(
                         "Negotiating encrypted handshake for $displayName...",
                     style = MaterialTheme.typography.bodyLarge,
                     color = TextSecondary,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
                 )
 
                 Spacer(modifier = Modifier.height(40.dp))
@@ -686,7 +728,7 @@ fun CommandConfirmationDialog(
                 TacticalAction(
                     label = "Dismiss",
                     accentColor = TextSecondary,
-                    onClick = onDismiss
+                    onClick = onDismiss,
                 )
             }
         }
@@ -704,15 +746,16 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
         targetValue = 1.2f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 2000, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse
-        ), label = "Pulse"
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "Pulse",
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .clickable { onAuthorizeRequested() },
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
@@ -720,27 +763,27 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                 .background(DeepSpace.copy(alpha = 0.95f))
                 .graphicsLayer {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        renderEffect = android.graphics.RenderEffect
-                            .createBlurEffect(100f, 100f, android.graphics.Shader.TileMode.CLAMP)
+                        renderEffect = RenderEffect
+                            .createBlurEffect(100f, 100f, Shader.TileMode.CLAMP)
                             .asComposeRenderEffect()
                     }
-                }
+                },
         )
 
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 1000)) + 
+            enter = fadeIn(animationSpec = tween(durationMillis = 1000)) +
                     scaleIn(
-                        initialScale = 0.7f, 
-                        animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessLow)
-                    )
+                        initialScale = 0.7f,
+                        animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessLow),
+                    ),
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.graphicsLayer {
                     scaleX = (pulse * 0.05f) + 0.95f
                     scaleY = (pulse * 0.05f) + 0.95f
-                }
+                },
             ) {
                 Text(
                     text = "🔒",
@@ -753,13 +796,13 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                     color = LiquidCyan,
                     style = MaterialTheme.typography.labelLarge,
                     letterSpacing = 8.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = stringResource(R.string.label_tap_to_decrypt),
                     color = TextMuted,
-                    style = MaterialTheme.typography.labelMedium
+                    style = MaterialTheme.typography.labelMedium,
                 )
 
                 val scanLinePos by infiniteTransition.animateFloat(
@@ -767,8 +810,9 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                     targetValue = 1f,
                     animationSpec = infiniteRepeatable(
                         animation = tween(durationMillis = 3000, easing = LinearEasing),
-                        repeatMode = RepeatMode.Restart
-                    ), label = "Scan"
+                        repeatMode = RepeatMode.Restart,
+                    ),
+                    label = "Scan",
                 )
 
                 Canvas(
@@ -776,11 +820,11 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                         .padding(top = 40.dp)
                         .width(200.dp)
                         .height(2.dp)
-                        .graphicsLayer { alpha = 0.5f }
+                        .graphicsLayer { alpha = 0.5f },
                 ) {
                     drawLine(
                         brush = Brush.horizontalGradient(
-                            listOf(Color.Transparent, LiquidCyan, Color.Transparent)
+                            listOf(Color.Transparent, LiquidCyan, Color.Transparent),
                         ),
                         start = Offset(x = (scanLinePos * size.width) - size.width, y = 0f),
                         end = Offset(x = (scanLinePos * size.width) + size.width, y = 0f),
