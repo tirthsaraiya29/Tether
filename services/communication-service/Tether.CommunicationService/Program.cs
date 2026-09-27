@@ -1,9 +1,13 @@
-// services/communication-service/Tether.CommunicationService/Program.cs
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Tether.CommunicationService;
+using Tether.CommunicationService.Capabilities;
+using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.Discovery;
+using Tether.CommunicationService.Pairing;
+using Tether.CommunicationService.Protocol;
 using Tether.CommunicationService.Security;
+using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
 using Tether.CommunicationService.Trust;
 using Tether.EnforcementEngine;
@@ -24,11 +28,15 @@ var host = Host.CreateDefaultBuilder(args)
         // --- Windows connection stack ---
         services.AddSingleton<WindowsIdentity>();
         services.AddSingleton<TrustStore>();
-        services.AddSingleton<PairingCoordinator>();
+        services.AddSingleton<DeviceManager>();
+        services.AddSingleton<SessionManager>();
+        services.AddSingleton<PairingManager>();
+        services.AddSingleton<CapabilityManager>();
+        services.AddSingleton<PacketRouter>();
         services.AddSingleton<MdnsAdvertiser>();
         services.AddSingleton<TetherTcpServer>();
 
-        // --- Engines (untouched) ---
+        // --- Engines ---
         services.AddSingleton<TrustStateManager>();
         services.AddSingleton<EnforcementManager>();
         services.AddSingleton<PanicManager>();
