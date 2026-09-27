@@ -65,7 +65,6 @@ public class PipeServer : IDisposable
     /// RequestId + phone key against its own pending-request state before honoring it.
     /// </summary>
     public static bool IsAllowedIpcEvent(TetherEventType type) =>
-        type == TetherEventType.PROVISION_PHONE ||
         type == TetherEventType.PANIC_TRIGGERED ||
         type == TetherEventType.PAIRING_DECISION ||
         type == TetherEventType.FORGET_PHONE;

@@ -1,7 +1,6 @@
 // services/communication-service/Tether.CommunicationService/Program.cs
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using System.Security.Principal;
 using Tether.CommunicationService;
 using Tether.CommunicationService.Discovery;
 using Tether.CommunicationService.Security;
@@ -11,7 +10,6 @@ using Tether.EnforcementEngine;
 using Tether.EventBus;
 using Tether.PanicEngine;
 using Tether.RecoveryEngine;
-using Tether.Shared.Constants;
 using Tether.Shared.Logging;
 using Tether.TrustEngine;
 
