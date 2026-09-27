@@ -11,6 +11,7 @@ import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.KeyPairGenerator
 import java.security.cert.X509Certificate
+import java.util.Locale
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -32,7 +33,16 @@ class ProductionSecurityEngine {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val PREFS_NAME = "tether_secure_prefs"
         private const val PINNED_WINDOWS_KEY_PREF = "pinned_windows_public_key_enc"
+        private const val PINNED_WINDOWS_PQC_KEM_PREF = "pinned_windows_pqc_kem_pub_enc"
+        private const val PINNED_WINDOWS_PQC_DSA_PREF = "pinned_windows_pqc_dsa_pub_enc"
+        private const val LOCAL_PQC_KEM_PUB_PREF = "local_pqc_kem_pub_enc"
+        private const val LOCAL_PQC_KEM_PRIV_PREF = "local_pqc_kem_priv_enc"
+        private const val LOCAL_PQC_DSA_PUB_PREF = "local_pqc_dsa_pub_enc"
+        private const val LOCAL_PQC_DSA_PRIV_PREF = "local_pqc_dsa_priv_enc"
     }
+
+    @Volatile
+    private var cachedPqcKeyPair: PqcKeyPair? = null
 
     init {
         ensureIdentityKeyPairExists()
@@ -103,36 +113,27 @@ class ProductionSecurityEngine {
         return getIdentityCertificate().publicKey.encoded
     }
 
-    fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray) {
-        try {
-            ensureStorageKeyExists()
-            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-            val secretKey = keyStore.getKey(STORAGE_KEY_ALIAS, null) as SecretKey
+    private fun encryptBytes(data: ByteArray): String {
+        ensureStorageKeyExists()
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        val secretKey = keyStore.getKey(STORAGE_KEY_ALIAS, null) as SecretKey
 
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
-            val iv = cipher.iv
-            val encryptedBytes = cipher.doFinal(publicKeyBytes)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+        val iv = cipher.iv
+        val encryptedBytes = cipher.doFinal(data)
 
-            val combined = ByteArray(iv.size + encryptedBytes.size)
-            System.arraycopy(iv, 0, combined, 0, iv.size)
-            System.arraycopy(encryptedBytes, 0, combined, iv.size, encryptedBytes.size)
+        val combined = ByteArray(iv.size + encryptedBytes.size)
+        System.arraycopy(iv, 0, combined, 0, iv.size)
+        System.arraycopy(encryptedBytes, 0, combined, iv.size, encryptedBytes.size)
 
-            val encodedStr = Base64.encodeToString(combined, Base64.NO_WRAP)
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit { putString(PINNED_WINDOWS_KEY_PREF, encodedStr) }
-            Log.i(TAG, "Pinned Windows public identity key encrypted and saved to secure storage.")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to store pinned key securely: ${e.message}", e)
-        }
+        return Base64.encodeToString(combined, Base64.NO_WRAP)
     }
 
-    fun getPinnedKeyDecrypted(context: Context): ByteArray? {
-        try {
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val encodedStr = prefs.getString(PINNED_WINDOWS_KEY_PREF, null) ?: return null
+    private fun decryptString(encodedStr: String?): ByteArray? {
+        if (encodedStr.isNull_or_blank()) return null
+        return try {
             val combined = Base64.decode(encodedStr, Base64.NO_WRAP)
-
             if (combined.size <= 12) return null
             val iv = combined.copyOfRange(0, 12)
             val ciphertext = combined.copyOfRange(12, combined.size)
@@ -143,20 +144,111 @@ class ProductionSecurityEngine {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             val spec = GCMParameterSpec(128, iv)
             cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
-            return cipher.doFinal(ciphertext)
+            cipher.doFinal(ciphertext)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to decrypt pinned public key: ${e.message}", e)
-            return null
+            Log.e(TAG, "Failed to decrypt string: ${e.message}")
+            null
         }
+    }
+
+    private fun String?.isNull_or_blank(): Boolean = this == null || this.isBlank()
+
+    fun getOrCreatePqcKeyPair(context: Context): PqcKeyPair {
+        cachedPqcKeyPair?.let { return it }
+
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val kemPubEnc = prefs.getString(LOCAL_PQC_KEM_PUB_PREF, null)
+        val kemPrivEnc = prefs.getString(LOCAL_PQC_KEM_PRIV_PREF, null)
+        val dsaPubEnc = prefs.getString(LOCAL_PQC_DSA_PUB_PREF, null)
+        val dsaPrivEnc = prefs.getString(LOCAL_PQC_DSA_PRIV_PREF, null)
+
+        val kemPub = decryptString(kemPubEnc)
+        val kemPriv = decryptString(kemPrivEnc)
+        val dsaPub = decryptString(dsaPubEnc)
+        val dsaPriv = decryptString(dsaPrivEnc)
+
+        if (kemPub != null && kemPriv != null && dsaPub != null && dsaPriv != null) {
+            val keyPair = PqcKeyPair(kemPub, kemPriv, dsaPub, dsaPriv)
+            cachedPqcKeyPair = keyPair
+            return keyPair
+        }
+
+        Log.i(TAG, "Generating long-lived PQC identity keypair (ML-KEM-768 + ML-DSA-65)...")
+        val newKeyPair = PqcHandshake.generateKeyPair()
+        prefs.edit {
+            putString(LOCAL_PQC_KEM_PUB_PREF, encryptBytes(newKeyPair.kemPublicKey))
+            putString(LOCAL_PQC_KEM_PRIV_PREF, encryptBytes(newKeyPair.kemPrivateKey))
+            putString(LOCAL_PQC_DSA_PUB_PREF, encryptBytes(newKeyPair.dsaPublicKey))
+            putString(LOCAL_PQC_DSA_PRIV_PREF, encryptBytes(newKeyPair.dsaPrivateKey))
+        }
+        cachedPqcKeyPair = newKeyPair
+        return newKeyPair
+    }
+
+    fun getPqcKemPublicKeyBytes(context: Context): ByteArray {
+        return getOrCreatePqcKeyPair(context).kemPublicKey
+    }
+
+    fun getPqcDsaPublicKeyBytes(context: Context): ByteArray {
+        return getOrCreatePqcKeyPair(context).dsaPublicKey
+    }
+
+    fun storePinnedWindowsPqcKeys(context: Context, kemPub: ByteArray, dsaPub: ByteArray) {
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit {
+                putString(PINNED_WINDOWS_PQC_KEM_PREF, encryptBytes(kemPub))
+                putString(PINNED_WINDOWS_PQC_DSA_PREF, encryptBytes(dsaPub))
+            }
+            Log.i(TAG, "Pinned Windows PQC public keys stored securely.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to store pinned Windows PQC keys: ${e.message}", e)
+        }
+    }
+
+    fun getPinnedWindowsPqcKeys(context: Context): Pair<ByteArray, ByteArray>? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val kemEnc = prefs.getString(PINNED_WINDOWS_PQC_KEM_PREF, null)
+        val dsaEnc = prefs.getString(PINNED_WINDOWS_PQC_DSA_PREF, null)
+
+        val kemPub = decryptString(kemEnc)
+        val dsaPub = decryptString(dsaEnc)
+
+        return if (kemPub != null && dsaPub != null) {
+            Pair(kemPub, dsaPub)
+        } else {
+            null
+        }
+    }
+
+    fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray) {
+        try {
+            val encodedStr = encryptBytes(publicKeyBytes)
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit { putString(PINNED_WINDOWS_KEY_PREF, encodedStr) }
+            Log.i(TAG, "Pinned Windows public identity key encrypted and saved to secure storage.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to store pinned key securely: ${e.message}", e)
+        }
+    }
+
+    fun getPinnedKeyDecrypted(context: Context): ByteArray? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val encodedStr = prefs.getString(PINNED_WINDOWS_KEY_PREF, null)
+        return decryptString(encodedStr)
     }
 
     fun clearPinnedKey(context: Context) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit { remove(PINNED_WINDOWS_KEY_PREF) }
-            Log.i(TAG, "Cleared pinned Windows public key from storage.")
+            prefs.edit {
+                remove(PINNED_WINDOWS_KEY_PREF)
+                remove(PINNED_WINDOWS_PQC_KEM_PREF)
+                remove(PINNED_WINDOWS_PQC_DSA_PREF)
+            }
+            Log.i(TAG, "Cleared pinned Windows public keys from storage.")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to clear pinned key: ${e.message}", e)
+            Log.e(TAG, "Failed to clear pinned keys: ${e.message}", e)
         }
     }
 
@@ -165,7 +257,7 @@ class ProductionSecurityEngine {
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
             val hash = digest.digest(publicKeyBytes)
-            hash.joinToString(":") { String.format("%02X", it) }
+            hash.joinToString(":") { String.format(Locale.US, "%02X", it) }
         } catch (_: Exception) {
             "INVALID"
         }

@@ -22,6 +22,8 @@ interface TetherTransport {
     fun readFrame(maxSizeBytes: Int = 1024 * 1024): ByteArray?
     fun getPeerCertificate(): X509Certificate?
     fun getPeerIdentityFingerprint(): String?
+    fun attachSessionCipher(cipher: SessionCipher?)
+    fun getSessionCipher(): SessionCipher?
 }
 
 class TetherTlsTransport(
@@ -40,7 +42,17 @@ class TetherTlsTransport(
     private var peerFingerprint: String? = null
 
     @Volatile
+    private var sessionCipher: SessionCipher? = null
+
+    @Volatile
     private var connected = false
+
+    override fun attachSessionCipher(cipher: SessionCipher?) {
+        this.sessionCipher = cipher
+        Log.i(TAG, "Attached SessionCipher to TLS transport (active=${cipher != null})")
+    }
+
+    override fun getSessionCipher(): SessionCipher? = sessionCipher
 
     override fun connect(host: String, port: Int, timeoutMs: Int) {
         if (connected) disconnect("Reconnecting")
@@ -56,20 +68,12 @@ class TetherTlsTransport(
         val sslSock = factory.createSocket(rawSocket, host, port, true) as SSLSocket
         sslSock.useClientMode = true
 
-        try {
-            val supportedProtocols = sslSock.supportedProtocols
-            if (supportedProtocols.contains("TLSv1.3")) {
-                sslSock.enabledProtocols = arrayOf("TLSv1.3")
-            } else {
-                sslSock.enabledProtocols = arrayOf("TLSv1.3", "TLSv1.2")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error configuring TLS protocols: ${e.message}")
-        }
+        // Strictly enforce TLS 1.3 only to prevent version downgrade attacks
+        sslSock.enabledProtocols = arrayOf("TLSv1.3")
 
         sslSock.startHandshake()
         val session = sslSock.session
-        Log.i(TAG, "TLS Handshake complete! Protocol=${session.protocol}, CipherSuite=${session.cipherSuite}")
+        Log.i(TAG, "TLS 1.3 Handshake complete! Protocol=${session.protocol}, CipherSuite=${session.cipherSuite}")
 
         val peerCerts = session.peerCertificates
         if (peerCerts.isNotEmpty() && peerCerts[0] is X509Certificate) {
@@ -121,12 +125,14 @@ class TetherTlsTransport(
 
     override fun sendFrame(data: ByteArray) {
         if (!isConnected()) throw IllegalStateException("Transport disconnected")
-        if (data.size > MAX_FRAME_SIZE) throw IllegalArgumentException("Frame size ${data.size} exceeds maximum limit of $MAX_FRAME_SIZE bytes")
+
+        val payload = sessionCipher?.encrypt(data) ?: data
+        if (payload.size > MAX_FRAME_SIZE) throw IllegalArgumentException("Frame size ${payload.size} exceeds maximum limit of $MAX_FRAME_SIZE bytes")
 
         val dos = dataOutputStream ?: throw IllegalStateException("OutputStream null")
         synchronized(dos) {
-            dos.writeInt(data.size)
-            dos.write(data)
+            dos.writeInt(payload.size)
+            dos.write(payload)
             dos.flush()
         }
     }
@@ -144,7 +150,13 @@ class TetherTlsTransport(
 
         val buffer = ByteArray(length)
         dis.readFully(buffer)
-        return buffer
+
+        val cipher = sessionCipher
+        return if (cipher != null) {
+            cipher.decrypt(buffer)
+        } else {
+            buffer
+        }
     }
 
     override fun getPeerCertificate(): X509Certificate? = peerCertificate
