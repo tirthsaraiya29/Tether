@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package com.tether.phone.ui.components
 
 import android.os.Build
@@ -114,7 +116,7 @@ fun ProfessionalGlassSurface(
                     Brush.verticalGradient(
                         listOf(
                             tint.copy(alpha = alpha * 1.4f),
-                            tint.copy(alpha = alpha * 0.5f)
+                            tint.copy(alpha = alpha * 0.5f),
                         )
                     )
                 )
