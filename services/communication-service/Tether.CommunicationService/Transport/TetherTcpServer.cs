@@ -1,49 +1,56 @@
-﻿// services/communication-service/Tether.CommunicationService/Transport/TetherTcpServer.cs
-using System;
+﻿using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Tether.CommunicationService.Capabilities;
+using Tether.CommunicationService.Devices;
+using Tether.CommunicationService.Pairing;
 using Tether.CommunicationService.Protocol;
 using Tether.CommunicationService.Security;
-using Tether.CommunicationService.Trust;
+using Tether.CommunicationService.Sessions;
 using Tether.EventBus;
 using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService.Transport;
 
 /// <summary>
-/// TCP 37123 listener. Accepts one connection at a time; TLS 1.3 + Tether handshake
-/// run inside TetherSession. LAN is treated as hostile: no subnet filtering is
-/// performed (that is impossible to enforce across arbitrary topologies), so
-/// authentication happens entirely at the TLS+handshake layer.
+/// TCP 37123 listener for Tether LAN traffic over TLS 1.3.
+/// Configures OS-level TCP KeepAlive parameters and hands off streams to TetherSession.
 /// </summary>
 public sealed class TetherTcpServer : IDisposable
 {
     public const int ListenPort = 37123;
-    private const int MaxConcurrentSessions = 1;
-    private const int HandshakeTimeoutSeconds = 20;
 
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
     private readonly WindowsIdentity _identity;
-    private readonly TrustStore _trust;
-    private readonly PairingCoordinator _pairing;
+    private readonly DeviceManager _deviceManager;
+    private readonly SessionManager _sessionManager;
+    private readonly PairingManager _pairingManager;
+    private readonly PacketRouter _packetRouter;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _acceptLoop;
-    private readonly SemaphoreSlim _slots = new(MaxConcurrentSessions, MaxConcurrentSessions);
     private bool _isStopping;
 
-    public TetherTcpServer(IEventBus eventBus, ITetherLogger logger,
-                           WindowsIdentity identity, TrustStore trust, PairingCoordinator pairing)
+    public TetherTcpServer(
+        IEventBus eventBus,
+        ITetherLogger logger,
+        WindowsIdentity identity,
+        DeviceManager deviceManager,
+        SessionManager sessionManager,
+        PairingManager pairingManager,
+        PacketRouter packetRouter)
     {
         _eventBus = eventBus;
         _logger = logger;
         _identity = identity;
-        _trust = trust;
-        _pairing = pairing;
+        _deviceManager = deviceManager;
+        _sessionManager = sessionManager;
+        _pairingManager = pairingManager;
+        _packetRouter = packetRouter;
     }
 
     public void Start()
@@ -72,7 +79,7 @@ public sealed class TetherTcpServer : IDisposable
         try
         {
             _listener = new TcpListener(IPAddress.Any, ListenPort);
-            _listener.Start(backlog: 4);
+            _listener.Start(backlog: 8);
         }
         catch (Exception ex)
         {
@@ -93,12 +100,8 @@ public sealed class TetherTcpServer : IDisposable
                 continue;
             }
 
-            if (!await _slots.WaitAsync(0, ct))
-            {
-                _logger.Warning("Rejecting additional peer: a session is already active.");
-                try { client.Close(); } catch { }
-                continue;
-            }
+            // Configure socket TCP KeepAlive & NoDelay
+            ConfigureSocketOptions(client.Client);
 
             _ = RunSessionAsync(client, ct);
         }
@@ -108,10 +111,14 @@ public sealed class TetherTcpServer : IDisposable
     {
         try
         {
-            client.NoDelay = true;
             using var session = new TetherSession(
-                _eventBus, _logger, _identity, _trust, _pairing,
-                HandshakeTimeoutSeconds);
+                _eventBus,
+                _logger,
+                _identity,
+                _deviceManager,
+                _sessionManager,
+                _pairingManager,
+                _packetRouter);
 
             await session.RunAsync(client, ct);
         }
@@ -122,7 +129,24 @@ public sealed class TetherTcpServer : IDisposable
         finally
         {
             try { client.Close(); } catch { }
-            _slots.Release();
+        }
+    }
+
+    private void ConfigureSocketOptions(Socket socket)
+    {
+        try
+        {
+            socket.NoDelay = true;
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+
+            // Configure TCP KeepAlive timing parameters (15s idle, 5s interval, 3 retries)
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 15);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 5);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, 3);
+        }
+        catch (Exception ex)
+        {
+            _logger.Debug($"Could not set custom TCP KeepAlive socket options: {ex.Message}");
         }
     }
 }
