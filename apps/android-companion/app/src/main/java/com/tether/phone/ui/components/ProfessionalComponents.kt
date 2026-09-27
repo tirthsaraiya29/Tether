@@ -107,7 +107,7 @@ fun ProfessionalGlassSurface(
                     end = Offset(1000f, 1000f),
                 ),
                 shape = RoundedCornerShape(28.dp),
-            )
+            ),
     ) {
         Box(
             modifier = Modifier
@@ -117,8 +117,8 @@ fun ProfessionalGlassSurface(
                         listOf(
                             tint.copy(alpha = alpha * 1.4f),
                             tint.copy(alpha = alpha * 0.5f),
-                        )
-                    )
+                        ),
+                    ),
                 )
                 .graphicsLayer {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -137,7 +137,7 @@ fun ProfessionalGlassSurface(
                             rect = Rect(0f, 0f, 56.dp.toPx(), 56.dp.toPx()),
                             startAngleDegrees = 180f,
                             sweepAngleDegrees = 90f,
-                            forceMoveTo = false
+                            forceMoveTo = false,
                         )
                         lineTo(size.width * 0.3f, 0f)
                     }
@@ -146,9 +146,9 @@ fun ProfessionalGlassSurface(
                         brush = Brush.linearGradient(
                             colors = listOf(Color.White.copy(alpha = 0.5f), Color.Transparent),
                             start = Offset(tiltX * 30f, tiltY * 30f),
-                            end = Offset(size.width * 0.4f, size.height * 0.4f)
+                            end = Offset(size.width * 0.4f, size.height * 0.4f),
                         ),
-                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
                     )
 
                     // Secondary refractive highlight

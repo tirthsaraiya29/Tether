@@ -109,4 +109,25 @@ object PqcHandshake {
             false
         }
     }
+
+    fun runSelfTest(): Boolean {
+        return try {
+            val kp = generateKeyPair()
+            val (ciphertext, secret1) = encapsulate(kp.kemPublicKey)
+            val secret2 = decapsulate(ciphertext, kp.kemPrivateKey)
+            val msg = "TetherPqcSelfTest".toByteArray(Charsets.UTF_8)
+            val sig = sign(msg, kp.dsaPrivateKey)
+            val valid = verify(msg, sig, kp.dsaPublicKey)
+            val pass = secret1.contentEquals(secret2) && valid
+            if (pass) {
+                Log.i(TAG, "PQC ML-KEM-768 + ML-DSA-65 cryptographic self-test PASSED!")
+            } else {
+                Log.e(TAG, "PQC cryptographic self-test FAILED!")
+            }
+            pass
+        } catch (e: Exception) {
+            Log.e(TAG, "PQC self-test exception: ${e.message}", e)
+            false
+        }
+    }
 }
