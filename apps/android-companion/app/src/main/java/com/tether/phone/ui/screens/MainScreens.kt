@@ -990,6 +990,90 @@ fun PairingScreen(
     }
 }
 
+@Composable
+fun LaptopControlScreen(
+    isConnected: Boolean,
+    onLanActionRequested: (String) -> Unit
+) {
+    var volumeLevel by remember { mutableIntStateOf(70) }
+    var isMuted by remember { mutableStateOf(false) }
+    var isPlaying by remember { mutableStateOf(true) }
+
+    val scrollState = rememberScrollState()
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(600)) + slideInVertically(animationSpec = tween(600)) { -it / 4 }
+        ) {
+            Text(
+                text = "WINDOWS REMOTE CONTROL",
+                style = MaterialTheme.typography.labelLarge,
+                color = LiquidCyan,
+                letterSpacing = 4.sp
+            )
+        }
+
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(600, delayMillis = 100)) + slideInVertically(animationSpec = tween(600, delayMillis = 100)) { it / 3 }
+        ) {
+            LiquidGlassVolumeControl(
+                volumeLevel = volumeLevel,
+                isMuted = isMuted,
+                onVolumeUp = {
+                    if (volumeLevel < 100) volumeLevel = (volumeLevel + 5).coerceAtMost(100)
+                    isMuted = false
+                    onLanActionRequested("VOL_UP")
+                },
+                onVolumeDown = {
+                    if (volumeLevel > 0) volumeLevel = (volumeLevel - 5).coerceAtLeast(0)
+                    onLanActionRequested("VOL_DOWN")
+                },
+                onToggleMute = {
+                    isMuted = !isMuted
+                    onLanActionRequested("volume_mute")
+                },
+                enabled = isConnected
+            )
+        }
+
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(600, delayMillis = 200)) + slideInVertically(animationSpec = tween(600, delayMillis = 200)) { it / 3 }
+        ) {
+            LiquidGlassMediaControl(
+                isPlaying = isPlaying,
+                onPlayPause = {
+                    isPlaying = !isPlaying
+                    onLanActionRequested("media_play_pause")
+                },
+                onSkipNext = { onLanActionRequested("media_next") },
+                onSkipPrev = { onLanActionRequested("media_prev") },
+                enabled = isConnected
+            )
+        }
+
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(600, delayMillis = 300)) + slideInVertically(animationSpec = tween(600, delayMillis = 300)) { it / 3 }
+        ) {
+            LiquidGlassAppLauncher(
+                onLaunchApp = onLanActionRequested,
+                enabled = isConnected
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TetherNavigationShell(
@@ -1136,7 +1220,10 @@ fun TetherNavigationShell(
                             onRestartServer = onRestartServer,
                             onForgetTrust = onForgetTrust
                         )
-                        AppScreen.LAPTOP_CONTROL -> Box(Modifier.fillMaxSize())
+                        AppScreen.LAPTOP_CONTROL -> LaptopControlScreen(
+                            isConnected = isConnected,
+                            onLanActionRequested = onLaptopActionClick
+                        )
                         AppScreen.PAIRING -> PairingScreen(
                             trustState = trustState,
                             phoneFingerprint = phoneFingerprint,
