@@ -109,7 +109,7 @@ fun TetherAppScreen(
                     onVolumeUp = { onLanActionRequested("VOL_UP") },
                     onVolumeDown = { onLanActionRequested("VOL_DOWN") },
                     onToggleMute = { onLanActionRequested("volume_mute") },
-                    enabled = isConnected
+                    enabled = isConnected,
                 )
 
                 LiquidGlassMediaControl(
@@ -1137,8 +1137,9 @@ fun TetherNavigationShell(
 
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
+                            Triple(stringResource(R.string.nav_hardware), Icons.Default.Menu, AppScreen.LAPTOP_CONTROL),
                             Triple(stringResource(R.string.nav_security), Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
-                            Triple(stringResource(R.string.nav_pair), Icons.Default.QrCode, AppScreen.PAIRING)
+                            Triple(stringResource(R.string.nav_pair), Icons.Default.QrCode, AppScreen.PAIRING),
                         )
 
                         navItems.forEach { (label, icon, screen) ->
