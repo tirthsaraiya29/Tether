@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
+import androidx.biometric.BiometricPrompt
 import androidx.core.content.edit
 import java.security.KeyStore
 import java.security.MessageDigest
@@ -100,6 +101,21 @@ class ProductionSecurityEngine {
     fun getIdentityPrivateKey(): PrivateKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         return keyStore.getKey(EC_IDENTITY_ALIAS, null) as PrivateKey
+    }
+
+    fun createCryptoObjectForAuthentication(): BiometricPrompt.CryptoObject? {
+        return try {
+            ensureStorageKeyExists()
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            val secretKey = keyStore.getKey(STORAGE_KEY_ALIAS, null) as SecretKey
+
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+            BiometricPrompt.CryptoObject(cipher)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create CryptoObject for biometric auth: ${e.message}")
+            null
+        }
     }
 
     fun signWithIdentityKey(data: ByteArray): ByteArray {
