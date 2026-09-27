@@ -92,6 +92,7 @@ class MainActivity : FragmentActivity() {
 
     private var lastBiometricAuthTime = 0L
 
+    private val securityEngine = ProductionSecurityEngine()
     private lateinit var executor: ExecutorService
 
     private val batteryOptimizationLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -669,12 +670,20 @@ class MainActivity : FragmentActivity() {
             if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
                 promptBuilder.setNegativeButtonText(getString(R.string.btn_abort))
             }
+            val cryptoObject = if ((allowedAuthenticators and BiometricManager.Authenticators.BIOMETRIC_STRONG) != 0) {
+                securityEngine.createCryptoObjectForAuthentication()
+            } else null
+
             val biometricPrompt = BiometricPrompt(
                 this,
                 executor,
                 object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                         super.onAuthenticationSucceeded(result)
+                        val cipher = result.cryptoObject?.cipher
+                        if (cipher != null) {
+                            Log.i("TetherActivity", "Hardware CryptoObject authenticated via biometric prompt.")
+                        }
                         callback(true)
                     }
 
@@ -684,7 +693,13 @@ class MainActivity : FragmentActivity() {
                     }
                 },
             )
-            biometricPrompt.authenticate(promptBuilder.build())
+
+            val promptInfo = promptBuilder.build()
+            if (cryptoObject != null) {
+                biometricPrompt.authenticate(promptInfo, cryptoObject)
+            } else {
+                biometricPrompt.authenticate(promptInfo)
+            }
         }
     }
 
