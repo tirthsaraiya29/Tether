@@ -1,5 +1,3 @@
-@file:Suppress("unused")
-
 package com.tether.phone
 
 import android.content.Context
@@ -64,9 +62,12 @@ class TetherPairingManager(
             val phoneFingerprint = securityEngine.computePublicKeyFingerprint(phonePubKeyBytes)
             val phonePubKeyBase64 = Base64.encodeToString(phonePubKeyBytes, Base64.NO_WRAP)
 
+            val phoneKemPub = securityEngine.getPqcKemPublicKeyBytes(context)
+            val phoneDsaPub = securityEngine.getPqcDsaPublicKeyBytes(context)
+            val phoneKemPubBase64 = Base64.encodeToString(phoneKemPub, Base64.NO_WRAP)
+            val phoneDsaPubBase64 = Base64.encodeToString(phoneDsaPub, Base64.NO_WRAP)
+
             val pqcKeyPair = securityEngine.getOrCreatePqcKeyPair(context)
-            val phoneKemPubBase64 = Base64.encodeToString(pqcKeyPair.kemPublicKey, Base64.NO_WRAP)
-            val phoneDsaPubBase64 = Base64.encodeToString(pqcKeyPair.dsaPublicKey, Base64.NO_WRAP)
 
             val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(context)
             val pinnedFingerprint = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
