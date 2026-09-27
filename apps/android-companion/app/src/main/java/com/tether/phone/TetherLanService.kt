@@ -342,10 +342,24 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
                         listenSocketLoop(transport)
                     }
-                    is PairingResult.PairingRequired -> {
-                        Log.i(TAG, "Pairing approval requested on Windows Desktop UI.")
+                    is PairingResult.PairingPending -> {
+                        Log.i(TAG, "Pairing pending for requestId=${result.requestId}. Launching PairingConfirmationActivity...")
+                        pendingRequestId = result.requestId
+                        pendingWinEcPubKey = result.winEcPubKeyBytes
+                        pendingWinDsaPubKey = result.winDsaPubKeyBytes
+
                         trustState = TrustState.PAIRING_REQUESTED
                         currentState = TransportState.PAIRING_REQUIRED
+
+                        val promptIntent = Intent(this, PairingConfirmationActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                            putExtra(EXTRA_PAIRING_REQUEST_ID, result.requestId)
+                            putExtra(EXTRA_PEER_DEVICE_NAME, result.peerName)
+                            putExtra(EXTRA_WINDOWS_FINGERPRINT, result.peerFingerprint)
+                            putExtra(EXTRA_PAIRING_SAS_CODE, result.sasCode)
+                        }
+                        startActivity(promptIntent)
+                        // Note: Keep socket open and activeTransport set, do NOT enter listenSocketLoop or disconnect yet!
                     }
                     is PairingResult.PairingDenied -> {
                         Log.w(TAG, "Pairing denied by Windows host: ${result.reason}")
@@ -370,6 +384,65 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 disconnectActiveSession("Connection error: ${e.message}")
                 mainHandler.postDelayed({ startDiscovery() }, 5000)
             }
+        }
+    }
+
+    fun confirmPairing(requestId: String) {
+        networkExecutor.execute {
+            val transport = activeTransport
+            if (transport == null || !transport.isConnected()) {
+                Log.e(TAG, "Cannot confirm pairing: active transport is null or disconnected.")
+                disconnectActiveSession("Transport lost before confirmation")
+                return@execute
+            }
+
+            Log.i(TAG, "Finalizing pairing with Windows host for requestId=$requestId...")
+            val result = pairingManager.finalizePairing(
+                transport = transport,
+                requestId = requestId,
+                winEcPubKeyBytes = pendingWinEcPubKey,
+                winDsaPubKeyBytes = pendingWinDsaPubKey
+            )
+
+            when (result) {
+                is PairingResult.Authenticated -> {
+                    Log.i(TAG, "Pairing successfully finalized and keys pinned! Entering READY state...")
+                    trustState = TrustState.PAIRED
+                    currentState = TransportState.AUTHENTICATED
+                    capabilityManager.negotiateCapabilities("CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
+
+                    mainHandler.postDelayed({
+                        currentState = TransportState.READY
+                    }, 200)
+
+                    listenSocketLoop(transport)
+                }
+                is PairingResult.Error -> {
+                    Log.e(TAG, "Failed finalizing pairing: ${result.message}")
+                    disconnectActiveSession("Finalize pairing error: ${result.message}")
+                }
+                else -> {
+                    disconnectActiveSession("Unexpected finalize pairing result: $result")
+                }
+            }
+        }
+    }
+
+    fun rejectPairing(requestId: String) {
+        networkExecutor.execute {
+            val transport = activeTransport
+            if (transport != null && transport.isConnected()) {
+                try {
+                    val rejectJson = JSONObject().apply {
+                        put("type", "PAIRING_REJECTED")
+                        put("requestId", requestId)
+                    }
+                    transport.sendFrame(rejectJson.toString().toByteArray(StandardCharsets.UTF_8))
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error sending PAIRING_REJECTED frame: ${e.message}")
+                }
+            }
+            disconnectActiveSession("Pairing rejected by user")
         }
     }
 

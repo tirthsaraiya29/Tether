@@ -160,7 +160,7 @@ fun ProfessionalGlassSurface(
                         style = Stroke(width = 0.5.dp.toPx())
                     )
 
-                    // Grain/Noise texture overlay for tactile depth (Higher precision)
+                    // Grain/Noise texture overlay for tactile depth
                     val noiseStep = 3f
                     for (x in 0 until size.width.toInt() step (noiseStep.toInt() * 4)) {
                         for (y in 0 until size.height.toInt() step (noiseStep.toInt() * 4)) {
@@ -179,6 +179,243 @@ fun ProfessionalGlassSurface(
             modifier = Modifier.padding(24.dp),
             content = content
         )
+    }
+}
+
+@Composable
+fun LiquidGlassVolumeControl(
+    volumeLevel: Int,
+    isMuted: Boolean,
+    onVolumeUp: () -> Unit,
+    onVolumeDown: () -> Unit,
+    onToggleMute: () -> Unit,
+    enabled: Boolean = true
+) {
+    ProfessionalGlassSurface(
+        tint = LiquidCyan,
+        alpha = 0.15f,
+        blur = 40f
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = stringResource(R.string.label_volume),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LiquidCyan,
+                        letterSpacing = 2.sp
+                    )
+                    Text(
+                        text = if (isMuted) "MUTED" else "$volumeLevel%",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = if (isMuted) AlertRed else TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (isMuted) AlertRed.copy(alpha = 0.2f) else LiquidCyan.copy(alpha = 0.15f))
+                        .border(
+                            width = 0.5.dp,
+                            color = if (isMuted) AlertRed else LiquidCyan,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                        .clickable(enabled = enabled, onClick = onToggleMute),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isMuted) "🔇" else "🔊",
+                        fontSize = 20.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                TacticalAction(
+                    label = "VOL -",
+                    accentColor = TextSecondary,
+                    onClick = onVolumeDown,
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f)
+                )
+                TacticalAction(
+                    label = "VOL +",
+                    accentColor = LiquidCyan,
+                    onClick = onVolumeUp,
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun LiquidGlassMediaControl(
+    trackTitle: String = "Media Stream Active",
+    artistName: String = "Windows Audio Engine",
+    isPlaying: Boolean = true,
+    onPlayPause: () -> Unit,
+    onSkipNext: () -> Unit,
+    onSkipPrev: () -> Unit,
+    enabled: Boolean = true
+) {
+    ProfessionalGlassSurface(
+        tint = MatrixGold,
+        alpha = 0.14f,
+        blur = 40f
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Artwork Glass Tile
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(MatrixGold.copy(alpha = 0.3f), LiquidCyan.copy(alpha = 0.2f))
+                            )
+                        )
+                        .border(0.5.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(18.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "🎵", fontSize = 28.sp)
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = trackTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = artistName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                TacticalAction(
+                    label = "PREV",
+                    accentColor = TextSecondary,
+                    onClick = onSkipPrev,
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f)
+                )
+                TacticalAction(
+                    label = if (isPlaying) "PAUSE" else "PLAY",
+                    accentColor = MatrixGold,
+                    onClick = onPlayPause,
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f)
+                )
+                TacticalAction(
+                    label = "NEXT",
+                    accentColor = TextSecondary,
+                    onClick = onSkipNext,
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun LiquidGlassAppLauncher(
+    onLaunchApp: (String) -> Unit,
+    enabled: Boolean = true
+) {
+    val apps = listOf(
+        Triple("Browser", "🌐", "launch_browser"),
+        Triple("Terminal", "💻", "powershell"),
+        Triple("Task Manager", "📊", "launch_task_manager"),
+        Triple("Explorer", "📁", "launch_explorer"),
+        Triple("Settings", "⚙️", "launch_settings"),
+        Triple("Lock PC", "🔒", "lock_now")
+    )
+
+    ProfessionalGlassSurface(
+        tint = TextPrimary,
+        alpha = 0.12f,
+        blur = 36f
+    ) {
+        Column {
+            Text(
+                text = "SYSTEM APPLICATIONS",
+                style = MaterialTheme.typography.labelSmall,
+                color = LiquidCyan,
+                letterSpacing = 2.sp
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                apps.chunked(2).forEach { rowApps ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        rowApps.forEach { (name, icon, cmd) ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(56.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color.White.copy(alpha = 0.05f))
+                                    .border(
+                                        width = 0.5.dp,
+                                        brush = Brush.linearGradient(
+                                            listOf(Color.White.copy(alpha = 0.25f), Color.White.copy(alpha = 0.05f))
+                                        ),
+                                        shape = RoundedCornerShape(16.dp)
+                                    )
+                                    .clickable(enabled = enabled) { onLaunchApp(cmd) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(text = icon, fontSize = 18.sp)
+                                    Text(
+                                        text = name,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = TextPrimary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
