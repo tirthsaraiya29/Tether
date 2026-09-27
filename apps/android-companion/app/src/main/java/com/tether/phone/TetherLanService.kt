@@ -52,12 +52,18 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         const val ACTION_INITIATE_PAIRING = "com.tether.phone.ACTION_INITIATE_PAIRING"
         const val ACTION_CANCEL_PAIRING = "com.tether.phone.ACTION_CANCEL_PAIRING"
         const val ACTION_FORGET_TRUST = "com.tether.phone.ACTION_FORGET_TRUST"
+        const val ACTION_CONFIRM_PAIRING = "com.tether.phone.ACTION_CONFIRM_PAIRING"
+        const val ACTION_REJECT_PAIRING = "com.tether.phone.ACTION_REJECT_PAIRING"
+        const val ACTION_SHOW_PAIRING_PROMPT = "com.tether.phone.ACTION_SHOW_PAIRING_PROMPT"
 
         const val EXTRA_CONNECTION_COUNT = "extra_connection_count"
         const val EXTRA_TRANSPORT_STATE = "extra_transport_state"
         const val EXTRA_TRUST_STATE = "extra_trust_state"
         const val EXTRA_PHONE_FINGERPRINT = "extra_phone_fingerprint"
         const val EXTRA_WINDOWS_FINGERPRINT = "extra_windows_fingerprint"
+        const val EXTRA_PAIRING_REQUEST_ID = "extra_pairing_request_id"
+        const val EXTRA_PAIRING_SAS_CODE = "extra_pairing_sas_code"
+        const val EXTRA_PEER_DEVICE_NAME = "extra_peer_device_name"
 
         const val ALARM_ACTION = "com.tether.phone.ALARM_HEALTH_CHECK"
         const val ACTION_RESTART_SERVER = "com.tether.phone.ACTION_RESTART_SERVER"
@@ -104,6 +110,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     @Volatile
     private var connectedHostPort: Int = TetherDiscoveryManager.DEFAULT_PORT
+
+    @Volatile
+    private var pendingRequestId: String? = null
+
+    @Volatile
+    private var pendingWinEcPubKey: ByteArray? = null
+
+    @Volatile
+    private var pendingWinDsaPubKey: ByteArray? = null
 
     private val processedRequestIds = ConcurrentHashMap<String, Long>()
 
@@ -228,6 +243,18 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 securityEngine.clearPinnedKey(this)
                 trustState = TrustState.REPAIRING
                 disconnectActiveSession("Trust cleared by user")
+                return START_STICKY
+            }
+            ACTION_CONFIRM_PAIRING -> {
+                val reqId = intent.getStringExtra(EXTRA_PAIRING_REQUEST_ID) ?: pendingRequestId ?: ""
+                Log.i(TAG, "Confirm pairing action received for reqId=$reqId")
+                confirmPairing(reqId)
+                return START_STICKY
+            }
+            ACTION_REJECT_PAIRING -> {
+                val reqId = intent.getStringExtra(EXTRA_PAIRING_REQUEST_ID) ?: pendingRequestId ?: ""
+                Log.i(TAG, "Reject pairing action received for reqId=$reqId")
+                rejectPairing(reqId)
                 return START_STICKY
             }
             null -> {

@@ -151,4 +151,6 @@
     <string name="desc_paired_status">Pinned Windows PC cryptographically verified.</string>
     <string name="desc_key_mismatch_status">SECURITY ALERT: Windows host key mismatch!</string>
     <string name="desc_pairing_denied_status">Pairing request was denied by Windows PC.</string>
+    <string name="btn_accept">ACCEPT</string>
+    <string name="btn_reject">REJECT</string>
 </resources>
