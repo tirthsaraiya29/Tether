@@ -11,6 +11,7 @@ import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.KeyPairGenerator
+import java.security.SecureRandom
 import java.security.Signature
 import java.security.cert.X509Certificate
 import java.util.Locale
@@ -109,8 +110,12 @@ class ProductionSecurityEngine {
             val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
             val secretKey = keyStore.getKey(STORAGE_KEY_ALIAS, null) as SecretKey
 
+            val iv = ByteArray(12)
+            SecureRandom().nextBytes(iv)
+
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+            val spec = GCMParameterSpec(128, iv)
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
             BiometricPrompt.CryptoObject(cipher)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create CryptoObject for biometric auth: ${e.message}")
@@ -142,9 +147,12 @@ class ProductionSecurityEngine {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         val secretKey = keyStore.getKey(STORAGE_KEY_ALIAS, null) as SecretKey
 
+        val iv = ByteArray(12)
+        SecureRandom().nextBytes(iv)
+
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
-        val iv = cipher.iv
+        val spec = GCMParameterSpec(128, iv)
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
         val encryptedBytes = cipher.doFinal(data)
 
         val combined = ByteArray(iv.size + encryptedBytes.size)
