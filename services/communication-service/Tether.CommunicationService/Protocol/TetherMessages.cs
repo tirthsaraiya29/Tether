@@ -6,6 +6,7 @@ namespace Tether.CommunicationService.Protocol;
 public static class HandshakeStatus
 {
     public const string Paired = "PAIRED";
+    public const string PairingPending = "PAIRING_PENDING";
     public const string PairingAccepted = "PAIRING_ACCEPTED";
     public const string PairingDenied = "PAIRING_DENIED";
     public const string Unpaired = "UNPAIRED";

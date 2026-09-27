@@ -98,7 +98,7 @@ class TetherTlsTransport(
 
     @Synchronized
     override fun disconnect(reason: String) {
-        if (!connected && sslSocket == null) return
+        if (!connected && (sslSocket == null)) return
         val safeReason = sanitizeLog(reason)
         Log.i(TAG, "Disconnecting TLS transport (gen=$generationId): $safeReason")
         connected = false
@@ -133,7 +133,7 @@ class TetherTlsTransport(
 
         val length = try {
             dis.readInt()
-        } catch (e: EOFException) {
+        } catch (_: EOFException) {
             Log.i(TAG, "EOF reached on TLS socket (gen=$generationId)")
             disconnect("Socket EOF")
             return null
