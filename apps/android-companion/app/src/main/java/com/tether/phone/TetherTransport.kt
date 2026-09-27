@@ -1,5 +1,6 @@
 package com.tether.phone
 
+import android.annotation.SuppressLint
 import android.util.Log
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -13,6 +14,8 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 interface TetherTransport {
     val generationId: Long
@@ -62,7 +65,7 @@ class TetherTlsTransport(
         sslSock.useClientMode = true
 
         val sslParams = sslSock.sslParameters
-        sslParams.endpointIdentificationAlgorithm = "HTTPS"
+        sslParams.endpointIdentificationAlgorithm = ""
         sslSock.sslParameters = sslParams
 
         // Strictly enforce TLS 1.3 only
@@ -90,9 +93,17 @@ class TetherTlsTransport(
         this.connected = true
     }
 
+    @SuppressLint("CustomX509TrustManager")
     private fun createSslContext(): SSLContext {
+        val trustAllCerts = arrayOf<TrustManager>(
+            object : X509TrustManager {
+                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            }
+        )
         val sslContext = SSLContext.getInstance("TLSv1.3")
-        sslContext.init(null, null, SecureRandom())
+        sslContext.init(null, trustAllCerts, SecureRandom())
         return sslContext
     }
 

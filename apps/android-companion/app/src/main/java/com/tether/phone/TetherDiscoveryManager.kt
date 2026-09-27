@@ -10,9 +10,13 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import org.json.JSONObject
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.net.SocketTimeoutException
 import java.nio.charset.StandardCharsets
 import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
@@ -155,6 +159,7 @@ class TetherDiscoveryManager(
         private const val TAG = "TetherDiscoveryManager"
         const val SERVICE_TYPE = "_tether._tcp"
         const val DEFAULT_PORT = 37123
+        const val UDP_DISCOVERY_PORT = 37124
         private const val MULTICAST_LOCK_TAG = "TetherMdnsMulticastLock"
     }
 
@@ -169,6 +174,9 @@ class TetherDiscoveryManager(
 
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     private var registrationListener: NsdManager.RegistrationListener? = null
+
+    private var udpSocket: DatagramSocket? = null
+    private var udpWorkerThread: Thread? = null
 
     private val discoveredDevices = ConcurrentHashMap<String, DiscoveredDevice>()
     private var externalListener: TetherDiscoveryListener? = null
@@ -193,21 +201,21 @@ class TetherDiscoveryManager(
         }
 
         stopDiscovery()
-        Log.i(TAG, "Starting mDNS discovery for service type $SERVICE_TYPE")
+        Log.i(TAG, "Starting mDNS & UDP Broadcast discovery for service type $SERVICE_TYPE / UDP $UDP_DISCOVERY_PORT")
 
         acquireMulticastLock()
+        startUdpBroadcastDiscovery()
 
         val listener = object : NsdManager.DiscoveryListener {
             override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {
-                Log.e(TAG, "Discovery start failed: errorCode=$errorCode")
+                Log.e(TAG, "mDNS Discovery start failed: errorCode=$errorCode")
                 isSearching = false
                 releaseMulticastLock()
                 discoveryListener = null
-                externalListener?.onDiscoveryError(errorCode, "Failed to start discovery (error $errorCode)")
             }
 
             override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {
-                Log.e(TAG, "Discovery stop failed: errorCode=$errorCode")
+                Log.e(TAG, "mDNS Discovery stop failed: errorCode=$errorCode")
                 isSearching = false
                 releaseMulticastLock()
                 discoveryListener = null
@@ -254,6 +262,79 @@ class TetherDiscoveryManager(
             releaseMulticastLock()
             discoveryListener = null
         }
+    }
+
+    private fun startUdpBroadcastDiscovery() {
+        isSearching = true
+        udpWorkerThread = Thread {
+            try {
+                val socket = DatagramSocket(UDP_DISCOVERY_PORT).apply {
+                    broadcast = true
+                    soTimeout = 2000
+                }
+                udpSocket = socket
+
+                val phonePublicKey = securityEngine.getPublicKeyBytes()
+                val phoneId = securityEngine.computePublicKeyFingerprint(phonePublicKey)
+                val deviceName = "Tether-Android-${Build.MODEL}"
+
+                val probeJson = JSONObject().apply {
+                    put("type", "TETHER_DISCOVERY_PROBE")
+                    put("deviceId", phoneId)
+                    put("deviceName", deviceName)
+                    put("tcpPort", DEFAULT_PORT)
+                }
+                val probeBytes = probeJson.toString().toByteArray(StandardCharsets.UTF_8)
+                val broadcastAddr = InetAddress.getByName("255.255.255.255")
+
+                val buffer = ByteArray(2048)
+
+                while (isSearching && !Thread.currentThread().isInterrupted) {
+                    try {
+                        // 1. Broadcast discovery probe packet
+                        val sendPacket = DatagramPacket(probeBytes, probeBytes.size, broadcastAddr, UDP_DISCOVERY_PORT)
+                        socket.send(sendPacket)
+
+                        // 2. Receive responses
+                        val recvPacket = DatagramPacket(buffer, buffer.size)
+                        socket.receive(recvPacket)
+
+                        val responseStr = String(recvPacket.data, 0, recvPacket.length, StandardCharsets.UTF_8)
+                        val json = JSONObject(responseStr)
+                        val type = json.optString("type", "")
+
+                        if (type == "TETHER_DISCOVERY_RESPONSE" || type == "TETHER_DISCOVERY_PROBE") {
+                            val hostAddr = recvPacket.address.hostAddress ?: continue
+                            val devId = json.optString("deviceId", hostAddr)
+                            val devName = json.optString("deviceName", "Tether Windows PC")
+                            val tcpPort = json.optInt("tcpPort", DEFAULT_PORT)
+
+                            val device = DiscoveredDevice(
+                                deviceId = devId,
+                                name = devName,
+                                hostAddress = hostAddr,
+                                port = tcpPort,
+                            )
+
+                            if (!discoveredDevices.containsKey(devId)) {
+                                Log.i(TAG, "KDE-Connect Style UDP Broadcast Discovered Tether device: $device")
+                                discoveredDevices[devId] = device
+                                mainHandler.post { externalListener?.onDeviceDiscovered(device) }
+                            }
+                        }
+                    } catch (_: SocketTimeoutException) {
+                        // Expected socket receive timeout
+                    } catch (e: Exception) {
+                        if (!isSearching) break
+                        Log.d(TAG, "UDP receive exception: ${e.message}")
+                    }
+
+                    try { Thread.sleep(3000) } catch (_: InterruptedException) { break }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not bind UDP discovery socket on $UDP_DISCOVERY_PORT: ${e.message}")
+            }
+        }.apply { start() }
     }
 
     private fun resolveService(serviceInfo: NsdServiceInfo) {
@@ -363,12 +444,21 @@ class TetherDiscoveryManager(
 
     @Synchronized
     fun stopDiscovery() {
+        isSearching = false
         nsdResolveQueue.clear()
+
+        try {
+            udpSocket?.close()
+        } catch (_: Exception) {}
+        udpSocket = null
+
+        udpWorkerThread?.interrupt()
+        udpWorkerThread = null
+
         discoveryListener?.let { listener ->
             try { nsdManager.stopServiceDiscovery(listener) } catch (_: Exception) {}
         }
         discoveryListener = null
-        isSearching = false
         releaseMulticastLock()
     }
 
