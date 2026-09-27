@@ -39,6 +39,8 @@ import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 enum class TransportState {
     DISCONNECTED,
@@ -74,6 +76,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         const val EXTRA_PHONE_FINGERPRINT = "extra_phone_fingerprint"
         const val EXTRA_WINDOWS_FINGERPRINT = "extra_windows_fingerprint"
         const val EXTRA_PAIRING_REQUEST_ID = "extra_pairing_request_id"
+        const val EXTRA_PAIRING_PIN = "extra_pairing_pin"
         const val EXTRA_PAIRING_SAS_CODE = "extra_pairing_sas_code"
         const val EXTRA_PEER_DEVICE_NAME = "extra_peer_device_name"
 
@@ -142,7 +145,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private var pendingWinEcPubKey: ByteArray? = null
 
     @Volatile
-    private var pendingWinDsaPubKey: ByteArray? = null
+    private var pendingTranscriptHash: ByteArray? = null
 
     private val processedRequestIds = ConcurrentHashMap<String, Long>()
 
@@ -303,8 +306,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
             ACTION_CONFIRM_PAIRING -> {
                 val reqId = intent.getStringExtra(EXTRA_PAIRING_REQUEST_ID) ?: pendingRequestId ?: ""
+                val userPin = intent.getStringExtra(EXTRA_PAIRING_PIN) ?: ""
                 Log.i(TAG, "Confirm pairing action received for reqId=$reqId")
-                confirmPairing(reqId)
+                confirmPairing(reqId, userPin)
                 return START_STICKY
             }
             ACTION_REJECT_PAIRING -> {
@@ -408,7 +412,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         resetReconnectBackoff()
                         pendingRequestId = result.requestId
                         pendingWinEcPubKey = result.winEcPubKeyBytes
-                        pendingWinDsaPubKey = result.winDsaPubKeyBytes
+                        pendingTranscriptHash = result.transcriptHash
 
                         trustState = TrustState.PAIRING_REQUESTED
                         currentState = TransportState.PAIRING_REQUIRED
@@ -418,7 +422,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                             putExtra(EXTRA_PAIRING_REQUEST_ID, result.requestId)
                             putExtra(EXTRA_PEER_DEVICE_NAME, result.peerName)
                             putExtra(EXTRA_WINDOWS_FINGERPRINT, result.peerFingerprint)
-                            putExtra(EXTRA_PAIRING_SAS_CODE, result.sasCode)
                         }
                         startActivity(promptIntent)
                     }
@@ -448,7 +451,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
     }
 
-    fun confirmPairing(requestId: String) {
+    fun confirmPairing(requestId: String, userPin: String) {
         serviceScope.launch {
             val transport = activeTransport
             if ((transport == null) || !transport.isConnected()) {
@@ -457,12 +460,20 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 return@launch
             }
 
+            val transcriptHash = pendingTranscriptHash
+            if (transcriptHash == null) {
+                Log.e(TAG, "Cannot confirm pairing: pending transcript hash is null.")
+                disconnectActiveSession("Transcript hash lost")
+                return@launch
+            }
+
             Log.i(TAG, "Finalizing pairing with Windows host for requestId=$requestId...")
             val result = pairingManager.finalizePairing(
                 transport = transport,
                 requestId = requestId,
+                userEnteredPin = userPin,
                 winEcPubKeyBytes = pendingWinEcPubKey,
-                winDsaPubKeyBytes = pendingWinDsaPubKey,
+                transcriptHash = transcriptHash,
             )
 
             when (result) {
@@ -517,7 +528,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             while ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) {
                 val frameBytes = transport.readFrame() ?: break
                 val jsonStr = String(frameBytes, StandardCharsets.UTF_8)
-                processIncomingFrame(JSONObject(jsonStr))
+                processIncomingFrame(JSONObject(jsonStr), transport)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Transport socket loop terminated: ${e.message}")
@@ -529,7 +540,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
     }
 
-    private fun processIncomingFrame(json: JSONObject) {
+    private fun processIncomingFrame(json: JSONObject, transport: TetherTransport) {
         val requestId = json.optString("requestId", "")
         if (requestId.isNotEmpty() && processedRequestIds.containsKey(requestId)) {
             Log.w(TAG, "Duplicate frame ignored: $requestId")
@@ -547,6 +558,20 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         Log.d(TAG, "Incoming frame type=$safeType command=$safeCmd")
 
         when (type) {
+            "PING" -> {
+                Log.d(TAG, "Received PING probe from Windows host. Responding with PONG...")
+                serviceScope.launch {
+                    try {
+                        val pongJson = JSONObject().apply {
+                            put("type", "PONG")
+                            put("timestamp", System.currentTimeMillis())
+                        }
+                        transport.sendFrame(pongJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed sending PONG frame: ${e.message}")
+                    }
+                }
+            }
             "CONFIRM_COMMAND" -> {
                 val confirmedCmd = json.optString("confirmedCommand", command)
                 val safeConfirmed = sanitizeLog(confirmedCmd)
@@ -580,7 +605,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 if ((currentState != TransportState.READY) && (currentState != TransportState.AUTHENTICATED)) {
                     Log.w(TAG, "Transport not ready ($currentState). Queuing command and starting discovery...")
                     startDiscovery()
-                    delay(1000)
+                    delay(1.seconds)
                 }
 
                 if (!capabilityManager.canExecuteCommand(actionCommand)) {
@@ -635,7 +660,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             val jitter = (Math.random() * 500).toLong()
             val delayMs = (expDelay + jitter).coerceAtMost(30000L)
             Log.i(TAG, "Scheduling controlled reconnect attempt #$reconnectAttempt in ${delayMs}ms (reason: $reason)...")
-            delay(delayMs)
+            delay(delayMs.milliseconds)
             if (isActive && (currentState == TransportState.DISCONNECTED || currentState == TransportState.FAILED)) {
                 startDiscovery()
             }
@@ -739,4 +764,3 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         super.onDestroy()
     }
 }
-

@@ -46,7 +46,7 @@ fun isPrivateAddress(address: InetAddress): Boolean {
         val firstOctet = bytes[0].toInt() and 0xFF
         val secondOctet = bytes[1].toInt() and 0xFF
         // CGNAT 100.64.0.0/10
-        if (firstOctet == 100 && (secondOctet and 0xC0) == 0x40) return true
+        if ((firstOctet == 100) && ((secondOctet and 0xC0) == 0x40)) return true
     } else if (address is Inet6Address) {
         val bytes = address.address
         val firstOctet = bytes[0].toInt() and 0xFF
@@ -116,9 +116,7 @@ class NsdResolveQueue(private val nsdManager: NsdManager) {
 
             override fun onServiceResolved(resolvedInfo: NsdServiceInfo?) {
                 try {
-                    if (resolvedInfo != null) {
-                        item.onResolved(resolvedInfo)
-                    }
+                    resolvedInfo?.let { item.onResolved(it) }
                 } finally {
                     onComplete()
                 }
@@ -258,7 +256,7 @@ class TetherDiscoveryManager(
                 val port: Int = resolvedInfo.port
                 val hostAddr = host?.hostAddress ?: return@resolveOrEnqueue
 
-                if (host != null && !isPrivateAddress(host)) {
+                if (!isPrivateAddress(host)) {
                     Log.w(TAG, "Discarding resolved mDNS address $hostAddr: Not a private LAN IP")
                     return@resolveOrEnqueue
                 }

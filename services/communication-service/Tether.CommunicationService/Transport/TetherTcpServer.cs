@@ -33,7 +33,6 @@ public sealed class TetherTcpServer : IDisposable
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _acceptLoop;
-    private bool _isStopping;
 
     public TetherTcpServer(
         IEventBus eventBus,
@@ -55,7 +54,6 @@ public sealed class TetherTcpServer : IDisposable
 
     public void Start()
     {
-        _isStopping = false;
         _cts = new CancellationTokenSource();
         _acceptLoop = Task.Run(() => AcceptLoopAsync(_cts.Token));
         _logger.Info($"TCP listener starting on 0.0.0.0:{ListenPort} (TLS 1.3).");
@@ -63,7 +61,6 @@ public sealed class TetherTcpServer : IDisposable
 
     public void Stop()
     {
-        _isStopping = true;
         try { _cts?.Cancel(); } catch { }
         try { _listener?.Stop(); } catch { }
         try { _acceptLoop?.Wait(TimeSpan.FromSeconds(3)); } catch { }

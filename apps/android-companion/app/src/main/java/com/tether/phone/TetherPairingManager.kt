@@ -197,7 +197,7 @@ class TetherPairingManager(
         transcriptHash: ByteArray,
     ): PairingResult {
         try {
-            if (winEcPubKeyBytes == null || winEcPubKeyBytes.isEmpty()) {
+            if ((winEcPubKeyBytes == null) || winEcPubKeyBytes.isEmpty()) {
                 return PairingResult.Error("Windows public key missing for pairing confirmation")
             }
 

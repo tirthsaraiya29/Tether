@@ -20,14 +20,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -35,8 +39,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,7 +70,6 @@ class PairingConfirmationActivity : ComponentActivity() {
         requestId = intent.getStringExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID) ?: ""
         val peerName = intent.getStringExtra(TetherLanService.EXTRA_PEER_DEVICE_NAME) ?: "Windows PC"
         val peerFingerprint = intent.getStringExtra(TetherLanService.EXTRA_WINDOWS_FINGERPRINT) ?: "NONE"
-        val sasCode = intent.getStringExtra(TetherLanService.EXTRA_PAIRING_SAS_CODE) ?: "000000"
 
         setContent {
             TetherTheme {
@@ -75,9 +80,8 @@ class PairingConfirmationActivity : ComponentActivity() {
                     PairingConfirmationContent(
                         peerName = peerName,
                         peerFingerprint = peerFingerprint,
-                        sasCode = sasCode,
-                        onAccept = {
-                            confirmPairing()
+                        onAccept = { pin ->
+                            confirmPairing(pin)
                         },
                         onReject = {
                             rejectPairing()
@@ -90,10 +94,11 @@ class PairingConfirmationActivity : ComponentActivity() {
         }
     }
 
-    private fun confirmPairing() {
+    private fun confirmPairing(pin: String) {
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_CONFIRM_PAIRING
             putExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID, requestId)
+            putExtra(TetherLanService.EXTRA_PAIRING_PIN, pin)
         }
         startForegroundService(intent)
         finish()
@@ -113,12 +118,12 @@ class PairingConfirmationActivity : ComponentActivity() {
 fun PairingConfirmationContent(
     peerName: String,
     peerFingerprint: String,
-    sasCode: String,
-    onAccept: () -> Unit,
+    onAccept: (String) -> Unit,
     onReject: () -> Unit,
     onTimeout: () -> Unit,
 ) {
     var secondsLeft by remember { mutableIntStateOf(60) }
+    var userPin by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         while (secondsLeft > 0) {
@@ -133,12 +138,6 @@ fun PairingConfirmationContent(
         animationSpec = tween(durationMillis = 1000, easing = LinearEasing),
         label = "Countdown",
     )
-
-    val formattedSas = if (sasCode.length == 6) {
-        "${sasCode.substring(0, 3)} ${sasCode.substring(3, 6)}"
-    } else {
-        sasCode
-    }
 
     val formattedFpLines = if (peerFingerprint.length > 32) {
         val mid = peerFingerprint.length / 2
@@ -199,58 +198,58 @@ fun PairingConfirmationContent(
                             .padding(horizontal = 14.dp, vertical = 6.dp),
                     ) {
                         Text(
-                            text = "ML-KEM-768 + ML-DSA-65 (PQC Encrypted)",
+                            text = "TLS 1.3 + SHA-512 SAS Proof",
                             style = MaterialTheme.typography.labelSmall,
                             color = LiquidCyan,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(28.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
 
                     Text(
-                        text = "SECURITY AUTHENTICATION CODE",
+                        text = "ENTER 6-DIGIT PIN DISPLAYED ON PC",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondary,
-                        letterSpacing = 2.sp,
+                        letterSpacing = 1.5.sp,
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Color.Black.copy(alpha = 0.45f))
-                            .padding(vertical = 18.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = formattedSas,
-                            fontSize = 36.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontFamily = FontFamily.Monospace,
+                    OutlinedTextField(
+                        value = userPin,
+                        onValueChange = { input ->
+                            if ((input.length <= 6) && input.all { it.isDigit() }) {
+                                userPin = input
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = TextStyle(
                             color = LiquidCyan,
-                            letterSpacing = 6.sp,
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = "Compare this code with the prompt on your PC",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        textAlign = TextAlign.Center,
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            textAlign = TextAlign.Center,
+                            letterSpacing = 8.sp,
+                        ),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = LiquidCyan,
+                            unfocusedBorderColor = TextSecondary.copy(alpha = 0.5f),
+                            focusedContainerColor = Color.Black.copy(alpha = 0.45f),
+                            unfocusedContainerColor = Color.Black.copy(alpha = 0.3f),
+                        ),
+                        shape = RoundedCornerShape(16.dp),
                     )
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
                     Text(
                         text = "WINDOWS HOST FINGERPRINT",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondary,
-                        letterSpacing = 2.sp,
+                        letterSpacing = 1.5.sp,
                     )
 
                     Spacer(modifier = Modifier.height(6.dp))
@@ -264,7 +263,7 @@ fun PairingConfirmationContent(
                         lineHeight = 16.sp,
                     )
 
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(28.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -279,8 +278,9 @@ fun PairingConfirmationContent(
                         TacticalAction(
                             label = stringResource(R.string.btn_accept),
                             accentColor = IntegrityGreen,
-                            onClick = onAccept,
+                            onClick = { onAccept(userPin) },
                             modifier = Modifier.weight(1f),
+                            enabled = userPin.length == 6,
                         )
                     }
                 }
