@@ -610,7 +610,7 @@ fun SettingsScreen(
                         color = LiquidCyan
                     )
                     Text(
-                        text = if (phoneFingerprint.isNotBlank()) phoneFingerprint else "COMPUTING...",
+                        text = phoneFingerprint.ifBlank { "COMPUTING..." },
                         style = MaterialTheme.typography.bodySmall,
                         color = TextPrimary,
                         fontSize = 11.sp
@@ -622,7 +622,7 @@ fun SettingsScreen(
                         color = LiquidCyan
                     )
                     Text(
-                        text = if (windowsFingerprint.isNotBlank() && windowsFingerprint != "NONE") windowsFingerprint else "NOT PINNED",
+                        text = if (windowsFingerprint.isNotBlank() && (windowsFingerprint != "NONE")) windowsFingerprint else "NOT PINNED",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (trustState == TrustState.PAIRED) IntegrityGreen else AlertRed,
                         fontSize = 11.sp
@@ -996,8 +996,8 @@ fun LaptopControlScreen(
     onLanActionRequested: (String) -> Unit
 ) {
     var volumeLevel by remember { mutableIntStateOf(70) }
-    var isMuted by remember { mutableStateOf(false) }
-    var isPlaying by remember { mutableStateOf(true) }
+    var isMuted by remember { mutableStateOf(value = false) }
+    var isPlaying by remember { mutableStateOf(value = true) }
 
     val scrollState = rememberScrollState()
     var visible by remember { mutableStateOf(false) }
