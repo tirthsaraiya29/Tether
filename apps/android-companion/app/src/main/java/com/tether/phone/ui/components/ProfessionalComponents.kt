@@ -159,7 +159,7 @@ fun ProfessionalGlassSurface(
                         useCenter = false,
                         topLeft = Offset(8.dp.toPx(), 8.dp.toPx()),
                         size = size.copy(width = size.width - 16.dp.toPx(), height = size.height - 16.dp.toPx()),
-                        style = Stroke(width = 0.5.dp.toPx())
+                        style = Stroke(width = 0.5.dp.toPx()),
                     )
 
                     // Grain/Noise texture overlay for tactile depth
@@ -170,7 +170,7 @@ fun ProfessionalGlassSurface(
                                 drawCircle(
                                     color = Color.White.copy(alpha = 0.015f),
                                     radius = 0.4f,
-                                    center = Offset(x.toFloat(), y.toFloat())
+                                    center = Offset(x.toFloat(), y.toFloat()),
                                 )
                             }
                         }
