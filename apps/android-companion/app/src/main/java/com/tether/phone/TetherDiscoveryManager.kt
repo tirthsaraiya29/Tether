@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION", "unused")
+
 package com.tether.phone
 
 import android.content.Context
@@ -19,7 +21,7 @@ data class DiscoveredDevice(
     val protocolVersion: String = "1.0",
     val capabilities: String = "",
     val pqcSupported: Boolean = false,
-    val lastSeenTimestamp: Long = System.currentTimeMillis()
+    val lastSeenTimestamp: Long = System.currentTimeMillis(),
 )
 
 interface TetherDiscoveryListener {
@@ -29,8 +31,8 @@ interface TetherDiscoveryListener {
 }
 
 class TetherDiscoveryManager(
-    private val context: Context,
-    private val securityEngine: ProductionSecurityEngine
+    context: Context,
+    private val securityEngine: ProductionSecurityEngine,
 ) {
 
     companion object {
@@ -142,7 +144,7 @@ class TetherDiscoveryManager(
                     port = port,
                     protocolVersion = version,
                     capabilities = caps,
-                    pqcSupported = pqc
+                    pqcSupported = pqc,
                 )
 
                 Log.i(TAG, "Resolved Tether device: $device")
@@ -161,11 +163,9 @@ class TetherDiscoveryManager(
     private fun parseAttributes(info: NsdServiceInfo): Map<String, String> {
         val map = mutableMapOf<String, String>()
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                info.attributes?.forEach { (key, bytes) ->
-                    if (bytes != null) {
-                        map[key] = String(bytes, StandardCharsets.UTF_8)
-                    }
+            info.attributes?.forEach { (key, bytes) ->
+                if (bytes != null) {
+                    map[key] = String(bytes, StandardCharsets.UTF_8)
                 }
             }
         } catch (e: Exception) {
@@ -185,7 +185,7 @@ class TetherDiscoveryManager(
             serviceName = deviceName
             serviceType = SERVICE_TYPE
             setPort(port)
-            setAttribute("v", "1.0")
+            setAttribute("v", "2.0")
             setAttribute("id", phoneId)
             setAttribute("name", deviceName)
             setAttribute("caps", "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
