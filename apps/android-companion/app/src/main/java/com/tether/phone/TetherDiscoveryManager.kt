@@ -250,7 +250,7 @@ class TetherDiscoveryManager(
 
     private fun resolveService(serviceInfo: NsdServiceInfo) {
         nsdResolveQueue.resolveOrEnqueue(
-            serviceInfo = serviceInfo,
+            serviceInfo,
             onResolved = { resolvedInfo ->
                 val host: InetAddress? = resolvedInfo.host
                 val port: Int = resolvedInfo.port
@@ -282,10 +282,9 @@ class TetherDiscoveryManager(
                 discoveredDevices[deviceId] = device
                 mainHandler.post { externalListener?.onDeviceDiscovered(device) }
             },
-            onError = { info, errorCode ->
-                Log.w(TAG, "Service resolve failed for ${info?.serviceName}, error=$errorCode")
-            },
-        )
+        ) { info, errorCode ->
+            Log.w(TAG, "Service resolve failed for ${info?.serviceName}, error=$errorCode")
+        }
     }
 
     private fun parseAttributes(info: NsdServiceInfo): Map<String, String> {

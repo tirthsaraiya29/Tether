@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package com.tether.phone
 
 import android.util.Base64
