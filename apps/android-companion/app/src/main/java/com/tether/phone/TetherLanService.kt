@@ -368,7 +368,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         Log.e(TAG, "mDNS Discovery error: $errorCode - $message")
         val savedHostIp = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
             .getString("saved_host_ip", null)
-        if (!savedHostIp.isNullOrBlank() && (currentState == TransportState.DISCOVERING || currentState == TransportState.DISCONNECTED)) {
+        if (!savedHostIp.isNullOrBlank() && ((currentState == TransportState.DISCOVERING) || (currentState == TransportState.DISCONNECTED))) {
             Log.i(TAG, "mDNS discovery error; attempting direct connection to saved host IP: $savedHostIp")
             connectToHost(savedHostIp)
         }
@@ -666,7 +666,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             val delayMs = (expDelay + jitter).coerceAtMost(60000L)
             Log.i(TAG, "Scheduling controlled reconnect attempt #$reconnectAttempt in ${delayMs}ms (reason: $reason)...")
             delay(delayMs.milliseconds)
-            if (isActive && (currentState == TransportState.DISCONNECTED || currentState == TransportState.FAILED)) {
+            if (isActive && ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED))) {
                 startDiscovery()
             }
         }
