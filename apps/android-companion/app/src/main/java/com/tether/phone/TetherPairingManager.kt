@@ -6,6 +6,7 @@ import android.util.Base64
 import android.util.Log
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 
 sealed class PairingResult {
     data class Authenticated(val peerDeviceId: String, val peerFingerprint: String) : PairingResult()
@@ -14,9 +15,8 @@ sealed class PairingResult {
         val peerDeviceId: String,
         val peerFingerprint: String,
         val peerName: String,
-        val sasCode: String,
-        val winDsaPubKeyBytes: ByteArray?,
         val winEcPubKeyBytes: ByteArray?,
+        val transcriptHash: ByteArray,
     ) : PairingResult() {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
@@ -25,7 +25,7 @@ sealed class PairingResult {
                     (peerDeviceId == other.peerDeviceId) &&
                     (peerFingerprint == other.peerFingerprint) &&
                     (peerName == other.peerName) &&
-                    (sasCode == other.sasCode)
+                    transcriptHash.contentEquals(other.transcriptHash)
         }
 
         override fun hashCode(): Int {
@@ -33,7 +33,7 @@ sealed class PairingResult {
             result = (31 * result) + peerDeviceId.hashCode()
             result = (31 * result) + peerFingerprint.hashCode()
             result = (31 * result) + peerName.hashCode()
-            result = (31 * result) + sasCode.hashCode()
+            result = (31 * result) + transcriptHash.contentHashCode()
             return result
         }
     }
@@ -56,6 +56,14 @@ class TetherPairingManager(
             if (input == null) return "null"
             return input.replace("\r", "\\r").replace("\n", "\\n").take(256)
         }
+
+        fun computeSha512(vararg byteArrays: ByteArray): ByteArray {
+            val digest = MessageDigest.getInstance("SHA-512")
+            for (array in byteArrays) {
+                digest.update(array)
+            }
+            return digest.digest()
+        }
     }
 
     fun executeHandshake(
@@ -67,17 +75,8 @@ class TetherPairingManager(
             val phoneFingerprint = securityEngine.computePublicKeyFingerprint(phonePubKeyBytes)
             val phonePubKeyBase64 = Base64.encodeToString(phonePubKeyBytes, Base64.NO_WRAP)
 
-            val phoneKemPub = securityEngine.getPqcKemPublicKeyBytes(context)
-            val phoneDsaPub = securityEngine.getPqcDsaPublicKeyBytes(context)
-            val phoneKemPubBase64 = Base64.encodeToString(phoneKemPub, Base64.NO_WRAP)
-            val phoneDsaPubBase64 = Base64.encodeToString(phoneDsaPub, Base64.NO_WRAP)
-
-            val pqcKeyPair = securityEngine.getOrCreatePqcKeyPair(context)
-
             val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(context)
             val pinnedFingerprint = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
-            val pinnedPqcKeys = securityEngine.getPinnedWindowsPqcKeys(context)
-
             val isAlreadyPinned = ((pinnedKeyBytes != null) && pinnedKeyBytes.isNotEmpty())
 
             // 1. Construct HANDSHAKE_INIT payload
@@ -87,16 +86,11 @@ class TetherPairingManager(
                 put("deviceId", phoneFingerprint)
                 put("deviceName", Build.MODEL)
                 put("publicKey", phonePubKeyBase64)
-                put("pqcCapabilities", "ML-KEM-768,ML-DSA-65")
-                put("pqcKemPublicKey", phoneKemPubBase64)
-                put("pqcDsaPublicKey", phoneDsaPubBase64)
                 put("isPairingRequested", isUserInitiatedPairing || !isAlreadyPinned)
                 put("capabilities", "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
             }
 
             val initJsonStr = initJson.toString()
-            val ecSigBytes = securityEngine.signWithIdentityKey(initJsonStr.toByteArray(StandardCharsets.UTF_8))
-            initJson.put("identitySignature", Base64.encodeToString(ecSigBytes, Base64.NO_WRAP))
             Log.i(TAG, "Sending HANDSHAKE_INIT v2.0 over TLS 1.3 (isPairingRequested=${isUserInitiatedPairing || !isAlreadyPinned})...")
             transport.sendFrame(initJsonStr.toByteArray(StandardCharsets.UTF_8))
 
@@ -114,9 +108,6 @@ class TetherPairingManager(
             val winName = respJson.optString("deviceName", "Windows PC")
             val winPubKeyBase64 = respJson.optString("publicKey", "")
             val pairingStatus = respJson.optString("status", "UNPAIRED")
-            val pqcSupported = respJson.optBoolean("pqcSupported", true)
-            val pqcEncapsulationBase64 = respJson.optString("pqcEncapsulation", "")
-            val winDsaPubKeyBase64 = respJson.optString("pqcDsaPublicKey", "")
 
             if (winPubKeyBase64.isBlank()) {
                 return PairingResult.Error("Windows host returned empty public key")
@@ -124,33 +115,17 @@ class TetherPairingManager(
 
             val winPubKeyBytes = Base64.decode(winPubKeyBase64, Base64.NO_WRAP)
             val winFingerprint = securityEngine.computePublicKeyFingerprint(winPubKeyBytes)
-            val winDsaPubKeyBytes = if (winDsaPubKeyBase64.isNotBlank()) Base64.decode(winDsaPubKeyBase64, Base64.NO_WRAP) else null
 
             val safeName = sanitizeLog(winName)
             val safeDevId = sanitizeLog(winDeviceId)
             val safeFp = sanitizeLog(winFingerprint)
             val safeStatus = sanitizeLog(pairingStatus)
-            Log.i(TAG, "Received HANDSHAKE_RESPONSE from $safeName ($safeDevId), FP=$safeFp, status=$safeStatus, PQC=$pqcSupported")
+            Log.i(TAG, "Received HANDSHAKE_RESPONSE from $safeName ($safeDevId), FP=$safeFp, status=$safeStatus")
 
-            // Derive PQC Session Cipher if available
-            var sasCode = "000000"
-            if (pqcSupported && pqcEncapsulationBase64.isNotBlank()) {
-                try {
-                    val ciphertext = Base64.decode(pqcEncapsulationBase64, Base64.NO_WRAP)
-                    val sharedSecret = PqcHandshake.decapsulate(ciphertext, pqcKeyPair.kemPrivateKey)
-                    val transcriptHash = SessionCipher.computeTranscriptHash(initJsonStr, respJsonStr)
-                    val sessionCipher = SessionCipher.derive(sharedSecret, transcriptHash)
-                    sasCode = respJson.optString("sasCode", SessionCipher.computeSasCode(transcriptHash))
-
-                    // Attach session cipher to transport for subsequent frames
-                    transport.attachSessionCipher(sessionCipher)
-                    val safeSas = sanitizeLog(sasCode)
-                    Log.i(TAG, "PQC ML-KEM-768 session cipher successfully established! SAS=$safeSas")
-                } catch (e: Exception) {
-                    val safeErr = sanitizeLog(e.message)
-                    Log.e(TAG, "Failed PQC session cipher derivation: $safeErr", e)
-                }
-            }
+            val transcriptHash = computeSha512(
+                initJsonStr.toByteArray(StandardCharsets.UTF_8),
+                respJsonStr.toByteArray(StandardCharsets.UTF_8),
+            )
 
             // 3. Verify against pinned key if previously paired
             if (isAlreadyPinned) {
@@ -159,15 +134,6 @@ class TetherPairingManager(
                     return PairingResult.KeyMismatch(
                         presentedFingerprint = winFingerprint,
                         pinnedFingerprint = pinnedFingerprint,
-                    )
-                }
-
-                // Downgrade protection rule: If pinned record had PQC enabled, refuse non-PQC connections
-                if ((pinnedPqcKeys != null) && !pqcSupported) {
-                    Log.e(TAG, "SECURITY ALERT: PQC downgrade attack detected! Pinned record required PQC.")
-                    return PairingResult.KeyMismatch(
-                        presentedFingerprint = "$winFingerprint (PQC Disabled)",
-                        pinnedFingerprint = "$pinnedFingerprint (PQC Required)",
                     )
                 }
 
@@ -183,9 +149,6 @@ class TetherPairingManager(
                 "PAIRED", "PAIRING_ACCEPTED" -> {
                     Log.i(TAG, "First pairing auto-accepted by Windows. Pinning keys...")
                     securityEngine.storePinnedKeySecurely(context, winPubKeyBytes)
-                    winDsaPubKeyBytes?.let {
-                        securityEngine.storePinnedWindowsPqcKeys(context, winPubKeyBytes, it)
-                    }
                     return PairingResult.Authenticated(
                         peerDeviceId = winDeviceId,
                         peerFingerprint = winFingerprint,
@@ -193,15 +156,14 @@ class TetherPairingManager(
                 }
                 "PAIRING_PENDING" -> {
                     val reqId = respJson.optString("requestId", "REQ_UNKNOWN")
-                    Log.i(TAG, "Windows host returned PAIRING_PENDING (reqId=$reqId). SAS=$sasCode")
+                    Log.i(TAG, "Windows host returned PAIRING_PENDING (reqId=$reqId). User PIN entry required.")
                     return PairingResult.PairingPending(
                         requestId = reqId,
                         peerDeviceId = winDeviceId,
                         peerFingerprint = winFingerprint,
                         peerName = winName,
-                        sasCode = sasCode,
-                        winDsaPubKeyBytes = winDsaPubKeyBytes,
                         winEcPubKeyBytes = winPubKeyBytes,
+                        transcriptHash = transcriptHash,
                     )
                 }
                 "PAIRING_DENIED" -> {
@@ -215,9 +177,8 @@ class TetherPairingManager(
                         peerDeviceId = winDeviceId,
                         peerFingerprint = winFingerprint,
                         peerName = winName,
-                        sasCode = sasCode,
-                        winDsaPubKeyBytes = winDsaPubKeyBytes,
                         winEcPubKeyBytes = winPubKeyBytes,
+                        transcriptHash = transcriptHash,
                     )
                 }
             }
@@ -231,19 +192,28 @@ class TetherPairingManager(
     fun finalizePairing(
         transport: TetherTransport,
         requestId: String,
+        userEnteredPin: String,
         winEcPubKeyBytes: ByteArray?,
-        winDsaPubKeyBytes: ByteArray?,
+        transcriptHash: ByteArray,
     ): PairingResult {
         try {
-            val pqcKeyPair = securityEngine.getOrCreatePqcKeyPair(context)
-            val dsaSig = PqcHandshake.sign(requestId.toByteArray(StandardCharsets.UTF_8), pqcKeyPair.dsaPrivateKey)
+            if (winEcPubKeyBytes == null || winEcPubKeyBytes.isEmpty()) {
+                return PairingResult.Error("Windows public key missing for pairing confirmation")
+            }
+
+            val phonePubKeyBytes = securityEngine.getPublicKeyBytes()
+            val reqIdBytes = requestId.toByteArray(StandardCharsets.UTF_8)
+            val pinBytes = userEnteredPin.trim().toByteArray(StandardCharsets.UTF_8)
+
+            // PhoneProof = SHA-512(PIN || PhonePubKey || WinPubKey || RequestId || TranscriptHash)
+            val phoneProof = computeSha512(pinBytes, phonePubKeyBytes, winEcPubKeyBytes, reqIdBytes, transcriptHash)
+            val phoneProofBase64 = Base64.encodeToString(phoneProof, Base64.NO_WRAP)
 
             // 1. Send PAIRING_CONFIRMED frame
             val confirmedJson = JSONObject().apply {
                 put("type", "PAIRING_CONFIRMED")
                 put("requestId", requestId)
-                put("phoneDsaPublicKey", Base64.encodeToString(pqcKeyPair.dsaPublicKey, Base64.NO_WRAP))
-                put("phoneDsaSignature", Base64.encodeToString(dsaSig, Base64.NO_WRAP))
+                put("proof", phoneProofBase64)
             }
             Log.i(TAG, "Sending PAIRING_CONFIRMED frame for requestId=$requestId...")
             transport.sendFrame(confirmedJson.toString().toByteArray(StandardCharsets.UTF_8))
@@ -257,23 +227,11 @@ class TetherPairingManager(
                 return PairingResult.Error("Pairing complete failed with status: $status")
             }
 
-            // 3. Pin Windows keys securely
-            if ((winEcPubKeyBytes != null) && winEcPubKeyBytes.isNotEmpty()) {
-                securityEngine.storePinnedKeySecurely(context, winEcPubKeyBytes)
-                if ((winDsaPubKeyBytes != null) && winDsaPubKeyBytes.isNotEmpty()) {
-                    securityEngine.storePinnedWindowsPqcKeys(context, winEcPubKeyBytes, winDsaPubKeyBytes)
-                }
-                Log.i(TAG, "Successfully pinned Windows classical and PQC keys after interactive confirmation!")
-            }
+            // 3. Pin Windows key securely
+            securityEngine.storePinnedKeySecurely(context, winEcPubKeyBytes)
+            Log.i(TAG, "Successfully pinned Windows public key after interactive 6-digit PIN confirmation!")
 
-            // 4. Send SESSION_READY frame
-            val sessionReadyJson = JSONObject().apply {
-                put("type", "SESSION_READY")
-            }
-            Log.i(TAG, "Sending SESSION_READY frame to transition host to command loop...")
-            transport.sendFrame(sessionReadyJson.toString().toByteArray(StandardCharsets.UTF_8))
-
-            val winFp = if (winEcPubKeyBytes != null) securityEngine.computePublicKeyFingerprint(winEcPubKeyBytes) else "PINNED"
+            val winFp = securityEngine.computePublicKeyFingerprint(winEcPubKeyBytes)
             return PairingResult.Authenticated(
                 peerDeviceId = "WINDOWS_HOST",
                 peerFingerprint = winFp,
