@@ -54,6 +54,8 @@ public sealed class Worker : BackgroundService
         _tetherLogger.Info("Tether Communication Service starting (mDNS + TLS 1.3 transport).");
         _logger.LogInformation("Tether Communication Service running at {Time}", DateTimeOffset.Now);
 
+        EnsureFirewallRulesExist();
+
         _pipeServer.Start();
         _tcpServer.Start();
 
@@ -67,6 +69,23 @@ public sealed class Worker : BackgroundService
         _tetherLogger.Info($"Transport up. DeviceId={_identity.DeviceId}");
 
         return Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_ => { }, TaskScheduler.Default);
+    }
+
+    private static void EnsureFirewallRulesExist()
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "netsh",
+                Arguments = "advfirewall firewall add rule name=\"Tether TCP 37123\" dir=in action=allow protocol=TCP localport=37123 profile=any",
+                CreateNoWindow = true,
+                UseShellExecute = false
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            p?.WaitForExit(2000);
+        }
+        catch { /* best effort */ }
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
