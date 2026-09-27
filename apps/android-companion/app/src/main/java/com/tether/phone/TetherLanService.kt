@@ -366,7 +366,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     override fun onDiscoveryError(errorCode: Int, message: String) {
         Log.e(TAG, "mDNS Discovery error: $errorCode - $message")
-        scheduleReconnectWithBackoff("Discovery error")
+        val savedHostIp = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
+            .getString("saved_host_ip", null)
+        if (!savedHostIp.isNullOrBlank() && (currentState == TransportState.DISCOVERING || currentState == TransportState.DISCONNECTED)) {
+            Log.i(TAG, "mDNS discovery error; attempting direct connection to saved host IP: $savedHostIp")
+            connectToHost(savedHostIp)
+        }
     }
 
     fun connectToHost(hostAddress: String, port: Int = TetherDiscoveryManager.DEFAULT_PORT) {
@@ -655,10 +660,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         reconnectJob?.cancel()
         reconnectJob = serviceScope.launch {
             reconnectAttempt++
-            val baseDelayMs = 1000L
-            val expDelay = baseDelayMs * (1 shl (reconnectAttempt - 1).coerceAtMost(5))
-            val jitter = (Math.random() * 500).toLong()
-            val delayMs = (expDelay + jitter).coerceAtMost(30000L)
+            val baseDelayMs = 5000L
+            val expDelay = baseDelayMs * (1 shl (reconnectAttempt - 1).coerceAtMost(4))
+            val jitter = (Math.random() * 1000).toLong()
+            val delayMs = (expDelay + jitter).coerceAtMost(60000L)
             Log.i(TAG, "Scheduling controlled reconnect attempt #$reconnectAttempt in ${delayMs}ms (reason: $reason)...")
             delay(delayMs.milliseconds)
             if (isActive && (currentState == TransportState.DISCONNECTED || currentState == TransportState.FAILED)) {

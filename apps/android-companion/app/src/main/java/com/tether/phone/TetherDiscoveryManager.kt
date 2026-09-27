@@ -153,7 +153,7 @@ class TetherDiscoveryManager(
 
     companion object {
         private const val TAG = "TetherDiscoveryManager"
-        const val SERVICE_TYPE = "_tether._tcp."
+        const val SERVICE_TYPE = "_tether._tcp"
         const val DEFAULT_PORT = 37123
         private const val MULTICAST_LOCK_TAG = "TetherMdnsMulticastLock"
     }
@@ -187,7 +187,12 @@ class TetherDiscoveryManager(
 
     @Synchronized
     fun startDiscovery() {
-        if (isSearching) return
+        if (isSearching) {
+            Log.d(TAG, "Discovery already active. Skipping duplicate start.")
+            return
+        }
+
+        stopDiscovery()
         Log.i(TAG, "Starting mDNS discovery for service type $SERVICE_TYPE")
 
         acquireMulticastLock()
@@ -197,14 +202,15 @@ class TetherDiscoveryManager(
                 Log.e(TAG, "Discovery start failed: errorCode=$errorCode")
                 isSearching = false
                 releaseMulticastLock()
-                externalListener?.onDiscoveryError(errorCode, "Failed to start discovery")
-                try { nsdManager.stopServiceDiscovery(this) } catch (_: Exception) {}
+                discoveryListener = null
+                externalListener?.onDiscoveryError(errorCode, "Failed to start discovery (error $errorCode)")
             }
 
             override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {
                 Log.e(TAG, "Discovery stop failed: errorCode=$errorCode")
                 isSearching = false
                 releaseMulticastLock()
+                discoveryListener = null
             }
 
             override fun onDiscoveryStarted(serviceType: String?) {
@@ -216,6 +222,7 @@ class TetherDiscoveryManager(
                 Log.i(TAG, "mDNS discovery stopped")
                 isSearching = false
                 releaseMulticastLock()
+                discoveryListener = null
             }
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
@@ -245,6 +252,7 @@ class TetherDiscoveryManager(
             Log.e(TAG, "Error initiating discoverServices: ${e.message}", e)
             isSearching = false
             releaseMulticastLock()
+            discoveryListener = null
         }
     }
 
@@ -323,10 +331,12 @@ class TetherDiscoveryManager(
             override fun onRegistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
                 Log.e(TAG, "mDNS Service registration failed: errorCode=$errorCode")
                 isAdvertising = false
+                registrationListener = null
             }
 
             override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
                 Log.e(TAG, "mDNS Service unregistration failed: errorCode=$errorCode")
+                isAdvertising = false
             }
 
             override fun onServiceRegistered(registeredInfo: NsdServiceInfo?) {
@@ -337,6 +347,7 @@ class TetherDiscoveryManager(
             override fun onServiceUnregistered(serviceInfo: NsdServiceInfo?) {
                 Log.i(TAG, "mDNS Service unregistered")
                 isAdvertising = false
+                registrationListener = null
             }
         }
 
@@ -346,14 +357,15 @@ class TetherDiscoveryManager(
         } catch (e: Exception) {
             Log.e(TAG, "Error registering service: ${e.message}", e)
             isAdvertising = false
+            registrationListener = null
         }
     }
 
     @Synchronized
     fun stopDiscovery() {
         nsdResolveQueue.clear()
-        discoveryListener?.let {
-            try { nsdManager.stopServiceDiscovery(it) } catch (_: Exception) {}
+        discoveryListener?.let { listener ->
+            try { nsdManager.stopServiceDiscovery(listener) } catch (_: Exception) {}
         }
         discoveryListener = null
         isSearching = false
@@ -361,8 +373,8 @@ class TetherDiscoveryManager(
     }
 
     fun stopAdvertising() {
-        registrationListener?.let {
-            try { nsdManager.unregisterService(it) } catch (_: Exception) {}
+        registrationListener?.let { listener ->
+            try { nsdManager.unregisterService(listener) } catch (_: Exception) {}
         }
         registrationListener = null
         isAdvertising = false
@@ -394,4 +406,3 @@ class TetherDiscoveryManager(
         return discoveredDevices.values.toList()
     }
 }
-
