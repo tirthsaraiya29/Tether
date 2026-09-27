@@ -334,72 +334,73 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 3000, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse
-        ), label = "Glow"
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "Glow",
     )
 
     Box(contentAlignment = Alignment.Center) {
         Canvas(
             modifier = Modifier
                 .size(320.dp)
-                .graphicsLayer { alpha = 0.8f }
+                .graphicsLayer { alpha = 0.8f },
         ) {
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(color.copy(alpha = 0.3f * glowPulse), Color.Transparent),
-                    radius = size.width / 1.8f
-                )
+                    radius = size.width / 1.8f,
+                ),
             )
         }
 
         Canvas(
             modifier = Modifier
                 .size(280.dp)
-                .graphicsLayer { rotationZ = rotation }
+                .graphicsLayer { rotationZ = rotation },
         ) {
             drawArc(
                 color = color,
                 startAngle = 0f,
                 sweepAngle = 160f,
                 useCenter = false,
-                style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
+                style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round),
             )
             drawArc(
                 color = color.copy(alpha = 0.3f),
                 startAngle = 180f,
                 sweepAngle = 90f,
                 useCenter = false,
-                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
             )
         }
 
         Canvas(
             modifier = Modifier
                 .size(240.dp)
-                .graphicsLayer { rotationZ = orbitRotation }
+                .graphicsLayer { rotationZ = orbitRotation },
         ) {
             val nodeCenter = Offset(x = size.width, y = size.height / 2)
             drawCircle(
                 color = color,
                 radius = 7.dp.toPx(),
-                center = nodeCenter
+                center = nodeCenter,
             )
             drawCircle(
                 color = color.copy(alpha = 0.4f),
                 radius = 14.dp.toPx() * glowPulse,
-                center = nodeCenter
+                center = nodeCenter,
             )
 
             val mirrorCenter = Offset(x = 0f, y = size.height / 2)
             drawCircle(
                 color = color.copy(alpha = 0.6f),
                 radius = 5.dp.toPx(),
-                center = mirrorCenter
+                center = mirrorCenter,
             )
             drawCircle(
                 color = color.copy(alpha = 0.2f),
                 radius = 10.dp.toPx() * glowPulse,
-                center = mirrorCenter
+                center = mirrorCenter,
             )
         }
 
@@ -410,7 +411,7 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
                 .graphicsLayer {
                     scaleX = (glowPulse * 0.05f) + 0.95f
                     scaleY = (glowPulse * 0.05f) + 0.95f
-                }
+                },
         ) {
             Text(
                 text = status,
@@ -418,7 +419,7 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
                 color = color,
                 textAlign = TextAlign.Center,
                 fontWeight = FontWeight.ExtraBold,
-                lineHeight = 28.sp
+                lineHeight = 28.sp,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
