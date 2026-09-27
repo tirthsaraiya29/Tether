@@ -116,12 +116,12 @@ fun TetherAppScreen(
                     onPlayPause = { onLanActionRequested("media_play_pause") },
                     onSkipNext = { onLanActionRequested("media_next") },
                     onSkipPrev = { onLanActionRequested("media_prev") },
-                    enabled = isConnected
+                    enabled = isConnected,
                 )
 
                 LiquidGlassAppLauncher(
                     onLaunchApp = onLanActionRequested,
-                    enabled = isConnected
+                    enabled = isConnected,
                 )
 
                 ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
@@ -917,7 +917,7 @@ fun PairingScreen(
                         color = TextSecondary
                     )
                     Text(
-                        text = if (phoneFingerprint.isNotBlank()) phoneFingerprint else "COMPUTING...",
+                        text = phoneFingerprint.ifBlank { "COMPUTING..." },
                         style = MaterialTheme.typography.bodySmall,
                         color = TextPrimary,
                         fontSize = 11.sp
@@ -929,7 +929,7 @@ fun PairingScreen(
                         color = TextSecondary
                     )
                     Text(
-                        text = if (windowsFingerprint.isNotBlank() && windowsFingerprint != "NONE") windowsFingerprint else "NOT PINNED",
+                        text = if (windowsFingerprint.isNotBlank() && (windowsFingerprint != "NONE")) windowsFingerprint else "NOT PINNED",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (trustState == TrustState.PAIRED) IntegrityGreen else AlertRed,
                         fontSize = 11.sp
@@ -1000,7 +1000,7 @@ fun LaptopControlScreen(
     var isPlaying by remember { mutableStateOf(value = true) }
 
     val scrollState = rememberScrollState()
-    var visible by remember { mutableStateOf(false) }
+    var visible by remember { mutableStateOf(value = false) }
     LaunchedEffect(Unit) { visible = true }
 
     Column(
