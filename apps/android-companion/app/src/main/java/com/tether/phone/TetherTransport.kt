@@ -23,8 +23,6 @@ interface TetherTransport {
     fun readFrame(maxSizeBytes: Int = 1024 * 1024): ByteArray?
     fun getPeerCertificate(): X509Certificate?
     fun getPeerIdentityFingerprint(): String?
-    fun attachSessionCipher(cipher: SessionCipher?)
-    fun getSessionCipher(): SessionCipher?
 }
 
 class TetherTlsTransport(
@@ -50,17 +48,7 @@ class TetherTlsTransport(
     private var peerFingerprint: String? = null
 
     @Volatile
-    private var sessionCipher: SessionCipher? = null
-
-    @Volatile
     private var connected = false
-
-    override fun attachSessionCipher(cipher: SessionCipher?) {
-        this.sessionCipher = cipher
-        Log.i(TAG, "Attached SessionCipher to TLS transport (active=${cipher != null})")
-    }
-
-    override fun getSessionCipher(): SessionCipher? = sessionCipher
 
     override fun connect(host: String, port: Int, timeoutMs: Int) {
         if (connected) disconnect("Reconnecting")
@@ -70,7 +58,6 @@ class TetherTlsTransport(
         val sslContext = createSslContext()
         val factory: SSLSocketFactory = sslContext.socketFactory
 
-        // Create SSLSocket directly from factory and configure SSLParameters
         val sslSock = factory.createSocket() as SSLSocket
         sslSock.useClientMode = true
 
@@ -130,13 +117,12 @@ class TetherTlsTransport(
     override fun sendFrame(data: ByteArray) {
         if (!isConnected()) throw IllegalStateException("Transport disconnected")
 
-        val payload = sessionCipher?.encrypt(data) ?: data
-        if (payload.size > MAX_FRAME_SIZE) throw IllegalArgumentException("Frame size ${payload.size} exceeds maximum limit of $MAX_FRAME_SIZE bytes")
+        if (data.size > MAX_FRAME_SIZE) throw IllegalArgumentException("Frame size ${data.size} exceeds maximum limit of $MAX_FRAME_SIZE bytes")
 
         val dos = dataOutputStream ?: throw IllegalStateException("OutputStream null")
         synchronized(dos) {
-            dos.writeInt(payload.size)
-            dos.write(payload)
+            dos.writeInt(data.size)
+            dos.write(data)
             dos.flush()
         }
     }
@@ -180,12 +166,10 @@ class TetherTlsTransport(
             return null
         }
 
-        val cipher = sessionCipher
-        return cipher?.decrypt(buffer) ?: buffer
+        return buffer
     }
 
     override fun getPeerCertificate(): X509Certificate? = peerCertificate
 
     override fun getPeerIdentityFingerprint(): String? = peerFingerprint
 }
-
