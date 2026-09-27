@@ -451,9 +451,6 @@ fun PanicRestoreCard(onSideRestore: () -> Unit) {
             accentColor = IntegrityGreen,
             onClick = onSideRestore,
         )
-            accentColor = IntegrityGreen,
-            onClick = onSideRestore
-        )
     }
 }
 
