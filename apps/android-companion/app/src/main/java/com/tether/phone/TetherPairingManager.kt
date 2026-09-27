@@ -51,6 +51,11 @@ class TetherPairingManager(
     companion object {
         private const val TAG = "TetherPairingManager"
         const val PROTOCOL_VERSION = "2.0"
+
+        private fun sanitizeLog(input: String?): String {
+            if (input == null) return "null"
+            return input.replace("\r", "\\r").replace("\n", "\\n").take(256)
+        }
     }
 
     fun executeHandshake(
@@ -121,7 +126,11 @@ class TetherPairingManager(
             val winFingerprint = securityEngine.computePublicKeyFingerprint(winPubKeyBytes)
             val winDsaPubKeyBytes = if (winDsaPubKeyBase64.isNotBlank()) Base64.decode(winDsaPubKeyBase64, Base64.NO_WRAP) else null
 
-            Log.i(TAG, "Received HANDSHAKE_RESPONSE from $winName ($winDeviceId), FP=$winFingerprint, status=$pairingStatus, PQC=$pqcSupported")
+            val safeName = sanitizeLog(winName)
+            val safeDevId = sanitizeLog(winDeviceId)
+            val safeFp = sanitizeLog(winFingerprint)
+            val safeStatus = sanitizeLog(pairingStatus)
+            Log.i(TAG, "Received HANDSHAKE_RESPONSE from $safeName ($safeDevId), FP=$safeFp, status=$safeStatus, PQC=$pqcSupported")
 
             // Derive PQC Session Cipher if available
             var sasCode = "000000"
@@ -135,9 +144,11 @@ class TetherPairingManager(
 
                     // Attach session cipher to transport for subsequent frames
                     transport.attachSessionCipher(sessionCipher)
-                    Log.i(TAG, "PQC ML-KEM-768 session cipher successfully established! SAS=$sasCode")
+                    val safeSas = sanitizeLog(sasCode)
+                    Log.i(TAG, "PQC ML-KEM-768 session cipher successfully established! SAS=$safeSas")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed PQC session cipher derivation: ${e.message}", e)
+                    val safeErr = sanitizeLog(e.message)
+                    Log.e(TAG, "Failed PQC session cipher derivation: $safeErr", e)
                 }
             }
 

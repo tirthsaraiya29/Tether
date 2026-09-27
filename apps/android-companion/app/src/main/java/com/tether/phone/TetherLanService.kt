@@ -72,6 +72,11 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         private const val NOTIFICATION_ID = 1
         private const val HEALTH_CHECK_INTERVAL_MS = 60000L
         private const val WAKE_LOCK_TAG = "tether:LanWakeLock"
+
+        fun sanitizeLog(input: String?): String {
+            if (input == null) return "null"
+            return input.replace("\r", "\\r").replace("\n", "\\n").take(256)
+        }
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -479,12 +484,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val type = json.optString("type", "")
         val command = json.optString("command", "")
 
-        Log.d(TAG, "Incoming frame type=$type command=$command")
+        val safeType = sanitizeLog(type)
+        val safeCmd = sanitizeLog(command)
+        Log.d(TAG, "Incoming frame type=$safeType command=$safeCmd")
 
         when (type) {
             "CONFIRM_COMMAND" -> {
                 val confirmedCmd = json.optString("confirmedCommand", command)
-                Log.i(TAG, "Command confirmed by Windows host: $confirmedCmd")
+                val safeConfirmed = sanitizeLog(confirmedCmd)
+                Log.i(TAG, "Command confirmed by Windows host: $safeConfirmed")
                 mainHandler.post {
                     val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
                         putExtra("confirmed_command", confirmedCmd)
