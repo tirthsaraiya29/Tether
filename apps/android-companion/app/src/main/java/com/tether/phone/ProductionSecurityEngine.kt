@@ -62,7 +62,7 @@ class ProductionSecurityEngine {
 
             val parameterSpec = KeyGenParameterSpec.Builder(
                 EC_IDENTITY_ALIAS,
-                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
+                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
             )
                 .setCertificateSubject(X500Principal("CN=TetherAndroidDevice, O=Tether, OU=Mobile"))
                 .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
@@ -81,7 +81,7 @@ class ProductionSecurityEngine {
             Log.i(TAG, "Generating hardware AES-256 storage key in AndroidKeyStore...")
             val keyGenerator = KeyGenerator.getInstance(
                 KeyProperties.KEY_ALGORITHM_AES,
-                ANDROID_KEYSTORE
+                ANDROID_KEYSTORE,
             )
             val parameterSpec = KeyGenParameterSpec.Builder(
                 STORAGE_KEY_ALIAS,
@@ -212,7 +212,7 @@ class ProductionSecurityEngine {
         val kemPub = decryptString(kemEnc)
         val dsaPub = decryptString(dsaEnc)
 
-        return if (kemPub != null && dsaPub != null) {
+        return if ((kemPub != null) && (dsaPub != null)) {
             Pair(kemPub, dsaPub)
         } else {
             null
@@ -251,7 +251,7 @@ class ProductionSecurityEngine {
     }
 
     fun computePublicKeyFingerprint(publicKeyBytes: ByteArray?): String {
-        if (publicKeyBytes == null || publicKeyBytes.isEmpty()) return "NONE"
+        if ((publicKeyBytes == null) || publicKeyBytes.isEmpty()) return "NONE"
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
             val hash = digest.digest(publicKeyBytes)

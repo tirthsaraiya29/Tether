@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +51,7 @@ import com.tether.phone.ui.theme.TetherTheme
 import com.tether.phone.ui.theme.TextPrimary
 import com.tether.phone.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.seconds
 
 class PairingConfirmationActivity : ComponentActivity() {
 
@@ -70,7 +70,7 @@ class PairingConfirmationActivity : ComponentActivity() {
             TetherTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = DeepSpace
+                    color = DeepSpace,
                 ) {
                     PairingConfirmationContent(
                         peerName = peerName,
@@ -82,10 +82,9 @@ class PairingConfirmationActivity : ComponentActivity() {
                         onReject = {
                             rejectPairing()
                         },
-                        onTimeout = {
-                            rejectPairing()
-                        }
-                    )
+                    ) {
+                        rejectPairing()
+                    }
                 }
             }
         }
@@ -117,13 +116,13 @@ fun PairingConfirmationContent(
     sasCode: String,
     onAccept: () -> Unit,
     onReject: () -> Unit,
-    onTimeout: () -> Unit
+    onTimeout: () -> Unit,
 ) {
     var secondsLeft by remember { mutableIntStateOf(60) }
 
     LaunchedEffect(Unit) {
         while (secondsLeft > 0) {
-            delay(1000L)
+            delay(1.seconds)
             secondsLeft -= 1
         }
         onTimeout()
@@ -132,7 +131,7 @@ fun PairingConfirmationContent(
     val progress by animateFloatAsState(
         targetValue = secondsLeft / 60f,
         animationSpec = tween(durationMillis = 1000, easing = LinearEasing),
-        label = "Countdown"
+        label = "Countdown",
     )
 
     val formattedSas = if (sasCode.length == 6) {
@@ -156,13 +155,13 @@ fun PairingConfirmationContent(
                 .fillMaxSize()
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Center,
         ) {
             ProfessionalGlassSurface(
                 modifier = Modifier.fillMaxWidth(),
                 tint = LiquidCyan,
                 alpha = 0.18f,
-                blur = 50f
+                blur = 50f,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(contentAlignment = Alignment.Center) {
@@ -171,13 +170,13 @@ fun PairingConfirmationContent(
                             color = LiquidCyan,
                             trackColor = Color.White.copy(alpha = 0.1f),
                             strokeWidth = 4.dp,
-                            modifier = Modifier.size(72.dp)
+                            modifier = Modifier.size(72.dp),
                         )
                         Text(
                             text = "${secondsLeft}s",
                             color = LiquidCyan,
                             style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
                         )
                     }
 
@@ -188,7 +187,7 @@ fun PairingConfirmationContent(
                         style = MaterialTheme.typography.headlineSmall,
                         color = TextPrimary,
                         fontWeight = FontWeight.ExtraBold,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -197,13 +196,13 @@ fun PairingConfirmationContent(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
                             .background(LiquidCyan.copy(alpha = 0.12f))
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
                     ) {
                         Text(
                             text = "ML-KEM-768 + ML-DSA-65 (PQC Encrypted)",
                             style = MaterialTheme.typography.labelSmall,
                             color = LiquidCyan,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
 
@@ -213,7 +212,7 @@ fun PairingConfirmationContent(
                         text = "SECURITY AUTHENTICATION CODE",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondary,
-                        letterSpacing = 2.sp
+                        letterSpacing = 2.sp,
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -224,7 +223,7 @@ fun PairingConfirmationContent(
                             .clip(RoundedCornerShape(20.dp))
                             .background(Color.Black.copy(alpha = 0.45f))
                             .padding(vertical = 18.dp),
-                        contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             text = formattedSas,
@@ -232,7 +231,7 @@ fun PairingConfirmationContent(
                             fontWeight = FontWeight.ExtraBold,
                             fontFamily = FontFamily.Monospace,
                             color = LiquidCyan,
-                            letterSpacing = 6.sp
+                            letterSpacing = 6.sp,
                         )
                     }
 
@@ -242,7 +241,7 @@ fun PairingConfirmationContent(
                         text = "Compare this code with the prompt on your PC",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
                     )
 
                     Spacer(modifier = Modifier.height(24.dp))
@@ -251,7 +250,7 @@ fun PairingConfirmationContent(
                         text = "WINDOWS HOST FINGERPRINT",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondary,
-                        letterSpacing = 2.sp
+                        letterSpacing = 2.sp,
                     )
 
                     Spacer(modifier = Modifier.height(6.dp))
@@ -262,26 +261,26 @@ fun PairingConfirmationContent(
                         fontFamily = FontFamily.Monospace,
                         color = TextPrimary,
                         textAlign = TextAlign.Center,
-                        lineHeight = 16.sp
+                        lineHeight = 16.sp,
                     )
 
                     Spacer(modifier = Modifier.height(32.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         TacticalAction(
                             label = stringResource(R.string.btn_reject),
                             accentColor = AlertRed,
                             onClick = onReject,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
                         )
                         TacticalAction(
                             label = stringResource(R.string.btn_accept),
                             accentColor = IntegrityGreen,
                             onClick = onAccept,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }

@@ -1,4 +1,4 @@
-@file:Suppress("DEPRECATION")
+@file:Suppress("DEPRECATION", "unused")
 
 package com.tether.phone
 
@@ -275,7 +275,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     @Synchronized
     fun startDiscovery() {
-        if (currentState == TransportState.AUTHENTICATED || currentState == TransportState.READY || currentState == TransportState.CONNECTING) {
+        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING)) {
             return
         }
         currentState = TransportState.DISCOVERING
@@ -294,7 +294,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     override fun onDeviceDiscovered(device: DiscoveredDevice) {
         Log.i(TAG, "mDNS Discovered Tether device: ${device.name} at ${device.hostAddress}:${device.port}")
-        if (currentState == TransportState.DISCOVERING || currentState == TransportState.DISCONNECTED) {
+        if ((currentState == TransportState.DISCOVERING) || (currentState == TransportState.DISCONNECTED)) {
             currentState = TransportState.HOST_FOUND
             connectToHost(device.hostAddress, device.port)
         }
@@ -326,7 +326,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
                 val result = pairingManager.executeHandshake(
                     transport = transport,
-                    isUserInitiatedPairing = (trustState == TrustState.PAIRING_REQUESTED || trustState == TrustState.REPAIRING)
+                    isUserInitiatedPairing = (trustState == TrustState.PAIRING_REQUESTED || trustState == TrustState.REPAIRING),
                 )
 
                 when (result) {
@@ -336,9 +336,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         currentState = TransportState.AUTHENTICATED
                         capabilityManager.negotiateCapabilities("CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
 
-                        mainHandler.postDelayed({
-                            currentState = TransportState.READY
-                        }, 200)
+                        mainHandler.postDelayed(
+                            {
+                                currentState = TransportState.READY
+                            },
+                            200,
+                        )
 
                         listenSocketLoop(transport)
                     }
@@ -390,7 +393,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     fun confirmPairing(requestId: String) {
         networkExecutor.execute {
             val transport = activeTransport
-            if (transport == null || !transport.isConnected()) {
+            if ((transport == null) || !transport.isConnected()) {
                 Log.e(TAG, "Cannot confirm pairing: active transport is null or disconnected.")
                 disconnectActiveSession("Transport lost before confirmation")
                 return@execute
@@ -401,7 +404,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 transport = transport,
                 requestId = requestId,
                 winEcPubKeyBytes = pendingWinEcPubKey,
-                winDsaPubKeyBytes = pendingWinDsaPubKey
+                winDsaPubKeyBytes = pendingWinDsaPubKey,
             )
 
             when (result) {
@@ -411,9 +414,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     currentState = TransportState.AUTHENTICATED
                     capabilityManager.negotiateCapabilities("CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
 
-                    mainHandler.postDelayed({
-                        currentState = TransportState.READY
-                    }, 200)
+                    mainHandler.postDelayed(
+                        {
+                            currentState = TransportState.READY
+                        },
+                        200,
+                    )
 
                     listenSocketLoop(transport)
                 }
@@ -431,7 +437,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     fun rejectPairing(requestId: String) {
         networkExecutor.execute {
             val transport = activeTransport
-            if (transport != null && transport.isConnected()) {
+            if ((transport != null) && transport.isConnected()) {
                 try {
                     val rejectJson = JSONObject().apply {
                         put("type", "PAIRING_REJECTED")
@@ -448,7 +454,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun listenSocketLoop(transport: TetherTransport) {
         try {
-            while (currentState == TransportState.AUTHENTICATED || currentState == TransportState.READY) {
+            while ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) {
                 val frameBytes = transport.readFrame() ?: break
                 val jsonStr = String(frameBytes, StandardCharsets.UTF_8)
                 processIncomingFrame(JSONObject(jsonStr))
@@ -490,7 +496,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             "HARDWARE_METRICS" -> {
                 val vol = json.optInt("volumeLevel", -1)
                 val bright = json.optInt("brightnessLevel", -1)
-                if (vol >= 0 || bright >= 0) {
+                if ((vol >= 0) || (bright >= 0)) {
                     val intent = Intent("com.tether.phone.ACTION_SYNC_HARDWARE_METRICS").apply {
                         putExtra("VOLUME_LEVEL", vol)
                         putExtra("BRIGHTNESS_LEVEL", bright)
@@ -505,7 +511,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     fun dispatchCommand(actionCommand: String) {
         networkExecutor.execute {
             try {
-                if (currentState != TransportState.READY && currentState != TransportState.AUTHENTICATED) {
+                if ((currentState != TransportState.READY) && (currentState != TransportState.AUTHENTICATED)) {
                     Log.w(TAG, "Transport not ready ($currentState). Queuing command and starting discovery...")
                     startDiscovery()
                     Thread.sleep(1000)
@@ -525,7 +531,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
 
                 val transport = activeTransport
-                if (transport != null && transport.isConnected()) {
+                if ((transport != null) && transport.isConnected()) {
                     transport.sendFrame(cmdJson.toString().toByteArray(StandardCharsets.UTF_8))
                     Log.i(TAG, "Dispatched command frame over TLS 1.3: $actionCommand (reqId=$reqId)")
                 } else {
@@ -588,14 +594,14 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
         val pendingIntent = PendingIntent.getBroadcast(
             this, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         alarmPendingIntent = pendingIntent
 
         alarmManager?.setAndAllowWhileIdle(
             AlarmManager.ELAPSED_REALTIME_WAKEUP,
             SystemClock.elapsedRealtime() + HEALTH_CHECK_INTERVAL_MS,
-            pendingIntent
+            pendingIntent,
         )
     }
 
@@ -608,7 +614,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.notification_channel_name),
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_LOW,
         )
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
