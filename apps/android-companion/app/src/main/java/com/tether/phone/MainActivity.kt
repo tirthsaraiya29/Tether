@@ -781,6 +781,9 @@ class MainActivity : FragmentActivity() {
             required.add(Manifest.permission.POST_NOTIFICATIONS)
             required.add(Manifest.permission.NEARBY_WIFI_DEVICES)
         }
+        if (Build.VERSION.SDK_INT >= 36) {
+            required.add("android.permission.ACCESS_LOCAL_NETWORK")
+        }
         return required.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
 
@@ -805,6 +808,9 @@ class MainActivity : FragmentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             required.add(Manifest.permission.POST_NOTIFICATIONS)
             required.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+        }
+        if (Build.VERSION.SDK_INT >= 36) {
+            required.add("android.permission.ACCESS_LOCAL_NETWORK")
         }
         ActivityCompat.requestPermissions(this, required.toTypedArray(), requestPermissionsCode)
     }
