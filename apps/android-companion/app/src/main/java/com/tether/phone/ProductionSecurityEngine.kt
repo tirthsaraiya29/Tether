@@ -1,5 +1,3 @@
-@file:Suppress("unused")
-
 package com.tether.phone
 
 import android.content.Context
@@ -85,7 +83,7 @@ class ProductionSecurityEngine {
             )
             val parameterSpec = KeyGenParameterSpec.Builder(
                 STORAGE_KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
