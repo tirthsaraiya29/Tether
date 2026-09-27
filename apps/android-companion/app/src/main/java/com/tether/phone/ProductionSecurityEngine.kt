@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package com.tether.phone
 
 import android.content.Context
@@ -55,7 +57,7 @@ class ProductionSecurityEngine {
             Log.i(TAG, "Generating new hardware-backed EC identity key pair in AndroidKeyStore...")
             val kpg = KeyPairGenerator.getInstance(
                 KeyProperties.KEY_ALGORITHM_EC,
-                ANDROID_KEYSTORE
+                ANDROID_KEYSTORE,
             )
 
             val parameterSpec = KeyGenParameterSpec.Builder(
@@ -103,10 +105,8 @@ class ProductionSecurityEngine {
     fun getIdentityCertificate(): X509Certificate {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         val cert = keyStore.getCertificate(EC_IDENTITY_ALIAS)
-        if (cert is X509Certificate) {
-            return cert
-        }
-        throw IllegalStateException("Failed to load X509Certificate for alias $EC_IDENTITY_ALIAS")
+        return (cert as? X509Certificate)
+            ?: throw IllegalStateException("Failed to load X509Certificate for alias $EC_IDENTITY_ALIAS")
     }
 
     fun getIdentityPublicKeyBytes(): ByteArray {
@@ -131,7 +131,7 @@ class ProductionSecurityEngine {
     }
 
     private fun decryptString(encodedStr: String?): ByteArray? {
-        if (encodedStr.isNull_or_blank()) return null
+        if (encodedStr.isNullOrBlank()) return null
         return try {
             val combined = Base64.decode(encodedStr, Base64.NO_WRAP)
             if (combined.size <= 12) return null
@@ -151,8 +151,6 @@ class ProductionSecurityEngine {
         }
     }
 
-    private fun String?.isNull_or_blank(): Boolean = this == null || this.isBlank()
-
     fun getOrCreatePqcKeyPair(context: Context): PqcKeyPair {
         cachedPqcKeyPair?.let { return it }
 
@@ -167,7 +165,7 @@ class ProductionSecurityEngine {
         val dsaPub = decryptString(dsaPubEnc)
         val dsaPriv = decryptString(dsaPrivEnc)
 
-        if (kemPub != null && kemPriv != null && dsaPub != null && dsaPriv != null) {
+        if ((kemPub != null) && (kemPriv != null) && (dsaPub != null) && (dsaPriv != null)) {
             val keyPair = PqcKeyPair(kemPub, kemPriv, dsaPub, dsaPriv)
             cachedPqcKeyPair = keyPair
             return keyPair
