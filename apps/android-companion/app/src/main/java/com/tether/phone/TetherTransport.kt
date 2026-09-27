@@ -4,16 +4,11 @@ import android.util.Log
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.net.InetSocketAddress
-import java.security.KeyStore
 import java.security.SecureRandom
-import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
-import javax.net.ssl.TrustManager
-import javax.net.ssl.TrustManagerFactory
-import javax.net.ssl.X509TrustManager
 
 interface TetherTransport {
     fun connect(host: String, port: Int, timeoutMs: Int = 10000)
@@ -103,31 +98,7 @@ class TetherTlsTransport(
 
     private fun createSslContext(): SSLContext {
         val sslContext = SSLContext.getInstance("TLSv1.3")
-
-        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-        tmf.init(null as KeyStore?)
-        val defaultTrustManager = tmf.trustManagers.firstOrNull { it is X509TrustManager } as? X509TrustManager
-
-        @Suppress("TrustAllX509TrustManager", "CustomX509TrustManager")
-        val trustManager = object : X509TrustManager {
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                defaultTrustManager?.checkClientTrusted(chain, authType)
-            }
-
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                if (chain.isNullOrEmpty()) {
-                    throw CertificateException("Empty TLS certificate chain received from server")
-                }
-                val serverCert = chain[0]
-                serverCert.checkValidity()
-            }
-
-            override fun getAcceptedIssuers(): Array<X509Certificate> {
-                return defaultTrustManager?.acceptedIssuers ?: arrayOf()
-            }
-        }
-
-        sslContext.init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
+        sslContext.init(null, null, SecureRandom())
         return sslContext
     }
 
