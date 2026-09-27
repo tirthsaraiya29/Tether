@@ -1,12 +1,10 @@
-@file:Suppress("unused")
-
 package com.tether.phone
 
 import android.util.Log
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.net.InetSocketAddress
-import java.net.Socket
+import java.security.KeyStore
 import java.security.SecureRandom
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
@@ -14,6 +12,7 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
+import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 interface TetherTransport {
@@ -35,6 +34,11 @@ class TetherTlsTransport(
     companion object {
         private const val TAG = "TetherTlsTransport"
         private const val MAX_FRAME_SIZE = 1024 * 1024 // 1 MB limit
+
+        private fun sanitizeLog(input: String?): String {
+            if (input == null) return "null"
+            return input.replace("\r", "\\r").replace("\n", "\\n").take(256)
+        }
     }
 
     private var sslSocket: SSLSocket? = null
@@ -58,20 +62,25 @@ class TetherTlsTransport(
 
     override fun connect(host: String, port: Int, timeoutMs: Int) {
         if (connected) disconnect("Reconnecting")
-        Log.i(TAG, "Initiating secure TLS 1.3 connection to $host:$port...")
+        val safeHost = sanitizeLog(host)
+        Log.i(TAG, "Initiating secure TLS 1.3 connection to $safeHost:$port...")
 
         val sslContext = createSslContext()
         val factory: SSLSocketFactory = sslContext.socketFactory
 
-        val rawSocket = Socket()
-        rawSocket.connect(InetSocketAddress(host, port), timeoutMs)
-        rawSocket.soTimeout = 15000
-
-        val sslSock = factory.createSocket(rawSocket, host, port, true) as SSLSocket
+        // Create SSLSocket directly from factory and configure SSLParameters
+        val sslSock = factory.createSocket() as SSLSocket
         sslSock.useClientMode = true
 
-        // Strictly enforce TLS 1.3 only to prevent version downgrade attacks
+        val sslParams = sslSock.sslParameters
+        sslParams.endpointIdentificationAlgorithm = "HTTPS"
+        sslSock.sslParameters = sslParams
+
+        // Strictly enforce TLS 1.3 only
         sslSock.enabledProtocols = arrayOf("TLSv1.3")
+
+        sslSock.connect(InetSocketAddress(host, port), timeoutMs)
+        sslSock.soTimeout = 15000
 
         sslSock.startHandshake()
         val session = sslSock.session
@@ -82,7 +91,8 @@ class TetherTlsTransport(
             val cert = peerCerts[0] as X509Certificate
             peerCertificate = cert
             peerFingerprint = securityEngine.computePublicKeyFingerprint(cert.publicKey.encoded)
-            Log.i(TAG, "Peer TLS Identity SHA-256 Fingerprint: $peerFingerprint")
+            val safeFp = sanitizeLog(peerFingerprint)
+            Log.i(TAG, "Peer TLS Identity SHA-256 Fingerprint: $safeFp")
         }
 
         this.sslSocket = sslSock
@@ -94,17 +104,27 @@ class TetherTlsTransport(
     private fun createSslContext(): SSLContext {
         val sslContext = SSLContext.getInstance("TLSv1.3")
 
-        @Suppress("CustomX509TrustManager", "TrustAllX509TrustManager")
+        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+        tmf.init(null as KeyStore?)
+        val defaultTrustManager = tmf.trustManagers.firstOrNull { it is X509TrustManager } as? X509TrustManager
+
+        @Suppress("TrustAllX509TrustManager", "CustomX509TrustManager")
         val trustManager = object : X509TrustManager {
-            @Suppress("TrustAllX509TrustManager")
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-            @Suppress("TrustAllX509TrustManager")
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                defaultTrustManager?.checkClientTrusted(chain, authType)
+            }
+
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
                 if (chain.isNullOrEmpty()) {
                     throw CertificateException("Empty TLS certificate chain received from server")
                 }
+                val serverCert = chain[0]
+                serverCert.checkValidity()
             }
-            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+
+            override fun getAcceptedIssuers(): Array<X509Certificate> {
+                return defaultTrustManager?.acceptedIssuers ?: arrayOf()
+            }
         }
 
         sslContext.init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
@@ -112,7 +132,8 @@ class TetherTlsTransport(
     }
 
     override fun disconnect(reason: String) {
-        Log.i(TAG, "Disconnecting TLS transport: $reason")
+        val safeReason = sanitizeLog(reason)
+        Log.i(TAG, "Disconnecting TLS transport: $safeReason")
         connected = false
         try { dataInputStream?.close() } catch (_: Exception) {}
         try { dataOutputStream?.close() } catch (_: Exception) {}
