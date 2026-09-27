@@ -78,11 +78,9 @@ class SessionCipher private constructor(
         }
     }
 
-    private val random = SecureRandom()
-
     fun encrypt(plaintext: ByteArray): ByteArray {
         val nonce = ByteArray(NONCE_SIZE_BYTES)
-        random.nextBytes(nonce)
+        SecureRandom().nextBytes(nonce)
 
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val spec = GCMParameterSpec(TAG_SIZE_BITS, nonce)
@@ -132,8 +130,9 @@ class SessionCipher private constructor(
 
             return cipher.doFinal(combined)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to decrypt frame: ${e.message}", e)
-            throw IllegalStateException("Frame decryption error: ${e.message}", e)
+            val safeErr = e.message?.replace("\r", "\\r")?.replace("\n", "\\n")?.take(256) ?: "null"
+            Log.e(TAG, "Failed to decrypt frame: $safeErr", e)
+            throw IllegalStateException("Frame decryption error: $safeErr", e)
         }
     }
 }
