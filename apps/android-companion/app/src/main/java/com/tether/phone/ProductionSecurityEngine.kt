@@ -10,6 +10,7 @@ import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.KeyPairGenerator
+import java.security.Signature
 import java.security.cert.X509Certificate
 import java.util.Locale
 import javax.crypto.Cipher
@@ -47,6 +48,7 @@ class ProductionSecurityEngine {
     init {
         ensureIdentityKeyPairExists()
         ensureStorageKeyExists()
+        PqcHandshake.runSelfTest()
     }
 
     private fun ensureIdentityKeyPairExists() {
@@ -98,6 +100,14 @@ class ProductionSecurityEngine {
     fun getIdentityPrivateKey(): PrivateKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         return keyStore.getKey(EC_IDENTITY_ALIAS, null) as PrivateKey
+    }
+
+    fun signWithIdentityKey(data: ByteArray): ByteArray {
+        val privateKey = getIdentityPrivateKey()
+        val signature = Signature.getInstance("SHA256withECDSA")
+        signature.initSign(privateKey)
+        signature.update(data)
+        return signature.sign()
     }
 
     fun getIdentityCertificate(): X509Certificate {

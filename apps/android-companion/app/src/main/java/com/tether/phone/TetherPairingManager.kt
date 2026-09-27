@@ -90,6 +90,8 @@ class TetherPairingManager(
             }
 
             val initJsonStr = initJson.toString()
+            val ecSigBytes = securityEngine.signWithIdentityKey(initJsonStr.toByteArray(StandardCharsets.UTF_8))
+            initJson.put("identitySignature", Base64.encodeToString(ecSigBytes, Base64.NO_WRAP))
             Log.i(TAG, "Sending HANDSHAKE_INIT v2.0 over TLS 1.3 (isPairingRequested=${isUserInitiatedPairing || !isAlreadyPinned})...")
             transport.sendFrame(initJsonStr.toByteArray(StandardCharsets.UTF_8))
 
@@ -223,12 +225,14 @@ class TetherPairingManager(
     ): PairingResult {
         try {
             val pqcKeyPair = securityEngine.getOrCreatePqcKeyPair(context)
+            val dsaSig = PqcHandshake.sign(requestId.toByteArray(StandardCharsets.UTF_8), pqcKeyPair.dsaPrivateKey)
 
             // 1. Send PAIRING_CONFIRMED frame
             val confirmedJson = JSONObject().apply {
                 put("type", "PAIRING_CONFIRMED")
                 put("requestId", requestId)
                 put("phoneDsaPublicKey", Base64.encodeToString(pqcKeyPair.dsaPublicKey, Base64.NO_WRAP))
+                put("phoneDsaSignature", Base64.encodeToString(dsaSig, Base64.NO_WRAP))
             }
             Log.i(TAG, "Sending PAIRING_CONFIRMED frame for requestId=$requestId...")
             transport.sendFrame(confirmedJson.toString().toByteArray(StandardCharsets.UTF_8))
