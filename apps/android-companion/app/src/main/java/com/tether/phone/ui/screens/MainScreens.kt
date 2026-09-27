@@ -269,17 +269,17 @@ fun ScanningVisualizer(color: Color) {
                 .graphicsLayer {
                     scaleX = pulseScale
                     scaleY = pulseScale
-                }
+                },
         ) {
             drawCircle(
                 color = color.copy(alpha = alpha * 0.4f),
                 radius = radius,
-                style = Stroke(width = 2.5.dp.toPx())
+                style = Stroke(width = 2.5.dp.toPx()),
             )
             drawCircle(
                 color = color.copy(alpha = alpha * 0.15f),
                 radius = radius * 0.7f,
-                style = Stroke(width = 1.5.dp.toPx())
+                style = Stroke(width = 1.5.dp.toPx()),
             )
 
             drawArc(
@@ -289,26 +289,26 @@ fun ScanningVisualizer(color: Color) {
                 useCenter = false,
                 topLeft = Offset(x = center.x - radius, y = center.y - radius),
                 size = androidx.compose.ui.geometry.Size(width = radius * 2, height = radius * 2),
-                style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
+                style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round),
             )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = stringResource(R.string.status_scanning),
                 style = MaterialTheme.typography.labelMedium,
-                color = color
+                color = color,
             )
             Spacer(modifier = Modifier.height(20.dp))
             Text(
                 text = stringResource(R.string.label_no_host),
                 style = MaterialTheme.typography.headlineMedium,
                 color = TextPrimary,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
             Text(
                 text = stringResource(R.string.label_broadcasting_mesh),
                 style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary
+                color = TextSecondary,
             )
         }
     }
@@ -321,13 +321,13 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(animation = tween(durationMillis = 25000, easing = LinearEasing)),
-        label = "Rot"
+        label = "Rot",
     )
     val orbitRotation by infiniteTransition.animateFloat(
         initialValue = 360f,
         targetValue = 0f,
         animationSpec = infiniteRepeatable(animation = tween(durationMillis = 15000, easing = LinearEasing)),
-        label = "Orbit"
+        label = "Orbit",
     )
     val glowPulse by infiniteTransition.animateFloat(
         initialValue = 0.4f,
