@@ -779,6 +779,7 @@ class MainActivity : FragmentActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             required.add(Manifest.permission.POST_NOTIFICATIONS)
+            required.add(Manifest.permission.NEARBY_WIFI_DEVICES)
         }
         return required.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
@@ -803,6 +804,7 @@ class MainActivity : FragmentActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             required.add(Manifest.permission.POST_NOTIFICATIONS)
+            required.add(Manifest.permission.NEARBY_WIFI_DEVICES)
         }
         ActivityCompat.requestPermissions(this, required.toTypedArray(), requestPermissionsCode)
     }
