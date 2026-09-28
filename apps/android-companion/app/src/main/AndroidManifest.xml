@@ -37,11 +37,18 @@
         android:requestLegacyExternalStorage="true"
         tools:targetApi="34">
 
-        <activity android:name=".MainActivity"
-            android:exported="true">
+        <!-- SECURITY FIX: CWE-926 Protected launcher activity and explicit voice action filter -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.tether.phone.ACTION_VOICE_COMMAND" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
             <meta-data
@@ -66,7 +73,8 @@
 
         <receiver
             android:name=".TetherServiceReceiver"
-            android:exported="false"
+            android:exported="true"
+            android:permission="android.permission.RECEIVE_BOOT_COMPLETED"
             android:directBootAware="true">
             <intent-filter>
                 <action android:name="com.tether.phone.ALARM_HEALTH_CHECK" />
