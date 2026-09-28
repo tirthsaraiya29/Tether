@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.Transport;
+using Tether.EventBus;
+using Tether.Shared.Events;
 using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService.Protocol;
@@ -14,11 +16,13 @@ public sealed class PacketRouter
 {
     private readonly ITetherLogger _logger;
     private readonly CapabilityManager _capabilityManager;
+    private readonly IEventBus _eventBus;
 
-    public PacketRouter(ITetherLogger logger, CapabilityManager capabilityManager)
+    public PacketRouter(ITetherLogger logger, CapabilityManager capabilityManager, IEventBus eventBus)
     {
         _logger = logger;
         _capabilityManager = capabilityManager;
+        _eventBus = eventBus;
     }
 
     public async Task RouteFrameAsync(JsonDocument doc, TetherSession session, TetherDevice device, Stream stream, CancellationToken ct)
@@ -65,7 +69,20 @@ public sealed class PacketRouter
 
         _logger.Info($"PacketRouter: Command accepted for '{device.DisplayName}': {cmd.Command} (requestId={cmd.RequestId}).");
 
-        // Send CONFIRM_COMMAND back to device
+        bool executed = HardwareExecutor.ExecuteCommand(cmd.Command, _logger);
+
+        _eventBus.Publish(new TetherEvent
+        {
+            EventType = TetherEventType.TRUST_DEGRADED,
+            Source = "PacketRouter",
+            PayloadJson = JsonSerializer.Serialize(new
+            {
+                HardwareAction = cmd.Command,
+                ExecutedBy = device.DisplayName,
+                Success = executed
+            })
+        });
+
         await FrameCodec.WriteJsonFrameAsync(stream, new ConfirmCommand { ConfirmedCommand = cmd.Command }, ct);
     }
 }

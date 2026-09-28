@@ -8,6 +8,7 @@ import java.io.EOFException
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.SocketException
+import java.net.SocketTimeoutException
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLContext
@@ -34,7 +35,7 @@ class TetherTlsTransport(
 
     companion object {
         private const val TAG = "TetherTlsTransport"
-        private const val MAX_FRAME_SIZE = 1024 * 1024 // 1 MB limit
+        private const val MAX_FRAME_SIZE = 1024 * 1024
 
         private fun sanitizeLog(input: String?): String {
             if (input == null) return "null"
@@ -68,11 +69,10 @@ class TetherTlsTransport(
         sslParams.endpointIdentificationAlgorithm = ""
         sslSock.sslParameters = sslParams
 
-        // Strictly enforce TLS 1.3 only
         sslSock.enabledProtocols = arrayOf("TLSv1.3")
 
         sslSock.connect(InetSocketAddress(host, port), timeoutMs)
-        sslSock.soTimeout = 15000
+        sslSock.soTimeout = 0
 
         sslSock.startHandshake()
         val session = sslSock.session
@@ -147,6 +147,8 @@ class TetherTlsTransport(
         } catch (_: EOFException) {
             Log.i(TAG, "EOF reached on TLS socket (gen=$generationId)")
             disconnect("Socket EOF")
+            return null
+        } catch (_: SocketTimeoutException) {
             return null
         } catch (e: SocketException) {
             Log.w(TAG, "SocketException reading frame: ${e.message}")
