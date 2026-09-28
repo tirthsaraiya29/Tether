@@ -81,12 +81,11 @@ public sealed class TetherSession : IDisposable
             };
 
             using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt);
-            handshakeCts.CancelAfter(TimeSpan.FromSeconds(15));
+            handshakeCts.CancelAfter(TimeSpan.FromSeconds(60));
 
             await _tls.AuthenticateAsServerAsync(sslOptions, handshakeCts.Token);
             _logger.Info($"TetherSession [{SessionId}]: TLS 1.3 established with {remote} ({_tls.NegotiatedCipherSuite}).");
 
-            // Perform Tether Handshake & Authentication
             bool authenticated = await HandleHandshakeAsync(handshakeCts.Token);
             if (!authenticated || Device == null)
             {
@@ -94,7 +93,6 @@ public sealed class TetherSession : IDisposable
                 return;
             }
 
-            // Register active session in SessionManager
             _sessionManager.RegisterSession(this);
 
             _eventBus.Publish(new TetherEvent
@@ -115,7 +113,6 @@ public sealed class TetherSession : IDisposable
                 Source = nameof(TetherSession)
             });
 
-            // Post-handshake packet loop with PING/PONG keepalive
             await CommandAndHeartbeatLoopAsync(serviceCt);
         }
         catch (OperationCanceledException) { _logger.Info($"TetherSession [{SessionId}]: Handshake timed out."); }
@@ -173,7 +170,6 @@ public sealed class TetherSession : IDisposable
 
         if (knownDevice != null && knownDevice.TrustState == DeviceTrustState.Paired)
         {
-            // RECONNECT FLOW: Known paired phone
             Device = knownDevice;
             _logger.Info($"TetherSession [{SessionId}]: Recognized paired phone {phoneFingerprint} ({knownDevice.DisplayName}).");
 
@@ -192,7 +188,6 @@ public sealed class TetherSession : IDisposable
 
         if (init.IsPairingRequested)
         {
-            // FIRST-TIME PAIRING FLOW with 6-digit PIN SAS commitment proof
             byte[] initBytes = System.Text.Encoding.UTF8.GetBytes(rawInitJson);
 
             var respPayload = new HandshakeResponse
@@ -224,7 +219,6 @@ public sealed class TetherSession : IDisposable
             await FrameCodec.WriteFrameAsync(stream, JsonSerializer.SerializeToUtf8Bytes(respJsonWithReq), ct);
             _logger.Info($"TetherSession [{SessionId}]: Sent HANDSHAKE_RESPONSE (PAIRING_PENDING) with requestId '{pending.RequestId}'. Waiting for PAIRING_CONFIRMED...");
 
-            // Read PAIRING_CONFIRMED frame from phone
             using var confirmedDoc = await FrameCodec.ReadJsonFrameAsync(stream, ct);
             if (confirmedDoc == null)
             {
@@ -250,7 +244,6 @@ public sealed class TetherSession : IDisposable
                 return false;
             }
 
-            // Send PAIRING_COMPLETE
             await FrameCodec.WriteJsonFrameAsync(stream, new
             {
                 type = "PAIRING_COMPLETE",
@@ -263,7 +256,6 @@ public sealed class TetherSession : IDisposable
             return true;
         }
 
-        // Unknown device that did not ask to pair -> fail closed
         _logger.Warning($"TetherSession [{SessionId}]: Unknown phone {phoneFingerprint} did not request pairing. Denying.");
         await FrameCodec.WriteJsonFrameAsync(stream, new HandshakeResponse
         {
@@ -283,7 +275,6 @@ public sealed class TetherSession : IDisposable
 
         while (!ct.IsCancellationRequested)
         {
-            // Read next frame with 30-second timeout to check keepalive
             using var readCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             readCts.CancelAfter(TimeSpan.FromSeconds(30));
 
@@ -303,7 +294,6 @@ public sealed class TetherSession : IDisposable
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                // 30 seconds of inactivity -> Send PING heartbeat
                 _logger.Debug($"TetherSession [{SessionId}]: 30s idle threshold reached. Sending PING probe...");
                 try
                 {
@@ -315,7 +305,6 @@ public sealed class TetherSession : IDisposable
                     break;
                 }
 
-                // Wait 15 seconds for response/PONG
                 long elapsedSeconds = (DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastFrameReceivedTicks)) / TimeSpan.TicksPerSecond;
                 if (elapsedSeconds > 45)
                 {
