@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Tether.CommunicationService.Devices;
+using Tether.CommunicationService.Protocol;
 using Tether.CommunicationService.Security;
 using Tether.EventBus;
 using Tether.Shared.Events;
@@ -47,7 +48,14 @@ public sealed class PairingManager
         _deviceManager = deviceManager;
     }
 
-    public PendingPairing RegisterPairingRequest(string phoneSpkiBase64, string displayName, byte[] transcriptHash)
+    public (PendingPairing pending, HandshakeResponse response, byte[] responseBytes) CreatePairingResponse(
+        string winDeviceId,
+        string winDeviceName,
+        string winSpkiBase64,
+        string winCapabilities,
+        string phoneSpkiBase64,
+        string phoneDisplayName,
+        byte[] initBytes)
     {
         byte[] phoneSpkiDer = Convert.FromBase64String(phoneSpkiBase64);
         string phoneFingerprint = Trust.TrustStore.ComputeFingerprintOrNull(phoneSpkiBase64)
@@ -65,6 +73,29 @@ public sealed class PairingManager
             phoneSpkiDer,
             Encoding.UTF8.GetBytes(requestId));
         string commitmentBase64 = Convert.ToBase64String(commitment);
+
+        var respPayload = new HandshakeResponse
+        {
+            DeviceId = winDeviceId,
+            DeviceName = winDeviceName,
+            PublicKey = winSpkiBase64,
+            Status = HandshakeStatus.PairingPending,
+            Capabilities = winCapabilities,
+            Pqc = false,
+            RequestId = requestId,
+            Commitment = commitmentBase64
+        };
+
+        byte[] respBytes = JsonSerializer.SerializeToUtf8Bytes(respPayload);
+
+        byte[] transcriptHash;
+        using (var sha = SHA512.Create())
+        {
+            var combined = new byte[initBytes.Length + respBytes.Length];
+            Buffer.BlockCopy(initBytes, 0, combined, 0, initBytes.Length);
+            Buffer.BlockCopy(respBytes, 0, combined, initBytes.Length, respBytes.Length);
+            transcriptHash = sha.ComputeHash(combined);
+        }
 
         byte[] expectedPhoneProof = ComputeSha512(
             Encoding.UTF8.GetBytes(pin),
@@ -86,7 +117,7 @@ public sealed class PairingManager
             PhoneFingerprint = phoneFingerprint,
             PhoneSpkiBase64 = phoneSpkiBase64,
             PhoneSpkiDer = phoneSpkiDer,
-            DisplayName = displayName,
+            DisplayName = phoneDisplayName,
             Pin = pin,
             CommitmentBase64 = commitmentBase64,
             ExpectedPhoneProof = expectedPhoneProof,
@@ -97,7 +128,7 @@ public sealed class PairingManager
 
         _pending[requestId] = pending;
 
-        _logger.Info($"PairingManager: Generated pairing request {requestId} for phone '{displayName}' ({phoneFingerprint}). PIN displayed on DesktopUI.");
+        _logger.Info($"PairingManager: Generated pairing request {requestId} for phone '{phoneDisplayName}' ({phoneFingerprint}). PIN displayed on DesktopUI.");
 
         _eventBus.Publish(new TetherEvent
         {
@@ -108,12 +139,12 @@ public sealed class PairingManager
                 requestId = requestId,
                 pin = pin,
                 phoneFingerprint = phoneFingerprint,
-                displayName = displayName,
+                displayName = phoneDisplayName,
                 timestampUtcTicks = DateTime.UtcNow.Ticks
             })
         });
 
-        return pending;
+        return (pending, respPayload, respBytes);
     }
 
     public bool TryVerifyPhoneProof(string requestId, string presentedProofBase64, out string winProofBase64, out PendingPairing? pending)

@@ -137,16 +137,15 @@ public sealed class TetherSession : IDisposable
     {
         var stream = _tls!;
 
-        using var initDoc = await FrameCodec.ReadJsonFrameAsync(stream, ct);
-        if (initDoc is null)
+        var initFrameBytes = await FrameCodec.ReadFrameAsync(stream, ct);
+        if (initFrameBytes is null)
         {
             _logger.Warning($"TetherSession [{SessionId}]: No HANDSHAKE_INIT received.");
             return false;
         }
 
-        string rawInitJson = initDoc.RootElement.GetRawText();
         HandshakeInit? init;
-        try { init = JsonSerializer.Deserialize<HandshakeInit>(rawInitJson); }
+        try { init = JsonSerializer.Deserialize<HandshakeInit>(initFrameBytes); }
         catch (JsonException ex)
         {
             _logger.Warning($"TetherSession [{SessionId}]: Malformed HANDSHAKE_INIT: {ex.Message}");
@@ -188,35 +187,16 @@ public sealed class TetherSession : IDisposable
 
         if (init.IsPairingRequested)
         {
-            byte[] initBytes = System.Text.Encoding.UTF8.GetBytes(rawInitJson);
+            var (pending, respPayload, respBytes) = _pairingManager.CreatePairingResponse(
+                _identity.DeviceId,
+                _identity.DeviceName,
+                _identity.GetPublicKeySpkiBase64(),
+                ServerCaps,
+                init.PublicKey,
+                init.DeviceName,
+                initFrameBytes);
 
-            var respPayload = new HandshakeResponse
-            {
-                DeviceId = _identity.DeviceId,
-                DeviceName = _identity.DeviceName,
-                PublicKey = _identity.GetPublicKeySpkiBase64(),
-                Status = HandshakeStatus.PairingPending,
-                Capabilities = ServerCaps,
-                Pqc = false
-            };
-            byte[] respBytes = JsonSerializer.SerializeToUtf8Bytes(respPayload);
-
-            byte[] transcriptHash;
-            using (var sha = System.Security.Cryptography.SHA512.Create())
-            {
-                var combined = new byte[initBytes.Length + respBytes.Length];
-                Buffer.BlockCopy(initBytes, 0, combined, 0, initBytes.Length);
-                Buffer.BlockCopy(respBytes, 0, combined, initBytes.Length, respBytes.Length);
-                transcriptHash = sha.ComputeHash(combined);
-            }
-
-            var pending = _pairingManager.RegisterPairingRequest(init.PublicKey, init.DeviceName, transcriptHash);
-
-            var respJsonWithReq = JsonSerializer.Deserialize<System.Text.Json.Nodes.JsonObject>(respBytes)!;
-            respJsonWithReq["requestId"] = pending.RequestId;
-            respJsonWithReq["commitment"] = pending.CommitmentBase64;
-
-            await FrameCodec.WriteFrameAsync(stream, JsonSerializer.SerializeToUtf8Bytes(respJsonWithReq), ct);
+            await FrameCodec.WriteFrameAsync(stream, respBytes, ct);
             _logger.Info($"TetherSession [{SessionId}]: Sent HANDSHAKE_RESPONSE (PAIRING_PENDING) with requestId '{pending.RequestId}'. Waiting for PAIRING_CONFIRMED...");
 
             using var confirmedDoc = await FrameCodec.ReadJsonFrameAsync(stream, ct);

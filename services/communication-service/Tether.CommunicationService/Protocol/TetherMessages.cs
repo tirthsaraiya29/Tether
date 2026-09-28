@@ -1,5 +1,4 @@
-﻿// services/communication-service/Tether.CommunicationService/Protocol/TetherMessages.cs
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 
 namespace Tether.CommunicationService.Protocol;
 
@@ -33,6 +32,8 @@ public sealed record HandshakeResponse
     [JsonPropertyName("status")] public string Status { get; init; } = HandshakeStatus.Unpaired;
     [JsonPropertyName("capabilities")] public string Capabilities { get; init; } = "";
     [JsonPropertyName("pqc")] public bool Pqc { get; init; }
+    [JsonPropertyName("requestId")] public string? RequestId { get; init; }
+    [JsonPropertyName("commitment")] public string? Commitment { get; init; }
 }
 
 public sealed record CommandExecute
