@@ -1,6 +1,7 @@
 package com.tether.phone
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.util.Log
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -9,7 +10,9 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.SocketException
 import java.net.SocketTimeoutException
+import java.security.MessageDigest
 import java.security.SecureRandom
+import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLException
@@ -29,7 +32,9 @@ interface TetherTransport {
     fun getPeerIdentityFingerprint(): String?
 }
 
+// SECURITY FIX: CWE-295 Improper Certificate Validation
 class TetherTlsTransport(
+    private val context: Context,
     private val securityEngine: ProductionSecurityEngine,
 ) : TetherTransport {
 
@@ -66,7 +71,9 @@ class TetherTlsTransport(
         sslSock.useClientMode = true
 
         val sslParams = sslSock.sslParameters
-        sslParams.endpointIdentificationAlgorithm = ""
+        // SECURITY FIX: CWE-295 Enforce hostname verification.
+        // Note: Public key pinning is also enforced in createSslContext() once paired.
+        sslParams.endpointIdentificationAlgorithm = "HTTPS"
         sslSock.sslParameters = sslParams
 
         sslSock.enabledProtocols = arrayOf("TLSv1.3")
@@ -93,17 +100,43 @@ class TetherTlsTransport(
         this.connected = true
     }
 
-    @SuppressLint("CustomX509TrustManager", "TrustAllX509TrustManager")
+    @SuppressLint("CustomX509TrustManager")
     private fun createSslContext(): SSLContext {
-        val trustAllCerts = arrayOf<TrustManager>(
-            object : X509TrustManager {
-                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+        val pinningTrustManager = object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                if (chain.isNullOrEmpty()) {
+                    throw CertificateException("Empty server certificate chain")
+                }
+                val leaf = chain[0]
+
+                // Always validate certificate validity dates.
+                leaf.checkValidity()
+
+                val pinnedBytes = securityEngine.getPinnedKeyDecrypted(context)
+                if (pinnedBytes == null || pinnedBytes.isEmpty()) {
+                    // First-time pairing: allow the connection so the custom handshake can
+                    // pin the key AFTER the user confirms the PIN. The custom handshake
+                    // is the only line of defense here; log loudly.
+                    Log.w(TAG, "No pinned Windows key yet. Allowing certificate for pairing handshake.")
+                    return
+                }
+
+                val presented = leaf.publicKey.encoded
+                if (!MessageDigest.isEqual(pinnedBytes, presented)) {
+                    throw CertificateException(
+                        "Windows certificate public key does not match pinned identity. " +
+                        "Presented FP=${securityEngine.computePublicKeyFingerprint(presented)}"
+                    )
+                }
             }
-        )
+
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+        }
+
         val sslContext = SSLContext.getInstance("TLSv1.3")
-        sslContext.init(null, trustAllCerts, SecureRandom())
+        sslContext.init(null, arrayOf<TrustManager>(pinningTrustManager), SecureRandom())
         return sslContext
     }
 
