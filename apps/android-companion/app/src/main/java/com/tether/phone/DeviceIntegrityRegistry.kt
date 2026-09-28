@@ -7,6 +7,8 @@ import android.os.Build
 import android.provider.Settings
 import java.io.File
 import java.security.MessageDigest
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
 
 class DeviceIntegrityRegistry(private val context: Context) {
     fun runAttestationPipeline(): IntegrityReport {
@@ -61,9 +63,29 @@ class DeviceIntegrityRegistry(private val context: Context) {
             "/system/app/Superuser.apk", "/sbin/su", "/system/bin/su", 
             "/system/xbin/su", "/data/local/xbin/su", "/data/local/bin/su", 
             "/system/sd/xbin/su", "/system/bin/failsafe/su", "/data/local/su",
+            "/system/bin/.ext/.su", "/system/usr/we-need-root/su-backup",
+            "/system/xbin/mu", "/system/bin/magisk", "/sbin/.magisk",
         )
         for (path in commonPaths) if (File(path).exists()) return true
+
+        try {
+            val process = Runtime.getRuntime().exec(arrayOf("which", "su"))
+            val reader = process.inputStream.bufferedReader()
+            if (reader.readLine() != null) return true
+        } catch (_: Exception) {}
+
+        if (Build.TYPE.contains("userdebug") || Build.TYPE.contains("eng")) return true
+
         return false
+    }
+
+    /**
+     * Optional Play Integrity verdict hook for production device attestation.
+     */
+    @Suppress("unused")
+    fun fetchPlayIntegrityVerdict(): Boolean {
+        // TODO: Integrate Google Play Integrity API for hardware-backed remote attestation
+        return true
     }
 
     private fun verifyAppSignatureIntegrity(): Boolean {
@@ -85,15 +107,22 @@ class DeviceIntegrityRegistry(private val context: Context) {
 
             if (signatures.isNullOrEmpty()) return false
 
-            val targetCertificatePin = "D8:5F:A3:4E:91:C1:28:9B:F3:A1:02:4F:99:A8:12:44:A2:3F:89:B1:02:44:5F:99:A8:B1:22:4E:A3:F4:99:12"
+            // SHA-256 fingerprint of the app signing public key
+            val targetCertificatePin = "8C:D7:6D:6B:66:43:53:1F:11:37:90:FD:CD:34:73:95:AD:88:DE:A6:6E:B7:0C:4E:C8:33:F0:02:2E:3D:33:1B"
+
+            val certBytes = signatures[0].toByteArray()
+            val certObj = CertificateFactory
+                .getInstance("X.509")
+                .generateCertificate(certBytes.inputStream()) as X509Certificate
+            val publicKeyBytes = certObj.publicKey.encoded
 
             val digestEngine = MessageDigest.getInstance("SHA-256")
-            val certBytes = signatures[0].toByteArray()
-            val computedHash = digestEngine.digest(certBytes).joinToString(":") { 
+            val computedHash = digestEngine.digest(publicKeyBytes).joinToString(":") { 
                 String.format("%02X", it) 
             }
 
-            (computedHash == targetCertificatePin) || Build.FINGERPRINT.startsWith("generic") || BuildConfig.DEBUG
+            // SECURITY FIX: Enforce public key pin without debug/emulator bypasses
+            computedHash == targetCertificatePin
         } catch (_: Exception) { 
             false 
         }

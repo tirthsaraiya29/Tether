@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -47,6 +48,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.time.Duration
@@ -240,6 +242,9 @@ class MainActivity : FragmentActivity() {
         }
 
         setContent {
+            LaunchedEffect(isPrivacyMaskEnabled.value, isBlockScreenReadingEnabled.value, isHideInRecentsEnabled.value) {
+                applyWindowSecurityFlags()
+            }
             TetherTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -444,7 +449,18 @@ class MainActivity : FragmentActivity() {
 
     private fun applyWindowSecurityFlags() {
         runOnUiThread {
-            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            if (isPrivacyMaskEnabled.value || isBlockScreenReadingEnabled.value) {
+                window.setFlags(
+                    WindowManager.LayoutParams.FLAG_SECURE,
+                    WindowManager.LayoutParams.FLAG_SECURE,
+                )
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+
+            if (isHideInRecentsEnabled.value && Build.VERSION.SDK_INT >= 33) {
+                setRecentsScreenshotEnabled(false)
+            }
         }
     }
 
@@ -480,12 +496,12 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        applyWindowSecurityFlags()
     }
 
     override fun onStop() {
         super.onStop()
-        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        applyWindowSecurityFlags()
         if (isBiometricSettingEnabled.value) {
             getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
                 putLong(appLockBackgroundTimestampKey, System.currentTimeMillis())
@@ -572,12 +588,32 @@ class MainActivity : FragmentActivity() {
         isConnected.value = false
     }
 
+    @Suppress("DEPRECATION")
+    private fun getWifiIpAddress(): String? {
+        return try {
+            val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+            val ipInt = wifiManager.connectionInfo.ipAddress
+            if (ipInt == 0) return null
+            String.format(
+                Locale.US,
+                "%d.%d.%d.%d",
+                ipInt and 0xFF,
+                (ipInt shr 8) and 0xFF,
+                (ipInt shr 16) and 0xFF,
+                (ipInt shr 24) and 0xFF,
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun showPairingQRCode() {
         try {
             val publicKeyBytes = ProductionSecurityEngine().getPublicKeyBytes()
             val base64Key = Base64.encodeToString(publicKeyBytes, Base64.NO_WRAP)
+            val wifiIp = getWifiIpAddress() ?: "0.0.0.0"
 
-            val qrContent = "TETHER:KEY:$base64Key"
+            val qrContent = "TETHER:JOIN:$wifiIp|37123|$base64Key"
             val qrBitmap = QRCodeGenerator.generateQRCode(qrContent)
 
             runOnUiThread {
@@ -702,6 +738,18 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleScannedQr(raw: String) {
+        if (raw.startsWith("TETHER:KEY:")) {
+            val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
+            val savedIp = prefs.getString("saved_host_ip", null)
+            if (!savedIp.isNullOrBlank()) {
+                val intent = Intent(this, TetherLanService::class.java).apply {
+                    action = TetherLanService.ACTION_CONNECT_DIRECT
+                    putExtra("target_ip", savedIp)
+                }
+                startForegroundService(intent)
+            }
+            return
+        }
         if (!raw.startsWith("TETHER:JOIN:")) return
         val body = raw.removePrefix("TETHER:JOIN:")
         val parts = body.split("|")
