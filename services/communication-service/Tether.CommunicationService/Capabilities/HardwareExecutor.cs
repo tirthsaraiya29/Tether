@@ -51,7 +51,7 @@ public static class HardwareExecutor
     public static bool ExecuteCommand(string command, ITetherLogger logger)
     {
         string cmd = command.Trim().ToLowerInvariant();
-        logger.Info($"HardwareExecutor: Processing command '{cmd}'...");
+        logger.Info($"HardwareExecutor: Executing hardware command '{cmd}'...");
 
         try
         {
@@ -84,49 +84,93 @@ public static class HardwareExecutor
 
                 case "vol_up":
                 case "volume_up":
-                    SendKeyPress(VK_VOLUME_UP);
-                    SendKeyPress(VK_VOLUME_UP);
+                    SendKeyPress(VK_VOLUME_UP, 4);
                     return true;
 
                 case "vol_down":
                 case "volume_down":
-                    SendKeyPress(VK_VOLUME_DOWN);
-                    SendKeyPress(VK_VOLUME_DOWN);
+                    SendKeyPress(VK_VOLUME_DOWN, 4);
                     return true;
 
                 case "volume_mute":
                 case "mute":
-                    SendKeyPress(VK_VOLUME_MUTE);
+                    SendKeyPress(VK_VOLUME_MUTE, 1);
                     return true;
 
                 case "media_play_pause":
                 case "play_pause":
-                    SendKeyPress(VK_MEDIA_PLAY_PAUSE);
+                    SendKeyPress(VK_MEDIA_PLAY_PAUSE, 1);
                     return true;
 
                 case "media_next":
                 case "next":
-                    SendKeyPress(VK_MEDIA_NEXT_TRACK);
+                    SendKeyPress(VK_MEDIA_NEXT_TRACK, 1);
                     return true;
 
                 case "media_prev":
                 case "prev":
-                    SendKeyPress(VK_MEDIA_PREV_TRACK);
+                    SendKeyPress(VK_MEDIA_PREV_TRACK, 1);
                     return true;
 
                 case "bright_up":
                 case "brightness_up":
-                    AdjustBrightness(5);
+                    AdjustBrightness(10);
                     return true;
 
                 case "bright_down":
                 case "brightness_down":
-                    AdjustBrightness(-5);
+                    AdjustBrightness(-10);
+                    return true;
+
+                case "launch_browser":
+                case "browser":
+                    Process.Start(new ProcessStartInfo("https://www.google.com") { UseShellExecute = true });
+                    return true;
+
+                case "launch_task_manager":
+                case "taskmgr":
+                    Process.Start(new ProcessStartInfo("taskmgr.exe") { UseShellExecute = true });
+                    return true;
+
+                case "launch_explorer":
+                case "explorer":
+                    Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true });
+                    return true;
+
+                case "launch_settings":
+                case "settings":
+                    Process.Start(new ProcessStartInfo("ms-settings:") { UseShellExecute = true });
+                    return true;
+
+                case "powershell":
+                case "powershell7":
+                    Process.Start(new ProcessStartInfo("powershell.exe") { UseShellExecute = true });
+                    return true;
+
+                case "cmd":
+                    Process.Start(new ProcessStartInfo("cmd.exe") { UseShellExecute = true });
+                    return true;
+
+                case "calc":
+                    Process.Start(new ProcessStartInfo("calc.exe") { UseShellExecute = true });
+                    return true;
+
+                case "notepad":
+                    Process.Start(new ProcessStartInfo("notepad.exe") { UseShellExecute = true });
                     return true;
 
                 default:
-                    logger.Warning($"HardwareExecutor: Unrecognized hardware command '{cmd}'.");
-                    return false;
+                    logger.Warning($"HardwareExecutor: Unrecognized command '{cmd}'. Trying shell execution...");
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(cmd) { UseShellExecute = true });
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warning($"HardwareExecutor: Shell launch failed for '{cmd}': {ex.Message}");
+                        return false;
+                    }
             }
         }
         catch (Exception ex)
@@ -136,10 +180,13 @@ public static class HardwareExecutor
         }
     }
 
-    private static void SendKeyPress(byte vkCode)
+    private static void SendKeyPress(byte vkCode, int times)
     {
-        keybd_event(vkCode, 0, 0, UIntPtr.Zero);
-        keybd_event(vkCode, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        for (int i = 0; i < times; i++)
+        {
+            keybd_event(vkCode, 0, 0, UIntPtr.Zero);
+            keybd_event(vkCode, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        }
     }
 
     private static void AdjustBrightness(int delta)

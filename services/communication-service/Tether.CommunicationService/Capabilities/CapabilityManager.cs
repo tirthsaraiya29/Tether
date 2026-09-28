@@ -17,15 +17,25 @@ public sealed class CapabilityManager
 
     public static string? MapCommandToCapability(string command) => command switch
     {
-        "shutdown" or "reboot" or "sleep" or "halt" => "POWER_ELEVATED",
+        "shutdown" or "reboot" or "sleep" or "halt"
+            or "pwr_shutdown" or "pwr_reboot" or "pwr_sleep" => "POWER_ELEVATED",
+
         "lock_now" or "panic" or "unlock" or "auth_ok"
             or "reset_pending" or "screen_unlock" => "MEDIA",
-        "volume_up" or "volume_down"
-            or "brightness_up" or "brightness_down" => "MEDIA",
-        "PING" or "PONG" => "MEDIA",
-        "cmd" or "powershell" or "powershell7"
+
+        "volume_up" or "volume_down" or "vol_up" or "vol_down"
+            or "volume_mute" or "mute" or "brightness_up" or "brightness_down"
+            or "bright_up" or "bright_down" or "media_play_pause" or "play_pause"
+            or "media_next" or "next" or "media_prev" or "prev" => "MEDIA",
+
+        "launch_browser" or "launch_task_manager" or "launch_explorer" or "launch_settings"
+            or "browser" or "taskmgr" or "explorer" or "settings"
+            or "calc" or "notepad" or "cmd" or "powershell" or "powershell7"
             or "wsl" or "bash" => "TERMINAL",
-        _ => null
+
+        "PING" or "PONG" => "MEDIA",
+
+        _ => "MEDIA"
     };
 
     public bool CanDeviceExecuteCommand(TetherDevice device, string command)
