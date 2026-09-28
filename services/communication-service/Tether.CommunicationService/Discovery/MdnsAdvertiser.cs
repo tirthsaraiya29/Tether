@@ -1,17 +1,12 @@
-﻿// services/communication-service/Tether.CommunicationService/Discovery/MdnsAdvertiser.cs
-using System;
+﻿using System;
 using Makaretu.Dns;
 using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService.Discovery;
 
-/// <summary>
-/// Advertises this Windows endpoint on _tether._tcp.local.
-/// TXT records: v, id, name, caps, pqc. All values are non-secret.
-/// </summary>
 public sealed class MdnsAdvertiser : IDisposable
 {
-    public const string ServiceBaseName = "tether";       // → _tether._tcp.local
+    public const string ServiceBaseName = "tether";
     public const string InstanceName = "TetherWindows";
 
     private readonly ITetherLogger _logger;
@@ -51,12 +46,12 @@ public sealed class MdnsAdvertiser : IDisposable
             {
                 if (_profile != null)
                 {
-                    try { _discovery.Unadvertise(_profile); } catch { /* best effort */ }
+                    try { _discovery.Unadvertise(_profile); } catch { }
                 }
                 _discovery.Dispose();
             }
         }
-        catch { /* best effort */ }
+        catch { }
         finally
         {
             _discovery = null;

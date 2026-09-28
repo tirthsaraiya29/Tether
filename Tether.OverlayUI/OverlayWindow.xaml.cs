@@ -86,7 +86,6 @@ namespace Tether.OverlayUI
             }
             catch
             {
-                // Fallback catch boundary
             }
         }
 
@@ -109,19 +108,11 @@ namespace Tether.OverlayUI
 
                             if (tetherEvent == null) continue;
 
-                            // ── TOFU PAIRING ─────────────────────────────────
-                            // First-time pairing request from an unprovisioned phone.
-                            // The service has already broadcast PAIRING_REQUESTED over
-                            // IEventBus and is now blocked awaiting our decision on
-                            // IpcConstants.PipeName ("TetherPipe"). Do NOT break the
-                            // listener loop here — the overlay may still need to react
-                            // to OVERLAY_DISABLED later.
                             if (tetherEvent.EventType == "PAIRING_REQUESTED")
                             {
                                 _ = HandlePairingRequestAsync(tetherEvent.PayloadJson);
                                 continue;
                             }
-                            // ─────────────────────────────────────────────────
 
                             if (tetherEvent.EventType == "OVERLAY_DISABLED" ||
                                 tetherEvent.EventType == "TRUST_RESTORED")
@@ -147,14 +138,6 @@ namespace Tether.OverlayUI
             }
         }
 
-        // ── TOFU PAIRING ─────────────────────────────────────────────────
-        /// <summary>
-        /// Displays the "New device wants to pair" dialog and, on user selection,
-        /// sends a PAIRING_DECISION event over IpcConstants.PipeName ("TetherPipe")
-        /// back to LanTransportServer. The service independently re-verifies the
-        /// RequestId + phone key against its own pending-request state, so this
-        /// process cannot self-authorize a pairing.
-        /// </summary>
         private async Task HandlePairingRequestAsync(string payloadJson)
         {
             try
@@ -175,7 +158,6 @@ namespace Tether.OverlayUI
                 if (payload == null || string.IsNullOrEmpty(payload.RequestId))
                     return;
 
-                // Marshal onto the UI thread and show the confirmation dialog.
                 bool allowed = await Dispatcher.InvokeAsync(() =>
                 {
                     var result = MessageBox.Show(
@@ -211,9 +193,6 @@ namespace Tether.OverlayUI
         {
             try
             {
-                // Build the outer TetherEvent envelope manually (the shared TetherEvent
-                // type is serialized with an enum-as-string converter on the service side;
-                // match it exactly by using the same strongly-typed class).
                 var decisionPayload = new PairingDecisionPayloadMinimal
                 {
                     RequestId = requestId,
@@ -251,9 +230,6 @@ namespace Tether.OverlayUI
             }
         }
 
-        // Local mirrors of the shared DTOs so this file has no compile-time dependency
-        // on Tether.Shared.DTO. Field names MUST match PairingRequestPayload /
-        // PairingDecisionPayload exactly for JsonSerializer round-tripping.
         private class PairingRequestPayloadMinimal
         {
             public string RequestId { get; set; } = string.Empty;
@@ -269,7 +245,6 @@ namespace Tether.OverlayUI
             public string Fingerprint { get; set; } = string.Empty;
             public bool Allowed { get; set; }
         }
-        // ─────────────────────────────────────────────────────────────────
 
         private void Window_Deactivated(object sender, EventArgs e)
         {
@@ -325,7 +300,6 @@ namespace Tether.OverlayUI
         {
             try
             {
-                // FIX: Use the strongly-typed TetherEvent class so the enum serializes perfectly for the service parser
                 var releaseEvent = new Tether.Shared.Events.TetherEvent
                 {
                     EventType = Tether.Shared.Events.TetherEventType.PHONE_UNLOCKED,
@@ -335,7 +309,6 @@ namespace Tether.OverlayUI
                 var json = JsonSerializer.Serialize(releaseEvent);
                 var bytes = Encoding.UTF8.GetBytes(json);
 
-                // FIX: Align the outbound target back to the shared PipeName definition
                 using var client = new NamedPipeClientStream(".", Tether.Shared.IPC.IpcConstants.PipeName, PipeDirection.Out);
                 await client.ConnectAsync(300);
                 await client.WriteAsync(bytes, 0, bytes.Length);
@@ -368,8 +341,6 @@ namespace Tether.OverlayUI
         {
             public string EventType { get; set; } = string.Empty;
             public string Source { get; set; } = string.Empty;
-            // ── TOFU PAIRING ──
-            // Populated by LanTransportServer when it broadcasts PAIRING_REQUESTED.
             public string PayloadJson { get; set; } = string.Empty;
         }
     }

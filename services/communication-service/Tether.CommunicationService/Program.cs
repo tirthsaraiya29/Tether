@@ -4,6 +4,7 @@ using Tether.CommunicationService;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.Discovery;
+using Tether.CommunicationService.Ipc;
 using Tether.CommunicationService.Pairing;
 using Tether.CommunicationService.Protocol;
 using Tether.CommunicationService.Security;
@@ -25,7 +26,6 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IEventBus>(sp =>
             new InMemoryEventBus(sp.GetRequiredService<ITetherLogger>()));
 
-        // --- Windows connection stack ---
         services.AddSingleton<WindowsIdentity>();
         services.AddSingleton<TrustStore>();
         services.AddSingleton<DeviceManager>();
@@ -37,14 +37,13 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<UdpDiscovery>();
         services.AddSingleton<TetherTcpServer>();
 
-        // --- Engines ---
         services.AddSingleton<TrustStateManager>();
         services.AddSingleton<EnforcementManager>();
         services.AddSingleton<PanicManager>();
         services.AddSingleton<RecoveryManager>();
 
-        // --- IPC + worker ---
         services.AddSingleton<PipeServer>();
+        services.AddSingleton<IpcEventRelay>();
         services.AddHostedService<Worker>();
     })
     .Build();

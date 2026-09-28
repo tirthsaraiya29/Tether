@@ -127,9 +127,6 @@ namespace Tether.DesktopUI
             InitializeHardwarePolling();
         }
 
-        // ==========================================
-        // FLUID ENTRANCE & INTERACTION HANDLERS
-        // ==========================================
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             var entranceStoryboard = new Storyboard();
@@ -204,9 +201,6 @@ namespace Tether.DesktopUI
             return new SolidColorBrush(fallbackColor);
         }
 
-        // ==========================================
-        // SECURITY BACKEND PIPELINE
-        // ==========================================
         private void CheckProvisioningStatus()
         {
             try
@@ -296,6 +290,27 @@ namespace Tether.DesktopUI
                     TxtStatus.Text = "NODE DISCONNECTED";
                     IndicatorNode.Fill = GetFluentStatusBrush("StatusCriticalBrush", Color.FromRgb(255, 153, 164));
                     LogTerminal("⚠ LINK // Target node dropped carrier radio links unexpectedly.");
+                    break;
+
+                case TetherEventType.PAIRING_REQUESTED:
+                    if (!string.IsNullOrEmpty(evt.PayloadJson))
+                    {
+                        try
+                        {
+                            using var document = JsonDocument.Parse(evt.PayloadJson);
+                            var root = document.RootElement;
+                            string pin = root.TryGetProperty("pin", out var p) ? p.GetString() ?? "" : "";
+                            string devName = root.TryGetProperty("displayName", out var d) ? d.GetString() ?? "Phone" : "Phone";
+                            LogTerminal($"⚠ PAIRING REQUEST // PIN: {pin} for device '{devName}'");
+                            MessageBox.Show(
+                                this,
+                                $"Pairing Request from {devName}\n\nEnter this 6-digit PIN on your phone:\n\n      {pin}      \n",
+                                "Tether — Device Pairing",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Information);
+                        }
+                        catch { }
+                    }
                     break;
 
                 case TetherEventType.TRUST_DEGRADED:
@@ -513,6 +528,28 @@ namespace Tether.DesktopUI
             LogTerminal("⚠ PIPE // Could not reach Tether service – is it running?");
         }
 
+        private void BtnUnlockOverride_Click(object sender, RoutedEventArgs e)
+        {
+            var evt = new TetherEvent
+            {
+                EventType = TetherEventType.PHONE_UNLOCKED,
+                Source = "DesktopUI"
+            };
+            DispatchServiceBusPipe(evt);
+            LogTerminal("✓ OVERRIDE // Interlock override event dispatched.");
+        }
+
+        private void BtnLockdownOverride_Click(object sender, RoutedEventArgs e)
+        {
+            var evt = new TetherEvent
+            {
+                EventType = TetherEventType.PANIC_TRIGGERED,
+                Source = "DesktopUI"
+            };
+            DispatchServiceBusPipe(evt);
+            LogTerminal("⚠ OVERRIDE // System lockdown event dispatched.");
+        }
+
         private void BtnProvision_Click(object sender, RoutedEventArgs e)
         {
             string key = TxtPublicKey.Text.Trim();
@@ -598,7 +635,5 @@ namespace Tether.DesktopUI
         }
 
         private void ResolveUserContext() => TxtUserType.Text = $"{Environment.UserDomainName}\\{Environment.UserName}";
-        private void BtnUnlockOverride_Click(object sender, RoutedEventArgs e) => DispatchServiceBusPipe(new TetherEvent { EventType = TetherEventType.PHONE_UNLOCKED, Source = "DesktopUI" });
-        private void BtnLockdownOverride_Click(object sender, RoutedEventArgs e) => DispatchServiceBusPipe(new TetherEvent { EventType = TetherEventType.PANIC_TRIGGERED, Source = "DesktopUI" });
     }
 }

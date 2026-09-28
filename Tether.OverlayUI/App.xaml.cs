@@ -23,8 +23,6 @@ namespace Tether.OverlayUI
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
-
-            // Fire up background server thread to track communication metrics asynchronously
             StartServiceListener();
         }
 
@@ -35,7 +33,6 @@ namespace Tether.OverlayUI
                 NamedPipeServerStream? server = null;
                 try
                 {
-                    // Explicitly allow Local SYSTEM account to communicate via this pipe
                     var pipeSecurity = new PipeSecurity();
                     pipeSecurity.AddAccessRule(new PipeAccessRule(
                         new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
@@ -91,7 +88,6 @@ namespace Tether.OverlayUI
 
         private void HandleIncomingEvent(TetherEvent evt)
         {
-            // Automatically capture window instance on initialization path
             if (_activeOverlay == null)
             {
                 _activeOverlay = MainWindow as OverlayWindow;
@@ -126,7 +122,7 @@ namespace Tether.OverlayUI
                     break;
 
                 case TetherEventType.OVERLAY_DISABLED:
-                    _activeOverlay.UpdateBlurFromRssi(-60); // Clear blur 
+                    _activeOverlay.UpdateBlurFromRssi(-60);
 
                     _activeOverlay.Closing -= _activeOverlay.OnWindowClosing;
                     _activeOverlay.Close();

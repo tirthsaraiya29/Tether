@@ -14,10 +14,6 @@ using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService.Transport;
 
-/// <summary>
-/// TCP 37123 listener for Tether LAN traffic over TLS 1.3.
-/// Configures OS-level TCP KeepAlive parameters and hands off streams to TetherSession.
-/// </summary>
 public sealed class TetherTcpServer : IDisposable
 {
     public const int ListenPort = 37123;
@@ -56,7 +52,7 @@ public sealed class TetherTcpServer : IDisposable
     {
         _cts = new CancellationTokenSource();
         _acceptLoop = Task.Run(() => AcceptLoopAsync(_cts.Token));
-        _logger.Info($"TCP listener starting on 0.0.0.0:{ListenPort} (TLS 1.3).");
+        _logger.Info($"TCP listener starting on DualMode [::]:{ListenPort} (TLS 1.3).");
     }
 
     public void Stop()
@@ -75,7 +71,8 @@ public sealed class TetherTcpServer : IDisposable
     {
         try
         {
-            _listener = new TcpListener(IPAddress.Any, ListenPort);
+            _listener = new TcpListener(IPAddress.IPv6Any, ListenPort);
+            _listener.Server.DualMode = true;
             _listener.Start(backlog: 8);
         }
         catch (Exception ex)
@@ -97,7 +94,6 @@ public sealed class TetherTcpServer : IDisposable
                 continue;
             }
 
-            // Configure socket TCP KeepAlive & NoDelay
             ConfigureSocketOptions(client.Client);
 
             _ = RunSessionAsync(client, ct);
@@ -136,7 +132,6 @@ public sealed class TetherTcpServer : IDisposable
             socket.NoDelay = true;
             socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
 
-            // Configure TCP KeepAlive timing parameters (15s idle, 5s interval, 3 retries)
             socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 15);
             socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 5);
             socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, 3);
