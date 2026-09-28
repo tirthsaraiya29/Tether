@@ -405,7 +405,7 @@ class TetherDiscoveryManager(
             setAttribute("id", phoneId)
             setAttribute("name", deviceName)
             setAttribute("caps", "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
-            setAttribute("pqc", "true")
+            setAttribute("pqc", "false")
         }
 
         val listener = object : NsdManager.RegistrationListener {

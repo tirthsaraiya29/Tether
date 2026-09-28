@@ -88,9 +88,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         private const val HEALTH_CHECK_INTERVAL_MS = 60000L
         private const val WAKE_LOCK_TAG = "tether:LanWakeLock"
 
+        // SECURITY FIX: CWE-117 Defensive log sanitizer stripping control chars
         fun sanitizeLog(input: String?): String {
             if (input == null) return "null"
-            return input.replace("\r", "\\r").replace("\n", "\\n").take(256)
+            return input
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .replace("\t", "\\t")
+                .filter { it.code in 0x20..0x7E || it.code > 0x7F }
+                .take(256)
         }
     }
 
@@ -229,6 +235,21 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         registerReceiver(powerSaveReceiver, IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED))
         scheduleAlarmForHealthCheck()
+        startRequestIdCleanup()
+    }
+
+    // SECURITY FIX: CWE-400 Bounded processedRequestIds with periodic cleanup
+    private fun startRequestIdCleanup() {
+        serviceScope.launch {
+            while (isActive) {
+                delay(60_000L)
+                val cutoff = System.currentTimeMillis() - 5 * 60_000L
+                val iterator = processedRequestIds.entries.iterator()
+                while (iterator.hasNext()) {
+                    if (iterator.next().value < cutoff) iterator.remove()
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -245,7 +266,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
 
         val action = intent?.action
-        Log.d(TAG, "onStartCommand action: $action")
+        Log.d(TAG, "onStartCommand action: ${sanitizeLog(action)}")
 
         when (action) {
             ALARM_ACTION -> {
@@ -270,7 +291,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val targetIp = intent.getStringExtra("target_ip")
                 val targetPort = intent.getIntExtra("target_port", TetherDiscoveryManager.DEFAULT_PORT)
                 if (!targetIp.isNullOrBlank()) {
-                    Log.i(TAG, "Direct target connection requested: $targetIp:$targetPort")
+                    Log.i(TAG, "Direct target connection requested: ${sanitizeLog(targetIp)}:$targetPort")
                     getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
                         putString("saved_host_ip", targetIp)
                     }
@@ -347,13 +368,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val savedHostIp = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
             .getString("saved_host_ip", null)
         if (!savedHostIp.isNullOrBlank()) {
-            Log.i(TAG, "Attempting connection to saved target host IP: $savedHostIp")
+            Log.i(TAG, "Attempting connection to saved target host IP: ${sanitizeLog(savedHostIp)}")
             connectToHost(savedHostIp)
         }
     }
 
     override fun onDeviceDiscovered(device: DiscoveredDevice) {
-        Log.i(TAG, "mDNS Discovered Tether device: ${device.name} at ${device.hostAddress}:${device.port}")
+        val safeName = sanitizeLog(device.name)
+        val safeAddr = sanitizeLog(device.hostAddress)
+        Log.i(TAG, "mDNS Discovered Tether device: $safeName at $safeAddr:${device.port}")
         if ((currentState == TransportState.DISCOVERING) || (currentState == TransportState.DISCONNECTED)) {
             currentState = TransportState.HOST_FOUND
             connectToHost(device.hostAddress, device.port)
@@ -361,15 +384,16 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     override fun onDeviceLost(deviceId: String) {
-        Log.i(TAG, "mDNS Device lost: $deviceId")
+        val safeDevId = sanitizeLog(deviceId)
+        Log.i(TAG, "mDNS Device lost: $safeDevId")
     }
 
     override fun onDiscoveryError(errorCode: Int, message: String) {
-        Log.e(TAG, "mDNS Discovery error: $errorCode - $message")
+        Log.e(TAG, "mDNS Discovery error: $errorCode - ${sanitizeLog(message)}")
         val savedHostIp = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
             .getString("saved_host_ip", null)
         if (!savedHostIp.isNullOrBlank() && ((currentState == TransportState.DISCOVERING) || (currentState == TransportState.DISCONNECTED))) {
-            Log.i(TAG, "mDNS discovery error; attempting direct connection to saved host IP: $savedHostIp")
+            Log.i(TAG, "mDNS discovery error; attempting direct connection to saved host IP: ${sanitizeLog(savedHostIp)}")
             connectToHost(savedHostIp)
         }
     }
@@ -382,7 +406,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         connectedHostPort = port
 
         serviceScope.launch {
-            val transport = TetherTlsTransport(securityEngine)
+            val transport = TetherTlsTransport(this@TetherLanService, securityEngine)
             try {
                 currentState = TransportState.TLS_HANDSHAKE
                 transport.connect(hostAddress, port)
@@ -397,11 +421,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
                 when (result) {
                     is PairingResult.Authenticated -> {
-                        Log.i(TAG, "Successfully authenticated with Windows host ${result.peerDeviceId}!")
+                        Log.i(TAG, "Successfully authenticated with Windows host ${sanitizeLog(result.peerDeviceId)}!")
                         resetReconnectBackoff()
                         trustState = TrustState.PAIRED
                         currentState = TransportState.AUTHENTICATED
-                        capabilityManager.negotiateCapabilities("CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
+                        // SECURITY FIX: Negotiate capabilities based on peer advertisement
+                        capabilityManager.negotiateCapabilities(result.peerCapabilities.ifBlank { "" })
 
                         mainHandler.postDelayed(
                             {
@@ -431,7 +456,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         startActivity(promptIntent)
                     }
                     is PairingResult.PairingDenied -> {
-                        Log.w(TAG, "Pairing denied by Windows host: ${result.reason}")
+                        Log.w(TAG, "Pairing denied by Windows host: ${sanitizeLog(result.reason)}")
                         trustState = TrustState.PAIRING_DENIED
                         disconnectActiveSession("Pairing denied")
                     }
@@ -441,14 +466,14 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         disconnectActiveSession("Key mismatch")
                     }
                     is PairingResult.Error -> {
-                        Log.e(TAG, "Pairing/Handshake error: ${result.message}")
+                        Log.e(TAG, "Pairing/Handshake error: ${sanitizeLog(result.message)}")
                         currentState = TransportState.FAILED
                         disconnectActiveSession(result.message)
                         scheduleReconnectWithBackoff("Handshake error: ${result.message}")
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Connection failed to $hostAddress:$port: ${e.message}", e)
+                Log.e(TAG, "Connection failed to ${sanitizeLog(hostAddress)}:$port: ${e.message}", e)
                 currentState = TransportState.FAILED
                 disconnectActiveSession("Connection error: ${e.message}")
                 scheduleReconnectWithBackoff("Connection exception: ${e.message}")
@@ -487,7 +512,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     resetReconnectBackoff()
                     trustState = TrustState.PAIRED
                     currentState = TransportState.AUTHENTICATED
-                    capabilityManager.negotiateCapabilities("CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
+                    // SECURITY FIX: Negotiate capabilities based on peer advertisement
+                    capabilityManager.negotiateCapabilities(result.peerCapabilities.ifBlank { "" })
 
                     mainHandler.postDelayed(
                         {
@@ -499,7 +525,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     listenSocketLoop(transport)
                 }
                 is PairingResult.Error -> {
-                    Log.e(TAG, "Failed finalizing pairing: ${result.message}")
+                    Log.e(TAG, "Failed finalizing pairing: ${sanitizeLog(result.message)}")
                     disconnectActiveSession("Finalize pairing error: ${result.message}")
                     scheduleReconnectWithBackoff("Finalize pairing error")
                 }
@@ -546,6 +572,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun processIncomingFrame(json: JSONObject, transport: TetherTransport) {
+        // SECURITY FIX: CWE-400 Bounded processedRequestIds map
+        if (processedRequestIds.size > 10_000) {
+            Log.w(TAG, "processedRequestIds exceeded cap; clearing oldest half")
+            val sorted = processedRequestIds.entries.sortedBy { it.value }
+            sorted.take(sorted.size / 2).forEach { processedRequestIds.remove(it.key) }
+        }
+
         val requestId = json.optString("requestId", "")
         if (requestId.isNotEmpty() && processedRequestIds.containsKey(requestId)) {
             Log.w(TAG, "Duplicate frame ignored: $requestId")
@@ -614,7 +647,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
 
                 if (!capabilityManager.canExecuteCommand(actionCommand)) {
-                    Log.w(TAG, "Capability check failed for command: $actionCommand")
+                    Log.w(TAG, "Capability check failed for command: ${sanitizeLog(actionCommand)}")
                     return@launch
                 }
 
@@ -629,20 +662,22 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val transport = activeTransport
                 if ((transport != null) && transport.isConnected()) {
                     transport.sendFrame(cmdJson.toString().toByteArray(StandardCharsets.UTF_8))
-                    Log.i(TAG, "Dispatched command frame over TLS 1.3: $actionCommand (reqId=$reqId)")
+                    // SECURITY FIX: CWE-117 Sanitize actionCommand in logs
+                    Log.i(TAG, "Dispatched command frame over TLS 1.3: ${sanitizeLog(actionCommand)} (reqId=$reqId)")
                 } else {
                     Log.w(TAG, "Active transport disconnected. Re-initiating discovery...")
                     startDiscovery()
                 }
 
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to dispatch command ($actionCommand): ${e.message}")
+                Log.e(TAG, "Failed to dispatch command (${sanitizeLog(actionCommand)}): ${e.message}")
             }
         }
     }
 
     fun disconnectActiveSession(reason: String) {
-        Log.w(TAG, "Disconnecting active session: $reason")
+        val safeReason = sanitizeLog(reason)
+        Log.w(TAG, "Disconnecting active session: $safeReason")
         try { activeTransport?.disconnect(reason) } catch (_: Exception) {}
         activeTransport = null
         currentState = TransportState.DISCONNECTED
@@ -664,7 +699,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             val expDelay = baseDelayMs * (1 shl (reconnectAttempt - 1).coerceAtMost(4))
             val jitter = (Math.random() * 1000).toLong()
             val delayMs = (expDelay + jitter).coerceAtMost(60000L)
-            Log.i(TAG, "Scheduling controlled reconnect attempt #$reconnectAttempt in ${delayMs}ms (reason: $reason)...")
+            Log.i(TAG, "Scheduling controlled reconnect attempt #$reconnectAttempt in ${delayMs}ms (reason: ${sanitizeLog(reason)})...")
             delay(delayMs.milliseconds)
             if (isActive && ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED))) {
                 startDiscovery()
@@ -702,7 +737,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             putExtra(EXTRA_TRUST_STATE, trustState.name)
             putExtra(EXTRA_PHONE_FINGERPRINT, phoneFp)
             putExtra(EXTRA_WINDOWS_FINGERPRINT, winFp)
-            putExtra("extra_host_address", connectedHostAddress ?: "")
+            putExtra("extra_host_address", sanitizeLog(connectedHostAddress))
             setPackage(packageName)
         }
         sendBroadcast(intent)

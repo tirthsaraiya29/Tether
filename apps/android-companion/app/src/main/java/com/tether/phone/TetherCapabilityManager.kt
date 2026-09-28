@@ -35,6 +35,11 @@ class TetherCapabilityManager {
     private var negotiatedCapabilities: Set<TetherCapability> = emptySet()
 
     fun negotiateCapabilities(peerCapsString: String): Set<TetherCapability> {
+        if (peerCapsString.isBlank()) {
+            Log.w(TAG, "Peer advertised no capabilities. Denying all.")
+            negotiatedCapabilities = emptySet()
+            return negotiatedCapabilities
+        }
         val peerCaps = peerCapsString.split(",")
             .asSequence()
             .mapNotNull { TetherCapability.fromScopeName(it.trim()) }
