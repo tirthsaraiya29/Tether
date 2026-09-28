@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Tether.CommunicationService.Discovery;
+using Tether.CommunicationService.Ipc;
 using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Transport;
 using Tether.EnforcementEngine;
@@ -39,7 +40,8 @@ public sealed class Worker : BackgroundService
         TrustStateManager trustStateManager,
         EnforcementManager enforcementManager,
         PanicManager panicManager,
-        RecoveryManager recoveryManager)
+        RecoveryManager recoveryManager,
+        IpcEventRelay ipcEventRelay)
     {
         _logger = logger;
         _tetherLogger = tetherLogger;
@@ -48,8 +50,7 @@ public sealed class Worker : BackgroundService
         _mdns = mdns;
         _udpDiscovery = udpDiscovery;
         _identity = identity;
-        // Engine singletons are resolved so they initialize; not otherwise referenced here.
-        _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager;
+        _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager; _ = ipcEventRelay;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -99,7 +100,7 @@ public sealed class Worker : BackgroundService
             using var p2 = Process.Start(psiUdp);
             p2?.WaitForExit(2000);
         }
-        catch { /* best effort */ }
+        catch { }
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)

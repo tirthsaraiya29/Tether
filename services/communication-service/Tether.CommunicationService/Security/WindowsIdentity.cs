@@ -1,5 +1,4 @@
-﻿// services/communication-service/Tether.CommunicationService/Security/WindowsIdentity.cs
-using System;
+﻿using System;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -7,13 +6,6 @@ using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService.Security;
 
-/// <summary>
-/// Persistent Windows-side Tether identity.
-/// Key type: ECDSA P-256 (nistP256), non-exportable private key in LocalMachine\My.
-/// Canonical public bytes: X.509 SubjectPublicKeyInfo DER ("SPKI DER").
-/// Fingerprint: SHA-256(SPKI DER), uppercase hex with ':' separators.
-/// This matches Android's PublicKey.getEncoded() + SHA-256 exactly.
-/// </summary>
 public sealed class WindowsIdentity : IDisposable
 {
     private const string SubjectDn = "CN=Tether Windows Identity";
@@ -37,7 +29,7 @@ public sealed class WindowsIdentity : IDisposable
 
     public X509Certificate2 Certificate => _certificate;
     public string Fingerprint => _fingerprint;
-    public string DeviceId => _fingerprint;         // canonical id == fingerprint
+    public string DeviceId => _fingerprint;
     public string DeviceName => Environment.MachineName;
     public byte[] GetPublicKeySpkiDer() => _spkiDer;
     public string GetPublicKeySpkiBase64() => Convert.ToBase64String(_spkiDer);
@@ -79,9 +71,8 @@ public sealed class WindowsIdentity : IDisposable
 
         using var ephemeral = req.CreateSelfSigned(notBefore, notAfter);
 
-        // Persist the private key to the machine keyset so it survives service restarts.
         var pfx = ephemeral.Export(X509ContentType.Pfx);
-#pragma warning disable SYSLIB0057 // X509Certificate2(byte[],string,flags) still valid on .NET 8
+#pragma warning disable SYSLIB0057
         var persisted = new X509Certificate2(
             pfx,
             (string?)null,

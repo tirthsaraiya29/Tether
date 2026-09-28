@@ -52,23 +52,10 @@ public class PipeServer : IDisposable
         _logger = logger;
     }
 
-    // ── TOFU PAIRING ─────────────────────────────────────────────────────
-    /// <summary>
-    /// Allow-list for events DesktopUI may publish over IPC.
-    ///
-    /// SECURITY: PHONE_UNLOCKED / AUTH_SUCCESS / TRUST_RESTORED are deliberately
-    /// excluded. Those state transitions must ONLY be emitted by LanTransportServer
-    /// after a successful AES-GCM authenticated session. DesktopUI is a *user
-    /// authorization* surface, not a cryptographic authority.
-    ///
-    /// PAIRING_DECISION is allowed because LanTransportServer re-verifies the
-    /// RequestId + phone key against its own pending-request state before honoring it.
-    /// </summary>
     public static bool IsAllowedIpcEvent(TetherEventType type) =>
         type == TetherEventType.PANIC_TRIGGERED ||
         type == TetherEventType.PAIRING_DECISION ||
         type == TetherEventType.FORGET_PHONE;
-    // ─────────────────────────────────────────────────────────────────────
 
     public void Start()
     {
@@ -133,9 +120,8 @@ public class PipeServer : IDisposable
         }
         catch
         {
-            // Fallback if process handle query fails
         }
-        return 0xFFFFFFFF; // Invalid/Unknown Session ID
+        return 0xFFFFFFFF;
     }
 
     private async Task HandleClientMessages(NamedPipeServerStream pipeStream)
@@ -146,23 +132,18 @@ public class PipeServer : IDisposable
         {
             try
             {
-                // 1. Read payload first before impersonating client token
                 var read = await pipeStream.ReadAsync(buffer, 0, buffer.Length);
                 if (read == 0) break;
 
-                // Capture service host identity
                 SecurityIdentifier? serviceOwnerSid = WindowsIdentity.GetCurrent().User;
 
-                // Retrieve pipe client session ID via Win32 process API
                 uint clientSessionId = GetClientSessionId(pipeStream);
 
-                // Intermediate context variables to extract from the client token
                 bool clientAuthorized = false;
                 string? clientSid = null;
                 bool isClientSystem = false;
                 uint tokenSessionId = 0xFFFFFFFF;
 
-                // 2. Perform light identification capture INSIDE the client context
                 try
                 {
                     pipeStream.RunAsClient(() =>
@@ -173,7 +154,6 @@ public class PipeServer : IDisposable
                             clientSid = clientIdentity.User.Value;
                             isClientSystem = clientIdentity.User.IsWellKnown(WellKnownSidType.LocalSystemSid);
 
-                            // Reading session info from the active thread token is permitted without SE_TCB_NAME
                             if (GetTokenInformation(clientIdentity.Token, 12, out uint sessionInfo, sizeof(uint), out _))
                             {
                                 tokenSessionId = sessionInfo;
@@ -187,14 +167,12 @@ public class PipeServer : IDisposable
                     break;
                 }
 
-                // If identity resolution failed, abort connection early
                 if (string.IsNullOrEmpty(clientSid))
                 {
                     _logger.Warning("Rejected connection: Client identity bounds could not be resolved.");
                     break;
                 }
 
-                // 3. Perform privilege-heavy token validation OUTSIDE of the impersonation context (Running as SYSTEM)
                 if (serviceOwnerSid != null && clientSid.Equals(serviceOwnerSid.Value, StringComparison.OrdinalIgnoreCase))
                 {
                     clientAuthorized = true;
@@ -235,15 +213,11 @@ public class PipeServer : IDisposable
                     break;
                 }
 
-                // 4. Process authorized JSON event payload
                 var json = Encoding.UTF8.GetString(buffer, 0, read);
                 var evt = JsonSerializer.Deserialize<TetherEvent>(json);
 
                 if (evt != null)
                 {
-                    // CRITICAL: Reject state spoofing events over IPC. Authentication and
-                    // unlock confirmations must strictly flow through the crypto-verified
-                    // LAN transport (LanTransportServer), never from the UI.
                     if (evt.EventType == TetherEventType.PHONE_UNLOCKED ||
                         evt.EventType == TetherEventType.AUTH_SUCCESS)
                     {
@@ -251,14 +225,11 @@ public class PipeServer : IDisposable
                         continue;
                     }
 
-                    // ── TOFU PAIRING ──────────────────────────────────────
-                    // Allow-list check replaces the previous two-event filter.
                     if (!IsAllowedIpcEvent(evt.EventType))
                     {
                         _logger.Warning($"Rejected disallowed event type: {evt.EventType}");
                         continue;
                     }
-                    // ──────────────────────────────────────────────────────
 
                     _logger.Debug($"IPC received event: {evt.EventType} from Desktop UI");
                     _eventBus.Publish(evt);

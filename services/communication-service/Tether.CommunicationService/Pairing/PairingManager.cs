@@ -28,11 +28,6 @@ public sealed class PendingPairing
     public int FailedAttempts { get; set; } = 0;
 }
 
-/// <summary>
-/// Manages 6-digit PIN SAS pairing authorization over TLS 1.3.
-/// Generates random PINs, displays them on DesktopUI over IPC,
-/// verifies SHA-512 proofs in constant-time, and rate-limits failed attempts.
-/// </summary>
 public sealed class PairingManager
 {
     private const int MaxFailedAttempts = 3;
@@ -61,11 +56,9 @@ public sealed class PairingManager
         byte[] winSpkiDer = _identity.GetPublicKeySpkiDer();
         string requestId = Guid.NewGuid().ToString("N");
 
-        // Generate cryptographically random 6-digit PIN (100000 - 999999)
         int pinNum = RandomNumberGenerator.GetInt32(100000, 1000000);
         string pin = pinNum.ToString("D6");
 
-        // Commitment = SHA-512(PIN || WinPubKey || PhonePubKey || RequestId)
         byte[] commitment = ComputeSha512(
             Encoding.UTF8.GetBytes(pin),
             winSpkiDer,
@@ -73,7 +66,6 @@ public sealed class PairingManager
             Encoding.UTF8.GetBytes(requestId));
         string commitmentBase64 = Convert.ToBase64String(commitment);
 
-        // Expected PhoneProof = SHA-512(PIN || PhonePubKey || WinPubKey || RequestId || TranscriptHash)
         byte[] expectedPhoneProof = ComputeSha512(
             Encoding.UTF8.GetBytes(pin),
             phoneSpkiDer,
@@ -81,7 +73,6 @@ public sealed class PairingManager
             Encoding.UTF8.GetBytes(requestId),
             transcriptHash);
 
-        // Expected WinProof = SHA-512("SERVER-OK" || PIN || WinPubKey || PhonePubKey || RequestId)
         byte[] expectedWinProof = ComputeSha512(
             Encoding.UTF8.GetBytes("SERVER-OK"),
             Encoding.UTF8.GetBytes(pin),
@@ -108,7 +99,6 @@ public sealed class PairingManager
 
         _logger.Info($"PairingManager: Generated pairing request {requestId} for phone '{displayName}' ({phoneFingerprint}). PIN displayed on DesktopUI.");
 
-        // Publish event to DesktopUI over Named Pipe IPC
         _eventBus.Publish(new TetherEvent
         {
             EventType = TetherEventType.PAIRING_REQUESTED,
@@ -140,7 +130,6 @@ public sealed class PairingManager
             return false;
         }
 
-        // Check 60s expiration
         if (DateTime.UtcNow - pending.CreatedUtc > TimeSpan.FromSeconds(ExpirationSeconds))
         {
             _logger.Warning($"PairingManager: Pairing request '{requestId}' expired.");
@@ -156,7 +145,6 @@ public sealed class PairingManager
             return false;
         }
 
-        // Constant-time comparison
         bool isMatch = CryptographicOperations.FixedTimeEquals(pending.ExpectedPhoneProof, presentedProof);
 
         if (!isMatch)
@@ -172,7 +160,6 @@ public sealed class PairingManager
             return false;
         }
 
-        // Success! Promote device in DeviceManager
         _deviceManager.PromoteToPaired(
             pending.PhoneFingerprint,
             pending.DisplayName,

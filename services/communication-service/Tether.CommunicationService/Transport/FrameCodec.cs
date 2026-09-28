@@ -1,5 +1,4 @@
-﻿// services/communication-service/Tether.CommunicationService/Transport/FrameCodec.cs
-using System;
+﻿using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Text;
@@ -9,10 +8,6 @@ using System.Threading.Tasks;
 
 namespace Tether.CommunicationService.Transport;
 
-/// <summary>
-/// Wire format: 4-byte big-endian unsigned length + UTF-8 JSON payload. Max 1 MiB.
-/// Android reference: DataOutputStream.writeInt(length) + bytes.
-/// </summary>
 public static class FrameCodec
 {
     public const int MaxFrameBytes = 1024 * 1024;
