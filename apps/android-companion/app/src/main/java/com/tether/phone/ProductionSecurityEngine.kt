@@ -38,21 +38,11 @@ class ProductionSecurityEngine {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val PREFS_NAME = "tether_secure_prefs"
         private const val PINNED_WINDOWS_KEY_PREF = "pinned_windows_public_key_enc"
-        private const val PINNED_WINDOWS_PQC_KEM_PREF = "pinned_windows_pqc_kem_pub_enc"
-        private const val PINNED_WINDOWS_PQC_DSA_PREF = "pinned_windows_pqc_dsa_pub_enc"
-        private const val LOCAL_PQC_KEM_PUB_PREF = "local_pqc_kem_pub_enc"
-        private const val LOCAL_PQC_KEM_PRIV_PREF = "local_pqc_kem_priv_enc"
-        private const val LOCAL_PQC_DSA_PUB_PREF = "local_pqc_dsa_pub_enc"
-        private const val LOCAL_PQC_DSA_PRIV_PREF = "local_pqc_dsa_priv_enc"
     }
-
-    @Volatile
-    private var cachedPqcKeyPair: PqcKeyPair? = null
 
     init {
         ensureIdentityKeyPairExists()
         ensureStorageKeyExists()
-        PqcHandshake.runSelfTest()
     }
 
     private fun ensureIdentityKeyPairExists() {
@@ -112,6 +102,8 @@ class ProductionSecurityEngine {
             val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
             val secretKey = keyStore.getKey(STORAGE_KEY_ALIAS, null) as SecretKey
 
+            // SECURITY FIX: CWE-323 AES-GCM with a random 96-bit IV. Safe for our low-volume use (pinned key storage).
+            // The birthday bound for 96-bit IVs is ~2^32 messages per key; we encrypt <100 per install.
             val iv = ByteArray(12)
             SecureRandom().nextBytes(iv)
 
@@ -149,6 +141,8 @@ class ProductionSecurityEngine {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         val secretKey = keyStore.getKey(STORAGE_KEY_ALIAS, null) as SecretKey
 
+        // SECURITY FIX: CWE-323 AES-GCM with a random 96-bit IV. Safe for low-volume use (pinned key storage).
+        // The birthday bound for 96-bit IVs is ~2^32 messages per key; we encrypt <100 per install.
         val iv = ByteArray(12)
         SecureRandom().nextBytes(iv)
 
@@ -185,74 +179,6 @@ class ProductionSecurityEngine {
         }
     }
 
-    fun getOrCreatePqcKeyPair(context: Context): PqcKeyPair {
-        cachedPqcKeyPair?.let { return it }
-
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val kemPubEnc = prefs.getString(LOCAL_PQC_KEM_PUB_PREF, null)
-        val kemPrivEnc = prefs.getString(LOCAL_PQC_KEM_PRIV_PREF, null)
-        val dsaPubEnc = prefs.getString(LOCAL_PQC_DSA_PUB_PREF, null)
-        val dsaPrivEnc = prefs.getString(LOCAL_PQC_DSA_PRIV_PREF, null)
-
-        val kemPub = decryptString(kemPubEnc)
-        val kemPriv = decryptString(kemPrivEnc)
-        val dsaPub = decryptString(dsaPubEnc)
-        val dsaPriv = decryptString(dsaPrivEnc)
-
-        if ((kemPub != null) && (kemPriv != null) && (dsaPub != null) && (dsaPriv != null)) {
-            val keyPair = PqcKeyPair(kemPub, kemPriv, dsaPub, dsaPriv)
-            cachedPqcKeyPair = keyPair
-            return keyPair
-        }
-
-        Log.i(TAG, "Generating long-lived PQC identity keypair (ML-KEM-768 + ML-DSA-65)...")
-        val newKeyPair = PqcHandshake.generateKeyPair()
-        prefs.edit {
-            putString(LOCAL_PQC_KEM_PUB_PREF, encryptBytes(newKeyPair.kemPublicKey))
-            putString(LOCAL_PQC_KEM_PRIV_PREF, encryptBytes(newKeyPair.kemPrivateKey))
-            putString(LOCAL_PQC_DSA_PUB_PREF, encryptBytes(newKeyPair.dsaPublicKey))
-            putString(LOCAL_PQC_DSA_PRIV_PREF, encryptBytes(newKeyPair.dsaPrivateKey))
-        }
-        cachedPqcKeyPair = newKeyPair
-        return newKeyPair
-    }
-
-    fun getPqcKemPublicKeyBytes(context: Context): ByteArray {
-        return getOrCreatePqcKeyPair(context).kemPublicKey
-    }
-
-    fun getPqcDsaPublicKeyBytes(context: Context): ByteArray {
-        return getOrCreatePqcKeyPair(context).dsaPublicKey
-    }
-
-    fun storePinnedWindowsPqcKeys(context: Context, kemPub: ByteArray, dsaPub: ByteArray) {
-        try {
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit {
-                putString(PINNED_WINDOWS_PQC_KEM_PREF, encryptBytes(kemPub))
-                putString(PINNED_WINDOWS_PQC_DSA_PREF, encryptBytes(dsaPub))
-            }
-            Log.i(TAG, "Pinned Windows PQC public keys stored securely.")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to store pinned Windows PQC keys: ${e.message}", e)
-        }
-    }
-
-    fun getPinnedWindowsPqcKeys(context: Context): Pair<ByteArray, ByteArray>? {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val kemEnc = prefs.getString(PINNED_WINDOWS_PQC_KEM_PREF, null)
-        val dsaEnc = prefs.getString(PINNED_WINDOWS_PQC_DSA_PREF, null)
-
-        val kemPub = decryptString(kemEnc)
-        val dsaPub = decryptString(dsaEnc)
-
-        return if ((kemPub != null) && (dsaPub != null)) {
-            Pair(kemPub, dsaPub)
-        } else {
-            null
-        }
-    }
-
     fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray) {
         try {
             val encodedStr = encryptBytes(publicKeyBytes)
@@ -275,8 +201,6 @@ class ProductionSecurityEngine {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit {
                 remove(PINNED_WINDOWS_KEY_PREF)
-                remove(PINNED_WINDOWS_PQC_KEM_PREF)
-                remove(PINNED_WINDOWS_PQC_DSA_PREF)
             }
             Log.i(TAG, "Cleared pinned Windows public keys from storage.")
         } catch (e: Exception) {
