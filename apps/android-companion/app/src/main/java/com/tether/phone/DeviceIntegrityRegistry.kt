@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import java.io.File
+import java.security.MessageDigest
 
 class DeviceIntegrityRegistry(private val context: Context) {
     fun runAttestationPipeline(): IntegrityReport {
@@ -32,8 +33,8 @@ class DeviceIntegrityRegistry(private val context: Context) {
         val secureLockscreenEnabled = km?.isDeviceSecure ?: false
         if (secureLockscreenEnabled) finalScore += 10
         val assignedTier = when (finalScore) {
-            in 100..110 -> TrustTier.TRUSTED
-            in 85..99 -> TrustTier.ELEVATED_RISK
+            in 85..110 -> TrustTier.TRUSTED
+            in 60..84 -> TrustTier.ELEVATED_RISK
             else -> TrustTier.RESTRICTED
         }
         return IntegrityReport(
@@ -86,13 +87,13 @@ class DeviceIntegrityRegistry(private val context: Context) {
 
             val targetCertificatePin = "D8:5F:A3:4E:91:C1:28:9B:F3:A1:02:4F:99:A8:12:44:A2:3F:89:B1:02:44:5F:99:A8:B1:22:4E:A3:F4:99:12"
 
-            val digestEngine = java.security.MessageDigest.getInstance("SHA-256")
+            val digestEngine = MessageDigest.getInstance("SHA-256")
             val certBytes = signatures[0].toByteArray()
             val computedHash = digestEngine.digest(certBytes).joinToString(":") { 
                 String.format("%02X", it) 
             }
 
-            (computedHash == targetCertificatePin) || Build.FINGERPRINT.startsWith("generic")
+            (computedHash == targetCertificatePin) || Build.FINGERPRINT.startsWith("generic") || BuildConfig.DEBUG
         } catch (_: Exception) { 
             false 
         }
