@@ -64,6 +64,13 @@ public sealed class PacketRouter
         if (!_capabilityManager.CanDeviceExecuteCommand(device, cmd.Command))
         {
             _logger.Warning($"PacketRouter: Capability check failed for command '{cmd.Command}' from '{device.DisplayName}'.");
+            await FrameCodec.WriteJsonFrameAsync(stream, new
+            {
+                type = "CONFIRM_COMMAND",
+                confirmedCommand = cmd.Command,
+                success = false,
+                reason = "Capability check failed"
+            }, ct);
             return;
         }
 
@@ -83,6 +90,12 @@ public sealed class PacketRouter
             })
         });
 
-        await FrameCodec.WriteJsonFrameAsync(stream, new ConfirmCommand { ConfirmedCommand = cmd.Command }, ct);
+        await FrameCodec.WriteJsonFrameAsync(stream, new
+        {
+            type = "CONFIRM_COMMAND",
+            confirmedCommand = cmd.Command,
+            success = executed,
+            reason = executed ? "OK" : "Hardware execution failed"
+        }, ct);
     }
 }
