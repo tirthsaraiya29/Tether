@@ -79,7 +79,7 @@ class TetherTlsTransport(
         sslSock.enabledProtocols = arrayOf("TLSv1.3")
 
         sslSock.connect(InetSocketAddress(host, port), timeoutMs)
-        sslSock.soTimeout = 0
+        sslSock.soTimeout = 15000
 
         sslSock.startHandshake()
         val session = sslSock.session
