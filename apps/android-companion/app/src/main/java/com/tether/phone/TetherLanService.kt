@@ -612,11 +612,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
             "CONFIRM_COMMAND" -> {
                 val confirmedCmd = json.optString("confirmedCommand", command)
+                val success = json.optBoolean("success", true)
+                val errorReason = json.optString("reason", "")
                 val safeConfirmed = sanitizeLog(confirmedCmd)
-                Log.i(TAG, "Command confirmed by Windows host: $safeConfirmed")
+                Log.i(TAG, "Command response from Windows host: $safeConfirmed (success=$success, reason=$errorReason)")
                 mainHandler.post {
                     val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
                         putExtra("confirmed_command", confirmedCmd)
+                        putExtra("success", success)
+                        putExtra("reason", errorReason)
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
