@@ -320,6 +320,9 @@ class MainActivity : FragmentActivity() {
                                 trustState = trustState.value,
                                 phoneFingerprint = phoneFingerprint.value,
                                 windowsFingerprint = windowsFingerprint.value,
+                                volumeLevel = volumeLevel.intValue,
+                                isMuted = isMuted.value,
+                                grantedCapabilities = grantedCapabilities.value,
                                 onUnlockClick = {
                                     triggerLanAction("unlock")
                                 },

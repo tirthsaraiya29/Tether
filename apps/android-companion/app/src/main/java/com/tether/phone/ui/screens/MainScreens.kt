@@ -54,6 +54,9 @@ fun TetherAppScreen(
     isConnected: Boolean,
     isPanicActive: Boolean,
     verificationStep: TrustVerificationStep,
+    volumeLevel: Int = 50,
+    isMuted: Boolean = false,
+    grantedCapabilities: Set<String> = emptySet(),
     onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
@@ -104,8 +107,9 @@ fun TetherAppScreen(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 LiquidGlassVolumeControl(
-                    volumeLevel = 70,
-                    isMuted = false,
+                    volumeLevel = volumeLevel,
+                    isMuted = isMuted,
+                    onVolumeChange = { level -> onLanActionRequested("set_volume:$level") },
                     onVolumeUp = { onLanActionRequested("VOL_UP") },
                     onVolumeDown = { onLanActionRequested("VOL_DOWN") },
                     onToggleMute = { onLanActionRequested("volume_mute") },
@@ -994,10 +998,10 @@ fun PairingScreen(
 @Composable
 fun LaptopControlScreen(
     isConnected: Boolean,
+    volumeLevel: Int = 50,
+    isMuted: Boolean = false,
     onLanActionRequested: (String) -> Unit
 ) {
-    var volumeLevel by remember { mutableIntStateOf(70) }
-    var isMuted by remember { mutableStateOf(value = false) }
     var isPlaying by remember { mutableStateOf(value = true) }
 
     val scrollState = rememberScrollState()
@@ -1030,19 +1034,10 @@ fun LaptopControlScreen(
             LiquidGlassVolumeControl(
                 volumeLevel = volumeLevel,
                 isMuted = isMuted,
-                onVolumeUp = {
-                    if (volumeLevel < 100) volumeLevel = (volumeLevel + 5).coerceAtMost(100)
-                    isMuted = false
-                    onLanActionRequested("VOL_UP")
-                },
-                onVolumeDown = {
-                    if (volumeLevel > 0) volumeLevel = (volumeLevel - 5).coerceAtLeast(0)
-                    onLanActionRequested("VOL_DOWN")
-                },
-                onToggleMute = {
-                    isMuted = !isMuted
-                    onLanActionRequested("volume_mute")
-                },
+                onVolumeChange = { level -> onLanActionRequested("set_volume:$level") },
+                onVolumeUp = { onLanActionRequested("VOL_UP") },
+                onVolumeDown = { onLanActionRequested("VOL_DOWN") },
+                onToggleMute = { onLanActionRequested("volume_mute") },
                 enabled = isConnected
             )
         }
@@ -1088,6 +1083,9 @@ fun TetherNavigationShell(
     trustState: TrustState = TrustState.UNPAIRED,
     phoneFingerprint: String = "",
     windowsFingerprint: String = "",
+    volumeLevel: Int = 50,
+    isMuted: Boolean = false,
+    grantedCapabilities: Set<String> = emptySet(),
     onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
@@ -1209,9 +1207,22 @@ fun TetherNavigationShell(
                 ) { screen ->
                     when (screen) {
                         AppScreen.TELEMETRY_DASHBOARD -> TetherAppScreen(
-                            statusText, statusColor, connectionStatus, isConnected, isPanicActive, verificationStep,
-                            onUnlockClick, onLockClick, onPanicClick, onSideRestore, onSelectLaptop,
-                            onTriggerStepVerification, onLanActionRequested = onLaptopActionClick
+                            statusText = statusText,
+                            statusColor = statusColor,
+                            connectionStatus = connectionStatus,
+                            isConnected = isConnected,
+                            isPanicActive = isPanicActive,
+                            verificationStep = verificationStep,
+                            volumeLevel = volumeLevel,
+                            isMuted = isMuted,
+                            grantedCapabilities = grantedCapabilities,
+                            onUnlockClick = onUnlockClick,
+                            onLockClick = onLockClick,
+                            onPanicClick = onPanicClick,
+                            onSideRestore = onSideRestore,
+                            onSelectLaptop = onSelectLaptop,
+                            onTriggerStepVerification = onTriggerStepVerification,
+                            onLanActionRequested = onLaptopActionClick
                         )
                         AppScreen.SECURITY_SETTINGS -> SettingsScreen(
                             selectedTimeoutMs = selectedTimeoutMs,
@@ -1224,6 +1235,8 @@ fun TetherNavigationShell(
                         )
                         AppScreen.LAPTOP_CONTROL -> LaptopControlScreen(
                             isConnected = isConnected,
+                            volumeLevel = volumeLevel,
+                            isMuted = isMuted,
                             onLanActionRequested = onLaptopActionClick
                         )
                         AppScreen.PAIRING -> PairingScreen(
