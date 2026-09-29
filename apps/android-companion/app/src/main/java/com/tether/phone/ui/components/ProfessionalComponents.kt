@@ -44,10 +44,15 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -233,11 +238,14 @@ fun ProfessionalGlassSurface(
 fun LiquidGlassVolumeControl(
     volumeLevel: Int,
     isMuted: Boolean,
+    onVolumeChange: (Int) -> Unit = {},
     onVolumeUp: () -> Unit,
     onVolumeDown: () -> Unit,
     onToggleMute: () -> Unit,
     enabled: Boolean = true,
 ) {
+    var sliderPosition by remember(volumeLevel) { mutableFloatStateOf(volumeLevel.toFloat()) }
+
     ProfessionalGlassSurface(
         tint = LiquidCyan,
         alpha = 0.15f,
@@ -257,7 +265,7 @@ fun LiquidGlassVolumeControl(
                         letterSpacing = 2.sp,
                     )
                     Text(
-                        text = if (isMuted) "MUTED" else "$volumeLevel%",
+                        text = if (isMuted) "MUTED" else "${sliderPosition.toInt()}%",
                         style = MaterialTheme.typography.headlineMedium,
                         color = if (isMuted) AlertRed else TextPrimary,
                         fontWeight = FontWeight.Bold,
@@ -284,7 +292,25 @@ fun LiquidGlassVolumeControl(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Slider(
+                value = sliderPosition,
+                onValueChange = { sliderPosition = it },
+                onValueChangeFinished = {
+                    onVolumeChange(sliderPosition.toInt())
+                },
+                valueRange = 0f..100f,
+                enabled = enabled,
+                colors = SliderDefaults.colors(
+                    thumbColor = LiquidCyan,
+                    activeTrackColor = LiquidCyan,
+                    inactiveTrackColor = LiquidCyan.copy(alpha = 0.2f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
