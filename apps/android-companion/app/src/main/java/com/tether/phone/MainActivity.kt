@@ -94,7 +94,7 @@ class MainActivity : FragmentActivity() {
 
     private var lastBiometricAuthTime = 0L
 
-    private val securityEngine = ProductionSecurityEngine()
+    private val securityEngine by lazy { ProductionSecurityEngine() }
     private lateinit var executor: ExecutorService
 
     private val batteryOptimizationLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -277,25 +277,7 @@ class MainActivity : FragmentActivity() {
                                 phoneFingerprint = phoneFingerprint.value,
                                 windowsFingerprint = windowsFingerprint.value,
                                 onUnlockClick = {
-                                    val currentTime = System.currentTimeMillis()
-                                    val needsAuth = ((currentTime - lastBiometricAuthTime) > 10000)
-
-                                    if (needsAuth) {
-                                        authenticateViaSystem(
-                                            title = getString(R.string.auth_unlock_title),
-                                            subtitle = getString(R.string.auth_unlock_subtitle),
-                                            allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL,
-                                        ) { success ->
-                                            if (success) {
-                                                runOnUiThread {
-                                                    lastBiometricAuthTime = System.currentTimeMillis()
-                                                    triggerLanAction("unlock")
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        triggerLanAction("unlock")
-                                    }
+                                    triggerLanAction("unlock")
                                 },
                                 onLockClick = { triggerLanAction("lock_now") },
                                 onPanicClick = {
@@ -697,7 +679,10 @@ class MainActivity : FragmentActivity() {
             if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
                 promptBuilder.setNegativeButtonText(getString(R.string.btn_abort))
             }
-            val cryptoObject = if ((allowedAuthenticators and BiometricManager.Authenticators.BIOMETRIC_STRONG) != 0) {
+            val cryptoObject = if (
+                (allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0 &&
+                (allowedAuthenticators and BiometricManager.Authenticators.BIOMETRIC_STRONG) != 0
+            ) {
                 securityEngine.createCryptoObjectForAuthentication()
             } else null
 
