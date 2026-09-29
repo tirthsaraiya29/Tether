@@ -22,6 +22,41 @@ public static class HardwareExecutor
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool LockWorkStation();
 
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSDisconnectSession(IntPtr hServer, uint sessionId, bool bWait);
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSQueryUserToken(uint SessionId, out IntPtr phToken);
+
+    [DllImport("kernel32.dll", SetLastError = false)]
+    private static extern uint WTSGetActiveConsoleSessionId();
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern bool DuplicateTokenEx(
+        IntPtr hExistingToken,
+        uint dwDesiredAccess,
+        IntPtr lpTokenAttributes,
+        int ImpersonationLevel,
+        int TokenType,
+        out IntPtr phNewToken);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern bool CreateProcessAsUser(
+        IntPtr hToken,
+        string? lpApplicationName,
+        string? lpCommandLine,
+        IntPtr lpProcessAttributes,
+        IntPtr lpThreadAttributes,
+        bool bInheritHandles,
+        uint dwCreationFlags,
+        IntPtr lpEnvironment,
+        string? lpCurrentDirectory,
+        ref STARTUPINFO lpStartupInfo,
+        out PROCESS_INFORMATION lpProcessInformation);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
     [DllImport("powrprof.dll", SetLastError = true)]
     private static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
 
@@ -48,6 +83,40 @@ public static class HardwareExecutor
         public string szPhysicalMonitorDescription;
     }
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct STARTUPINFO
+    {
+        public int cb;
+        public string? lpReserved;
+        public string? lpDesktop;
+        public string? lpTitle;
+        public int dwX;
+        public int dwY;
+        public int dwXSize;
+        public int dwYSize;
+        public int dwXCountChars;
+        public int dwYCountChars;
+        public int dwFillAttribute;
+        public int dwFlags;
+        public short wShowWindow;
+        public short cbReserved2;
+        public IntPtr lpReserved2;
+        public IntPtr hStdInput;
+        public IntPtr hStdOutput;
+        public IntPtr hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_INFORMATION
+    {
+        public IntPtr hProcess;
+        public IntPtr hThread;
+        public int dwProcessId;
+        public int dwThreadId;
+    }
+
+    private static readonly IntPtr WTS_CURRENT_SERVER_HANDLE = IntPtr.Zero;
+
     public static bool ExecuteCommand(string command, ITetherLogger logger)
     {
         string cmd = command.Trim().ToLowerInvariant();
@@ -60,7 +129,15 @@ public static class HardwareExecutor
                 case "lock":
                 case "lock_now":
                     bool locked = LockWorkStation();
-                    logger.Info($"HardwareExecutor: LockWorkStation result = {locked}");
+                    if (!locked)
+                    {
+                        uint activeSession = WTSGetActiveConsoleSessionId();
+                        if (activeSession != 0xFFFFFFFF)
+                        {
+                            locked = WTSDisconnectSession(WTS_CURRENT_SERVER_HANDLE, activeSession, false);
+                        }
+                    }
+                    logger.Info($"HardwareExecutor: LockWorkStation/Disconnect result = {locked}");
                     return locked;
 
                 case "sleep":
@@ -114,68 +191,124 @@ public static class HardwareExecutor
 
                 case "bright_up":
                 case "brightness_up":
-                    AdjustBrightness(10);
+                    AdjustBrightness(10, logger);
                     return true;
 
                 case "bright_down":
                 case "brightness_down":
-                    AdjustBrightness(-10);
+                    AdjustBrightness(-10, logger);
                     return true;
 
                 case "launch_browser":
                 case "browser":
-                    Process.Start(new ProcessStartInfo("https://www.google.com") { UseShellExecute = true });
-                    return true;
+                    return LaunchInUserSession("cmd.exe /c start https://www.google.com", logger);
 
                 case "launch_task_manager":
                 case "taskmgr":
-                    Process.Start(new ProcessStartInfo("taskmgr.exe") { UseShellExecute = true });
-                    return true;
+                    return LaunchInUserSession("taskmgr.exe", logger);
 
                 case "launch_explorer":
                 case "explorer":
-                    Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true });
-                    return true;
+                    return LaunchInUserSession("explorer.exe", logger);
 
                 case "launch_settings":
                 case "settings":
-                    Process.Start(new ProcessStartInfo("ms-settings:") { UseShellExecute = true });
-                    return true;
+                    return LaunchInUserSession("cmd.exe /c start ms-settings:", logger);
 
                 case "powershell":
                 case "powershell7":
-                    Process.Start(new ProcessStartInfo("powershell.exe") { UseShellExecute = true });
-                    return true;
+                    return LaunchInUserSession("powershell.exe", logger);
 
                 case "cmd":
-                    Process.Start(new ProcessStartInfo("cmd.exe") { UseShellExecute = true });
-                    return true;
+                    return LaunchInUserSession("cmd.exe", logger);
 
                 case "calc":
-                    Process.Start(new ProcessStartInfo("calc.exe") { UseShellExecute = true });
-                    return true;
+                    return LaunchInUserSession("calc.exe", logger);
 
                 case "notepad":
-                    Process.Start(new ProcessStartInfo("notepad.exe") { UseShellExecute = true });
-                    return true;
+                    return LaunchInUserSession("notepad.exe", logger);
 
                 default:
-                    logger.Warning($"HardwareExecutor: Unrecognized command '{cmd}'. Trying shell execution...");
-                    try
-                    {
-                        Process.Start(new ProcessStartInfo(cmd) { UseShellExecute = true });
-                        return true;
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.Warning($"HardwareExecutor: Shell launch failed for '{cmd}': {ex.Message}");
-                        return false;
-                    }
+                    logger.Warning($"HardwareExecutor: Unrecognized command '{cmd}'. Trying user session launch...");
+                    return LaunchInUserSession(cmd, logger);
             }
         }
         catch (Exception ex)
         {
             logger.Error($"HardwareExecutor: Failed executing '{cmd}': {ex.Message}");
+            return false;
+        }
+    }
+
+    private static bool LaunchInUserSession(string commandLine, ITetherLogger logger)
+    {
+        uint activeSession = WTSGetActiveConsoleSessionId();
+        if (activeSession == 0xFFFFFFFF)
+        {
+            logger.Warning("HardwareExecutor: No active console session found for launch.");
+            return false;
+        }
+
+        if (WTSQueryUserToken(activeSession, out IntPtr userToken))
+        {
+            try
+            {
+                if (DuplicateTokenEx(userToken, 0x10000000 /* MAXIMUM_ALLOWED */, IntPtr.Zero, 2 /* SecurityImpersonation */, 1 /* TokenPrimary */, out IntPtr primaryToken))
+                {
+                    try
+                    {
+                        var si = new STARTUPINFO();
+                        si.cb = Marshal.SizeOf(si);
+                        si.lpDesktop = @"WinSta0\Default";
+
+                        var pi = new PROCESS_INFORMATION();
+
+                        bool success = CreateProcessAsUser(
+                            primaryToken,
+                            null,
+                            commandLine,
+                            IntPtr.Zero,
+                            IntPtr.Zero,
+                            false,
+                            0x00000010 /* CREATE_NEW_CONSOLE */,
+                            IntPtr.Zero,
+                            null,
+                            ref si,
+                            out pi);
+
+                        if (success)
+                        {
+                            logger.Info($"HardwareExecutor: Successfully launched '{commandLine}' in user session {activeSession} (PID {pi.dwProcessId}).");
+                            CloseHandle(pi.hProcess);
+                            CloseHandle(pi.hThread);
+                            return true;
+                        }
+                        else
+                        {
+                            int err = Marshal.GetLastWin32Error();
+                            logger.Warning($"HardwareExecutor: CreateProcessAsUser failed with error code {err}. Falling back to ShellExecute.");
+                        }
+                    }
+                    finally
+                    {
+                        CloseHandle(primaryToken);
+                    }
+                }
+            }
+            finally
+            {
+                CloseHandle(userToken);
+            }
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(commandLine) { UseShellExecute = true });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.Error($"HardwareExecutor: Fallback launch failed for '{commandLine}': {ex.Message}");
             return false;
         }
     }
@@ -189,8 +322,9 @@ public static class HardwareExecutor
         }
     }
 
-    private static void AdjustBrightness(int delta)
+    private static void AdjustBrightness(int delta, ITetherLogger logger)
     {
+        bool ddcSuccess = false;
         try
         {
             IntPtr hMonitor = MonitorFromWindow(IntPtr.Zero, 1);
@@ -200,11 +334,31 @@ public static class HardwareExecutor
                 if (GetMonitorBrightness(monitors[0].hPhysicalMonitor, out uint min, out uint current, out uint max))
                 {
                     int target = Math.Clamp((int)current + delta, (int)min, (int)max);
-                    SetMonitorBrightness(monitors[0].hPhysicalMonitor, (uint)target);
+                    ddcSuccess = SetMonitorBrightness(monitors[0].hPhysicalMonitor, (uint)target);
                 }
                 DestroyPhysicalMonitor(monitors[0].hPhysicalMonitor);
             }
         }
         catch { }
+
+        if (!ddcSuccess)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $"-NoProfile -NonInteractive -Command \"$b = (Get-WmiObject -Namespace root/wmi -Class WmiMonitorBrightness).CurrentBrightness; $target = [math]::Max(0, [math]::Min(100, $b + ({delta}))); (Get-WmiObject -Namespace root/wmi -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, $target)\"",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                using var p = Process.Start(psi);
+                p?.WaitForExit(2000);
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"WMI brightness adjustment failed: {ex.Message}");
+            }
+        }
     }
 }
