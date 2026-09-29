@@ -142,6 +142,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private var connectedHostAddress: String? = null
 
     @Volatile
+    private var currentVolumeLevel: Int = 50
+
+    @Volatile
     private var connectedHostPort: Int = TetherDiscoveryManager.DEFAULT_PORT
 
     @Volatile
@@ -614,13 +617,18 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val confirmedCmd = json.optString("confirmedCommand", command)
                 val success = json.optBoolean("success", true)
                 val errorReason = json.optString("reason", "")
+                val vol = json.optInt("volumeLevel", -1)
+                if (vol in 0..100) {
+                    currentVolumeLevel = vol
+                }
                 val safeConfirmed = sanitizeLog(confirmedCmd)
-                Log.i(TAG, "Command response from Windows host: $safeConfirmed (success=$success, reason=$errorReason)")
+                Log.i(TAG, "Command response from Windows host: $safeConfirmed (success=$success, reason=$errorReason, vol=$currentVolumeLevel)")
                 mainHandler.post {
                     val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
                         putExtra("confirmed_command", confirmedCmd)
                         putExtra("success", success)
                         putExtra("reason", errorReason)
+                        putExtra("volume_level", currentVolumeLevel)
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
@@ -629,6 +637,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             "HARDWARE_METRICS" -> {
                 val vol = json.optInt("volumeLevel", -1)
                 val bright = json.optInt("brightnessLevel", -1)
+                if (vol in 0..100) {
+                    currentVolumeLevel = vol
+                }
                 if ((vol >= 0) || (bright >= 0)) {
                     val intent = Intent("com.tether.phone.ACTION_SYNC_HARDWARE_METRICS").apply {
                         putExtra("VOLUME_LEVEL", vol)
@@ -742,6 +753,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             putExtra(EXTRA_PHONE_FINGERPRINT, phoneFp)
             putExtra(EXTRA_WINDOWS_FINGERPRINT, winFp)
             putExtra("extra_host_address", sanitizeLog(connectedHostAddress))
+            putExtra("extra_granted_capabilities", capabilityManager.getNegotiatedCapabilitiesString())
+            putExtra("extra_volume_level", currentVolumeLevel)
             setPackage(packageName)
         }
         sendBroadcast(intent)

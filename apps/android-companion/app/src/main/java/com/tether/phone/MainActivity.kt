@@ -85,8 +85,15 @@ class MainActivity : FragmentActivity() {
     private var phoneFingerprint = mutableStateOf("")
     private var windowsFingerprint = mutableStateOf("")
 
+    private var volumeLevel = mutableIntStateOf(50)
+    private var isMuted = mutableStateOf(false)
+    private var grantedCapabilities = mutableStateOf(setOf<String>())
+    private var connectedHostAddress = mutableStateOf("")
+
     private var activePendingCommand = mutableStateOf<String?>(null)
     private var isCommandConfirmed = mutableStateOf(value = false)
+    private var lastCommandSuccess = mutableStateOf<Boolean?>(null)
+    private var lastCommandReason = mutableStateOf<String?>(null)
     private var dismissalJob: Job? = null
 
     private var pendingPowerAction = mutableStateOf<PowerAction?>(null)
@@ -114,12 +121,23 @@ class MainActivity : FragmentActivity() {
                 val trustStateName = intent.getStringExtra(TetherLanService.EXTRA_TRUST_STATE) ?: "UNPAIRED"
                 val phoneFp = intent.getStringExtra(TetherLanService.EXTRA_PHONE_FINGERPRINT) ?: ""
                 val winFp = intent.getStringExtra(TetherLanService.EXTRA_WINDOWS_FINGERPRINT) ?: ""
+                val capsStr = intent.getStringExtra("extra_granted_capabilities") ?: ""
+                val vol = intent.getIntExtra("extra_volume_level", -1)
+                val hostAddr = intent.getStringExtra("extra_host_address") ?: ""
 
                 Log.d("TetherActivity", "LAN transport state changed: $stateName ($count), trustState=$trustStateName")
                 runOnUiThread {
                     isConnected.value = count > 0
                     phoneFingerprint.value = phoneFp
                     windowsFingerprint.value = winFp
+                    connectedHostAddress.value = hostAddr
+
+                    if (vol in 0..100) {
+                        volumeLevel.intValue = vol
+                    }
+
+                    val caps = if (capsStr.isBlank()) emptySet() else capsStr.split(",").map { it.trim().uppercase() }.toSet()
+                    grantedCapabilities.value = caps
 
                     try {
                         trustState.value = TrustState.valueOf(trustStateName)
@@ -174,13 +192,39 @@ class MainActivity : FragmentActivity() {
     private val commandConfirmedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == TetherLanService.ACTION_COMMAND_CONFIRMED) {
+                val confirmedCmd = intent.getStringExtra("confirmed_command") ?: ""
+                val success = intent.getBooleanExtra("success", true)
+                val reason = intent.getStringExtra("reason") ?: "OK"
+                val vol = intent.getIntExtra("volume_level", -1)
+
                 runOnUiThread {
+                    if (vol in 0..100) {
+                        volumeLevel.intValue = vol
+                    }
+                    lastCommandSuccess.value = success
+                    lastCommandReason.value = reason
                     isCommandConfirmed.value = true
+
                     dismissalJob?.cancel()
                     dismissalJob = lifecycleScope.launch {
-                        delay(Duration.parse("2s"))
+                        delay(2000)
                         activePendingCommand.value = null
                         isCommandConfirmed.value = false
+                        lastCommandSuccess.value = null
+                        lastCommandReason.value = null
+                    }
+                }
+            }
+        }
+    }
+
+    private val hardwareMetricsReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.tether.phone.ACTION_SYNC_HARDWARE_METRICS") {
+                val vol = intent.getIntExtra("VOLUME_LEVEL", -1)
+                runOnUiThread {
+                    if (vol in 0..100) {
+                        volumeLevel.intValue = vol
                     }
                 }
             }
@@ -388,6 +432,12 @@ class MainActivity : FragmentActivity() {
             IntentFilter(TetherLanService.ACTION_COMMAND_CONFIRMED),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
+        ContextCompat.registerReceiver(
+            this,
+            hardwareMetricsReceiver,
+            IntentFilter("com.tether.phone.ACTION_SYNC_HARDWARE_METRICS"),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
 
         val statusIntent = Intent(this, TetherLanService::class.java).apply {
             action = "ACTION_GET_STATUS"
@@ -494,6 +544,7 @@ class MainActivity : FragmentActivity() {
     override fun onDestroy() {
         try { unregisterReceiver(lanStateReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(commandConfirmedReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(hardwareMetricsReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(screenUnlockReceiver) } catch (_: Exception) {}
 
         executor.shutdown()

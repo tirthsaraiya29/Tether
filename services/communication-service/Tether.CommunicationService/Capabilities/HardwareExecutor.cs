@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService.Capabilities;
@@ -75,6 +76,42 @@ public static class HardwareExecutor
     [DllImport("dxva2.dll", SetLastError = true)]
     private static extern bool SetMonitorBrightness(IntPtr hMonitor, uint dwBrightness);
 
+    // WASAPI Core Audio COM interfaces for System Master Volume
+    [ComImport]
+    [Guid("BCDE0382-0378-4A96-8208-3B9268011D0D")]
+    private class MMDeviceEnumerator { }
+
+    [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMMDeviceEnumerator
+    {
+        [PreserveSig] int EnumAudioEndpoints(int dataFlow, int dwStateMask, out object ppDevices);
+        [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppEndpoint);
+    }
+
+    [Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMMDevice
+    {
+        [PreserveSig] int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
+    }
+
+    [Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IAudioEndpointVolume
+    {
+        [PreserveSig] int RegisterControlChangeNotify(IntPtr pNotify);
+        [PreserveSig] int UnregisterControlChangeNotify(IntPtr pNotify);
+        [PreserveSig] int GetChannelCount(out uint pnChannelCount);
+        [PreserveSig] int SetMasterVolumeLevel(float fLevelDB, ref Guid pguidEventContext);
+        [PreserveSig] int SetMasterVolumeLevelScalar(float fLevel, ref Guid pguidEventContext);
+        [PreserveSig] int GetMasterVolumeLevel(out float pfLevelDB);
+        [PreserveSig] int GetMasterVolumeLevelScalar(out float pfLevel);
+        [PreserveSig] int SetChannelVolumeLevel(uint nChannel, float fLevelDB, ref Guid pguidEventContext);
+        [PreserveSig] int SetChannelVolumeLevelScalar(uint nChannel, float fLevel, ref Guid pguidEventContext);
+        [PreserveSig] int GetChannelVolumeLevel(uint nChannel, out float pfLevelDB);
+        [PreserveSig] int GetChannelVolumeLevelScalar(uint nChannel, out float pfLevel);
+        [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool bMute, ref Guid pguidEventContext);
+        [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool pbMute);
+    }
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
     private struct PHYSICAL_MONITOR
     {
@@ -92,8 +129,6 @@ public static class HardwareExecutor
         public string? lpTitle;
         public int dwX;
         public int dwY;
-        public int dwXSize;
-        public int dwYSize;
         public int dwXCountChars;
         public int dwYCountChars;
         public int dwFillAttribute;
@@ -124,8 +159,23 @@ public static class HardwareExecutor
 
         try
         {
+            if (cmd.StartsWith("volume_set:") || cmd.StartsWith("set_volume:") || cmd.StartsWith("vol_set:"))
+            {
+                var parts = cmd.Split(':');
+                if (parts.Length > 1 && int.TryParse(parts[1], out int targetLevel))
+                {
+                    return SetSystemVolumeLevel(targetLevel);
+                }
+            }
+
             switch (cmd)
             {
+                case "unlock":
+                    return SignalUnlockEvent(@"Global\TetherPhoneAppUnlocked", logger);
+
+                case "screen_unlock":
+                    return SignalUnlockEvent(@"Global\TetherPhoneScreenUnlocked", logger);
+
                 case "lock":
                 case "lock_now":
                     bool locked = LockWorkStation();
@@ -161,18 +211,15 @@ public static class HardwareExecutor
 
                 case "vol_up":
                 case "volume_up":
-                    SendKeyPress(VK_VOLUME_UP, 4);
-                    return true;
+                    return AdjustSystemVolume(5);
 
                 case "vol_down":
                 case "volume_down":
-                    SendKeyPress(VK_VOLUME_DOWN, 4);
-                    return true;
+                    return AdjustSystemVolume(-5);
 
                 case "volume_mute":
                 case "mute":
-                    SendKeyPress(VK_VOLUME_MUTE, 1);
-                    return true;
+                    return ToggleSystemMute();
 
                 case "media_play_pause":
                 case "play_pause":
@@ -236,6 +283,106 @@ public static class HardwareExecutor
         catch (Exception ex)
         {
             logger.Error($"HardwareExecutor: Failed executing '{cmd}': {ex.Message}");
+            return false;
+        }
+    }
+
+    private static bool SignalUnlockEvent(string eventName, ITetherLogger logger)
+    {
+        try
+        {
+            using var evt = EventWaitHandle.OpenExisting(eventName);
+            bool setOk = evt.Set();
+            logger.Info($"HardwareExecutor: Signaled unlock event '{eventName}', setOk={setOk}");
+            return setOk;
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                using var evt = new EventWaitHandle(false, EventResetMode.AutoReset, eventName, out bool createdNew);
+                bool setOk = evt.Set();
+                logger.Info($"HardwareExecutor: Created & Signaled unlock event '{eventName}', createdNew={createdNew}, setOk={setOk}");
+                return setOk;
+            }
+            catch (Exception createEx)
+            {
+                logger.Error($"HardwareExecutor: Failed to signal unlock event '{eventName}': {ex.Message} / {createEx.Message}");
+                return false;
+            }
+        }
+    }
+
+    public static int GetSystemVolumeLevel()
+    {
+        try
+        {
+            var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+            enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
+            Guid iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
+            device.Activate(ref iid, 23, IntPtr.Zero, out object comInterface);
+            var vol = (IAudioEndpointVolume)comInterface;
+            vol.GetMasterVolumeLevelScalar(out float level);
+            Marshal.ReleaseComObject(vol);
+            Marshal.ReleaseComObject(device);
+            Marshal.ReleaseComObject(enumerator);
+            return (int)Math.Round(level * 100.0f);
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    public static bool SetSystemVolumeLevel(int levelPercent)
+    {
+        try
+        {
+            float scalar = Math.Clamp(levelPercent / 100.0f, 0.0f, 1.0f);
+            var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+            enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
+            Guid iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
+            device.Activate(ref iid, 23, IntPtr.Zero, out object comInterface);
+            var vol = (IAudioEndpointVolume)comInterface;
+            Guid empty = Guid.Empty;
+            vol.SetMasterVolumeLevelScalar(scalar, ref empty);
+            Marshal.ReleaseComObject(vol);
+            Marshal.ReleaseComObject(device);
+            Marshal.ReleaseComObject(enumerator);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static bool AdjustSystemVolume(int deltaPercent)
+    {
+        int current = GetSystemVolumeLevel();
+        if (current < 0) current = 50;
+        return SetSystemVolumeLevel(current + deltaPercent);
+    }
+
+    public static bool ToggleSystemMute()
+    {
+        try
+        {
+            var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+            enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
+            Guid iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
+            device.Activate(ref iid, 23, IntPtr.Zero, out object comInterface);
+            var vol = (IAudioEndpointVolume)comInterface;
+            vol.GetMute(out bool isMuted);
+            Guid empty = Guid.Empty;
+            vol.SetMute(!isMuted, ref empty);
+            Marshal.ReleaseComObject(vol);
+            Marshal.ReleaseComObject(device);
+            Marshal.ReleaseComObject(enumerator);
+            return true;
+        }
+        catch
+        {
             return false;
         }
     }

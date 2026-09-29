@@ -90,12 +90,15 @@ public sealed class PacketRouter
             })
         });
 
+        int currentVol = HardwareExecutor.GetSystemVolumeLevel();
+
         await FrameCodec.WriteJsonFrameAsync(stream, new
         {
             type = "CONFIRM_COMMAND",
             confirmedCommand = cmd.Command,
             success = executed,
-            reason = executed ? "OK" : "Hardware execution failed"
+            reason = executed ? "OK" : "Hardware execution failed",
+            volumeLevel = currentVol
         }, ct);
     }
 }
