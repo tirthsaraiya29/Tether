@@ -493,26 +493,21 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 return@launch
             }
 
-            val transcriptHash = pendingTranscriptHash
-            if (transcriptHash == null) {
-                Log.e(TAG, "Cannot confirm pairing: pending transcript hash is null.")
-                disconnectActiveSession("Transcript hash lost")
-                return@launch
-            }
-
             Log.i(TAG, "Finalizing pairing with Windows host for requestId=$requestId...")
             val result = pairingManager.finalizePairing(
                 transport = transport,
                 requestId = requestId,
                 userEnteredPin = userPin,
                 winEcPubKeyBytes = pendingWinEcPubKey,
-                transcriptHash = transcriptHash,
             )
 
             when (result) {
                 is PairingResult.Authenticated -> {
                     Log.i(TAG, "Pairing successfully finalized and keys pinned! Entering READY state...")
                     resetReconnectBackoff()
+                    pendingRequestId = null
+                    pendingWinEcPubKey = null
+                    pendingTranscriptHash = null
                     trustState = TrustState.PAIRED
                     currentState = TransportState.AUTHENTICATED
                     // SECURITY FIX: Negotiate capabilities based on peer advertisement
@@ -553,6 +548,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     Log.w(TAG, "Error sending PAIRING_REJECTED frame: ${e.message}")
                 }
             }
+            pendingRequestId = null
+            pendingWinEcPubKey = null
+            pendingTranscriptHash = null
             disconnectActiveSession("Pairing rejected by user")
         }
     }
@@ -560,7 +558,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private fun listenSocketLoop(transport: TetherTransport) {
         try {
             while ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) {
-                val frameBytes = transport.readFrame() ?: break
+                val frameBytes = transport.readFrame()
+                if (frameBytes == null) {
+                    if (!transport.isConnected()) {
+                        break
+                    }
+                    continue
+                }
                 val jsonStr = String(frameBytes, StandardCharsets.UTF_8)
                 processIncomingFrame(JSONObject(jsonStr), transport)
             }
