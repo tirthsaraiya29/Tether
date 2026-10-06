@@ -247,7 +247,6 @@ class TetherPairingManager(
         requestId: String,
         userEnteredPin: String,
         winEcPubKeyBytes: ByteArray?,
-        transcriptHash: ByteArray,
     ): PairingResult {
         try {
             if ((winEcPubKeyBytes == null) || winEcPubKeyBytes.isEmpty()) {
@@ -258,8 +257,8 @@ class TetherPairingManager(
             val reqIdBytes = requestId.toByteArray(StandardCharsets.UTF_8)
             val pinBytes = userEnteredPin.trim().toByteArray(StandardCharsets.UTF_8)
 
-            // PhoneProof = SHA-512(PIN || PhonePubKey || WinPubKey || RequestId || TranscriptHash)
-            val phoneProof = computeSha512(pinBytes, phonePubKeyBytes, winEcPubKeyBytes, reqIdBytes, transcriptHash)
+            // PhoneProof = SHA-512(PIN || PhonePubKey || WinPubKey || RequestId)
+            val phoneProof = computeSha512(pinBytes, phonePubKeyBytes, winEcPubKeyBytes, reqIdBytes)
             val phoneProofBase64 = Base64.encodeToString(phoneProof, Base64.NO_WRAP)
 
             // 1. Send PAIRING_CONFIRMED frame

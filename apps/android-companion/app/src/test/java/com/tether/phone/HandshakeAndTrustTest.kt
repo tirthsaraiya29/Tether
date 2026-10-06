@@ -167,4 +167,39 @@ class HandshakeAndTrustTest {
         assertNotNull("BouncyCastle provider must be available", bcProvider)
         assertEquals("BC", bcProvider.name)
     }
+
+    @Test
+    fun testPinSasProofCalculation() {
+        val pin = "482910"
+        val phonePubKey = phoneKeyPair.public.encoded
+        val winPubKey = windowsKeyPair.public.encoded
+        val requestId = "REQ_TEST_12345"
+
+        val pinBytes = pin.toByteArray(Charsets.UTF_8)
+        val reqIdBytes = requestId.toByteArray(Charsets.UTF_8)
+
+        val digest = MessageDigest.getInstance("SHA-512")
+        digest.update(pinBytes)
+        digest.update(phonePubKey)
+        digest.update(winPubKey)
+        digest.update(reqIdBytes)
+        val phoneProof = digest.digest()
+
+        assertNotNull(phoneProof)
+        assertEquals(64, phoneProof.size)
+
+        val transcriptHash = MessageDigest.getInstance("SHA-512").digest("TRANSCRIPT_DATA".toByteArray())
+        val digestWithTranscript = MessageDigest.getInstance("SHA-512")
+        digestWithTranscript.update(pinBytes)
+        digestWithTranscript.update(phonePubKey)
+        digestWithTranscript.update(winPubKey)
+        digestWithTranscript.update(reqIdBytes)
+        digestWithTranscript.update(transcriptHash)
+        val proofWithTranscript = digestWithTranscript.digest()
+
+        assertFalse(
+            "SAS proof must match Windows specification without transcriptHash",
+            phoneProof.contentEquals(proofWithTranscript),
+        )
+    }
 }
