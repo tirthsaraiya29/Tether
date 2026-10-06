@@ -241,7 +241,8 @@ class MainActivity : FragmentActivity() {
 
         val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
         isPanicActive.value = prefs.getBoolean(panicStateKey, false)
-        isBiometricSettingEnabled.value = true
+        // TEMPORARY FIX: Disable app lock on launch to avoid loop and allow immediate service start
+        isBiometricSettingEnabled.value = false
         isPrivacyMaskEnabled.value = true
         isBlockScreenReadingEnabled.value = true
         isHideInRecentsEnabled.value = true

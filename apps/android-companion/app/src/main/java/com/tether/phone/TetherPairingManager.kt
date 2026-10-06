@@ -145,39 +145,6 @@ class TetherPairingManager(
                 respJsonStr.toByteArray(StandardCharsets.UTF_8),
             )
 
-            // SECURITY FIX: Send HANDSHAKE_PROOF signed with identity key
-            val proofPayload = transcriptHash + winPubKeyBytes
-            val signature = securityEngine.signWithIdentityKey(proofPayload)
-            val proofBase64 = Base64.encodeToString(signature, Base64.NO_WRAP)
-
-            val proofJson = JSONObject().apply {
-                put("type", "HANDSHAKE_PROOF")
-                put("nonce", Base64.encodeToString(clientNonce, Base64.NO_WRAP))
-                put("proof", proofBase64)
-            }
-            transport.sendFrame(proofJson.toString().toByteArray(StandardCharsets.UTF_8))
-
-            // Read HANDSHAKE_VERIFIED response with backward compatibility fallback
-            val verifiedBytes = try {
-                transport.readFrame()
-            } catch (e: Exception) {
-                Log.w(TAG, "HANDSHAKE_VERIFIED read timed out or failed; fallback to legacy flow: ${e.message}")
-                null
-            }
-
-            if (verifiedBytes != null) {
-                try {
-                    val verifiedJson = JSONObject(String(verifiedBytes, StandardCharsets.UTF_8))
-                    val verifiedType = verifiedJson.optString("type")
-                    val verifiedStatus = verifiedJson.optString("status")
-                    if (verifiedType == "HANDSHAKE_VERIFIED" && verifiedStatus != "OK") {
-                        return PairingResult.Error("Windows host rejected handshake proof verification")
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Non-JSON or unexpected HANDSHAKE_VERIFIED response; fallback to legacy flow: ${e.message}")
-                }
-            }
-
             // 3. Verify against pinned key if previously paired
             if (isAlreadyPinned) {
                 if (!winPubKeyBytes.contentEquals(pinnedKeyBytes)) {
@@ -186,6 +153,39 @@ class TetherPairingManager(
                         presentedFingerprint = winFingerprint,
                         pinnedFingerprint = pinnedFingerprint,
                     )
+                }
+
+                // Send HANDSHAKE_PROOF signed with identity key for established trust
+                val proofPayload = transcriptHash + winPubKeyBytes
+                val signature = securityEngine.signWithIdentityKey(proofPayload)
+                val proofBase64 = Base64.encodeToString(signature, Base64.NO_WRAP)
+
+                val proofJson = JSONObject().apply {
+                    put("type", "HANDSHAKE_PROOF")
+                    put("nonce", Base64.encodeToString(clientNonce, Base64.NO_WRAP))
+                    put("proof", proofBase64)
+                }
+                transport.sendFrame(proofJson.toString().toByteArray(StandardCharsets.UTF_8))
+
+                // Read HANDSHAKE_VERIFIED response with backward compatibility fallback
+                val verifiedBytes = try {
+                    transport.readFrame()
+                } catch (e: Exception) {
+                    Log.w(TAG, "HANDSHAKE_VERIFIED read timed out or failed; fallback to legacy flow: ${e.message}")
+                    null
+                }
+
+                if (verifiedBytes != null) {
+                    try {
+                        val verifiedJson = JSONObject(String(verifiedBytes, StandardCharsets.UTF_8))
+                        val verifiedType = verifiedJson.optString("type")
+                        val verifiedStatus = verifiedJson.optString("status")
+                        if (verifiedType == "HANDSHAKE_VERIFIED" && verifiedStatus != "OK") {
+                            return PairingResult.Error("Windows host rejected handshake proof verification")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Non-JSON or unexpected HANDSHAKE_VERIFIED response; fallback to legacy flow: ${e.message}")
+                    }
                 }
 
                 Log.i(TAG, "Cryptographic identity verified against pinned Windows public key!")
