@@ -493,12 +493,20 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 return@launch
             }
 
+            val transcriptHash = pendingTranscriptHash
+            if (transcriptHash == null) {
+                Log.e(TAG, "Cannot confirm pairing: pending transcript hash is null.")
+                disconnectActiveSession("Transcript hash lost")
+                return@launch
+            }
+
             Log.i(TAG, "Finalizing pairing with Windows host for requestId=$requestId...")
             val result = pairingManager.finalizePairing(
                 transport = transport,
                 requestId = requestId,
                 userEnteredPin = userPin,
                 winEcPubKeyBytes = pendingWinEcPubKey,
+                transcriptHash = transcriptHash,
             )
 
             when (result) {
