@@ -177,29 +177,33 @@ class HandshakeAndTrustTest {
 
         val pinBytes = pin.toByteArray(Charsets.UTF_8)
         val reqIdBytes = requestId.toByteArray(Charsets.UTF_8)
+        val transcriptHash = MessageDigest.getInstance("SHA-512").digest("TRANSCRIPT_DATA".toByteArray())
 
+        // Calculate expectedPhoneProof exactly as Windows PairingManager.cs:
+        // ComputeSha512(pin, phoneSpkiDer, winSpkiDer, requestId, transcriptHash)
         val digest = MessageDigest.getInstance("SHA-512")
         digest.update(pinBytes)
-        digest.update(winPubKey)
         digest.update(phonePubKey)
+        digest.update(winPubKey)
         digest.update(reqIdBytes)
+        digest.update(transcriptHash)
         val phoneProof = digest.digest()
 
         assertNotNull(phoneProof)
         assertEquals(64, phoneProof.size)
 
-        val transcriptHash = MessageDigest.getInstance("SHA-512").digest("TRANSCRIPT_DATA".toByteArray())
-        val digestWithTranscript = MessageDigest.getInstance("SHA-512")
-        digestWithTranscript.update(pinBytes)
-        digestWithTranscript.update(winPubKey)
-        digestWithTranscript.update(phonePubKey)
-        digestWithTranscript.update(reqIdBytes)
-        digestWithTranscript.update(transcriptHash)
-        val proofWithTranscript = digestWithTranscript.digest()
+        // Verify that swapped public key order produces a non-matching hash
+        val digestSwappedKeys = MessageDigest.getInstance("SHA-512")
+        digestSwappedKeys.update(pinBytes)
+        digestSwappedKeys.update(winPubKey)
+        digestSwappedKeys.update(phonePubKey)
+        digestSwappedKeys.update(reqIdBytes)
+        digestSwappedKeys.update(transcriptHash)
+        val proofSwappedKeys = digestSwappedKeys.digest()
 
         assertFalse(
-            "SAS proof must match Windows specification without transcriptHash",
-            phoneProof.contentEquals(proofWithTranscript),
+            "SAS proof must match Windows key order (PhonePubKey before WinPubKey)",
+            phoneProof.contentEquals(proofSwappedKeys),
         )
     }
 }
