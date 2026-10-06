@@ -180,8 +180,8 @@ class HandshakeAndTrustTest {
 
         val digest = MessageDigest.getInstance("SHA-512")
         digest.update(pinBytes)
-        digest.update(phonePubKey)
         digest.update(winPubKey)
+        digest.update(phonePubKey)
         digest.update(reqIdBytes)
         val phoneProof = digest.digest()
 
@@ -191,8 +191,8 @@ class HandshakeAndTrustTest {
         val transcriptHash = MessageDigest.getInstance("SHA-512").digest("TRANSCRIPT_DATA".toByteArray())
         val digestWithTranscript = MessageDigest.getInstance("SHA-512")
         digestWithTranscript.update(pinBytes)
-        digestWithTranscript.update(phonePubKey)
         digestWithTranscript.update(winPubKey)
+        digestWithTranscript.update(phonePubKey)
         digestWithTranscript.update(reqIdBytes)
         digestWithTranscript.update(transcriptHash)
         val proofWithTranscript = digestWithTranscript.digest()
