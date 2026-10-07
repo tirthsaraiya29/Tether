@@ -209,7 +209,8 @@ class TetherPairingManager(
                 }
                 "PAIRING_PENDING" -> {
                     val reqId = respJson.optString("requestId", "REQ_UNKNOWN")
-                    Log.i(TAG, "Windows host returned PAIRING_PENDING (reqId=$reqId). User PIN entry required.")
+                    val safeReqId = sanitizeLog(reqId)
+                    Log.i(TAG, "Windows host returned PAIRING_PENDING (reqId=$safeReqId). User PIN entry required.")
                     return PairingResult.PairingPending(
                         requestId = reqId,
                         peerDeviceId = winDeviceId,
@@ -268,7 +269,8 @@ class TetherPairingManager(
                 put("requestId", requestId)
                 put("proof", phoneProofBase64)
             }
-            Log.i(TAG, "Sending PAIRING_CONFIRMED frame for requestId=$requestId...")
+            val safeReqId = sanitizeLog(requestId)
+            Log.i(TAG, "Sending PAIRING_CONFIRMED frame for requestId=$safeReqId...")
             transport.sendFrame(confirmedJson.toString().toByteArray(StandardCharsets.UTF_8))
 
             // 2. Read PAIRING_COMPLETE frame
