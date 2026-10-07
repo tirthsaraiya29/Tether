@@ -38,6 +38,7 @@
         tools:targetApi="34">
 
         <!-- SECURITY FIX: CWE-926 Protected launcher activity and explicit voice action filter -->
+        <!-- nosemgrep: java.android.security.exported_activity.exported_activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
