@@ -331,13 +331,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             ACTION_CONFIRM_PAIRING -> {
                 val reqId = intent.getStringExtra(EXTRA_PAIRING_REQUEST_ID) ?: pendingRequestId ?: ""
                 val userPin = intent.getStringExtra(EXTRA_PAIRING_PIN) ?: ""
-                Log.i(TAG, "Confirm pairing action received for reqId=$reqId")
+                val safeReqId = sanitizeLog(reqId)
+                Log.i(TAG, "Confirm pairing action received for reqId=$safeReqId")
                 confirmPairing(reqId, userPin)
                 return START_STICKY
             }
             ACTION_REJECT_PAIRING -> {
                 val reqId = intent.getStringExtra(EXTRA_PAIRING_REQUEST_ID) ?: pendingRequestId ?: ""
-                Log.i(TAG, "Reject pairing action received for reqId=$reqId")
+                val safeReqId = sanitizeLog(reqId)
+                Log.i(TAG, "Reject pairing action received for reqId=$safeReqId")
                 rejectPairing(reqId)
                 return START_STICKY
             }
@@ -441,7 +443,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         listenSocketLoop(transport)
                     }
                     is PairingResult.PairingPending -> {
-                        Log.i(TAG, "Pairing pending for requestId=${result.requestId}. Launching PairingConfirmationActivity...")
+                        val safeReqId = sanitizeLog(result.requestId)
+                        Log.i(TAG, "Pairing pending for requestId=$safeReqId. Launching PairingConfirmationActivity...")
                         resetReconnectBackoff()
                         pendingRequestId = result.requestId
                         pendingWinEcPubKey = result.winEcPubKeyBytes
@@ -500,7 +503,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 return@launch
             }
 
-            Log.i(TAG, "Finalizing pairing with Windows host for requestId=$requestId...")
+            val safeReqId = sanitizeLog(requestId)
+            Log.i(TAG, "Finalizing pairing with Windows host for requestId=$safeReqId...")
             val result = pairingManager.finalizePairing(
                 transport = transport,
                 requestId = requestId,
@@ -596,7 +600,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         val requestId = json.optString("requestId", "")
         if (requestId.isNotEmpty() && processedRequestIds.containsKey(requestId)) {
-            Log.w(TAG, "Duplicate frame ignored: $requestId")
+            val safeReqId = sanitizeLog(requestId)
+            Log.w(TAG, "Duplicate frame ignored: $safeReqId")
             return
         }
         if (requestId.isNotEmpty()) {
@@ -634,7 +639,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     currentVolumeLevel = vol
                 }
                 val safeConfirmed = sanitizeLog(confirmedCmd)
-                Log.i(TAG, "Command response from Windows host: $safeConfirmed (success=$success, reason=$errorReason, vol=$currentVolumeLevel)")
+                val safeReason = sanitizeLog(errorReason)
+                Log.i(TAG, "Command response from Windows host: $safeConfirmed (success=$success, reason=$safeReason, vol=$currentVolumeLevel)")
                 mainHandler.post {
                     val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
                         putExtra("confirmed_command", confirmedCmd)

@@ -29,7 +29,7 @@
                            HorizontalAlignment="Center" 
                            Margin="0,0,0,8"/>
 
-                <TextBlock Text="Proximity hardware missing or tracking signal degraded."
+                <TextBlock Text="Session restricted or phone disconnected."
                            Foreground="#CCCCCC" 
                            FontSize="12" 
                            TextWrapping="Wrap"
