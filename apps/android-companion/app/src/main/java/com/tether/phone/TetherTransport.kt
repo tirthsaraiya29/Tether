@@ -10,6 +10,7 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.SocketException
 import java.net.SocketTimeoutException
+import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.cert.CertificateException
@@ -19,6 +20,7 @@ import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
+import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 interface TetherTransport {
@@ -86,13 +88,18 @@ class TetherTlsTransport(
         Log.i(TAG, "TLS 1.3 Handshake complete! Protocol=${session.protocol}, CipherSuite=${session.cipherSuite}")
 
         val peerCerts = session.peerCertificates
-        if (peerCerts.isNotEmpty() && (peerCerts[0] is X509Certificate)) {
-            val cert = peerCerts[0] as X509Certificate
-            peerCertificate = cert
-            peerFingerprint = securityEngine.computePublicKeyFingerprint(cert.publicKey.encoded)
-            val safeFp = sanitizeLog(peerFingerprint)
-            Log.i(TAG, "Peer TLS Identity SHA-256 Fingerprint: $safeFp")
+        if (peerCerts.isEmpty() || peerCerts[0] !is X509Certificate) {
+            sslSock.close()
+            throw SSLException("No valid X.509 peer certificate presented during TLS handshake")
         }
+
+        val cert = peerCerts[0] as X509Certificate
+        cert.checkValidity()
+
+        peerCertificate = cert
+        peerFingerprint = securityEngine.computePublicKeyFingerprint(cert.publicKey.encoded)
+        val safeFp = sanitizeLog(peerFingerprint)
+        Log.i(TAG, "Peer TLS Identity SHA-256 Fingerprint: $safeFp")
 
         this.sslSocket = sslSock
         this.dataInputStream = DataInputStream(sslSock.inputStream)
@@ -102,6 +109,12 @@ class TetherTlsTransport(
 
     @SuppressLint("CustomX509TrustManager")
     private fun createSslContext(): SSLContext {
+        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
+
+        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+        tmf.init(null as KeyStore?)
+        val defaultTrustManager = tmf.trustManagers.filterIsInstance<X509TrustManager>().first()
+
         val pinningTrustManager = object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
                 throw CertificateException("Client certificates are not supported by this transport")
@@ -116,16 +129,6 @@ class TetherTlsTransport(
                 // Always validate certificate validity dates.
                 leaf.checkValidity()
 
-                // Validate self-signature or chain integrity
-                try {
-                    leaf.verify(leaf.publicKey)
-                } catch (_: Exception) {
-                    if (chain.size > 1) {
-                        chain[0].verify(chain[1].publicKey)
-                    }
-                }
-
-                val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
                 if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
                     val presented = leaf.publicKey.encoded
                     if (!MessageDigest.isEqual(pinnedBytes, presented)) {
@@ -139,11 +142,19 @@ class TetherTlsTransport(
                     if (pubKey == null || pubKey.encoded.isEmpty()) {
                         throw CertificateException("Invalid or empty server public key")
                     }
-                    Log.w(TAG, "No pinned Windows key yet. Allowing certificate for pairing handshake.")
+                    try {
+                        defaultTrustManager.checkServerTrusted(chain, authType)
+                    } catch (e: CertificateException) {
+                        try {
+                            leaf.verify(leaf.publicKey)
+                        } catch (ve: Exception) {
+                            throw CertificateException("Server certificate verification failed: ${ve.message}", ve)
+                        }
+                    }
                 }
             }
 
-            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            override fun getAcceptedIssuers(): Array<X509Certificate> = defaultTrustManager.acceptedIssuers
         }
 
         val sslContext = SSLContext.getInstance("TLSv1.3")

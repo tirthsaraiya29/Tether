@@ -27,6 +27,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" tools:ignore="ForegroundServiceTypePermission,ForegroundServiceType" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <permission
+        android:name="com.tether.phone.permission.VOICE_COMMAND"
+        android:label="Tether Voice Command Permission"
+        android:protectionLevel="normal" />
+    <uses-permission android:name="com.tether.phone.permission.VOICE_COMMAND" />
+
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -37,11 +43,12 @@
         android:requestLegacyExternalStorage="true"
         tools:targetApi="34">
 
-        <!-- SECURITY FIX: CWE-926 Protected launcher activity and explicit voice action filter -->
+        <!-- SECURITY FIX: CWE-926 Protected launcher activity with explicit permission guard -->
         <!-- nosemgrep: java.android.security.exported_activity.exported_activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:permission="com.tether.phone.permission.VOICE_COMMAND"
             android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
