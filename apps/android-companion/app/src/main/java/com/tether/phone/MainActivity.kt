@@ -201,17 +201,20 @@ class MainActivity : FragmentActivity() {
                     if (vol in 0..100) {
                         volumeLevel.intValue = vol
                     }
-                    lastCommandSuccess.value = success
-                    lastCommandReason.value = reason
-                    isCommandConfirmed.value = true
+                    val isVolumeCmd = confirmedCmd.startsWith("volume_") || confirmedCmd.startsWith("set_volume:") || confirmedCmd.startsWith("vol_")
+                    if (!isVolumeCmd) {
+                        lastCommandSuccess.value = success
+                        lastCommandReason.value = reason
+                        isCommandConfirmed.value = true
 
-                    dismissalJob?.cancel()
-                    dismissalJob = lifecycleScope.launch {
-                        delay(2000)
-                        activePendingCommand.value = null
-                        isCommandConfirmed.value = false
-                        lastCommandSuccess.value = null
-                        lastCommandReason.value = null
+                        dismissalJob?.cancel()
+                        dismissalJob = lifecycleScope.launch {
+                            delay(2000)
+                            activePendingCommand.value = null
+                            isCommandConfirmed.value = false
+                            lastCommandSuccess.value = null
+                            lastCommandReason.value = null
+                        }
                     }
                 }
             }
@@ -848,8 +851,12 @@ class MainActivity : FragmentActivity() {
 
         Log.d("TetherActivity", "Triggering LAN action: $action")
         dismissalJob?.cancel()
-        activePendingCommand.value = action
-        isCommandConfirmed.value = false
+
+        val isVolumeCmd = action.startsWith("volume_") || action.startsWith("set_volume:") || action.startsWith("vol_")
+        if (!isVolumeCmd) {
+            activePendingCommand.value = action
+            isCommandConfirmed.value = false
+        }
 
         val serviceIntent = Intent(this, TetherLanService::class.java).apply {
             this.action = action

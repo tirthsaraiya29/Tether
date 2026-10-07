@@ -34,7 +34,7 @@ interface TetherTransport {
 
 // SECURITY FIX: CWE-295 Improper Certificate Validation
 class TetherTlsTransport(
-    private val context: Context,
+    private val appContext: Context,
     private val securityEngine: ProductionSecurityEngine,
 ) : TetherTransport {
 
@@ -103,32 +103,43 @@ class TetherTlsTransport(
     @SuppressLint("CustomX509TrustManager")
     private fun createSslContext(): SSLContext {
         val pinningTrustManager = object : X509TrustManager {
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                throw CertificateException("Client certificates are not supported by this transport")
+            }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
                 if (chain.isNullOrEmpty()) {
-                    throw CertificateException("Empty server certificate chain")
+                    throw CertificateException("Server certificate chain is null or empty")
                 }
                 val leaf = chain[0]
 
                 // Always validate certificate validity dates.
                 leaf.checkValidity()
 
-                val pinnedBytes = securityEngine.getPinnedKeyDecrypted(context)
-                if (pinnedBytes == null || pinnedBytes.isEmpty()) {
-                    // First-time pairing: allow the connection so the custom handshake can
-                    // pin the key AFTER the user confirms the PIN. The custom handshake
-                    // is the only line of defense here; log loudly.
-                    Log.w(TAG, "No pinned Windows key yet. Allowing certificate for pairing handshake.")
-                    return
+                // Validate self-signature or chain integrity
+                try {
+                    leaf.verify(leaf.publicKey)
+                } catch (_: Exception) {
+                    if (chain.size > 1) {
+                        chain[0].verify(chain[1].publicKey)
+                    }
                 }
 
-                val presented = leaf.publicKey.encoded
-                if (!MessageDigest.isEqual(pinnedBytes, presented)) {
-                    throw CertificateException(
-                        "Windows certificate public key does not match pinned identity. " +
-                        "Presented FP=${securityEngine.computePublicKeyFingerprint(presented)}"
-                    )
+                val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
+                if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
+                    val presented = leaf.publicKey.encoded
+                    if (!MessageDigest.isEqual(pinnedBytes, presented)) {
+                        throw CertificateException(
+                            "Windows certificate public key does not match pinned identity. " +
+                            "Presented FP=${securityEngine.computePublicKeyFingerprint(presented)}"
+                        )
+                    }
+                } else {
+                    val pubKey = leaf.publicKey
+                    if (pubKey == null || pubKey.encoded.isEmpty()) {
+                        throw CertificateException("Invalid or empty server public key")
+                    }
+                    Log.w(TAG, "No pinned Windows key yet. Allowing certificate for pairing handshake.")
                 }
             }
 

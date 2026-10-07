@@ -58,6 +58,7 @@ public static class FrameCodec
         {
             int n;
             try { n = await s.ReadAsync(buf.AsMemory(off + read, len - read), ct); }
+            catch (OperationCanceledException) { throw; }
             catch { return false; }
             if (n <= 0) return false;
             read += n;

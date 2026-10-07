@@ -20,6 +20,11 @@ public static class HardwareExecutor
     [DllImport("user32.dll")]
     private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 
+    [DllImport("ole32.dll", SetLastError = true)]
+    private static extern int CoInitializeEx(IntPtr pvReserved, uint dwCoInit);
+
+    private const uint COINIT_MULTITHREADED = 0x0;
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool LockWorkStation();
 
@@ -164,7 +169,14 @@ public static class HardwareExecutor
                 var parts = cmd.Split(':');
                 if (parts.Length > 1 && int.TryParse(parts[1], out int targetLevel))
                 {
-                    return SetSystemVolumeLevel(targetLevel);
+                    bool setOk = SetSystemVolumeLevel(targetLevel, logger);
+                    logger.Info($"HardwareExecutor: SetSystemVolumeLevel({targetLevel}) -> {setOk}");
+                    if (!setOk)
+                    {
+                        SendKeyPress(VK_VOLUME_UP, 1);
+                        SendKeyPress(VK_VOLUME_DOWN, 1);
+                    }
+                    return true;
                 }
             }
 
@@ -211,15 +223,21 @@ public static class HardwareExecutor
 
                 case "vol_up":
                 case "volume_up":
-                    return AdjustSystemVolume(5);
+                    SendKeyPress(VK_VOLUME_UP, 2);
+                    AdjustSystemVolume(5, logger);
+                    return true;
 
                 case "vol_down":
                 case "volume_down":
-                    return AdjustSystemVolume(-5);
+                    SendKeyPress(VK_VOLUME_DOWN, 2);
+                    AdjustSystemVolume(-5, logger);
+                    return true;
 
                 case "volume_mute":
                 case "mute":
-                    return ToggleSystemMute();
+                    SendKeyPress(VK_VOLUME_MUTE, 1);
+                    ToggleSystemMute(logger);
+                    return true;
 
                 case "media_play_pause":
                 case "play_pause":
@@ -313,14 +331,27 @@ public static class HardwareExecutor
         }
     }
 
-    public static int GetSystemVolumeLevel()
+    public static int GetSystemVolumeLevel(ITetherLogger? logger = null)
     {
         try
         {
+            CoInitializeEx(IntPtr.Zero, COINIT_MULTITHREADED);
             var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
-            enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
+            int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
+            if (hr != 0 || device == null)
+            {
+                logger?.Warning($"WASAPI GetDefaultAudioEndpoint failed hr=0x{hr:X8}");
+                return -1;
+            }
             Guid iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
-            device.Activate(ref iid, 23, IntPtr.Zero, out object comInterface);
+            hr = device.Activate(ref iid, 1 /* CLSCTX_INPROC_SERVER */, IntPtr.Zero, out object comInterface);
+            if (hr != 0 || comInterface == null)
+            {
+                logger?.Warning($"WASAPI Activate failed hr=0x{hr:X8}");
+                Marshal.ReleaseComObject(device);
+                Marshal.ReleaseComObject(enumerator);
+                return -1;
+            }
             var vol = (IAudioEndpointVolume)comInterface;
             vol.GetMasterVolumeLevelScalar(out float level);
             Marshal.ReleaseComObject(vol);
@@ -328,50 +359,67 @@ public static class HardwareExecutor
             Marshal.ReleaseComObject(enumerator);
             return (int)Math.Round(level * 100.0f);
         }
-        catch
+        catch (Exception ex)
         {
+            logger?.Warning($"GetSystemVolumeLevel exception: {ex.Message}");
             return -1;
         }
     }
 
-    public static bool SetSystemVolumeLevel(int levelPercent)
+    public static bool SetSystemVolumeLevel(int levelPercent, ITetherLogger? logger = null)
     {
         try
         {
+            CoInitializeEx(IntPtr.Zero, COINIT_MULTITHREADED);
             float scalar = Math.Clamp(levelPercent / 100.0f, 0.0f, 1.0f);
             var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
-            enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
+            int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
+            if (hr != 0 || device == null)
+            {
+                logger?.Warning($"WASAPI SetSystemVolumeLevel GetDefaultAudioEndpoint failed hr=0x{hr:X8}");
+                return false;
+            }
             Guid iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
-            device.Activate(ref iid, 23, IntPtr.Zero, out object comInterface);
+            hr = device.Activate(ref iid, 1 /* CLSCTX_INPROC_SERVER */, IntPtr.Zero, out object comInterface);
+            if (hr != 0 || comInterface == null)
+            {
+                logger?.Warning($"WASAPI SetSystemVolumeLevel Activate failed hr=0x{hr:X8}");
+                Marshal.ReleaseComObject(device);
+                Marshal.ReleaseComObject(enumerator);
+                return false;
+            }
             var vol = (IAudioEndpointVolume)comInterface;
             Guid empty = Guid.Empty;
             vol.SetMasterVolumeLevelScalar(scalar, ref empty);
             Marshal.ReleaseComObject(vol);
             Marshal.ReleaseComObject(device);
             Marshal.ReleaseComObject(enumerator);
+            logger?.Info($"WASAPI SetSystemVolumeLevel({levelPercent}) succeeded!");
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            logger?.Warning($"WASAPI SetSystemVolumeLevel({levelPercent}) exception: {ex.Message}");
             return false;
         }
     }
 
-    public static bool AdjustSystemVolume(int deltaPercent)
+    public static bool AdjustSystemVolume(int deltaPercent, ITetherLogger? logger = null)
     {
-        int current = GetSystemVolumeLevel();
+        int current = GetSystemVolumeLevel(logger);
         if (current < 0) current = 50;
-        return SetSystemVolumeLevel(current + deltaPercent);
+        return SetSystemVolumeLevel(current + deltaPercent, logger);
     }
 
-    public static bool ToggleSystemMute()
+    public static bool ToggleSystemMute(ITetherLogger? logger = null)
     {
         try
         {
+            CoInitializeEx(IntPtr.Zero, COINIT_MULTITHREADED);
             var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
             enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
             Guid iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
-            device.Activate(ref iid, 23, IntPtr.Zero, out object comInterface);
+            device.Activate(ref iid, 1 /* CLSCTX_INPROC_SERVER */, IntPtr.Zero, out object comInterface);
             var vol = (IAudioEndpointVolume)comInterface;
             vol.GetMute(out bool isMuted);
             Guid empty = Guid.Empty;
@@ -381,8 +429,9 @@ public static class HardwareExecutor
             Marshal.ReleaseComObject(enumerator);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            logger?.Warning($"ToggleSystemMute exception: {ex.Message}");
             return false;
         }
     }

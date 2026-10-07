@@ -47,11 +47,7 @@ public class TrustStateManager
                 break;
 
             case TetherEventType.TRUST_DEGRADED:
-                if (_currentState == TrustState.TRUSTED)
-                {
-                    _currentState = TrustState.DEGRADED;
-                    _logger.Warning("Trust degraded due to proximity");
-                }
+                _logger.Info("TRUST_DEGRADED event ignored (BLE and proximity tracking removed).");
                 break;
 
             case TetherEventType.TRUST_LOST:

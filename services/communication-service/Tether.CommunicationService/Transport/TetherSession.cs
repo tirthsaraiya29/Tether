@@ -256,7 +256,7 @@ public sealed class TetherSession : IDisposable
         while (!ct.IsCancellationRequested)
         {
             using var readCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            readCts.CancelAfter(TimeSpan.FromSeconds(30));
+            readCts.CancelAfter(TimeSpan.FromSeconds(10));
 
             try
             {
@@ -274,7 +274,7 @@ public sealed class TetherSession : IDisposable
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                _logger.Debug($"TetherSession [{SessionId}]: 30s idle threshold reached. Sending PING probe...");
+                _logger.Debug($"TetherSession [{SessionId}]: 10s idle threshold reached. Sending PING probe...");
                 try
                 {
                     await FrameCodec.WriteJsonFrameAsync(stream, new { type = "PING", timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, ct);
