@@ -117,24 +117,11 @@ fun TetherAppScreen(
                 )
 
                 ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.header_hardware_directives),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = LiquidCyan,
-                        )
-                        if (grantedCapabilities.isNotEmpty()) {
-                            Text(
-                                text = grantedCapabilities.joinToString(" • "),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextMuted,
-                            )
-                        }
-                    }
+                    Text(
+                        text = stringResource(R.string.header_hardware_directives),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = LiquidCyan,
+                    )
                     Spacer(modifier = Modifier.height(28.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
