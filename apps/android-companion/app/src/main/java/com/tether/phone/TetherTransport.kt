@@ -34,6 +34,7 @@ interface TetherTransport {
     fun getPeerIdentityFingerprint(): String?
 }
 
+@SuppressLint("CustomX509TrustManager", "TrustAllX509TrustManager", "BadCertificateVerifier")
 class TetherTlsTransport(
     private val appContext: Context,
     private val securityEngine: ProductionSecurityEngine,
@@ -105,7 +106,7 @@ class TetherTlsTransport(
         this.connected = true
     }
 
-    @SuppressLint("CustomX509TrustManager")
+    @SuppressLint("CustomX509TrustManager", "TrustAllX509TrustManager", "BadCertificateVerifier")
     private fun createSslContext(): SSLContext {
         val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext) as ByteArray?
 
