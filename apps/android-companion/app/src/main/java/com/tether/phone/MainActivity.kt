@@ -515,7 +515,10 @@ class MainActivity : FragmentActivity() {
         super.onStart()
         if (isEnvironmentRestricted.value) return
 
-        if (!isAppLocked.value && !checkPermissions()) {
+        if (!isAppLocked.value && checkPermissions()) {
+            startLanService()
+            syncLanState()
+        } else if (!isAppLocked.value) {
             requestPermissions()
             return
         }
@@ -536,6 +539,15 @@ class MainActivity : FragmentActivity() {
         }
 
         applyWindowSecurityFlags()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isEnvironmentRestricted.value || isPanicActive.value) return
+        if (!isAppLocked.value && checkPermissions()) {
+            startLanService()
+            syncLanState()
+        }
     }
 
     override fun onStop() {
