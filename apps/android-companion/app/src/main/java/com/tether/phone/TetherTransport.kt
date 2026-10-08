@@ -10,6 +10,7 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.SocketException
 import java.net.SocketTimeoutException
+import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.cert.CertificateException
@@ -18,6 +19,7 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManager
 import javax.net.ssl.TrustManagerFactory
 
 
@@ -107,9 +109,6 @@ class TetherTlsTransport(
         val safeFp = sanitizeLog(peerFingerprint)
         Log.i(TAG, "Peer TLS Identity SHA-256 Fingerprint: $safeFp")
 
-        // Suppress CodeQL false positive: The TOFU pinning logic is handled by the custom TrustManager below.
-        // codeql[java/unsafe-cert-trust]
-        // codeql[java/insecure-trustmanager]
         this.sslSocket = sslSock
         this.dataInputStream = DataInputStream(sslSock.inputStream)
         this.dataOutputStream = DataOutputStream(sslSock.outputStream)
@@ -118,62 +117,96 @@ class TetherTlsTransport(
 
     @SuppressLint("CustomX509TrustManager")
     private fun createSslContext(): SSLContext {
-        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
+        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext) as ByteArray?
 
-        // Suppress CodeQL as we are implementing a bespoke Trust On First Use (TOFU) pinning model
-        // codeql[java/unsafe-cert-trust]
-        // codeql[java/insecure-trustmanager]
+        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+        tmf.init(null as KeyStore?)
+        val defaultTrustManager = tmf.trustManagers.filterIsInstance<javax.net.ssl.X509ExtendedTrustManager>().first()
+
         val pinningTrustManager = object : javax.net.ssl.X509ExtendedTrustManager() {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                throw CertificateException("Client certificates not supported")
+                throw CertificateException("Client certificates are not supported by this transport")
             }
 
-            // codeql[java/unsafe-cert-trust]
-            // codeql[java/insecure-trustmanager]
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                checkPinning(chain)
+                if (chain.isNullOrEmpty()) {
+                    throw CertificateException("Server certificate chain is null or empty")
+                }
+                var defaultPassed = false
+                try {
+                    defaultTrustManager.checkServerTrusted(chain, authType)
+                    defaultPassed = true
+                } catch (e: CertificateException) {
+                    if (pinnedBytes == null || pinnedBytes.isEmpty()) {
+                        throw e
+                    }
+                }
+                checkPinning(chain, defaultPassed)
             }
 
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
-                throw CertificateException("Client certificates not supported")
+                throw CertificateException("Client certificates are not supported by this transport")
             }
 
-            // codeql[java/unsafe-cert-trust]
-            // codeql[java/insecure-trustmanager]
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
-                checkPinning(chain)
+                if (chain.isNullOrEmpty()) {
+                    throw CertificateException("Server certificate chain is null or empty")
+                }
+                var defaultPassed = false
+                try {
+                    defaultTrustManager.checkServerTrusted(chain, authType, socket)
+                    defaultPassed = true
+                } catch (e: CertificateException) {
+                    if (pinnedBytes == null || pinnedBytes.isEmpty()) {
+                        throw e
+                    }
+                }
+                checkPinning(chain, defaultPassed)
             }
 
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
-                throw CertificateException("Client certificates not supported")
+                throw CertificateException("Client certificates are not supported by this transport")
             }
 
-            // codeql[java/unsafe-cert-trust]
-            // codeql[java/insecure-trustmanager]
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
-                checkPinning(chain)
+                if (chain.isNullOrEmpty()) {
+                    throw CertificateException("Server certificate chain is null or empty")
+                }
+                var defaultPassed = false
+                try {
+                    defaultTrustManager.checkServerTrusted(chain, authType, engine)
+                    defaultPassed = true
+                } catch (e: CertificateException) {
+                    if (pinnedBytes == null || pinnedBytes.isEmpty()) {
+                        throw e
+                    }
+                }
+                checkPinning(chain, defaultPassed)
             }
 
-            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            override fun getAcceptedIssuers(): Array<X509Certificate> = defaultTrustManager.acceptedIssuers
 
-            private fun checkPinning(chain: Array<out X509Certificate>?) {
-                if (chain.isNullOrEmpty()) throw CertificateException("Empty certificate chain")
+            private fun checkPinning(chain: Array<out X509Certificate>?, defaultPassed: Boolean) {
+                if (chain.isNullOrEmpty()) {
+                    throw CertificateException("Server certificate chain is null or empty")
+                }
                 val leaf = chain[0]
-                leaf.checkValidity() // Ensures cert is not expired
+                leaf.checkValidity()
 
-                // If we have a pinned key, strictly enforce it.
-                // If not, we accept it as TOFU (Trust On First Use) to allow the handshake to finish.
                 if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
-                    val presentedHash = MessageDigest.getInstance("SHA-256").digest(leaf.publicKey.encoded)
+                    val md = MessageDigest.getInstance("SHA-256")
+                    val presentedHash = md.digest(leaf.publicKey.encoded)
                     if (!MessageDigest.isEqual(pinnedBytes, presentedHash)) {
-                        throw CertificateException("Certificate pinning failed: key mismatch")
+                        throw CertificateException("Certificate pinning verification failed: public key fingerprint mismatch")
                     }
+                } else if (!defaultPassed) {
+                    throw CertificateException("Certificate validation failed and no pinned key is configured.")
                 }
             }
         }
 
         val sslContext = SSLContext.getInstance("TLSv1.3")
-        sslContext.init(null, arrayOf(pinningTrustManager), SecureRandom())
+        sslContext.init(null, arrayOf<TrustManager>(pinningTrustManager), SecureRandom())
         return sslContext
     }
 
