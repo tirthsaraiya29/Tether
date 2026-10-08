@@ -307,7 +307,6 @@ class MainActivity : FragmentActivity() {
                                 isConnected = isConnected.value,
                                 isPanicActive = isPanicActive.value,
                                 verificationStep = currentVerificationStep.value,
-                                selectedTimeoutMs = selectedTimeoutMs.longValue,
                                 trustState = trustState.value,
                                 phoneFingerprint = phoneFingerprint.value,
                                 windowsFingerprint = windowsFingerprint.value,
@@ -342,10 +341,6 @@ class MainActivity : FragmentActivity() {
                                 onSelectLaptop = { showLaptopSelectionDialog() },
                                 onTriggerStepVerification = { step ->
                                     triggerSystemBiometricPrompt(step)
-                                },
-                                onTimeoutChanged = { timeout ->
-                                    selectedTimeoutMs.longValue = timeout
-                                    prefs.edit { putLong(appLockTimeoutKey, timeout) }
                                 },
                                 onLaptopActionClick = { action ->
                                     val command = when (action) {
