@@ -19,6 +19,7 @@ import android.util.Log
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.ImageView
+import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -241,13 +242,15 @@ class MainActivity : FragmentActivity() {
 
         val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
         isPanicActive.value = prefs.getBoolean(panicStateKey, false)
-        // TEMPORARY FIX: Disable app lock on launch to avoid loop and allow immediate service start
-        isBiometricSettingEnabled.value = false
+
+        // Compulsory App Lock with 1 Minute Timeout (Gated background service start)
+        isBiometricSettingEnabled.value = true
+        selectedTimeoutMs.longValue = 60_000L
+        isAppLocked.value = true
+
         isPrivacyMaskEnabled.value = true
         isBlockScreenReadingEnabled.value = true
         isHideInRecentsEnabled.value = true
-
-        selectedTimeoutMs.longValue = prefs.getLong(appLockTimeoutKey, 0L)
 
         applyWindowSecurityFlags()
 
@@ -256,15 +259,6 @@ class MainActivity : FragmentActivity() {
         }
 
         requestBatteryOptimizationExemption()
-
-        val shouldStartImmediately = !isBiometricSettingEnabled.value
-        if (shouldStartImmediately) {
-            if (checkPermissions()) {
-                startLanService()
-            } else {
-                requestPermissions()
-            }
-        }
 
         lifecycleScope.launch(Dispatchers.IO) {
             val report = DeviceIntegrityRegistry(this@MainActivity).runAttestationPipeline()
@@ -276,12 +270,8 @@ class MainActivity : FragmentActivity() {
                     stopService(Intent(this@MainActivity, TetherLanService::class.java))
                 } else {
                     isEnvironmentRestricted.value = false
-                    if (isBiometricSettingEnabled.value) {
-                        isAppLocked.value = true
-                        authenticateForAppUnlock()
-                    } else {
-                        handleVoiceIntent(intent)
-                    }
+                    isAppLocked.value = true
+                    authenticateForAppUnlock()
                 }
             }
         }
@@ -325,7 +315,21 @@ class MainActivity : FragmentActivity() {
                                 isMuted = isMuted.value,
                                 grantedCapabilities = grantedCapabilities.value,
                                 onUnlockClick = {
-                                    triggerLanAction("unlock")
+                                    authenticateViaSystem(
+                                        title = getString(R.string.auth_unlock_title),
+                                        subtitle = getString(R.string.auth_unlock_subtitle),
+                                        allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL,
+                                    ) { success ->
+                                        if (success) {
+                                            runOnUiThread {
+                                                triggerLanAction("unlock")
+                                            }
+                                        } else {
+                                            runOnUiThread {
+                                                Toast.makeText(this@MainActivity, getString(R.string.toast_unauthorized), Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
                                 },
                                 onLockClick = { triggerLanAction("lock_now") },
                                 onPanicClick = {
