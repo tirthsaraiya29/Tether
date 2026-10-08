@@ -1,7 +1,6 @@
 package com.tether.phone
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -9,7 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.net.wifi.WifiManager
+import android.net.ConnectivityManager
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -37,7 +36,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
-import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.tether.phone.ui.components.*
@@ -48,10 +46,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 class MainActivity : FragmentActivity() {
     private val requestPermissionsCode = 101
@@ -209,7 +206,7 @@ class MainActivity : FragmentActivity() {
 
                         dismissalJob?.cancel()
                         dismissalJob = lifecycleScope.launch {
-                            delay(2000)
+                            delay(2.seconds)
                             activePendingCommand.value = null
                             isCommandConfirmed.value = false
                             lastCommandSuccess.value = null
@@ -614,19 +611,15 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    @SuppressLint("BatteryLife")
     private fun requestBatteryOptimizationExemption() {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
             Log.w("TetherUI", "App is not exempted from battery optimizations. Requesting exemption.")
             try {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = "package:$packageName".toUri()
-                }
-                batteryOptimizationLauncher.launch(intent)
-            } catch (_: Exception) {
                 val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                 batteryOptimizationLauncher.launch(intent)
+            } catch (e: Exception) {
+                Log.e("TetherUI", "Failed to launch battery settings: ${e.message}")
             }
         } else {
             Log.i("TetherUI", "App is already exempted from battery optimizations.")
@@ -640,20 +633,29 @@ class MainActivity : FragmentActivity() {
         isConnected.value = false
     }
 
-    @Suppress("DEPRECATION")
     private fun getWifiIpAddress(): String? {
         return try {
-            val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
-            val ipInt = wifiManager.connectionInfo.ipAddress
-            if (ipInt == 0) return null
-            String.format(
-                Locale.US,
-                "%d.%d.%d.%d",
-                ipInt and 0xFF,
-                (ipInt shr 8) and 0xFF,
-                (ipInt shr 16) and 0xFF,
-                (ipInt shr 24) and 0xFF,
-            )
+            val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as? ConnectivityManager
+            val activeNetwork = connectivityManager?.activeNetwork
+            if (activeNetwork != null) {
+                val linkProperties = connectivityManager.getLinkProperties(activeNetwork)
+                linkProperties?.linkAddresses?.forEach { linkAddress ->
+                    val addr = linkAddress.address
+                    if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                        return addr.hostAddress
+                    }
+                }
+            }
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return null
+            for (intf in interfaces) {
+                if (!intf.isUp || intf.isLoopback) continue
+                for (addr in intf.inetAddresses) {
+                    if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                        return addr.hostAddress
+                    }
+                }
+            }
+            null
         } catch (_: Exception) {
             null
         }

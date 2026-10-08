@@ -2,9 +2,9 @@ package com.tether.phone
 
 import android.app.KeyguardManager
 import android.content.Context
-import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
+import androidx.core.content.pm.PackageInfoCompat
 import java.io.File
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
@@ -29,13 +29,13 @@ class DeviceIntegrityRegistry(private val context: Context) {
             0,
         ) == 0
         if (usbDebuggingDisabled) finalScore += 10
-        val appIntegrityValid = verifyAppSignatureIntegrity()
+        val appIntegrityValid = verifyAppSignatureIntegrity() && fetchPlayIntegrityVerdict()
         if (appIntegrityValid) finalScore += 10
         val km = context.getSystemService(KeyguardManager::class.java)
         val secureLockscreenEnabled = km?.isDeviceSecure ?: false
         if (secureLockscreenEnabled) finalScore += 10
 
-        if (BuildConfig.DEBUG && finalScore < 85) {
+        if ((BuildConfig.DEBUG) && (finalScore < 85)) {
             finalScore = 100 // Allow full functionality in Debug builds
         }
 
@@ -96,15 +96,12 @@ class DeviceIntegrityRegistry(private val context: Context) {
             } catch (_: Exception) {}
         }
 
-        if (Build.TYPE.contains("userdebug") || Build.TYPE.contains("eng")) return true
-
-        return false
+        return Build.TYPE.contains("userdebug") || Build.TYPE.contains("eng")
     }
 
     /**
      * Optional Play Integrity verdict hook for production device attestation.
      */
-    @Suppress("unused")
     fun fetchPlayIntegrityVerdict(): Boolean {
         // TODO: Integrate Google Play Integrity API for hardware-backed remote attestation
         return true
@@ -112,22 +109,8 @@ class DeviceIntegrityRegistry(private val context: Context) {
 
     private fun verifyAppSignatureIntegrity(): Boolean {
         return try {
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                PackageManager.GET_SIGNING_CERTIFICATES
-            } else {
-                @Suppress("DEPRECATION")
-                PackageManager.GET_SIGNATURES
-            }
-
-            val packageInfo = context.packageManager.getPackageInfo(context.packageName, flags)
-            val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                packageInfo.signingInfo?.apkContentsSigners
-            } else {
-                @Suppress("DEPRECATION")
-                packageInfo.signatures
-            }
-
-            if (signatures.isNullOrEmpty()) return false
+            val signatures = PackageInfoCompat.getSignatures(context.packageManager, context.packageName)
+            if (signatures.isEmpty()) return false
 
             // SHA-256 fingerprint of the app signing public key
             val targetCertificatePin = "8C:D7:6D:6B:66:43:53:1F:11:37:90:FD:CD:34:73:95:AD:88:DE:A6:6E:B7:0C:4E:C8:33:F0:02:2E:3D:33:1B"

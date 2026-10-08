@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION", "unused")
-
 package com.tether.phone
 
 import android.app.AlarmManager
@@ -95,7 +93,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 .replace("\r", "\\r")
                 .replace("\n", "\\n")
                 .replace("\t", "\\t")
-                .filter { it.code in 0x20..0x7E || it.code > 0x7F }
+                .filter { (it.code in 0x20..0x7E) || (it.code > 0x7F) }
                 .take(256)
         }
     }
@@ -834,6 +832,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         .build()
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    fun getDiscoveredDevices(): List<DiscoveredDevice> = discoveryManager.getDiscoveredDevices()
 
     override fun onDestroy() {
         serviceJob.cancelChildren()

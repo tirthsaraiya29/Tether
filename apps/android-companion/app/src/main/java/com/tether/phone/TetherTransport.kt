@@ -73,9 +73,9 @@ class TetherTlsTransport(
         val sslSock = factory.createSocket(rawSocket, host, port, true) as SSLSocket
         sslSock.useClientMode = true
 
-        val sslParams = sslSock.getSSLParameters()
-        sslParams.setEndpointIdentificationAlgorithm("HTTPS")
-        sslSock.setSSLParameters(sslParams)
+        val sslParams = sslSock.sslParameters
+        sslParams.endpointIdentificationAlgorithm = "HTTPS"
+        sslSock.sslParameters = sslParams
 
         sslSock.enabledProtocols = arrayOf("TLSv1.3")
 
@@ -84,7 +84,7 @@ class TetherTlsTransport(
         Log.i(TAG, "TLS 1.3 Handshake complete! Protocol=${session.protocol}, CipherSuite=${session.cipherSuite}")
 
         val peerCerts = session.peerCertificates
-        if (peerCerts.isEmpty() || peerCerts[0] !is X509Certificate) {
+        if (peerCerts.isEmpty() || (peerCerts[0] !is X509Certificate)) {
             sslSock.close()
             throw SSLException("No valid X.509 peer certificate presented during TLS handshake")
         }
@@ -92,8 +92,8 @@ class TetherTlsTransport(
         val cert = peerCerts[0] as X509Certificate
         cert.checkValidity()
 
-        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext) as ByteArray?
-        if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
+        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
+        if ((pinnedBytes != null) && pinnedBytes.isNotEmpty()) {
             val md = MessageDigest.getInstance("SHA-256")
             val presentedHash = md.digest(cert.publicKey.encoded)
             if (!MessageDigest.isEqual(pinnedBytes, presentedHash)) {
@@ -115,7 +115,7 @@ class TetherTlsTransport(
 
     @SuppressLint("CustomX509TrustManager")
     private fun createSslContext(): SSLContext {
-        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext) as ByteArray?
+        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
 
         // Suppress CodeQL false positive: Implements Trust-On-First-Use (TOFU) pinning for peer-to-peer self-signed TLS connections.
         // codeql[java/unsafe-cert-trust]
@@ -157,7 +157,7 @@ class TetherTlsTransport(
                 // If a pinned key is saved (paired state), strictly enforce public key fingerprint matching.
                 // If pinnedBytes is null (unpaired / TOFU mode), allow TLS handshake to complete
                 // so executeHandshake() can verify the PIN and show the PairingConfirmationActivity popup.
-                if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
+                if ((pinnedBytes != null) && pinnedBytes.isNotEmpty()) {
                     val md = MessageDigest.getInstance("SHA-256")
                     val presentedHash = md.digest(leaf.publicKey.encoded)
                     if (!MessageDigest.isEqual(pinnedBytes, presentedHash)) {
