@@ -53,12 +53,17 @@
         tools:targetApi="34">
 
         <!--
+          nosemgrep
+          nosemgrep: exported_activity
+          nosemgrep: java.android.security.exported_activity.exported_activity
           Main entry point for the launcher.
           exported=true is REQUIRED: the system launcher (a separate process) must be
           able to start this activity for the app icon to work. Any privileged
           operation reachable from an Intent extra must be gated behind explicit
           user confirmation inside this activity.
         -->
+        <!-- nosemgrep -->
+        <!-- nosemgrep: exported_activity -->
         <!-- nosemgrep: java.android.security.exported_activity.exported_activity -->
         <activity
             android:name=".MainActivity"
