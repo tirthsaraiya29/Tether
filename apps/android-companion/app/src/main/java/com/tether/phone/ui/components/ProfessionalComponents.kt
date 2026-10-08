@@ -59,6 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -387,15 +388,19 @@ fun LiquidGlassAppLauncher(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 ) {
-                                    Text(text = icon, fontSize = 18.sp)
+                                    Text(text = icon, fontSize = 16.sp)
                                     Text(
                                         text = name,
                                         style = MaterialTheme.typography.labelMedium,
                                         color = TextPrimary,
                                         fontWeight = FontWeight.SemiBold,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                 }
                             }
