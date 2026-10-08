@@ -196,6 +196,7 @@ class TetherDiscoveryManager(
     @Synchronized
     fun startDiscovery() {
         stopDiscovery()
+        discoveredDevices.clear()
         Log.i(TAG, "Starting mDNS & UDP Broadcast discovery for service type $SERVICE_TYPE / UDP $UDP_DISCOVERY_PORT")
 
         acquireMulticastLock()
@@ -311,8 +312,9 @@ class TetherDiscoveryManager(
                                 port = tcpPort,
                             )
 
-                            if (!discoveredDevices.containsKey(devId)) {
-                                Log.i(TAG, "KDE-Connect Style UDP Broadcast Discovered Tether device: $device")
+                            val existing = discoveredDevices[devId]
+                            if (existing == null || existing.hostAddress != hostAddr || existing.port != tcpPort) {
+                                Log.i(TAG, "UDP Broadcast Discovered Tether device: $device")
                                 discoveredDevices[devId] = device
                                 mainHandler.post { externalListener?.onDeviceDiscovered(device) }
                             }
@@ -441,6 +443,7 @@ class TetherDiscoveryManager(
     fun stopDiscovery() {
         isSearching = false
         nsdResolveQueue.clear()
+        discoveredDevices.clear()
 
         try {
             udpSocket?.close()

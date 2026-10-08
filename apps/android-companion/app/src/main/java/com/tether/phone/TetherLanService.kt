@@ -366,7 +366,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             return
         }
         currentState = TransportState.DISCOVERING
-        Log.i(TAG, "Starting mDNS local discovery & advertisement...")
+        Log.i(TAG, "Starting mDNS local discovery & UDP advertisement...")
 
         discoveryManager.stopDiscovery()
         discoveryManager.startDiscovery()
@@ -375,15 +375,19 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val savedHostIp = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
             .getString("saved_host_ip", null)
         if (!savedHostIp.isNullOrBlank()) {
-            Log.i(TAG, "Attempting connection to saved target host IP: ${sanitizeLog(savedHostIp)}")
-            connectToHost(savedHostIp)
+            Log.i(TAG, "Attempting background connection to saved target host IP: ${sanitizeLog(savedHostIp)}")
+            serviceScope.launch {
+                if (currentState == TransportState.DISCOVERING) {
+                    connectToHost(savedHostIp)
+                }
+            }
         }
     }
 
     override fun onDeviceDiscovered(device: DiscoveredDevice) {
         val safeName = sanitizeLog(device.name)
         val safeAddr = sanitizeLog(device.hostAddress)
-        Log.i(TAG, "mDNS Discovered Tether device: $safeName at $safeAddr:${device.port}")
+        Log.i(TAG, "mDNS/UDP Discovered Tether device: $safeName at $safeAddr:${device.port}")
         if ((currentState == TransportState.DISCOVERING) || (currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED)) {
             currentState = TransportState.HOST_FOUND
             connectToHost(device.hostAddress, device.port)
@@ -407,6 +411,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     fun connectToHost(hostAddress: String, port: Int = TetherDiscoveryManager.DEFAULT_PORT) {
         if ((currentState == TransportState.AUTHENTICATING) || (currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) return
+        if (currentState == TransportState.CONNECTING && connectedHostAddress == hostAddress && connectedHostPort == port) {
+            Log.d(TAG, "Already connecting to ${sanitizeLog(hostAddress)}:$port. Skipping duplicate.")
+            return
+        }
 
         currentState = TransportState.CONNECTING
         connectedHostAddress = hostAddress
@@ -435,7 +443,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         }
                         trustState = TrustState.PAIRED
                         currentState = TransportState.AUTHENTICATED
-                        // SECURITY FIX: Negotiate capabilities based on peer advertisement
                         capabilityManager.negotiateCapabilities(result.peerCapabilities.ifBlank { "" })
 
                         mainHandler.postDelayed(
@@ -590,7 +597,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         } finally {
             if (activeTransport?.generationId == transport.generationId) {
                 disconnectActiveSession("Socket loop terminated")
-                scheduleReconnectWithBackoff("Socket loop ended")
+                Log.i(TAG, "Active session disconnected. Immediately restarting discovery for pinned Windows host...")
+                resetReconnectBackoff()
+                startDiscovery()
             }
         }
     }
@@ -718,6 +727,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         Log.w(TAG, "Disconnecting active session: $safeReason")
         try { activeTransport?.disconnect(reason) } catch (_: Exception) {}
         activeTransport = null
+        connectedHostAddress = null
         currentState = TransportState.DISCONNECTED
     }
 
@@ -733,13 +743,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         reconnectJob?.cancel()
         reconnectJob = serviceScope.launch {
             reconnectAttempt++
-            val baseDelayMs = 5000L
-            val expDelay = baseDelayMs * (1 shl (reconnectAttempt - 1).coerceAtMost(4))
-            val jitter = (Math.random() * 1000).toLong()
-            val delayMs = (expDelay + jitter).coerceAtMost(60000L)
-            Log.i(TAG, "Scheduling controlled reconnect attempt #$reconnectAttempt in ${delayMs}ms (reason: ${sanitizeLog(reason)})...")
+            val baseDelayMs = 3000L
+            val expDelay = baseDelayMs * (1 shl (reconnectAttempt - 1).coerceAtMost(3))
+            val jitter = (Math.random() * 500).toLong()
+            val delayMs = (expDelay + jitter).coerceAtMost(25000L)
+            Log.i(TAG, "Scheduling discovery refresh attempt #$reconnectAttempt in ${delayMs}ms (reason: ${sanitizeLog(reason)})...")
             delay(delayMs.milliseconds)
-            if (isActive && ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED))) {
+            if (isActive && ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED) || (currentState == TransportState.DISCOVERING))) {
                 startDiscovery()
             }
         }
@@ -752,7 +762,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun performHealthCheck() {
-        if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED)) {
+        if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED) || (currentState == TransportState.DISCOVERING)) {
+            Log.i(TAG, "Health check: Transport state is $currentState. Refreshing discovery...")
             startDiscovery()
         } else if ((currentState == TransportState.READY) || (currentState == TransportState.AUTHENTICATED)) {
             dispatchCommand("PING")
