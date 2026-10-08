@@ -144,20 +144,6 @@
 
                     <Border Style="{StaticResource FluentPanelCard}">
                         <StackPanel>
-                            <TextBlock Text="Cryptographic Companion Provisioning" FontFamily="{StaticResource FluentDisplayFontFamily}" FontSize="16" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,4"/>
-                            <TextBlock Text="Enter the public key payload from your paired companion peripheral device." FontFamily="{StaticResource FluentFontFamily}" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap"/>
-
-                            <TextBox x:Name="TxtPublicKey" Margin="0,0,0,12"/>
-
-                            <Grid>
-                                <Button Content="Provision Device" HorizontalAlignment="Left" Style="{StaticResource AccentButton}" Click="BtnProvision_Click"/>
-                                <TextBlock x:Name="TxtProvisionStatus" Text="Not provisioned" FontFamily="{StaticResource FluentFontFamily}" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-
-                    <Border Style="{StaticResource FluentPanelCard}">
-                        <StackPanel>
                             <TextBlock Text="Local Vault Cryptographic Subsystem" FontFamily="{StaticResource FluentDisplayFontFamily}" FontSize="16" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,4"/>
                             <TextBlock Text="Commit new domain authorization operational secrets into targeted memory." FontFamily="{StaticResource FluentFontFamily}" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap"/>
 

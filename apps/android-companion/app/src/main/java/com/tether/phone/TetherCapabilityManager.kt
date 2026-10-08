@@ -60,7 +60,7 @@ class TetherCapabilityManager {
             "cmd", "powershell", "powershell7", "wsl", "bash" -> TetherCapability.TERMINAL
             "copy", "paste", "clipboard" -> TetherCapability.CLIPBOARD
             "file_transfer", "file_list" -> TetherCapability.FILES
-            "volume_up", "volume_down", "brightness_up", "brightness_down", "media_play", "media_pause" -> TetherCapability.MEDIA
+            "volume_up", "volume_down", "volume_mute", "set_volume", "brightness_up", "brightness_down" -> TetherCapability.MEDIA
             else -> TetherCapability.MEDIA
         }
 
