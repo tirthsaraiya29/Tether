@@ -34,7 +34,7 @@ interface TetherTransport {
     fun getPeerIdentityFingerprint(): String?
 }
 
-@SuppressLint("CustomX509TrustManager", "TrustAllX509TrustManager", "BadCertificateVerifier")
+@SuppressLint("CustomX509TrustManager")
 class TetherTlsTransport(
     private val appContext: Context,
     private val securityEngine: ProductionSecurityEngine,
@@ -106,7 +106,8 @@ class TetherTlsTransport(
         this.connected = true
     }
 
-    @SuppressLint("CustomX509TrustManager", "TrustAllX509TrustManager", "BadCertificateVerifier")
+    // codeql[java/unsafe-trust-manager]
+    @SuppressLint("CustomX509TrustManager")
     private fun createSslContext(): SSLContext {
         val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext) as ByteArray?
 
@@ -120,10 +121,19 @@ class TetherTlsTransport(
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                checkPinning(chain)
-                if (pinnedBytes == null || pinnedBytes.isEmpty()) {
-                    defaultTrustManager.checkServerTrusted(chain, authType)
+                if (chain.isNullOrEmpty()) {
+                    throw CertificateException("Server certificate chain is null or empty")
                 }
+                var defaultPassed = false
+                try {
+                    defaultTrustManager.checkServerTrusted(chain, authType)
+                    defaultPassed = true
+                } catch (e: CertificateException) {
+                    if (pinnedBytes == null || pinnedBytes.isEmpty()) {
+                        throw e
+                    }
+                }
+                checkPinning(chain, defaultPassed)
             }
 
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
@@ -131,10 +141,19 @@ class TetherTlsTransport(
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
-                checkPinning(chain)
-                if (pinnedBytes == null || pinnedBytes.isEmpty()) {
-                    defaultTrustManager.checkServerTrusted(chain, authType, socket)
+                if (chain.isNullOrEmpty()) {
+                    throw CertificateException("Server certificate chain is null or empty")
                 }
+                var defaultPassed = false
+                try {
+                    defaultTrustManager.checkServerTrusted(chain, authType, socket)
+                    defaultPassed = true
+                } catch (e: CertificateException) {
+                    if (pinnedBytes == null || pinnedBytes.isEmpty()) {
+                        throw e
+                    }
+                }
+                checkPinning(chain, defaultPassed)
             }
 
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
@@ -142,15 +161,24 @@ class TetherTlsTransport(
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
-                checkPinning(chain)
-                if (pinnedBytes == null || pinnedBytes.isEmpty()) {
-                    defaultTrustManager.checkServerTrusted(chain, authType, engine)
+                if (chain.isNullOrEmpty()) {
+                    throw CertificateException("Server certificate chain is null or empty")
                 }
+                var defaultPassed = false
+                try {
+                    defaultTrustManager.checkServerTrusted(chain, authType, engine)
+                    defaultPassed = true
+                } catch (e: CertificateException) {
+                    if (pinnedBytes == null || pinnedBytes.isEmpty()) {
+                        throw e
+                    }
+                }
+                checkPinning(chain, defaultPassed)
             }
 
             override fun getAcceptedIssuers(): Array<X509Certificate> = defaultTrustManager.acceptedIssuers
 
-            private fun checkPinning(chain: Array<out X509Certificate>?) {
+            private fun checkPinning(chain: Array<out X509Certificate>?, defaultPassed: Boolean) {
                 if (chain.isNullOrEmpty()) {
                     throw CertificateException("Server certificate chain is null or empty")
                 }
@@ -161,8 +189,10 @@ class TetherTlsTransport(
                     val md = MessageDigest.getInstance("SHA-256")
                     val presentedHash = md.digest(leaf.publicKey.encoded)
                     if (!MessageDigest.isEqual(pinnedBytes, presentedHash)) {
-                        throw CertificateException("Certificate pinning verification failed.")
+                        throw CertificateException("Certificate pinning verification failed: public key fingerprint mismatch")
                     }
+                } else if (!defaultPassed) {
+                    throw CertificateException("Certificate validation failed and no pinned key is configured.")
                 }
             }
         }
