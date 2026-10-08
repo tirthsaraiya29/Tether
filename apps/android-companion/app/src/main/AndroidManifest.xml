@@ -43,26 +43,33 @@
         android:requestLegacyExternalStorage="true"
         tools:targetApi="34">
 
-        <!-- SECURITY FIX: CWE-926 Protected launcher activity with explicit permission guard -->
-        <!-- nosemgrep: java.android.security.exported_activity.exported_activity -->
+        <!-- Main entry point for the launcher -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:permission="com.tether.phone.permission.VOICE_COMMAND"
             android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="com.tether.phone.ACTION_VOICE_COMMAND" />
-                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- Protected alias for voice command intents -->
+        <!-- nosemgrep: java.android.security.exported_activity.exported_activity -->
+        <activity-alias
+            android:name=".VoiceCommandActivity"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:permission="com.tether.phone.permission.VOICE_COMMAND">
+            <intent-filter>
+                <action android:name="com.tether.phone.ACTION_VOICE_COMMAND" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
 
         <activity
             android:name=".PairingConfirmationActivity"
