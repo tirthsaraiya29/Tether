@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION", "unused")
-
 package com.tether.phone
 
 import android.content.Context
@@ -83,7 +81,7 @@ class NsdResolveQueue(private val nsdManager: NsdManager) {
     ) {
         synchronized(lock) {
             val name = serviceInfo.serviceName
-            if (queue.any { it.serviceInfo.serviceName == name }) {
+            if (queue.any { (serviceInfo) -> serviceInfo.serviceName == name }) {
                 Log.d("NsdResolveQueue", "Suppressing duplicate resolve enqueue for: $name")
                 return
             }
@@ -137,6 +135,7 @@ class NsdResolveQueue(private val nsdManager: NsdManager) {
         }
 
         try {
+            @Suppress("DEPRECATION")
             nsdManager.resolveService(item.serviceInfo, resolveListener)
         } catch (e: Exception) {
             Log.e("NsdResolveQueue", "Exception invoking resolveService: ${e.message}")
@@ -242,7 +241,7 @@ class TetherDiscoveryManager(
                 if (serviceInfo == null) return
                 Log.i(TAG, "Service lost: ${serviceInfo.serviceName}")
                 val lostName = serviceInfo.serviceName
-                val lostDevice = discoveredDevices.values.firstOrNull { it.name == lostName }
+                val lostDevice = discoveredDevices.values.firstOrNull { (_, name) -> name == lostName }
                 val deviceId = lostDevice?.deviceId ?: lostName
                 discoveredDevices.remove(deviceId)
                 mainHandler.post { externalListener?.onDeviceLost(deviceId) }
@@ -313,7 +312,7 @@ class TetherDiscoveryManager(
                             )
 
                             val existing = discoveredDevices[devId]
-                            if (existing == null || existing.hostAddress != hostAddr || existing.port != tcpPort) {
+                            if ((existing == null) || (existing.hostAddress != hostAddr) || (existing.port != tcpPort)) {
                                 Log.i(TAG, "UDP Broadcast Discovered Tether device: $device")
                                 discoveredDevices[devId] = device
                                 mainHandler.post { externalListener?.onDeviceDiscovered(device) }
@@ -338,6 +337,7 @@ class TetherDiscoveryManager(
         nsdResolveQueue.resolveOrEnqueue(
             serviceInfo,
             onResolved = { resolvedInfo ->
+                @Suppress("DEPRECATION")
                 val host: InetAddress? = resolvedInfo.host
                 val port: Int = resolvedInfo.port
                 val hostAddr = host?.hostAddress ?: return@resolveOrEnqueue
