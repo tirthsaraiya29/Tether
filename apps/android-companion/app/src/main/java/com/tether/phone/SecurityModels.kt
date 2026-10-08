@@ -23,6 +23,7 @@ enum class AppScreen {
     TELEMETRY_DASHBOARD,
     SECURITY_SETTINGS,
     LAPTOP_CONTROL,
+    SYSTEM_APPS,
     PAIRING
 }
 

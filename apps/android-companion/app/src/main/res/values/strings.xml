@@ -73,6 +73,7 @@
     <string name="nav_command_interface">COMMAND INTERFACE</string>
     <string name="nav_dashboard">DASHBOARD</string>
     <string name="nav_hardware">HARDWARE</string>
+    <string name="nav_apps">SYSTEM APPS</string>
     <string name="nav_security">SECURITY</string>
     <string name="nav_pair">PAIR</string>
     <string name="app_title">TETHER</string>

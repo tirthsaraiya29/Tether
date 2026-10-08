@@ -422,8 +422,6 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        val filter = IntentFilter(Intent.ACTION_USER_PRESENT)
-        ContextCompat.registerReceiver(this, screenUnlockReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
         ContextCompat.registerReceiver(
             this,
             lanStateReceiver,
@@ -500,14 +498,6 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private val screenUnlockReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == Intent.ACTION_USER_PRESENT) {
-                triggerLanAction("screen_unlock")
-            }
-        }
-    }
-
     override fun onStart() {
         super.onStart()
         if (isEnvironmentRestricted.value) return
@@ -561,7 +551,6 @@ class MainActivity : FragmentActivity() {
         try { unregisterReceiver(lanStateReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(commandConfirmedReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(hardwareMetricsReceiver) } catch (_: Exception) {}
-        try { unregisterReceiver(screenUnlockReceiver) } catch (_: Exception) {}
 
         executor.shutdown()
         super.onDestroy()

@@ -27,7 +27,7 @@ public sealed class CapabilityManager
                 or "pwr_shutdown" or "pwr_reboot" or "pwr_sleep" => "POWER_ELEVATED",
 
             "lock_now" or "panic" or "unlock" or "auth_ok"
-                or "reset_pending" or "screen_unlock" => "MEDIA",
+                or "reset_pending" => "MEDIA",
 
             "volume_up" or "volume_down" or "vol_up" or "vol_down"
                 or "volume_mute" or "mute" or "brightness_up" or "brightness_down"
