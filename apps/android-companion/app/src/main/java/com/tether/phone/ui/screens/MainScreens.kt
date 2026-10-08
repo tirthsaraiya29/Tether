@@ -122,11 +122,24 @@ fun TetherAppScreen(
                 )
 
                 ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = stringResource(R.string.header_hardware_directives),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = LiquidCyan,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.header_hardware_directives),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = LiquidCyan,
+                        )
+                        if (grantedCapabilities.isNotEmpty()) {
+                            Text(
+                                text = grantedCapabilities.joinToString(" • "),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextMuted,
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.height(28.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -462,7 +475,7 @@ fun LoadingSecurityStep(msg: String) {
         CircularProgressIndicator(
             color = LiquidCyan,
             strokeWidth = 1.5.dp,
-            modifier = Modifier.size(48.dp)
+            modifier = Modifier.size(48.dp),
         )
         Spacer(modifier = Modifier.height(20.dp))
         Text(
@@ -761,7 +774,7 @@ fun SettingsScreen(
 @Composable
 fun DeviceAttestationCard(context: Context) {
     val evaluator = remember { DeviceIntegrityRegistry(context = context) }
-    val report by produceState(
+    val report: IntegrityReport by produceState(
         initialValue = IntegrityReport(
             score = 100,
             tier = TrustTier.TRUSTED,
