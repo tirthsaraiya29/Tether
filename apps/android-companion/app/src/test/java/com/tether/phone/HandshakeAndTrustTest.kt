@@ -68,14 +68,10 @@ class HandshakeAndTrustTest {
 
     @Test
     fun testFirstPairingAcceptedAndPinned() {
-        var pinnedWindowsKey: ByteArray? = null
         val presentedWindowsKey = windowsKeyPair.public.encoded
         val userApprovedPairing = true
 
-        if (pinnedWindowsKey == null) {
-            assertTrue("Pairing approval must be true", userApprovedPairing)
-            pinnedWindowsKey = presentedWindowsKey
-        }
+        val pinnedWindowsKey = if (userApprovedPairing) presentedWindowsKey else null
 
         assertNotNull(pinnedWindowsKey)
         assertArrayEquals(presentedWindowsKey, pinnedWindowsKey)
@@ -83,16 +79,9 @@ class HandshakeAndTrustTest {
 
     @Test
     fun testFirstPairingDeniedRemainsNull() {
-        var pinnedWindowsKey: ByteArray? = null
         val userApprovedPairing = false
 
-        if (pinnedWindowsKey == null) {
-            if (!userApprovedPairing) {
-                // Pairing rejected by user
-            } else {
-                pinnedWindowsKey = windowsKeyPair.public.encoded
-            }
-        }
+        val pinnedWindowsKey: ByteArray? = if (userApprovedPairing) windowsKeyPair.public.encoded else null
 
         assertNull("Pinned key must remain null when pairing is rejected", pinnedWindowsKey)
     }
@@ -151,14 +140,16 @@ class HandshakeAndTrustTest {
         assertTrue("Terminal command must be allowed when capability is granted", capManager.canExecuteCommand("powershell"))
     }
 
+    fun isFrameWithinLimit(frameSize: Int, maxLimit: Int): Boolean = frameSize <= maxLimit
+
     @Test
     fun testFramingBoundaryLimits() {
         val maxFrameSize = 1024 * 1024 // 1 MB
         val validFrameSize = 512 * 1024 // 512 KB
         val oversizedFrameSize = 2 * 1024 * 1024 // 2 MB
 
-        assertTrue("Valid frame size must be within limit", validFrameSize <= maxFrameSize)
-        assertFalse("Oversized frame must exceed limit", oversizedFrameSize <= maxFrameSize)
+        assertTrue("Valid frame size must be within limit", isFrameWithinLimit(validFrameSize, maxFrameSize))
+        assertFalse("Oversized frame must exceed limit", isFrameWithinLimit(oversizedFrameSize, maxFrameSize))
     }
 
     @Test

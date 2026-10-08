@@ -481,7 +481,7 @@ fun LoadingSecurityStep(msg: String) {
         Text(
             text = msg,
             style = MaterialTheme.typography.labelMedium,
-            color = TextSecondary
+            color = TextSecondary,
         )
     }
 }
@@ -774,7 +774,7 @@ fun SettingsScreen(
 @Composable
 fun DeviceAttestationCard(context: Context) {
     val evaluator = remember { DeviceIntegrityRegistry(context = context) }
-    val report: IntegrityReport by produceState(
+    val report by produceState(
         initialValue = IntegrityReport(
             score = 100,
             tier = TrustTier.TRUSTED,
@@ -783,8 +783,8 @@ fun DeviceAttestationCard(context: Context) {
             isDevOptionsDisabled = true,
             isUsbDebuggingDisabled = true,
             isAppIntegrityValid = true,
-            isSecureLockscreenEnabled = true
-        )
+            isSecureLockscreenEnabled = true,
+        ),
     ) {
         withContext(Dispatchers.IO) { value = evaluator.runAttestationPipeline() }
     }

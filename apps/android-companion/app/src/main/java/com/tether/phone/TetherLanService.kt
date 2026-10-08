@@ -94,7 +94,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 .replace("\r", "\\r")
                 .replace("\n", "\\n")
                 .replace("\t", "\\t")
-                .filter { ((it.code in 0x20..0x7E) || (it.code > 0x7F)) }
+                .filter { (it.code in 0x20..0x7E) || it.code > 0x7F }
                 .take(256)
         }
     }
@@ -250,7 +250,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         serviceScope.launch {
             while (isActive) {
                 delay(60.seconds)
-                val cutoff = System.currentTimeMillis() - 5 * 60_000L
+                val cutoff = System.currentTimeMillis() - (5 * 60_000L)
                 val iterator = processedRequestIds.entries.iterator()
                 while (iterator.hasNext()) {
                     if (iterator.next().value < cutoff) iterator.remove()
@@ -416,7 +416,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     fun connectToHost(hostAddress: String, port: Int = TetherDiscoveryManager.DEFAULT_PORT) {
         if ((currentState == TransportState.AUTHENTICATING) || (currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) return
-        if (currentState == TransportState.CONNECTING && connectedHostAddress == hostAddress && connectedHostPort == port) {
+        if ((currentState == TransportState.CONNECTING) && (connectedHostAddress == hostAddress) && (connectedHostPort == port)) {
             Log.d(TAG, "Already connecting to ${sanitizeLog(hostAddress)}:$port. Skipping duplicate.")
             return
         }
@@ -656,7 +656,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val success = json.optBoolean("success", true)
                 val errorReason = json.optString("reason", "")
                 val vol = json.optInt("volumeLevel", -1)
-                if (vol in 0..100) {
+                if ((vol in 0..100)) {
                     currentVolumeLevel = vol
                 }
                 val safeConfirmed = sanitizeLog(confirmedCmd)
