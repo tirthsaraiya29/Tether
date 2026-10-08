@@ -493,11 +493,9 @@ fun BiometricVerificationStep(onVerify: () -> Unit) {
 
 @Composable
 fun SettingsScreen(
-    selectedTimeoutMs: Long,
     trustState: TrustState = TrustState.UNPAIRED,
     phoneFingerprint: String = "",
     windowsFingerprint: String = "",
-    onTimeoutChanged: (Long) -> Unit,
     onRestartServer: () -> Unit,
     onForgetTrust: () -> Unit = {}
 ) {
@@ -531,62 +529,6 @@ fun SettingsScreen(
 
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 100)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 100)) { it / 3 }
-        ) {
-            ProfessionalGlassSurface {
-                Column {
-                    Text(
-                        text = stringResource(R.string.label_lock_threshold),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = TextPrimary
-                    )
-                    Text(
-                        text = "Automated vault enforcement interval.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
-                    )
-                    Spacer(modifier = Modifier.height(28.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        listOf("IMM" to 0L, "1M" to 60000L, "5M" to 300000L).forEach { (l, v) ->
-                            val sel = selectedTimeoutMs == v
-                            Box(
-                                modifier = Modifier
-                                    .height(56.dp)
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(if (sel) LiquidCyan.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.04f))
-                                    .clickable { onTimeoutChanged(v) }
-                                    .border(
-                                        width = 0.5.dp,
-                                        color = if (sel) LiquidCyan else GlassBorder,
-                                        shape = RoundedCornerShape(16.dp)
-                                    )
-                                    .graphicsLayer {
-                                        scaleX = if (sel) 1.05f else 1f
-                                        scaleY = if (sel) 1.05f else 1f
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = l,
-                                    color = if (sel) LiquidCyan else TextSecondary,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(28.dp))
-        AnimatedVisibility(
-            visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 150)) + 
                     slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 150)) { it / 3 }
         ) {
@@ -614,10 +556,19 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.labelSmall,
                         color = LiquidCyan
                     )
+
+                    val (fpText, fpColor) = when {
+                        trustState == TrustState.PAIRED && windowsFingerprint.isNotBlank() && windowsFingerprint != "NONE" ->
+                            windowsFingerprint to IntegrityGreen
+                        trustState == TrustState.PAIRED ->
+                            "PAIRED & PINNED" to IntegrityGreen
+                        else ->
+                            "NOT PINNED" to AlertRed
+                    }
                     Text(
-                        text = if (windowsFingerprint.isNotBlank() && (windowsFingerprint != "NONE")) windowsFingerprint else "NOT PINNED",
+                        text = fpText,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (trustState == TrustState.PAIRED) IntegrityGreen else AlertRed,
+                        color = fpColor,
                         fontSize = 11.sp
                     )
 
@@ -714,28 +665,33 @@ fun SettingsScreen(
                     slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 400)) { it / 3 }
         ) {
             ProfessionalGlassSurface {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.label_service_control),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = stringResource(R.string.desc_restart_server),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
-                        )
-                    }
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.label_service_control),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = stringResource(R.string.desc_restart_server),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
                     Button(
                         onClick = onRestartServer,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan.copy(alpha = 0.12f)),
                         border = BorderStroke(width = 0.5.dp, color = LiquidCyan),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(14.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Text(text = stringResource(R.string.label_restart_server), color = LiquidCyan)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp), tint = LiquidCyan)
+                            Text(text = stringResource(R.string.label_restart_server), color = LiquidCyan, style = MaterialTheme.typography.labelLarge)
                         }
                     }
                 }
@@ -921,10 +877,18 @@ fun PairingScreen(
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondary
                     )
+                    val (fpText, fpColor) = when {
+                        trustState == TrustState.PAIRED && windowsFingerprint.isNotBlank() && windowsFingerprint != "NONE" ->
+                            windowsFingerprint to IntegrityGreen
+                        trustState == TrustState.PAIRED ->
+                            "PAIRED & PINNED" to IntegrityGreen
+                        else ->
+                            "NOT PINNED" to AlertRed
+                    }
                     Text(
-                        text = if (windowsFingerprint.isNotBlank() && (windowsFingerprint != "NONE")) windowsFingerprint else "NOT PINNED",
+                        text = fpText,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (trustState == TrustState.PAIRED) IntegrityGreen else AlertRed,
+                        color = fpColor,
                         fontSize = 11.sp
                     )
                 }
@@ -1079,7 +1043,6 @@ fun TetherNavigationShell(
     isConnected: Boolean,
     isPanicActive: Boolean,
     verificationStep: TrustVerificationStep,
-    selectedTimeoutMs: Long,
     trustState: TrustState = TrustState.UNPAIRED,
     phoneFingerprint: String = "",
     windowsFingerprint: String = "",
@@ -1092,7 +1055,6 @@ fun TetherNavigationShell(
     onSideRestore: () -> Unit,
     onSelectLaptop: () -> Unit,
     onTriggerStepVerification: (TrustVerificationStep) -> Unit,
-    onTimeoutChanged: (Long) -> Unit,
     onLaptopActionClick: (String) -> Unit,
     onShowQR: () -> Unit,
     onRestartServer: () -> Unit,
@@ -1226,11 +1188,9 @@ fun TetherNavigationShell(
                             onLanActionRequested = onLaptopActionClick
                         )
                         AppScreen.SECURITY_SETTINGS -> SettingsScreen(
-                            selectedTimeoutMs = selectedTimeoutMs,
                             trustState = trustState,
                             phoneFingerprint = phoneFingerprint,
                             windowsFingerprint = windowsFingerprint,
-                            onTimeoutChanged = onTimeoutChanged,
                             onRestartServer = onRestartServer,
                             onForgetTrust = onForgetTrust
                         )
