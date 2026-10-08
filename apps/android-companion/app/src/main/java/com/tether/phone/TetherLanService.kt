@@ -23,6 +23,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -93,7 +94,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 .replace("\r", "\\r")
                 .replace("\n", "\\n")
                 .replace("\t", "\\t")
-                .filter { (it.code in 0x20..0x7E) || (it.code > 0x7F) }
+                .filter { ((it.code in 0x20..0x7E) || (it.code > 0x7F)) }
                 .take(256)
         }
     }
@@ -234,7 +235,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             Log.e(TAG, "Failed registering Wi-Fi NetworkCallback: ${e.message}")
         }
 
-        registerReceiver(powerSaveReceiver, IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED))
+        ContextCompat.registerReceiver(
+            this,
+            powerSaveReceiver,
+            IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         scheduleAlarmForHealthCheck()
         startRequestIdCleanup()
     }
@@ -243,7 +249,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private fun startRequestIdCleanup() {
         serviceScope.launch {
             while (isActive) {
-                delay(60_000L)
+                delay(60.seconds)
                 val cutoff = System.currentTimeMillis() - 5 * 60_000L
                 val iterator = processedRequestIds.entries.iterator()
                 while (iterator.hasNext()) {
@@ -383,9 +389,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     override fun onDeviceDiscovered(device: DiscoveredDevice) {
+        val activeCount = getDiscoveredDevices().size
         val safeName = sanitizeLog(device.name)
         val safeAddr = sanitizeLog(device.hostAddress)
-        Log.i(TAG, "mDNS/UDP Discovered Tether device: $safeName at $safeAddr:${device.port}")
+        Log.i(TAG, "mDNS/UDP Discovered Tether device ($activeCount active): $safeName at $safeAddr:${device.port}")
         if ((currentState == TransportState.DISCOVERING) || (currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED)) {
             currentState = TransportState.HOST_FOUND
             connectToHost(device.hostAddress, device.port)
@@ -464,10 +471,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         currentState = TransportState.PAIRING_REQUIRED
 
                         val promptIntent = Intent(this@TetherLanService, PairingConfirmationActivity::class.java).apply {
+                            action = ACTION_SHOW_PAIRING_PROMPT
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                             putExtra(EXTRA_PAIRING_REQUEST_ID, result.requestId)
                             putExtra(EXTRA_PEER_DEVICE_NAME, result.peerName)
                             putExtra(EXTRA_WINDOWS_FINGERPRINT, result.peerFingerprint)
+                            putExtra(EXTRA_PAIRING_SAS_CODE, result.peerFingerprint.take(6))
                         }
                         startActivity(promptIntent)
                     }
@@ -606,8 +615,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         // SECURITY FIX: CWE-400 Bounded processedRequestIds map
         if (processedRequestIds.size > 10_000) {
             Log.w(TAG, "processedRequestIds exceeded cap; clearing oldest half")
-            val sorted = processedRequestIds.entries.sortedBy { it.value }
-            sorted.take(sorted.size / 2).forEach { processedRequestIds.remove(it.key) }
+            val sorted = processedRequestIds.entries.sortedBy { (_, timestamp) -> timestamp }
+            sorted.take(sorted.size / 2).forEach { (key, _) -> processedRequestIds.remove(key) }
         }
 
         val requestId = json.optString("requestId", "")
