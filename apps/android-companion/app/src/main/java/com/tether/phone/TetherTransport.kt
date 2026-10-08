@@ -72,7 +72,7 @@ class TetherTlsTransport(
         sslSock.useClientMode = true
 
         val sslParams = sslSock.sslParameters
-        sslParams.endpointIdentificationAlgorithm = "HTTPS"
+        sslParams.setEndpointIdentificationAlgorithm("HTTPS")
         sslSock.sslParameters = sslParams
 
         sslSock.enabledProtocols = arrayOf("TLSv1.3")
@@ -163,9 +163,7 @@ class TetherTlsTransport(
 
     override fun sendFrame(data: ByteArray) {
         if (!isConnected()) throw IllegalStateException("Transport disconnected")
-
         if (data.size > MAX_FRAME_SIZE) throw IllegalArgumentException("Frame size ${data.size} exceeds maximum limit of $MAX_FRAME_SIZE bytes")
-
         val dos = dataOutputStream ?: throw IllegalStateException("OutputStream null")
         synchronized(dos) {
             dos.writeInt(data.size)
