@@ -174,7 +174,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         override fun onAvailable(network: Network) {
             Log.i(TAG, "Wi-Fi network AVAILABLE. Resetting reconnect backoff...")
             resetReconnectBackoff()
-            if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED)) {
+            if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED) || (currentState == TransportState.DISCOVERING)) {
                 startDiscovery()
             }
         }
@@ -279,7 +279,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
             "ACTION_GET_STATUS" -> {
                 notifyStateToInterface()
-                if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED)) {
+                if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED) || (currentState == TransportState.DISCOVERING)) {
+                    resetReconnectBackoff()
                     startDiscovery()
                 }
                 return START_STICKY
@@ -367,6 +368,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         currentState = TransportState.DISCOVERING
         Log.i(TAG, "Starting mDNS local discovery & advertisement...")
 
+        discoveryManager.stopDiscovery()
         discoveryManager.startDiscovery()
         discoveryManager.advertiseService()
 
@@ -382,7 +384,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val safeName = sanitizeLog(device.name)
         val safeAddr = sanitizeLog(device.hostAddress)
         Log.i(TAG, "mDNS Discovered Tether device: $safeName at $safeAddr:${device.port}")
-        if ((currentState == TransportState.DISCOVERING) || (currentState == TransportState.DISCONNECTED)) {
+        if ((currentState == TransportState.DISCOVERING) || (currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED)) {
             currentState = TransportState.HOST_FOUND
             connectToHost(device.hostAddress, device.port)
         }
@@ -428,6 +430,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     is PairingResult.Authenticated -> {
                         Log.i(TAG, "Successfully authenticated with Windows host ${sanitizeLog(result.peerDeviceId)}!")
                         resetReconnectBackoff()
+                        getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
+                            putString("saved_host_ip", hostAddress)
+                        }
                         trustState = TrustState.PAIRED
                         currentState = TransportState.AUTHENTICATED
                         // SECURITY FIX: Negotiate capabilities based on peer advertisement

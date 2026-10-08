@@ -195,11 +195,6 @@ class TetherDiscoveryManager(
 
     @Synchronized
     fun startDiscovery() {
-        if (isSearching) {
-            Log.d(TAG, "Discovery already active. Skipping duplicate start.")
-            return
-        }
-
         stopDiscovery()
         Log.i(TAG, "Starting mDNS & UDP Broadcast discovery for service type $SERVICE_TYPE / UDP $UDP_DISCOVERY_PORT")
 
