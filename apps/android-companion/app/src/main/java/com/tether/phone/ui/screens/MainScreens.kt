@@ -116,11 +116,6 @@ fun TetherAppScreen(
                     enabled = isConnected,
                 )
 
-                LiquidGlassAppLauncher(
-                    onLaunchApp = onLanActionRequested,
-                    enabled = isConnected,
-                )
-
                 ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1045,10 +1040,40 @@ fun LaptopControlScreen(
                 enabled = isConnected
             )
         }
+    }
+}
+
+@Composable
+fun SystemAppsScreen(
+    isConnected: Boolean,
+    onLanActionRequested: (String) -> Unit
+) {
+    val scrollState = rememberScrollState()
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(600)) + slideInVertically(animationSpec = tween(600)) { -it / 4 }
+        ) {
+            Text(
+                text = stringResource(R.string.nav_apps),
+                style = MaterialTheme.typography.labelLarge,
+                color = LiquidCyan,
+                letterSpacing = 4.sp
+            )
+        }
 
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(600, delayMillis = 200)) + slideInVertically(animationSpec = tween(600, delayMillis = 200)) { it / 3 }
+            enter = fadeIn(animationSpec = tween(600, delayMillis = 100)) + slideInVertically(animationSpec = tween(600, delayMillis = 100)) { it / 3 }
         ) {
             LiquidGlassAppLauncher(
                 onLaunchApp = onLanActionRequested,
@@ -1125,6 +1150,7 @@ fun TetherNavigationShell(
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
                             Triple(stringResource(R.string.nav_hardware), Icons.Default.Menu, AppScreen.LAPTOP_CONTROL),
+                            Triple(stringResource(R.string.nav_apps), Icons.Default.Refresh, AppScreen.SYSTEM_APPS),
                             Triple(stringResource(R.string.nav_security), Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
                             Triple(stringResource(R.string.nav_pair), Icons.Default.QrCode, AppScreen.PAIRING),
                         )
@@ -1225,6 +1251,10 @@ fun TetherNavigationShell(
                             isConnected = isConnected,
                             volumeLevel = volumeLevel,
                             isMuted = isMuted,
+                            onLanActionRequested = onLaptopActionClick
+                        )
+                        AppScreen.SYSTEM_APPS -> SystemAppsScreen(
+                            isConnected = isConnected,
                             onLanActionRequested = onLaptopActionClick
                         )
                         AppScreen.PAIRING -> PairingScreen(

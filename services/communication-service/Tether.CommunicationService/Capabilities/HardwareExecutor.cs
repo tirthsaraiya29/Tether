@@ -182,9 +182,6 @@ public static class HardwareExecutor
                 case "unlock":
                     return SignalUnlockEvent(@"Global\TetherPhoneAppUnlocked", logger);
 
-                case "screen_unlock":
-                    return SignalUnlockEvent(@"Global\TetherPhoneScreenUnlocked", logger);
-
                 case "lock":
                 case "lock_now":
                     bool locked = LockWorkStation();
