@@ -34,7 +34,6 @@ interface TetherTransport {
     fun getPeerIdentityFingerprint(): String?
 }
 
-// SECURITY FIX: CWE-295 Improper Certificate Validation
 class TetherTlsTransport(
     private val appContext: Context,
     private val securityEngine: ProductionSecurityEngine,
@@ -73,8 +72,6 @@ class TetherTlsTransport(
         sslSock.useClientMode = true
 
         val sslParams = sslSock.sslParameters
-        // SECURITY FIX: CWE-295 Enforce hostname verification.
-        // Note: Public key pinning is also enforced in createSslContext() once paired.
         sslParams.endpointIdentificationAlgorithm = "HTTPS"
         sslSock.sslParameters = sslParams
 
@@ -125,32 +122,16 @@ class TetherTlsTransport(
                     throw CertificateException("Server certificate chain is null or empty")
                 }
                 val leaf = chain[0]
-
-                // Always validate certificate validity dates.
                 leaf.checkValidity()
 
                 if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
-                    val presented = leaf.publicKey.encoded
-                    if (!MessageDigest.isEqual(pinnedBytes, presented)) {
-                        throw CertificateException(
-                            "Windows certificate public key does not match pinned identity. " +
-                            "Presented FP=${securityEngine.computePublicKeyFingerprint(presented)}"
-                        )
+                    val md = MessageDigest.getInstance("SHA-256")
+                    val presentedHash = md.digest(leaf.publicKey.encoded)
+                    if (!MessageDigest.isEqual(pinnedBytes, presentedHash)) {
+                        throw CertificateException("Certificate pinning verification failed.")
                     }
                 } else {
-                    val pubKey = leaf.publicKey
-                    if (pubKey == null || pubKey.encoded.isEmpty()) {
-                        throw CertificateException("Invalid or empty server public key")
-                    }
-                    try {
-                        defaultTrustManager.checkServerTrusted(chain, authType)
-                    } catch (e: CertificateException) {
-                        try {
-                            leaf.verify(leaf.publicKey)
-                        } catch (ve: Exception) {
-                            throw CertificateException("Server certificate verification failed: ${ve.message}", ve)
-                        }
-                    }
+                    defaultTrustManager.checkServerTrusted(chain, authType)
                 }
             }
 
