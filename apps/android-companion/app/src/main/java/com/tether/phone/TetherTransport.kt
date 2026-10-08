@@ -21,7 +21,7 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
 import javax.net.ssl.TrustManagerFactory
-import javax.net.ssl.X509TrustManager
+
 
 interface TetherTransport {
     val generationId: Long
@@ -68,17 +68,18 @@ class TetherTlsTransport(
         val sslContext = createSslContext()
         val factory: SSLSocketFactory = sslContext.socketFactory
 
-        val sslSock = factory.createSocket() as SSLSocket
+        val rawSocket = java.net.Socket()
+        rawSocket.connect(InetSocketAddress(host, port), timeoutMs)
+        rawSocket.soTimeout = 15000
+
+        val sslSock = factory.createSocket(rawSocket, host, port, true) as SSLSocket
         sslSock.useClientMode = true
 
         val sslParams = sslSock.sslParameters
-        sslParams.setEndpointIdentificationAlgorithm("HTTPS")
+        sslParams.endpointIdentificationAlgorithm = "HTTPS"
         sslSock.sslParameters = sslParams
 
         sslSock.enabledProtocols = arrayOf("TLSv1.3")
-
-        sslSock.connect(InetSocketAddress(host, port), timeoutMs)
-        sslSock.soTimeout = 15000
 
         sslSock.startHandshake()
         val session = sslSock.session
@@ -106,18 +107,49 @@ class TetherTlsTransport(
 
     @SuppressLint("CustomX509TrustManager")
     private fun createSslContext(): SSLContext {
-        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
+        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext) as ByteArray?
 
         val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
         tmf.init(null as KeyStore?)
-        val defaultTrustManager = tmf.trustManagers.filterIsInstance<X509TrustManager>().first()
+        val defaultTrustManager = tmf.trustManagers.filterIsInstance<javax.net.ssl.X509ExtendedTrustManager>().first()
 
-        val pinningTrustManager = object : X509TrustManager {
+        val pinningTrustManager = object : javax.net.ssl.X509ExtendedTrustManager() {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
                 throw CertificateException("Client certificates are not supported by this transport")
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                checkPinning(chain)
+                if (pinnedBytes == null || pinnedBytes.isEmpty()) {
+                    defaultTrustManager.checkServerTrusted(chain, authType)
+                }
+            }
+
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
+                throw CertificateException("Client certificates are not supported by this transport")
+            }
+
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
+                checkPinning(chain)
+                if (pinnedBytes == null || pinnedBytes.isEmpty()) {
+                    defaultTrustManager.checkServerTrusted(chain, authType, socket)
+                }
+            }
+
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
+                throw CertificateException("Client certificates are not supported by this transport")
+            }
+
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
+                checkPinning(chain)
+                if (pinnedBytes == null || pinnedBytes.isEmpty()) {
+                    defaultTrustManager.checkServerTrusted(chain, authType, engine)
+                }
+            }
+
+            override fun getAcceptedIssuers(): Array<X509Certificate> = defaultTrustManager.acceptedIssuers
+
+            private fun checkPinning(chain: Array<out X509Certificate>?) {
                 if (chain.isNullOrEmpty()) {
                     throw CertificateException("Server certificate chain is null or empty")
                 }
@@ -130,12 +162,8 @@ class TetherTlsTransport(
                     if (!MessageDigest.isEqual(pinnedBytes, presentedHash)) {
                         throw CertificateException("Certificate pinning verification failed.")
                     }
-                } else {
-                    defaultTrustManager.checkServerTrusted(chain, authType)
                 }
             }
-
-            override fun getAcceptedIssuers(): Array<X509Certificate> = defaultTrustManager.acceptedIssuers
         }
 
         val sslContext = SSLContext.getInstance("TLSv1.3")
