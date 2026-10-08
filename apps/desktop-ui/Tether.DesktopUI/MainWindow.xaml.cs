@@ -203,31 +203,6 @@ namespace Tether.DesktopUI
 
         private void CheckProvisioningStatus()
         {
-            try
-            {
-                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider");
-                if (key != null)
-                {
-                    var provisioned = key.GetValue("Provisioned") as int?;
-                    if (provisioned == 1)
-                    {
-                        var storedKey = key.GetValue("TrustedPhonePublicKey") as string;
-                        if (!string.IsNullOrEmpty(storedKey))
-                        {
-                            TxtProvisionStatus.Text = "✓ Phone paired";
-                            TxtProvisionStatus.Foreground = GetFluentStatusBrush("StatusHealthyBrush", Color.FromRgb(106, 237, 126));
-                            return;
-                        }
-                    }
-                }
-                TxtProvisionStatus.Text = "✗ Not paired";
-                TxtProvisionStatus.Foreground = GetFluentStatusBrush("StatusCriticalBrush", Color.FromRgb(255, 153, 164));
-            }
-            catch
-            {
-                TxtProvisionStatus.Text = "✗ Error reading pairing status";
-                TxtProvisionStatus.Foreground = GetFluentStatusBrush("StatusCriticalBrush", Color.FromRgb(255, 153, 164));
-            }
         }
 
         private async Task RunTelemetryListenerAsync()
@@ -548,37 +523,6 @@ namespace Tether.DesktopUI
             };
             DispatchServiceBusPipe(evt);
             LogTerminal("⚠ OVERRIDE // System lockdown event dispatched.");
-        }
-
-        private void BtnProvision_Click(object sender, RoutedEventArgs e)
-        {
-            string key = TxtPublicKey.Text.Trim();
-            if (string.IsNullOrEmpty(key))
-            {
-                LogTerminal("❌ PAIRING // Public key cannot be empty.");
-                return;
-            }
-
-            try
-            {
-                Convert.FromBase64String(key);
-            }
-            catch
-            {
-                LogTerminal("❌ PAIRING // Invalid base64 public key format.");
-                return;
-            }
-
-            var evt = new TetherEvent
-            {
-                EventType = TetherEventType.PROVISION_PHONE,
-                Source = "DesktopUI",
-                PayloadJson = $"{{\"PublicKeyBase64\":\"{key}\"}}"
-            };
-            DispatchServiceBusPipe(evt);
-            LogTerminal("✓ PAIRING // Provisioning request sent to service.");
-            TxtPublicKey.Clear();
-            CheckProvisioningStatus();
         }
 
         private void BtnCommitVault_Click(object sender, RoutedEventArgs e)

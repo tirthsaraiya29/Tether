@@ -11,9 +11,6 @@ public static class HardwareExecutor
     private const byte VK_VOLUME_MUTE = 0xAD;
     private const byte VK_VOLUME_DOWN = 0xAE;
     private const byte VK_VOLUME_UP = 0xAF;
-    private const byte VK_MEDIA_NEXT_TRACK = 0xB0;
-    private const byte VK_MEDIA_PREV_TRACK = 0xB1;
-    private const byte VK_MEDIA_PLAY_PAUSE = 0xCD;
 
     private const uint KEYEVENTF_KEYUP = 0x0002;
 
@@ -237,21 +234,6 @@ public static class HardwareExecutor
                 case "mute":
                     SendKeyPress(VK_VOLUME_MUTE, 1);
                     ToggleSystemMute(logger);
-                    return true;
-
-                case "media_play_pause":
-                case "play_pause":
-                    SendKeyPress(VK_MEDIA_PLAY_PAUSE, 1);
-                    return true;
-
-                case "media_next":
-                case "next":
-                    SendKeyPress(VK_MEDIA_NEXT_TRACK, 1);
-                    return true;
-
-                case "media_prev":
-                case "prev":
-                    SendKeyPress(VK_MEDIA_PREV_TRACK, 1);
                     return true;
 
                 case "bright_up":

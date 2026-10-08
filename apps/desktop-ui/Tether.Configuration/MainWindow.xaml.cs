@@ -445,55 +445,5 @@ namespace Tether.Configuration
                 }
             }
         }
-
-        private void BtnSavePhoneKey_Click(object sender, RoutedEventArgs e)
-        {
-            if (string.IsNullOrWhiteSpace(TxtPhonePublicKey.Text))
-            {
-                MessageBox.Show("Public key cannot be empty.",
-                    "Validation Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                return;
-            }
-
-            try
-            {
-                using RegistryKey? key = Registry.LocalMachine.CreateSubKey(
-                    @"SOFTWARE\Tether\CredentialProvider",
-                    true);
-
-                if (key == null)
-                {
-                    throw new InvalidOperationException("Failed to create/open registry key.");
-                }
-
-                key.SetValue("PhonePublicKeyBase64", TxtPhonePublicKey.Text.Trim(), RegistryValueKind.String);
-
-                MessageBox.Show(
-                    "Phone public key stored successfully.\n\n" +
-                    "Restart the Tether Communication Service for changes to take effect.",
-                    "Success",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-            }
-            catch (UnauthorizedAccessException)
-            {
-                MessageBox.Show(
-                    "You need administrator privileges to write to the registry.\n\n" +
-                    "Please restart the application as Administrator.",
-                    "Access Denied",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    $"Failed to store phone key: {ex.Message}",
-                    "Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-            }
-        }
     }
 }

@@ -116,13 +116,6 @@ fun TetherAppScreen(
                     enabled = isConnected,
                 )
 
-                LiquidGlassMediaControl(
-                    onPlayPause = { onLanActionRequested("media_play_pause") },
-                    onSkipNext = { onLanActionRequested("media_next") },
-                    onSkipPrev = { onLanActionRequested("media_prev") },
-                    enabled = isConnected,
-                )
-
                 LiquidGlassAppLauncher(
                     onLaunchApp = onLanActionRequested,
                     enabled = isConnected,
@@ -1002,8 +995,6 @@ fun LaptopControlScreen(
     isMuted: Boolean = false,
     onLanActionRequested: (String) -> Unit
 ) {
-    var isPlaying by remember { mutableStateOf(value = true) }
-
     val scrollState = rememberScrollState()
     var visible by remember { mutableStateOf(value = false) }
     LaunchedEffect(Unit) { visible = true }
@@ -1045,22 +1036,6 @@ fun LaptopControlScreen(
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(600, delayMillis = 200)) + slideInVertically(animationSpec = tween(600, delayMillis = 200)) { it / 3 }
-        ) {
-            LiquidGlassMediaControl(
-                isPlaying = isPlaying,
-                onPlayPause = {
-                    isPlaying = !isPlaying
-                    onLanActionRequested("media_play_pause")
-                },
-                onSkipNext = { onLanActionRequested("media_next") },
-                onSkipPrev = { onLanActionRequested("media_prev") },
-                enabled = isConnected
-            )
-        }
-
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(animationSpec = tween(600, delayMillis = 300)) + slideInVertically(animationSpec = tween(600, delayMillis = 300)) { it / 3 }
         ) {
             LiquidGlassAppLauncher(
                 onLaunchApp = onLanActionRequested,

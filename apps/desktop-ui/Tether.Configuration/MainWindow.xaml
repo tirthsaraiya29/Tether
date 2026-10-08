@@ -20,28 +20,6 @@
                         <Button Content="Commit Secret to Secure Registry" Height="38" Background="#0078D4" Foreground="White" FontWeight="Bold" Click="BtnSave_Click" Cursor="Hand"/>
                     </StackPanel>
                 </Border>
-
-                <!-- Section 2: Phone Public Key -->
-                <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,20">
-                    <StackPanel>
-                        <TextBlock Text="📱 Phone Public Key" FontWeight="Bold" FontSize="14" Foreground="#333333" Margin="0,0,0,10"/>
-                        <TextBlock Text="Paste your Android phone's public key (Base64) here." FontSize="11" Foreground="#666666" Margin="0,0,0,8" TextWrapping="Wrap"/>
-                        <TextBox x:Name="TxtPhonePublicKey" Height="80" VerticalContentAlignment="Top" TextWrapping="Wrap" AcceptsReturn="True" Margin="0,0,0,12"/>
-                        <Button Content="Save Phone Key" Height="38" Background="#0078D4" Foreground="White" FontWeight="Bold" Click="BtnSavePhoneKey_Click" Cursor="Hand"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- Section 3: Status / Help Text -->
-                <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="6" Padding="12">
-                    <StackPanel>
-                        <TextBlock Text="ℹ️ How to get the phone's public key" FontWeight="Bold" FontSize="14" Foreground="#333333" Margin="0,0,0,10"/>
-                        <TextBlock Text="1. Run the Tether app on your Android phone" FontSize="11" Foreground="#666666" Margin="0,0,0,5"/>
-                        <TextBlock Text="2. Check Logcat output (use Logcat Reader app or Android Studio)" FontSize="11" Foreground="#666666" Margin="0,0,0,5"/>
-                        <TextBlock Text="3. Look for lines between the ====== markers" FontSize="11" Foreground="#666666" Margin="0,0,0,5"/>
-                        <TextBlock Text="4. Copy the entire Base64 string starting with 'MIIBIjAN...'" FontSize="11" Foreground="#666666" Margin="0,0,0,5"/>
-                        <TextBlock Text="5. Paste it above and click 'Save Phone Key'" FontSize="11" Foreground="#666666" Margin="0,0,0,5"/>
-                    </StackPanel>
-                </Border>
             </StackPanel>
         </Grid>
     </ScrollViewer>

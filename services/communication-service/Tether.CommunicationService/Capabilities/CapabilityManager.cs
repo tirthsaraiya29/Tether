@@ -31,8 +31,7 @@ public sealed class CapabilityManager
 
             "volume_up" or "volume_down" or "vol_up" or "vol_down"
                 or "volume_mute" or "mute" or "brightness_up" or "brightness_down"
-                or "bright_up" or "bright_down" or "media_play_pause" or "play_pause"
-                or "media_next" or "next" or "media_prev" or "prev" => "MEDIA",
+                or "bright_up" or "bright_down" => "MEDIA",
 
             "launch_browser" or "launch_task_manager" or "launch_explorer" or "launch_settings"
                 or "browser" or "taskmgr" or "explorer" or "settings"
