@@ -703,12 +703,7 @@ HRESULT CSampleCredential::_VerifySaltedPassword(PCWSTR pwzEnteredPassword)
     for (int i = 0; i < 32; i++)
         swprintf_s(&computedHex[i * 2], 3, L"%02x", hash[i]);
     computedHex[64] = 0;
-    WriteDebugLog(L"Stored hash: %s", szStoredHash);
-    WriteDebugLog(L"Computed hex: %s", computedHex);
     return (wcscmp(computedHex, szStoredHash) == 0) ? S_OK : E_FAIL;
-
-    WriteDebugLog(L"Stored hash: %s", szStoredHash);
-    WriteDebugLog(L"Computed hex: %s", computedHex);
 }
 
 HRESULT CSampleCredential::_VerifyTpmPassword(PCWSTR) { return E_NOTIMPL; }
