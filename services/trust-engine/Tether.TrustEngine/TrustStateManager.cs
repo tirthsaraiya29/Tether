@@ -21,7 +21,7 @@ public class TrustStateManager
 
     private void OnEvent(TetherEvent evt)
     {
-        _logger.Info($"TrustStateManager received event: {evt.EventType}");
+        _logger.Debug("Trust state diagnostic event received");
 
         switch (evt.EventType)
         {
@@ -33,7 +33,7 @@ public class TrustStateManager
                     EventType = TetherEventType.TRUST_RESTORED,
                     Source = "TrustStateManager"
                 });
-                _logger.Info($"Trust state changed to {_currentState}");
+                _logger.Info("Trust state transition occurred");
                 break;
 
             case TetherEventType.PHONE_DISCONNECTED:
@@ -43,21 +43,21 @@ public class TrustStateManager
                     EventType = TetherEventType.TRUST_LOST,
                     Source = "TrustStateManager"
                 });
-                _logger.Info($"Trust state changed to {_currentState}");
+                _logger.Info("Trust state transition occurred");
                 break;
 
             case TetherEventType.TRUST_DEGRADED:
-                _logger.Info("TRUST_DEGRADED event ignored (BLE and proximity tracking removed).");
+                _logger.Debug("Trust state diagnostic event received");
                 break;
 
             case TetherEventType.TRUST_LOST:
                 _currentState = TrustState.LIMITED;
-                _logger.Warning("Trust lost – enforcement will lock");
+                _logger.Warning("Trust state transition occurred");
                 break;
 
             case TetherEventType.PANIC_TRIGGERED:
                 _currentState = TrustState.PANIC;
-                _logger.Warning("PANIC mode activated");
+                _logger.Warning("Trust state transition occurred");
                 break;
         }
     }

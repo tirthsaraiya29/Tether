@@ -10,6 +10,7 @@
 
 #include <windows.h>
 #include <unknwn.h>
+#include <new>
 #include "Dll.h"
 #include "helpers.h"
 
@@ -94,7 +95,7 @@ HRESULT CClassFactory_CreateInstance(__in REFCLSID rclsid, __in REFIID riid, __d
 
     if (CLSID_CSample == rclsid)
     {
-        CClassFactory* pcf = new CClassFactory();
+        CClassFactory* pcf = new (std::nothrow) CClassFactory();
         if (pcf)
         {
             hr = pcf->QueryInterface(riid, ppv);
