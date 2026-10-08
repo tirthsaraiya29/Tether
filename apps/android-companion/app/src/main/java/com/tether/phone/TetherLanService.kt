@@ -94,7 +94,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 .replace("\r", "\\r")
                 .replace("\n", "\\n")
                 .replace("\t", "\\t")
-                .filter { (it.code in 0x20..0x7E) || it.code > 0x7F }
+                .filter { (it.code >= 0x20) && (it.code != 0x7F) }
                 .take(256)
         }
     }
@@ -656,7 +656,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val success = json.optBoolean("success", true)
                 val errorReason = json.optString("reason", "")
                 val vol = json.optInt("volumeLevel", -1)
-                if ((vol in 0..100)) {
+                if ((vol >= 0) && (vol <= 100)) {
                     currentVolumeLevel = vol
                 }
                 val safeConfirmed = sanitizeLog(confirmedCmd)
@@ -676,7 +676,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             "HARDWARE_METRICS" -> {
                 val vol = json.optInt("volumeLevel", -1)
                 val bright = json.optInt("brightnessLevel", -1)
-                if (vol in 0..100) {
+                if ((vol >= 0) && (vol <= 100)) {
                     currentVolumeLevel = vol
                 }
                 if ((vol >= 0) || (bright >= 0)) {
