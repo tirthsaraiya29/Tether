@@ -90,7 +90,19 @@ public sealed class PacketRouter
             })
         });
 
-        int currentVol = HardwareExecutor.GetSystemVolumeLevel();
+        int currentVol = HardwareExecutor.GetSystemVolumeLevelInUserSession(_logger);
+        if (currentVol < 0) currentVol = HardwareExecutor.GetSystemVolumeLevel(_logger);
+
+        if (cmd.Command.Equals("volume_get", StringComparison.OrdinalIgnoreCase) ||
+            cmd.Command.Equals("vol_get", StringComparison.OrdinalIgnoreCase) ||
+            cmd.Command.Equals("get_volume", StringComparison.OrdinalIgnoreCase))
+        {
+            await FrameCodec.WriteJsonFrameAsync(stream, new
+            {
+                type = "HARDWARE_METRICS",
+                volumeLevel = currentVol
+            }, ct);
+        }
 
         await FrameCodec.WriteJsonFrameAsync(stream, new
         {
