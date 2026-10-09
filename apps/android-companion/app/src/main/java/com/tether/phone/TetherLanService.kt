@@ -192,15 +192,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private fun saveWallpaperBase64(base64Str: String) {
         serviceScope.launch(Dispatchers.IO) {
             try {
-                val cleanB64 = base64Str.trim()
-                if (cleanB64.isEmpty() || cleanB64.length > 1_500_000) {
-                    Log.w(TAG, "Wallpaper payload size guard: string length=${cleanB64.length}")
-                    return@launch
-                }
+                val cleanB64 = base64Str.trim().replace("\r", "").replace("\n", "")
+                if (cleanB64.isEmpty()) return@launch
                 val imageBytes = Base64.decode(cleanB64, Base64.DEFAULT)
+                if (imageBytes.isEmpty()) return@launch
+
                 val file = File(filesDir, "laptop_wallpaper.png")
                 file.writeBytes(imageBytes)
                 wallpaperPath = file.absolutePath
+                Log.i(TAG, "Successfully saved wallpaper file (${imageBytes.size} bytes) to ${file.absolutePath}")
                 notifyStateToInterface()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to save decoded wallpaper: ${e.message}")
@@ -1014,7 +1014,26 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
     }
 
+    private fun computeEffectivePowerState(): LaptopPowerState {
+        val isConn = (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED)
+        if (isConn) {
+            return when (currentPowerState) {
+                LaptopPowerState.SHUTTING_DOWN -> LaptopPowerState.SHUTTING_DOWN
+                LaptopPowerState.RESTARTING -> LaptopPowerState.RESTARTING
+                LaptopPowerState.CONNECTED_UNLOCKED -> LaptopPowerState.CONNECTED_UNLOCKED
+                else -> LaptopPowerState.CONNECTED_LOCKED
+            }
+        } else {
+            return when {
+                lastPowerCommand == "shutdown" || currentPowerState == LaptopPowerState.POWERED_OFF -> LaptopPowerState.POWERED_OFF
+                lastPowerCommand == "reboot" || currentPowerState == LaptopPowerState.RESTARTING -> LaptopPowerState.RESTARTING
+                else -> LaptopPowerState.DISCONNECTED
+            }
+        }
+    }
+
     private fun notifyStateToInterface() {
+        val effectivePowerState = computeEffectivePowerState()
         val isConn = ((currentState == TransportState.READY) || (currentState == TransportState.AUTHENTICATED))
         val count = if (isConn) 1 else 0
 
@@ -1034,7 +1053,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             putExtra("extra_granted_capabilities", capabilityManager.getNegotiatedCapabilitiesString())
             putExtra("extra_volume_level", currentVolumeLevel)
 
-            putExtra(EXTRA_LAPTOP_POWER_STATE, currentPowerState.name)
+            putExtra(EXTRA_LAPTOP_POWER_STATE, effectivePowerState.name)
             putExtra(EXTRA_LAPTOP_BATTERY_PERCENT, batteryPercent)
             putExtra(EXTRA_LAPTOP_IS_CHARGING, isCharging)
             putExtra(EXTRA_LAPTOP_WALLPAPER_PATH, wallpaperPath ?: "")

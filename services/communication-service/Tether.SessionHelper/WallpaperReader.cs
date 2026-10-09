@@ -14,6 +14,27 @@ public static class WallpaperReader
     {
         try
         {
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+            // Path 1: TranscodedWallpaper (Standard Windows 10/11 active wallpaper file)
+            string transcoded = Path.Combine(appData, @"Microsoft\Windows\Themes\TranscodedWallpaper");
+            if (File.Exists(transcoded) && new FileInfo(transcoded).Length > 0)
+            {
+                return transcoded;
+            }
+
+            // Path 2: CachedFiles folder
+            string cachedDir = Path.Combine(appData, @"Microsoft\Windows\Themes\CachedFiles");
+            if (Directory.Exists(cachedDir))
+            {
+                var files = Directory.GetFiles(cachedDir);
+                if (files.Length > 0 && File.Exists(files[0]))
+                {
+                    return files[0];
+                }
+            }
+
+            // Path 3: Control Panel Registry Key
             using var key = Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop");
             string? wallpaper = key?.GetValue("WallPaper") as string;
             if (!string.IsNullOrWhiteSpace(wallpaper) && File.Exists(wallpaper))
@@ -21,16 +42,17 @@ public static class WallpaperReader
                 return wallpaper;
             }
 
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string transcoded = Path.Combine(appData, @"Microsoft\Windows\Themes\TranscodedWallpaper");
-            if (File.Exists(transcoded))
+            // Path 4: Explorer History Registry Key
+            using var expKey = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\Wallpapers");
+            string? hist0 = expKey?.GetValue("BackgroundHistoryPath0") as string;
+            if (!string.IsNullOrWhiteSpace(hist0) && File.Exists(hist0))
             {
-                return transcoded;
+                return hist0;
             }
         }
         catch
         {
-            // Ignore registry read errors
+            // Ignore registry/IO errors
         }
         return null;
     }
@@ -86,9 +108,9 @@ public static class WallpaperReader
         {
             try
             {
-                // Fallback: read raw file bytes if image decoding/resizing fails
+                // Fallback: read raw file bytes directly
                 byte[] rawBytes = File.ReadAllBytes(path);
-                if (rawBytes.Length > 0 && rawBytes.Length <= 500_000)
+                if (rawBytes.Length > 0 && rawBytes.Length <= 1_000_000)
                 {
                     string b64 = Convert.ToBase64String(rawBytes);
                     using var sha256 = SHA256.Create();

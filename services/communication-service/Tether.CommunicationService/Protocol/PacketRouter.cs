@@ -76,6 +76,52 @@ public sealed class PacketRouter
 
         _logger.Info($"PacketRouter: Command accepted for '{device.DisplayName}': {cmd.Command} (requestId={cmd.RequestId}).");
 
+        string cmdLower = cmd.Command.Trim().ToLowerInvariant();
+        if (cmdLower is "laptop_state_get" or "get_laptop_state" or "laptop_state")
+        {
+            _logger.Info($"PacketRouter: Building LAPTOP_STATE snapshot for '{device.DisplayName}'.");
+
+            LaptopSnapshot snap;
+            try
+            {
+                snap = LaptopStateCollector.GetLaptopSnapshot(_logger);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"PacketRouter: LaptopSnapshot collection failed: {ex.Message}");
+                await FrameCodec.WriteJsonFrameAsync(stream, new
+                {
+                    type = "CONFIRM_COMMAND",
+                    confirmedCommand = cmd.Command,
+                    success = false,
+                    reason = "Laptop state collection failed"
+                }, ct);
+                return;
+            }
+
+            await FrameCodec.WriteJsonFrameAsync(stream, new
+            {
+                type = "LAPTOP_STATE",
+                batteryLevel = snap.BatteryLevel,
+                batteryPercent = snap.BatteryLevel,
+                isCharging = snap.IsCharging,
+                lockState = snap.LockState,
+                wallpaperB64 = snap.WallpaperB64,
+                wallpaperHash = snap.WallpaperHash,
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }, ct);
+
+            await FrameCodec.WriteJsonFrameAsync(stream, new
+            {
+                type = "CONFIRM_COMMAND",
+                confirmedCommand = cmd.Command,
+                success = true,
+                reason = "OK"
+            }, ct);
+
+            return;
+        }
+
         bool executed = HardwareExecutor.ExecuteCommand(cmd.Command, _logger, out int currentVol);
 
         _eventBus.Publish(new TetherEvent
@@ -92,20 +138,18 @@ public sealed class PacketRouter
 
         if (currentVol < 0) currentVol = HardwareExecutor.GetSystemVolumeLevel(_logger);
 
-        if (cmd.Command.Equals("laptop_state_get", StringComparison.OrdinalIgnoreCase) ||
-            cmd.Command.Equals("get_laptop_state", StringComparison.OrdinalIgnoreCase) ||
-            cmd.Command.Equals("laptop_state", StringComparison.OrdinalIgnoreCase))
+        if (cmdLower.StartsWith("volume_") || cmdLower.StartsWith("set_volume:") || cmdLower.StartsWith("vol_"))
         {
             var snap = LaptopStateCollector.GetLaptopSnapshot(_logger);
-            await FrameCodec.WriteJsonFrameAsync(stream, new LaptopStateFrame
+            await FrameCodec.WriteJsonFrameAsync(stream, new
             {
-                BatteryLevel = snap.BatteryLevel,
-                BatteryPercent = snap.BatteryLevel,
-                IsCharging = snap.IsCharging,
-                LockState = snap.LockState,
-                WallpaperB64 = snap.WallpaperB64,
-                WallpaperHash = snap.WallpaperHash,
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                type = "HARDWARE_METRICS",
+                volumeLevel = currentVol,
+                batteryLevel = snap.BatteryLevel,
+                batteryPercent = snap.BatteryLevel,
+                isCharging = snap.IsCharging,
+                lockState = snap.LockState,
+                wallpaperB64 = snap.WallpaperB64
             }, ct);
         }
         else if (cmd.Command.Equals("volume_get", StringComparison.OrdinalIgnoreCase) ||
