@@ -165,4 +165,9 @@
     <string name="laptop_last_seen_just_now">just now</string>
     <string name="laptop_reset_state">RESET LAPTOP STATE</string>
     <string name="laptop_details_title">LAPTOP HOST STATUS</string>
+
+    <string name="dialog_link_control_title">SECURE LINK CONTROL</string>
+    <string name="dialog_link_control_desc">Re-initialize active background communication stack or adjust host target settings.</string>
+    <string name="btn_reinitialize_link">REINITIALIZE SECURE LINK</string>
+    <string name="btn_configure_host_ip">CONFIGURE TARGET HOST</string>
 </resources>

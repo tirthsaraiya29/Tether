@@ -4,9 +4,11 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Discovery;
 using Tether.CommunicationService.Ipc;
 using Tether.CommunicationService.Security;
+using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
 using Tether.EnforcementEngine;
 using Tether.EventBus;
@@ -28,6 +30,7 @@ public sealed class Worker : BackgroundService
     private readonly MdnsAdvertiser _mdns;
     private readonly UdpDiscovery _udpDiscovery;
     private readonly WindowsIdentity _identity;
+    private readonly SessionManager _sessionManager;
 
     public Worker(
         ILogger<Worker> logger,
@@ -37,6 +40,7 @@ public sealed class Worker : BackgroundService
         MdnsAdvertiser mdns,
         UdpDiscovery udpDiscovery,
         WindowsIdentity identity,
+        SessionManager sessionManager,
         TrustStateManager trustStateManager,
         EnforcementManager enforcementManager,
         PanicManager panicManager,
@@ -50,6 +54,7 @@ public sealed class Worker : BackgroundService
         _mdns = mdns;
         _udpDiscovery = udpDiscovery;
         _identity = identity;
+        _sessionManager = sessionManager;
         _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager; _ = ipcEventRelay;
     }
 
@@ -72,6 +77,36 @@ public sealed class Worker : BackgroundService
             pqc: false);
 
         _tetherLogger.Info($"Transport up. DeviceId={_identity.DeviceId}");
+
+        LaptopStateCollector.Initialize(_sessionManager, _tetherLogger);
+
+        _ = Task.Run(async () =>
+        {
+            var lastIsCharging = false;
+            var lastBattery = -1;
+            var lastLock = "";
+
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(3000, stoppingToken);
+                    if (_sessionManager.ActiveSessionCount > 0)
+                    {
+                        var snap = LaptopStateCollector.GetLaptopSnapshot(_tetherLogger);
+                        if (snap.IsCharging != lastIsCharging || snap.BatteryLevel != lastBattery || snap.LockState != lastLock)
+                        {
+                            lastIsCharging = snap.IsCharging;
+                            lastBattery = snap.BatteryLevel;
+                            lastLock = snap.LockState;
+                            _sessionManager.BroadcastLaptopState(snap);
+                        }
+                    }
+                }
+                catch (OperationCanceledException) { break; }
+                catch { }
+            }
+        }, stoppingToken);
 
         return Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_ => { }, TaskScheduler.Default);
     }

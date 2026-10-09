@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.Transport;
 using Tether.Shared.Logging;
@@ -57,4 +58,13 @@ public sealed class SessionManager
 
     public IReadOnlyCollection<TetherSession> GetActiveSessions() =>
         _activeSessions.Values.ToArray();
+
+    public void BroadcastLaptopState(LaptopSnapshot snap)
+    {
+        var sessions = GetActiveSessions();
+        foreach (var session in sessions)
+        {
+            _ = session.SendLaptopStateAsync(snap, System.Threading.CancellationToken.None);
+        }
+    }
 }
