@@ -55,12 +55,14 @@ class TetherCapabilityManager {
     }
 
     fun canExecuteCommand(command: String): Boolean {
-        val requiredCap = when (command.lowercase()) {
-            "shutdown", "reboot", "sleep", "halt" -> TetherCapability.POWER_ELEVATED
-            "cmd", "powershell", "powershell7", "wsl", "bash" -> TetherCapability.TERMINAL
-            "copy", "paste", "clipboard" -> TetherCapability.CLIPBOARD
-            "file_transfer", "file_list" -> TetherCapability.FILES
-            "volume_up", "volume_down", "volume_mute", "set_volume", "brightness_up", "brightness_down" -> TetherCapability.MEDIA
+        val cmdLower = command.lowercase()
+        val requiredCap = when {
+            cmdLower in setOf("shutdown", "reboot", "sleep", "halt") -> TetherCapability.POWER_ELEVATED
+            cmdLower in setOf("cmd", "powershell", "powershell7", "wsl", "bash") -> TetherCapability.TERMINAL
+            cmdLower in setOf("copy", "paste", "clipboard") -> TetherCapability.CLIPBOARD
+            cmdLower in setOf("file_transfer", "file_list") -> TetherCapability.FILES
+            cmdLower in setOf("volume_up", "volume_down", "volume_mute", "volume_get", "vol_get", "get_volume", "set_volume", "brightness_up", "brightness_down") ||
+                cmdLower.startsWith("volume_set:") || cmdLower.startsWith("set_volume:") || cmdLower.startsWith("vol_set:") -> TetherCapability.MEDIA
             else -> TetherCapability.MEDIA
         }
 

@@ -109,7 +109,7 @@ fun TetherAppScreen(
                 LiquidGlassVolumeControl(
                     volumeLevel = volumeLevel,
                     isMuted = isMuted,
-                    onVolumeChange = { level -> onLanActionRequested("set_volume:$level") },
+                    onVolumeChange = { level -> onLanActionRequested("volume_set:$level") },
                     onVolumeUp = { onLanActionRequested("VOL_UP") },
                     onVolumeDown = { onLanActionRequested("VOL_DOWN") },
                     onToggleMute = { onLanActionRequested("volume_mute") },
@@ -984,7 +984,7 @@ fun LaptopControlScreen(
             LiquidGlassVolumeControl(
                 volumeLevel = volumeLevel,
                 isMuted = isMuted,
-                onVolumeChange = { level -> onLanActionRequested("set_volume:$level") },
+                onVolumeChange = { level -> onLanActionRequested("volume_set:$level") },
                 onVolumeUp = { onLanActionRequested("VOL_UP") },
                 onVolumeDown = { onLanActionRequested("VOL_DOWN") },
                 onToggleMute = { onLanActionRequested("volume_mute") },
