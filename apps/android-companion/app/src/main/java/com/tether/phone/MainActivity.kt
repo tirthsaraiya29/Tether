@@ -854,6 +854,34 @@ class MainActivity : FragmentActivity() {
         Log.d("TetherActivity", "Triggering LAN action: $action")
         dismissalJob?.cancel()
 
+        val actionLower = action.lowercase()
+        when {
+            actionLower == "volume_up" || actionLower == "vol_up" -> {
+                volumeLevel.intValue = (volumeLevel.intValue + 5).coerceIn(0, 100)
+            }
+            actionLower == "volume_down" || actionLower == "vol_down" -> {
+                volumeLevel.intValue = (volumeLevel.intValue - 5).coerceIn(0, 100)
+            }
+            actionLower == "volume_mute" || actionLower == "mute" -> {
+                isMuted.value = !isMuted.value
+            }
+            actionLower.startsWith("volume_set:") -> {
+                action.substringAfter("volume_set:").toIntOrNull()?.let {
+                    volumeLevel.intValue = it.coerceIn(0, 100)
+                }
+            }
+            actionLower.startsWith("set_volume:") -> {
+                action.substringAfter("set_volume:").toIntOrNull()?.let {
+                    volumeLevel.intValue = it.coerceIn(0, 100)
+                }
+            }
+            actionLower.startsWith("vol_set:") -> {
+                action.substringAfter("vol_set:").toIntOrNull()?.let {
+                    volumeLevel.intValue = it.coerceIn(0, 100)
+                }
+            }
+        }
+
         val isVolumeCmd = action.startsWith("volume_") || action.startsWith("set_volume:") || action.startsWith("vol_")
         if (!isVolumeCmd) {
             activePendingCommand.value = action

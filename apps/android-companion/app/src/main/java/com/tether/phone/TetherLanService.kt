@@ -453,6 +453,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         mainHandler.postDelayed(
                             {
                                 currentState = TransportState.READY
+                                dispatchCommand("volume_get")
                             },
                             200,
                         )
@@ -547,6 +548,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     mainHandler.postDelayed(
                         {
                             currentState = TransportState.READY
+                            dispatchCommand("volume_get")
                         },
                         200,
                     )

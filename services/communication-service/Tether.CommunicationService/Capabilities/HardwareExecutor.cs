@@ -61,6 +61,12 @@ public static class HardwareExecutor
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
+
     [DllImport("powrprof.dll", SetLastError = true)]
     private static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
 
@@ -190,6 +196,14 @@ public static class HardwareExecutor
                     return true;
 
                 // -------- MEDIA: must run inside the interactive user session --------
+                case "vol_get":
+                case "volume_get":
+                case "get_volume":
+                    int readVol = GetSystemVolumeLevelInUserSession(logger);
+                    if (readVol < 0) readVol = GetSystemVolumeLevel(logger);
+                    logger.Info($"HardwareExecutor: Read volume level in user session -> {readVol}");
+                    return readVol >= 0;
+
                 case "vol_up":
                 case "volume_up":
                     return RunPowerShellAsUser(BuildKeybdScript(VK_VOLUME_UP, 2), logger);
@@ -255,6 +269,92 @@ public static class HardwareExecutor
     // =====================================================================
     //  User-session execution helpers
     // =====================================================================
+
+    public static int GetSystemVolumeLevelInUserSession(ITetherLogger logger)
+    {
+        try
+        {
+            string script = BuildGetVolumeScript();
+            string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+
+            uint activeSession = WTSGetActiveConsoleSessionId();
+            if (activeSession == 0xFFFFFFFF)
+            {
+                logger.Warning("HardwareExecutor: No active console session available for user-session volume read.");
+                return -1;
+            }
+
+            if (!WTSQueryUserToken(activeSession, out IntPtr userToken))
+            {
+                logger.Warning($"HardwareExecutor: WTSQueryUserToken failed (err={Marshal.GetLastWin32Error()}).");
+                return -1;
+            }
+
+            try
+            {
+                if (!DuplicateTokenEx(userToken, 0x10000000 /* MAXIMUM_ALLOWED */,
+                        IntPtr.Zero, 2 /* SecurityImpersonation */, 1 /* TokenPrimary */,
+                        out IntPtr primaryToken))
+                {
+                    logger.Warning("HardwareExecutor: DuplicateTokenEx failed.");
+                    return -1;
+                }
+
+                try
+                {
+                    var si = new STARTUPINFO
+                    {
+                        cb = Marshal.SizeOf<STARTUPINFO>(),
+                        lpDesktop = @"WinSta0\Default"
+                    };
+                    var pi = new PROCESS_INFORMATION();
+
+                    string cmdLine =
+                        "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass " +
+                        "-WindowStyle Hidden -EncodedCommand " + encoded;
+
+                    bool ok = CreateProcessAsUser(
+                        primaryToken,
+                        null,
+                        cmdLine,
+                        IntPtr.Zero,
+                        IntPtr.Zero,
+                        false,
+                        0x08000000 /* CREATE_NO_WINDOW */,
+                        IntPtr.Zero,
+                        null,
+                        ref si,
+                        out pi);
+
+                    if (ok)
+                    {
+                        uint waitResult = WaitForSingleObject(pi.hProcess, 3000);
+                        int exitCode = -1;
+                        if (waitResult == 0 /* WAIT_OBJECT_0 */)
+                        {
+                            if (GetExitCodeProcess(pi.hProcess, out uint code) && code <= 100)
+                            {
+                                exitCode = (int)code;
+                            }
+                        }
+                        CloseHandle(pi.hProcess);
+                        CloseHandle(pi.hThread);
+                        return exitCode;
+                    }
+
+                    logger.Warning($"HardwareExecutor: CreateProcessAsUser (PowerShell Volume Get) failed err={Marshal.GetLastWin32Error()}.");
+                    return -1;
+                }
+                finally { CloseHandle(primaryToken); }
+            }
+            finally { CloseHandle(userToken); }
+        }
+        catch (Exception ex)
+        {
+            logger.Error($"HardwareExecutor: GetSystemVolumeLevelInUserSession exception: {ex.Message}");
+            return -1;
+        }
+    }
 
     /// <summary>
     /// Spawns powershell.exe inside the active console session using the logged-in
@@ -415,6 +515,59 @@ public static class TetherVol {
 '@
 Add-Type -TypeDefinition $src -Language CSharp | Out-Null
 [TetherVol]::Set({{level}})
+""";
+    }
+
+    private static string BuildGetVolumeScript()
+    {
+        return $$"""
+$src = @'
+using System;
+using System.Runtime.InteropServices;
+
+[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioEndpointVolume {
+    int a(); int b(); int c();
+    int SetMasterVolumeLevel(float fLevelDB, ref Guid pguidEventContext);
+    int SetMasterVolumeLevelScalar(float fLevel, ref Guid pguidEventContext);
+    int GetMasterVolumeLevel(out float pfLevelDB);
+    int GetMasterVolumeLevelScalar(out float pfLevel);
+}
+
+[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDevice {
+    int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
+}
+
+[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDeviceEnumerator {
+    int a();
+    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppEndpoint);
+}
+
+[ComImport, Guid("BCDE0382-0378-4A96-8208-3B9268011D0D")]
+class MMDeviceEnumeratorComObject { }
+
+public static class TetherVolGet {
+    public static int Get() {
+        var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
+        IMMDevice dev;
+        int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out dev);
+        if (hr != 0 || dev == null) return -1;
+        Guid iid = typeof(IAudioEndpointVolume).GUID;
+        object o;
+        hr = dev.Activate(ref iid, 1, IntPtr.Zero, out o);
+        if (hr != 0 || o == null) return -1;
+        var vol = (IAudioEndpointVolume)o;
+        float level = 0f;
+        vol.GetMasterVolumeLevelScalar(out level);
+        return (int)Math.Round(level * 100f);
+    }
+}
+'@
+Add-Type -TypeDefinition $src -Language CSharp | Out-Null
+$v = [TetherVolGet]::Get()
+if ($v -ge 0) { exit $v } else { exit 255 }
 """;
     }
 
