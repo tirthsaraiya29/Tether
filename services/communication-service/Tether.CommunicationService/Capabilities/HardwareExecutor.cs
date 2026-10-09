@@ -337,7 +337,7 @@ public static class HardwareExecutor
     /// its exit code, which sidesteps every quoting and file-permission pitfall that
     /// broke the previous redirected-spawn approach.
     /// </summary>
-    private static bool RunHelperAsUser(string[] helperArgs, ITetherLogger logger, out int numericResult)
+    public static bool RunHelperAsUser(string[] helperArgs, ITetherLogger logger, out int numericResult)
     {
         numericResult = -1;
 
