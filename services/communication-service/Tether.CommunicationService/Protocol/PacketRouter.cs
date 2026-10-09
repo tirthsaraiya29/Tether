@@ -76,7 +76,7 @@ public sealed class PacketRouter
 
         _logger.Info($"PacketRouter: Command accepted for '{device.DisplayName}': {cmd.Command} (requestId={cmd.RequestId}).");
 
-        bool executed = HardwareExecutor.ExecuteCommand(cmd.Command, _logger);
+        bool executed = HardwareExecutor.ExecuteCommand(cmd.Command, _logger, out int currentVol);
 
         _eventBus.Publish(new TetherEvent
         {
@@ -90,7 +90,6 @@ public sealed class PacketRouter
             })
         });
 
-        int currentVol = HardwareExecutor.GetSystemVolumeLevelInUserSession(_logger);
         if (currentVol < 0) currentVol = HardwareExecutor.GetSystemVolumeLevel(_logger);
 
         if (cmd.Command.Equals("volume_get", StringComparison.OrdinalIgnoreCase) ||

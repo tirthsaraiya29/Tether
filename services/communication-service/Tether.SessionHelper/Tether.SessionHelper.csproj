@@ -5,9 +5,13 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <SelfContained>False</SelfContained>
-    <PublishSingleFile>False</PublishSingleFile>
+
+    <!-- Ship the runtime with the helper so it works in any user session -->
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <PublishReadyToRun>true</PublishReadyToRun>
+
     <AssemblyName>Tether.SessionHelper</AssemblyName>
     <RootNamespace>Tether.SessionHelper</RootNamespace>
   </PropertyGroup>
