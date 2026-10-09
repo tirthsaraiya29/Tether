@@ -169,8 +169,6 @@ public static class HardwareExecutor
     /// <summary>
     /// Reads the interactive user's master volume by spawning the helper inside
     /// the active console session. Returns 0..100 on success, or -1 on failure.
-    /// Callers may fall back to the Session-0 <see cref="GetSystemVolumeLevel"/>,
-    /// but that will normally return the phantom Session-0 endpoint.
     /// </summary>
     public static int GetSystemVolumeLevelInUserSession(ITetherLogger logger)
     {
@@ -316,14 +314,18 @@ public static class HardwareExecutor
     }
 
     // =====================================================================
-    //  User-session helper spawn
+    //  User-session helper spawn (direct binary, no cmd.exe, no redirect)
     // =====================================================================
 
     /// <summary>
-    /// Spawns Tether.SessionHelper.exe inside the active console session with the given
-    /// argv, waits for it to exit, and parses stdout for the "OK &lt;value&gt;" line.
-    /// The helper's process exit code is also its return value: 0 success,
-    /// 0..100 volume level for get-volume, non-zero for failures.
+    /// Launches Tether.SessionHelper.exe directly in the active console session and
+    /// interprets its process exit code as the command result:
+    ///   - "get-volume": exit code 0..100 is the volume percentage (success)
+    ///   - any other command: exit code 0 means success
+    ///   - exit code 128 indicates the helper caught an internal exception
+    /// No cmd.exe, no temp-file redirection — the helper communicates entirely via
+    /// its exit code, which sidesteps every quoting and file-permission pitfall that
+    /// broke the previous redirected-spawn approach.
     /// </summary>
     private static bool RunHelperAsUser(string[] helperArgs, ITetherLogger logger, out int numericResult)
     {
@@ -342,8 +344,7 @@ public static class HardwareExecutor
             return false;
         }
 
-        // Build the command line: "helper.exe" arg1 arg2 ...
-        // Quote the exe path; args are simple tokens so no quoting needed.
+        // Build standard command-line: "helper.exe" arg1 arg2 ...
         var sb = new StringBuilder();
         sb.Append('"').Append(SessionHelperPath).Append('"');
         foreach (var a in helperArgs)
@@ -352,52 +353,37 @@ public static class HardwareExecutor
         }
         string cmdLine = sb.ToString();
 
-        long exitCode = SpawnInUserSession(cmdLine, activeSession, logger, out string stdout);
+        long exitCode = SpawnHelperDirectInUserSession(cmdLine, activeSession, logger);
+        if (exitCode < 0) return false;
 
-        if (exitCode == -1) return false;
+        logger.Info($"HardwareExecutor: helper exit=0x{exitCode:X}");
 
-        // Helper prints "OK <value>" (or "ERROR ..."). Parse trailing integer if present.
-        string trimmed = stdout.Trim();
-        if (trimmed.Length > 800) trimmed = trimmed.Substring(0, 800) + "...";
-        logger.Info($"HardwareExecutor: helper exit=0x{exitCode:X} out={trimmed}");
+        bool isGetVolume =
+            helperArgs.Length > 0 &&
+            string.Equals(helperArgs[0], "get-volume", StringComparison.OrdinalIgnoreCase);
 
-        // If helper was "get-volume", the exit code IS the volume level (0..100).
-        if (helperArgs.Length > 0 &&
-            string.Equals(helperArgs[0], "get-volume", StringComparison.OrdinalIgnoreCase))
+        if (isGetVolume)
         {
+            // Helper returns 0..100 on success. 128 (or anything above 100) is an error.
             if (exitCode >= 0 && exitCode <= 100)
             {
                 numericResult = (int)exitCode;
+                return true;
             }
+            return false;
         }
 
         return exitCode == 0;
     }
 
     /// <summary>
-    /// Spawns the given command line in the interactive user session, redirecting
-    /// stdout to a temp file which is read back into <paramref name="output"/>.
-    /// Uses SetTokenInformation(TokenSessionId) + CreateEnvironmentBlock so the
-    /// child actually lands on the user's desktop where WASAPI works correctly.
+    /// Spawns the given command line under the interactive user's token using
+    /// CreateProcessAsUser. The command line must begin with a quoted path to
+    /// the target executable. No shell is involved, so arguments pass through
+    /// verbatim.
     /// </summary>
-    private static long SpawnInUserSession(string cmdLine, uint activeSession, ITetherLogger logger, out string output)
+    private static long SpawnHelperDirectInUserSession(string cmdLine, uint activeSession, ITetherLogger logger)
     {
-        string tag = Guid.NewGuid().ToString("N").Substring(0, 8);
-        string outPath = Path.Combine(Path.GetTempPath(), $"tether_{tag}.out.txt");
-
-        // Wrap with cmd.exe so we can capture stdout/stderr. The helper is a single
-        // exe with simple args, so cmd.exe's parser has nothing difficult to swallow.
-        string wrapped =
-            "cmd.exe /d /c \"\"" + cmdLine.Replace("\"", "\\\"") + " > \"\"" + outPath + "\"\" 2>&1\"";
-
-        logger.Debug($"HardwareExecutor: spawn tag={tag} session={activeSession} cmd={wrapped}");
-        return SpawnCmdInUserSession(wrapped, activeSession, outPath, logger, out output);
-    }
-
-    private static long SpawnCmdInUserSession(string cmdLine, uint activeSession, string outPath, ITetherLogger logger, out string output)
-    {
-        output = string.Empty;
-
         if (!WTSQueryUserToken(activeSession, out IntPtr userToken))
         {
             logger.Warning($"HardwareExecutor: WTSQueryUserToken failed err={Marshal.GetLastWin32Error()}.");
@@ -415,17 +401,10 @@ public static class HardwareExecutor
             try
             {
                 uint sid = activeSession;
-                if (!SetTokenInformation(primaryToken, TokenSessionId, ref sid, sizeof(uint)))
-                {
-                    logger.Warning($"HardwareExecutor: SetTokenInformation(TokenSessionId={sid}) failed err={Marshal.GetLastWin32Error()}. Continuing.");
-                }
+                SetTokenInformation(primaryToken, TokenSessionId, ref sid, sizeof(uint));
 
                 IntPtr envBlock = IntPtr.Zero;
                 bool envCreated = CreateEnvironmentBlock(out envBlock, primaryToken, false);
-                if (!envCreated)
-                {
-                    logger.Warning($"HardwareExecutor: CreateEnvironmentBlock failed err={Marshal.GetLastWin32Error()}.");
-                }
 
                 try
                 {
@@ -439,16 +418,19 @@ public static class HardwareExecutor
                     uint flags = CREATE_NO_WINDOW;
                     if (envCreated) flags |= CREATE_UNICODE_ENVIRONMENT;
 
+                    // Explicitly set the working directory to the folder containing SessionHelper
+                    string workingDir = Path.GetDirectoryName(SessionHelperPath) ?? AppContext.BaseDirectory;
+
                     bool ok = CreateProcessAsUser(
                         primaryToken,
-                        null,
+                        SessionHelperPath,
                         cmdLine,
                         IntPtr.Zero,
                         IntPtr.Zero,
                         false,
                         flags,
                         envCreated ? envBlock : IntPtr.Zero,
-                        null,
+                        workingDir,
                         ref si,
                         out pi);
 
@@ -458,21 +440,18 @@ public static class HardwareExecutor
                         return -1;
                     }
 
-                    uint waitResult = WaitForSingleObject(pi.hProcess, 8000);
+                    uint waitResult = WaitForSingleObject(pi.hProcess, 5000);
                     uint exitCode = 0xFFFFFFFF;
                     bool haveExit = GetExitCodeProcess(pi.hProcess, out exitCode);
                     CloseHandle(pi.hProcess);
                     CloseHandle(pi.hThread);
 
-                    try { if (File.Exists(outPath)) output = File.ReadAllText(outPath); } catch { }
-                    try { if (File.Exists(outPath)) File.Delete(outPath); } catch { }
-
-                    if (waitResult != 0)
+                    if (waitResult != 0 || !haveExit)
                     {
-                        logger.Warning($"HardwareExecutor: child did not exit in 8s (waitResult={waitResult}).");
+                        logger.Warning("HardwareExecutor: Helper process timed out or failed to return exit code.");
                         return -1;
                     }
-                    if (!haveExit) return -1;
+
                     return exitCode;
                 }
                 finally
@@ -587,6 +566,11 @@ public static class HardwareExecutor
         catch { return false; }
     }
 
+    /// <summary>
+    /// Launches an arbitrary interactive user-session process (browser, explorer,
+    /// task manager, etc.). Uses its own local token/env/flags — completely
+    /// independent of SpawnHelperDirectInUserSession.
+    /// </summary>
     private static bool LaunchInUserSession(string commandLine, ITetherLogger logger)
     {
         uint activeSession = WTSGetActiveConsoleSessionId();
@@ -607,36 +591,52 @@ public static class HardwareExecutor
                         uint sid = activeSession;
                         SetTokenInformation(primaryToken, TokenSessionId, ref sid, sizeof(uint));
 
-                        var si = new STARTUPINFO();
-                        si.cb = Marshal.SizeOf(si);
-                        si.lpDesktop = @"WinSta0\Default";
+                        IntPtr envBlock = IntPtr.Zero;
+                        bool envCreated = CreateEnvironmentBlock(out envBlock, primaryToken, false);
 
-                        var pi = new PROCESS_INFORMATION();
-
-                        bool success = CreateProcessAsUser(
-                            primaryToken,
-                            null,
-                            commandLine,
-                            IntPtr.Zero,
-                            IntPtr.Zero,
-                            false,
-                            0x00000010 /* CREATE_NEW_CONSOLE */,
-                            IntPtr.Zero,
-                            null,
-                            ref si,
-                            out pi);
-
-                        if (success)
+                        try
                         {
-                            logger.Info($"HardwareExecutor: Successfully launched '{commandLine}' in user session {activeSession} (PID {pi.dwProcessId}).");
-                            CloseHandle(pi.hProcess);
-                            CloseHandle(pi.hThread);
-                            return true;
+                            var si = new STARTUPINFO
+                            {
+                                cb = Marshal.SizeOf<STARTUPINFO>(),
+                                lpDesktop = @"WinSta0\Default"
+                            };
+                            var pi = new PROCESS_INFORMATION();
+
+                            uint flags = 0x00000010 /* CREATE_NEW_CONSOLE */;
+                            if (envCreated) flags |= CREATE_UNICODE_ENVIRONMENT;
+
+                            string workingDir = AppContext.BaseDirectory;
+
+                            bool success = CreateProcessAsUser(
+                                primaryToken,
+                                null,
+                                commandLine,
+                                IntPtr.Zero,
+                                IntPtr.Zero,
+                                false,
+                                flags,
+                                envCreated ? envBlock : IntPtr.Zero,
+                                workingDir,
+                                ref si,
+                                out pi);
+
+                            if (success)
+                            {
+                                logger.Info($"HardwareExecutor: Successfully launched '{commandLine}' in user session {activeSession} (PID {pi.dwProcessId}).");
+                                CloseHandle(pi.hProcess);
+                                CloseHandle(pi.hThread);
+                                return true;
+                            }
+                            else
+                            {
+                                int err = Marshal.GetLastWin32Error();
+                                logger.Warning($"HardwareExecutor: CreateProcessAsUser failed with error code {err}. Falling back to ShellExecute.");
+                            }
                         }
-                        else
+                        finally
                         {
-                            int err = Marshal.GetLastWin32Error();
-                            logger.Warning($"HardwareExecutor: CreateProcessAsUser failed with error code {err}. Falling back to ShellExecute.");
+                            if (envCreated && envBlock != IntPtr.Zero) DestroyEnvironmentBlock(envBlock);
                         }
                     }
                     finally
