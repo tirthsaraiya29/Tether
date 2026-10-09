@@ -3,6 +3,8 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Win32;
+using Tether.CommunicationService.Sessions;
 using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService.Capabilities;
@@ -34,6 +36,42 @@ public static class LaptopStateCollector
 
     private static readonly object _lock = new();
     private static string? _cachedWallpaperHash;
+    private static SessionManager? _sessionManager;
+    private static ITetherLogger? _logger;
+    private static bool _eventsSubscribed = false;
+
+    public static void Initialize(SessionManager sessionManager, ITetherLogger logger)
+    {
+        _sessionManager = sessionManager;
+        _logger = logger;
+
+        lock (_lock)
+        {
+            if (!_eventsSubscribed)
+            {
+                _eventsSubscribed = true;
+                try
+                {
+                    SystemEvents.PowerModeChanged += OnPowerModeOrSessionChanged;
+                    SystemEvents.SessionSwitch += OnPowerModeOrSessionChanged;
+                }
+                catch { }
+            }
+        }
+    }
+
+    private static void OnPowerModeOrSessionChanged(object? sender, EventArgs e)
+    {
+        if (_sessionManager != null && _logger != null)
+        {
+            try
+            {
+                var snap = GetLaptopSnapshot(_logger);
+                _sessionManager.BroadcastLaptopState(snap);
+            }
+            catch { }
+        }
+    }
 
     public static LaptopSnapshot GetLaptopSnapshot(ITetherLogger logger)
     {

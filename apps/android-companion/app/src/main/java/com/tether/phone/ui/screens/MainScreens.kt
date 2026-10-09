@@ -1071,6 +1071,15 @@ fun TetherNavigationShell(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var currentScreen by remember { mutableStateOf(AppScreen.TELEMETRY_DASHBOARD) }
+    var showLinkControlDialog by remember { mutableStateOf(false) }
+
+    if (showLinkControlDialog) {
+        LinkServiceDialog(
+            onRestartService = onRestartServer,
+            onConfigureHost = onSelectLaptop,
+            onDismiss = { showLinkControlDialog = false }
+        )
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -1152,8 +1161,8 @@ fun TetherNavigationShell(
                         }
                     },
                     actions = {
-                        IconButton(onClick = onSelectLaptop) {
-                            Icon(Icons.Default.Settings, contentDescription = null, tint = TextSecondary)
+                        IconButton(onClick = { showLinkControlDialog = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = null, tint = LiquidCyan)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)

@@ -63,6 +63,29 @@ public sealed class TetherSession : IDisposable
         Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
     }
 
+    public async Task SendLaptopStateAsync(LaptopSnapshot snap, CancellationToken ct)
+    {
+        var tls = _tls;
+        if (tls == null) return;
+        try
+        {
+            await FrameCodec.WriteJsonFrameAsync(tls, new LaptopStateFrame
+            {
+                BatteryLevel = snap.BatteryLevel,
+                BatteryPercent = snap.BatteryLevel,
+                IsCharging = snap.IsCharging,
+                LockState = snap.LockState,
+                WallpaperB64 = snap.WallpaperB64,
+                WallpaperHash = snap.WallpaperHash,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"TetherSession [{SessionId}]: Error pushing LAPTOP_STATE: {ex.Message}");
+        }
+    }
+
     public async Task RunAsync(TcpClient client, CancellationToken serviceCt)
     {
         var remote = (client.Client.RemoteEndPoint as System.Net.IPEndPoint)?.Address?.ToString() ?? "unknown";

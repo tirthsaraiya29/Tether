@@ -381,6 +381,18 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         scheduleAlarmForHealthCheck()
         startRequestIdCleanup()
+        startTelemetryPolling()
+    }
+
+    private fun startTelemetryPolling() {
+        serviceScope.launch {
+            while (isActive) {
+                delay(3.seconds)
+                if (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED) {
+                    dispatchCommand("laptop_state_get")
+                }
+            }
+        }
     }
 
     // SECURITY FIX: CWE-400 Bounded processedRequestIds with periodic cleanup
