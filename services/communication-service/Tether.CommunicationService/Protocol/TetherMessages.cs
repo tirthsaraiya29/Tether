@@ -49,3 +49,16 @@ public sealed record ConfirmCommand
     [JsonPropertyName("type")] public string Type { get; init; } = "CONFIRM_COMMAND";
     [JsonPropertyName("confirmedCommand")] public string ConfirmedCommand { get; init; } = "";
 }
+
+public sealed record LaptopStateFrame
+{
+    [JsonPropertyName("type")] public string Type { get; init; } = "LAPTOP_STATE";
+    [JsonPropertyName("batteryLevel")] public int BatteryLevel { get; init; } = -1;
+    [JsonPropertyName("batteryPercent")] public int BatteryPercent { get; init; } = -1;
+    [JsonPropertyName("isCharging")] public bool IsCharging { get; init; }
+    [JsonPropertyName("lockState")] public string LockState { get; init; } = "UNKNOWN";
+    [JsonPropertyName("wallpaperB64")] public string? WallpaperB64 { get; init; }
+    [JsonPropertyName("wallpaperHash")] public string? WallpaperHash { get; init; }
+    [JsonPropertyName("timestamp")] public long Timestamp { get; init; }
+}
+

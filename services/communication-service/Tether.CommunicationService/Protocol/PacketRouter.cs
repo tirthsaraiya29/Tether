@@ -92,14 +92,36 @@ public sealed class PacketRouter
 
         if (currentVol < 0) currentVol = HardwareExecutor.GetSystemVolumeLevel(_logger);
 
-        if (cmd.Command.Equals("volume_get", StringComparison.OrdinalIgnoreCase) ||
+        if (cmd.Command.Equals("laptop_state_get", StringComparison.OrdinalIgnoreCase) ||
+            cmd.Command.Equals("get_laptop_state", StringComparison.OrdinalIgnoreCase) ||
+            cmd.Command.Equals("laptop_state", StringComparison.OrdinalIgnoreCase))
+        {
+            var snap = LaptopStateCollector.GetLaptopSnapshot(_logger);
+            await FrameCodec.WriteJsonFrameAsync(stream, new LaptopStateFrame
+            {
+                BatteryLevel = snap.BatteryLevel,
+                BatteryPercent = snap.BatteryLevel,
+                IsCharging = snap.IsCharging,
+                LockState = snap.LockState,
+                WallpaperB64 = snap.WallpaperB64,
+                WallpaperHash = snap.WallpaperHash,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }, ct);
+        }
+        else if (cmd.Command.Equals("volume_get", StringComparison.OrdinalIgnoreCase) ||
             cmd.Command.Equals("vol_get", StringComparison.OrdinalIgnoreCase) ||
             cmd.Command.Equals("get_volume", StringComparison.OrdinalIgnoreCase))
         {
+            var snap = LaptopStateCollector.GetLaptopSnapshot(_logger);
             await FrameCodec.WriteJsonFrameAsync(stream, new
             {
                 type = "HARDWARE_METRICS",
-                volumeLevel = currentVol
+                volumeLevel = currentVol,
+                batteryLevel = snap.BatteryLevel,
+                batteryPercent = snap.BatteryLevel,
+                isCharging = snap.IsCharging,
+                lockState = snap.LockState,
+                wallpaperB64 = snap.WallpaperB64
             }, ct);
         }
 

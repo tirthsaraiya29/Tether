@@ -1,4 +1,6 @@
 ﻿using System;
+using System.IO;
+using System.Text.Json;
 
 namespace Tether.SessionHelper;
 
@@ -8,7 +10,7 @@ public static class Program
     {
         if (args.Length < 1)
         {
-            Console.Error.WriteLine("usage: Tether.SessionHelper <get-volume|set-volume|adjust-volume|toggle-mute> [value]");
+            Console.Error.WriteLine("usage: Tether.SessionHelper <get-volume|set-volume|adjust-volume|toggle-mute|get-lock-state|dump-laptop-state> [value]");
             return 64;
         }
 
@@ -48,6 +50,38 @@ public static class Program
                 case "volume_mute":
                     bool muted = AudioController.ToggleMute();
                     Console.WriteLine($"OK {muted}");
+                    return 0;
+
+                case "get-lock-state":
+                case "lock_state_get":
+                    bool isLocked = LockStateDetector.IsLocked();
+                    string lockStr = isLocked ? "LOCKED" : "UNLOCKED";
+                    Console.WriteLine($"OK {lockStr}");
+                    return isLocked ? 0 : 1;
+
+                case "dump-laptop-state":
+                case "laptop_state_dump":
+                    string outputPath = args.Length > 1 ? args[1] : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether", "laptop_state.json");
+                    string lockState = LockStateDetector.GetLockStateString();
+                    string? wallpaperPath = WallpaperReader.GetCurrentWallpaperPath();
+                    var (wallpaperB64, wallpaperHash) = WallpaperReader.GetDownscaledWallpaperBase64AndHash();
+
+                    var stateBlob = new
+                    {
+                        lockState = lockState,
+                        wallpaperPath = wallpaperPath,
+                        wallpaperB64 = wallpaperB64,
+                        wallpaperHash = wallpaperHash
+                    };
+
+                    string dir = Path.GetDirectoryName(outputPath) ?? "";
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+
+                    File.WriteAllText(outputPath, JsonSerializer.Serialize(stateBlob));
+                    Console.WriteLine("OK DUMPED");
                     return 0;
 
                 default:
