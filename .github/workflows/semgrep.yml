@@ -20,30 +20,19 @@ jobs:
   semgrep:
     name: "Scan Codebase"
     runs-on: ubuntu-latest
-
+    
     permissions:
       security-events: write
       contents: read
       actions: read
-
-    container:
-      image: semgrep/semgrep
-
+    
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Run Semgrep Security Audit
-        run: |
-          semgrep scan \
-            --sarif \
-            --output=semgrep-results.sarif \
-            --config=auto \
-            --config=p/security-audit \
-            --config=p/owasp-top-ten
-
-      - name: Upload SARIF to GitHub Security Tab
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
-        if: always()
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
         with:
-          sarif_file: semgrep-results.sarif
+          config: >-
+            p/security-audit
+            p/owasp-top-ten
