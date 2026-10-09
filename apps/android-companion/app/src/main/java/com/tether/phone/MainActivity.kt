@@ -84,6 +84,7 @@ class MainActivity : FragmentActivity() {
     private var windowsFingerprint = mutableStateOf("")
 
     private var volumeLevel = mutableIntStateOf(50)
+    private var lastLocalVolumeChangeTimeMs = 0L
     private var isMuted = mutableStateOf(false)
     private var grantedCapabilities = mutableStateOf(setOf<String>())
     private var connectedHostAddress = mutableStateOf("")
@@ -103,6 +104,15 @@ class MainActivity : FragmentActivity() {
 
     private val securityEngine by lazy { ProductionSecurityEngine() }
     private lateinit var executor: ExecutorService
+
+    private fun updateVolumeFromRemote(newVol: Int) {
+        if (newVol in 0..100) {
+            val quietWindowPassed = (System.currentTimeMillis() - lastLocalVolumeChangeTimeMs) > 1200L
+            if (quietWindowPassed) {
+                volumeLevel.intValue = newVol
+            }
+        }
+    }
 
     private val batteryOptimizationLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
@@ -137,6 +147,9 @@ class MainActivity : FragmentActivity() {
                     runCatching { LaptopPowerState.valueOf(it) }.getOrNull()
                 } ?: LaptopPowerState.DISCONNECTED
 
+                val currentWp = laptopTelemetry.value.wallpaperPath
+                val effectiveWp = if (!wpPath.isNullOrEmpty()) wpPath else currentWp
+
                 Log.d("TetherActivity", "LAN transport state changed: $stateName ($count), trustState=$trustStateName, laptopPowerState=$powerState")
                 runOnUiThread {
                     isConnected.value = count > 0
@@ -148,14 +161,14 @@ class MainActivity : FragmentActivity() {
                         powerState = powerState,
                         batteryPercent = batPercent,
                         isCharging = charging,
-                        wallpaperPath = if (wpPath.isNullOrEmpty()) laptopTelemetry.value.wallpaperPath else wpPath,
+                        wallpaperPath = effectiveWp,
                         lastSeenAtMs = if (lastSeenMs > 0) lastSeenMs else laptopTelemetry.value.lastSeenAtMs,
                         lastPowerCommand = if (lastPowerCmd.isNullOrEmpty()) null else lastPowerCmd,
                         lastPowerCommandAtMs = lastPowerCmdMs,
                     )
 
                     if (vol in 0..100) {
-                        volumeLevel.intValue = vol
+                        updateVolumeFromRemote(vol)
                     }
 
                     val caps = if (capsStr.isBlank()) emptySet() else capsStr.split(",").map { it.trim().uppercase() }.toSet()
@@ -221,7 +234,7 @@ class MainActivity : FragmentActivity() {
 
                 runOnUiThread {
                     if (vol in 0..100) {
-                        volumeLevel.intValue = vol
+                        updateVolumeFromRemote(vol)
                     }
                     val isTelemetryCmd = confirmedCmd.equals("laptop_state_get", ignoreCase = true) ||
                             confirmedCmd.equals("get_laptop_state", ignoreCase = true) ||
@@ -252,7 +265,7 @@ class MainActivity : FragmentActivity() {
                 val vol = intent.getIntExtra("VOLUME_LEVEL", -1)
                 runOnUiThread {
                     if (vol in 0..100) {
-                        volumeLevel.intValue = vol
+                        updateVolumeFromRemote(vol)
                     }
                 }
             }
@@ -927,9 +940,11 @@ class MainActivity : FragmentActivity() {
         val actionLower = action.lowercase()
         when {
             actionLower == "volume_up" || actionLower == "vol_up" -> {
+                lastLocalVolumeChangeTimeMs = System.currentTimeMillis()
                 volumeLevel.intValue = (volumeLevel.intValue + 5).coerceIn(0, 100)
             }
             actionLower == "volume_down" || actionLower == "vol_down" -> {
+                lastLocalVolumeChangeTimeMs = System.currentTimeMillis()
                 volumeLevel.intValue = (volumeLevel.intValue - 5).coerceIn(0, 100)
             }
             actionLower == "volume_mute" || actionLower == "mute" -> {
@@ -937,16 +952,19 @@ class MainActivity : FragmentActivity() {
             }
             actionLower.startsWith("volume_set:") -> {
                 action.substringAfter("volume_set:").toIntOrNull()?.let {
+                    lastLocalVolumeChangeTimeMs = System.currentTimeMillis()
                     volumeLevel.intValue = it.coerceIn(0, 100)
                 }
             }
             actionLower.startsWith("set_volume:") -> {
                 action.substringAfter("set_volume:").toIntOrNull()?.let {
+                    lastLocalVolumeChangeTimeMs = System.currentTimeMillis()
                     volumeLevel.intValue = it.coerceIn(0, 100)
                 }
             }
             actionLower.startsWith("vol_set:") -> {
                 action.substringAfter("vol_set:").toIntOrNull()?.let {
+                    lastLocalVolumeChangeTimeMs = System.currentTimeMillis()
                     volumeLevel.intValue = it.coerceIn(0, 100)
                 }
             }
