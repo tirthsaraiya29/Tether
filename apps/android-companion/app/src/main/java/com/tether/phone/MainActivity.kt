@@ -223,8 +223,11 @@ class MainActivity : FragmentActivity() {
                     if (vol in 0..100) {
                         volumeLevel.intValue = vol
                     }
+                    val isTelemetryCmd = confirmedCmd.equals("laptop_state_get", ignoreCase = true) ||
+                            confirmedCmd.equals("get_laptop_state", ignoreCase = true) ||
+                            confirmedCmd.equals("laptop_state", ignoreCase = true)
                     val isVolumeCmd = confirmedCmd.startsWith("volume_") || confirmedCmd.startsWith("set_volume:") || confirmedCmd.startsWith("vol_")
-                    if (!isVolumeCmd) {
+                    if (!isVolumeCmd && !isTelemetryCmd) {
                         lastCommandSuccess.value = success
                         lastCommandReason.value = reason
                         isCommandConfirmed.value = true
@@ -277,7 +280,10 @@ class MainActivity : FragmentActivity() {
             "reboot" -> LaptopPowerState.RESTARTING
             else -> LaptopPowerState.DISCONNECTED
         }
-        val wpFile = java.io.File(filesDir, "laptop_wallpaper.png")
+        val oldPng = java.io.File(filesDir, "laptop_wallpaper.png")
+        if (oldPng.exists()) try { oldPng.delete() } catch (_: Exception) {}
+
+        val wpFile = java.io.File(filesDir, "laptop_wallpaper.jpg")
         laptopTelemetry.value = LaptopTelemetry(
             powerState = initialPowerState,
             lastPowerCommand = persistedCmd,

@@ -197,7 +197,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val imageBytes = Base64.decode(cleanB64, Base64.DEFAULT)
                 if (imageBytes.isEmpty()) return@launch
 
-                val file = File(filesDir, "laptop_wallpaper.png")
+                val oldPng = File(filesDir, "laptop_wallpaper.png")
+                if (oldPng.exists()) try { oldPng.delete() } catch (_: Exception) {}
+
+                val file = File(filesDir, "laptop_wallpaper.jpg")
                 file.writeBytes(imageBytes)
                 wallpaperPath = file.absolutePath
                 Log.i(TAG, "Successfully saved wallpaper file (${imageBytes.size} bytes) to ${file.absolutePath}")
@@ -365,7 +368,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             currentPowerState = LaptopPowerState.DISCONNECTED
         }
 
-        val wpFile = File(filesDir, "laptop_wallpaper.png")
+        val oldPng = File(filesDir, "laptop_wallpaper.png")
+        if (oldPng.exists()) try { oldPng.delete() } catch (_: Exception) {}
+
+        val wpFile = File(filesDir, "laptop_wallpaper.jpg")
         if (wpFile.exists() && wpFile.length() > 0) {
             wallpaperPath = wpFile.absolutePath
         }
