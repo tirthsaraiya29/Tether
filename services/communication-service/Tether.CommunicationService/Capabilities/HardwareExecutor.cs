@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using Tether.Shared.Logging;
 
@@ -63,22 +64,7 @@ public static class HardwareExecutor
     [DllImport("powrprof.dll", SetLastError = true)]
     private static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool GetPhysicalMonitorsFromHMONITOR(IntPtr hMonitor, uint dwPhysicalMonitorArraySize, [Out] PHYSICAL_MONITOR[] pPhysicalMonitorArray);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool DestroyPhysicalMonitor(IntPtr hMonitor);
-
-    [DllImport("dxva2.dll", SetLastError = true)]
-    private static extern bool GetMonitorBrightness(IntPtr hMonitor, out uint pdwMinimumBrightness, out uint pdwCurrentBrightness, out uint pdwMaximumBrightness);
-
-    [DllImport("dxva2.dll", SetLastError = true)]
-    private static extern bool SetMonitorBrightness(IntPtr hMonitor, uint dwBrightness);
-
-    // WASAPI Core Audio COM interfaces for System Master Volume
+    // --- WASAPI COM (kept for legacy callers, not used by the volume command path) ---
     [ComImport]
     [Guid("BCDE0382-0378-4A96-8208-3B9268011D0D")]
     private class MMDeviceEnumerator { }
@@ -112,14 +98,6 @@ public static class HardwareExecutor
         [PreserveSig] int GetChannelVolumeLevelScalar(uint nChannel, out float pfLevel);
         [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool bMute, ref Guid pguidEventContext);
         [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool pbMute);
-    }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
-    private struct PHYSICAL_MONITOR
-    {
-        public IntPtr hPhysicalMonitor;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
-        public string szPhysicalMonitorDescription;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
@@ -166,14 +144,10 @@ public static class HardwareExecutor
                 var parts = cmd.Split(':');
                 if (parts.Length > 1 && int.TryParse(parts[1], out int targetLevel))
                 {
-                    bool setOk = SetSystemVolumeLevel(targetLevel, logger);
-                    logger.Info($"HardwareExecutor: SetSystemVolumeLevel({targetLevel}) -> {setOk}");
-                    if (!setOk)
-                    {
-                        SendKeyPress(VK_VOLUME_UP, 1);
-                        SendKeyPress(VK_VOLUME_DOWN, 1);
-                    }
-                    return true;
+                    int clamped = Math.Clamp(targetLevel, 0, 100);
+                    bool ok = RunPowerShellAsUser(BuildSetVolumeScript(clamped), logger);
+                    logger.Info($"HardwareExecutor: SetSystemVolumeLevel({clamped}) via user session -> {ok}");
+                    return ok;
                 }
             }
 
@@ -215,33 +189,27 @@ public static class HardwareExecutor
                     Process.Start(new ProcessStartInfo("shutdown.exe", "/r /t 0 /f") { CreateNoWindow = true, UseShellExecute = false });
                     return true;
 
+                // -------- MEDIA: must run inside the interactive user session --------
                 case "vol_up":
                 case "volume_up":
-                    SendKeyPress(VK_VOLUME_UP, 2);
-                    AdjustSystemVolume(5, logger);
-                    return true;
+                    return RunPowerShellAsUser(BuildKeybdScript(VK_VOLUME_UP, 2), logger);
 
                 case "vol_down":
                 case "volume_down":
-                    SendKeyPress(VK_VOLUME_DOWN, 2);
-                    AdjustSystemVolume(-5, logger);
-                    return true;
+                    return RunPowerShellAsUser(BuildKeybdScript(VK_VOLUME_DOWN, 2), logger);
 
                 case "volume_mute":
                 case "mute":
-                    SendKeyPress(VK_VOLUME_MUTE, 1);
-                    ToggleSystemMute(logger);
-                    return true;
+                    return RunPowerShellAsUser(BuildKeybdScript(VK_VOLUME_MUTE, 1), logger);
 
                 case "bright_up":
                 case "brightness_up":
-                    AdjustBrightness(10, logger);
-                    return true;
+                    return RunPowerShellAsUser(BuildBrightnessScript(10), logger);
 
                 case "bright_down":
                 case "brightness_down":
-                    AdjustBrightness(-10, logger);
-                    return true;
+                    return RunPowerShellAsUser(BuildBrightnessScript(-10), logger);
+                // ---------------------------------------------------------------------
 
                 case "launch_browser":
                 case "browser":
@@ -284,6 +252,190 @@ public static class HardwareExecutor
         }
     }
 
+    // =====================================================================
+    //  User-session execution helpers
+    // =====================================================================
+
+    /// <summary>
+    /// Spawns powershell.exe inside the active console session using the logged-in
+    /// user's token, with the provided script passed as a Base64-encoded command.
+    /// This is what fixes Session 0 isolation for media / brightness operations.
+    /// </summary>
+    private static bool RunPowerShellAsUser(string psScript, ITetherLogger logger)
+    {
+        try
+        {
+            // PowerShell's -EncodedCommand expects Base64 of UTF-16LE.
+            string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(psScript));
+
+            uint activeSession = WTSGetActiveConsoleSessionId();
+            if (activeSession == 0xFFFFFFFF)
+            {
+                logger.Warning("HardwareExecutor: No active console session available for user-session execution.");
+                return false;
+            }
+
+            if (!WTSQueryUserToken(activeSession, out IntPtr userToken))
+            {
+                logger.Warning($"HardwareExecutor: WTSQueryUserToken failed (err={Marshal.GetLastWin32Error()}).");
+                return false;
+            }
+
+            try
+            {
+                if (!DuplicateTokenEx(userToken, 0x10000000 /* MAXIMUM_ALLOWED */,
+                        IntPtr.Zero, 2 /* SecurityImpersonation */, 1 /* TokenPrimary */,
+                        out IntPtr primaryToken))
+                {
+                    logger.Warning("HardwareExecutor: DuplicateTokenEx failed.");
+                    return false;
+                }
+
+                try
+                {
+                    var si = new STARTUPINFO
+                    {
+                        cb = Marshal.SizeOf<STARTUPINFO>(),
+                        lpDesktop = @"WinSta0\Default"
+                    };
+                    var pi = new PROCESS_INFORMATION();
+
+                    string cmdLine =
+                        "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass " +
+                        "-WindowStyle Hidden -EncodedCommand " + encoded;
+
+                    bool ok = CreateProcessAsUser(
+                        primaryToken,
+                        null,
+                        cmdLine,
+                        IntPtr.Zero,
+                        IntPtr.Zero,
+                        false,
+                        0x08000000 /* CREATE_NO_WINDOW */,
+                        IntPtr.Zero,
+                        null,
+                        ref si,
+                        out pi);
+
+                    if (ok)
+                    {
+                        CloseHandle(pi.hProcess);
+                        CloseHandle(pi.hThread);
+                        return true;
+                    }
+
+                    logger.Warning($"HardwareExecutor: CreateProcessAsUser (PowerShell) failed err={Marshal.GetLastWin32Error()}.");
+                    return false;
+                }
+                finally { CloseHandle(primaryToken); }
+            }
+            finally { CloseHandle(userToken); }
+        }
+        catch (Exception ex)
+        {
+            logger.Error($"HardwareExecutor: RunPowerShellAsUser exception: {ex.Message}");
+            return false;
+        }
+    }
+
+    // =====================================================================
+    //  PowerShell script builders
+    // =====================================================================
+
+    private static string BuildKeybdScript(byte vkCode, int times)
+    {
+        // vkCode/times are compile-time ints, safe to inline.
+        return $$"""
+$src = @'
+using System;
+using System.Runtime.InteropServices;
+public static class TetherKb {
+    [DllImport("user32.dll")]
+    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+    public static void Press(byte vk, int count) {
+        for (int i = 0; i < count; i++) {
+            keybd_event(vk, 0, 0, UIntPtr.Zero);
+            keybd_event(vk, 0, 2, UIntPtr.Zero);
+        }
+    }
+}
+'@
+Add-Type -TypeDefinition $src -Language CSharp | Out-Null
+[TetherKb]::Press({{vkCode}}, {{times}})
+""";
+    }
+
+    private static string BuildSetVolumeScript(int level)
+    {
+        return $$"""
+$src = @'
+using System;
+using System.Runtime.InteropServices;
+
+[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioEndpointVolume {
+    int a(); int b(); int c();
+    int SetMasterVolumeLevel(float fLevelDB, ref Guid pguidEventContext);
+    int SetMasterVolumeLevelScalar(float fLevel, ref Guid pguidEventContext);
+    int d(); int e(); int f(); int g(); int h(); int i(); int j(); int k(); int l(); int m();
+    int SetMute([MarshalAs(UnmanagedType.Bool)] bool bMute, ref Guid pguidEventContext);
+    int GetMute([MarshalAs(UnmanagedType.Bool)] out bool pbMute);
+}
+
+[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDevice {
+    int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
+}
+
+[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDeviceEnumerator {
+    int a();
+    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppEndpoint);
+}
+
+[ComImport, Guid("BCDE0382-0378-4A96-8208-3B9268011D0D")]
+class MMDeviceEnumeratorComObject { }
+
+public static class TetherVol {
+    public static void Set(int level) {
+        var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
+        IMMDevice dev;
+        int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out dev);
+        if (hr != 0 || dev == null) throw new Exception("GetDefaultAudioEndpoint hr=" + hr);
+        Guid iid = typeof(IAudioEndpointVolume).GUID;
+        object o;
+        hr = dev.Activate(ref iid, 1, IntPtr.Zero, out o);
+        if (hr != 0 || o == null) throw new Exception("Activate hr=" + hr);
+        var vol = (IAudioEndpointVolume)o;
+        Guid empty = Guid.Empty;
+        float scalar = Math.Max(0f, Math.Min(1f, level / 100f));
+        vol.SetMasterVolumeLevelScalar(scalar, ref empty);
+    }
+}
+'@
+Add-Type -TypeDefinition $src -Language CSharp | Out-Null
+[TetherVol]::Set({{level}})
+""";
+    }
+
+    private static string BuildBrightnessScript(int delta)
+    {
+        return $$"""
+$delta = {{delta}}
+try {
+    $b = (Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorBrightness -ErrorAction Stop).CurrentBrightness
+    $target = [Math]::Max(0, [Math]::Min(100, $b + $delta))
+    (Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop).WmiSetBrightness(1, $target) | Out-Null
+} catch {
+    exit 1
+}
+""";
+    }
+
+    // =====================================================================
+    //  Existing helpers (unlock / launch / legacy WASAPI surface)
+    // =====================================================================
+
     private static bool SignalUnlockEvent(string eventName, ITetherLogger logger)
     {
         try
@@ -310,6 +462,9 @@ public static class HardwareExecutor
         }
     }
 
+    // NOTE: These legacy WASAPI helpers still operate in the service's own session,
+    // so they should NOT be used to read/write the interactive user's volume.
+    // They remain for backward compatibility with any external callers.
     public static int GetSystemVolumeLevel(ITetherLogger? logger = null)
     {
         try
@@ -317,20 +472,10 @@ public static class HardwareExecutor
             CoInitializeEx(IntPtr.Zero, COINIT_MULTITHREADED);
             var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
             int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
-            if (hr != 0 || device == null)
-            {
-                logger?.Warning($"WASAPI GetDefaultAudioEndpoint failed hr=0x{hr:X8}");
-                return -1;
-            }
+            if (hr != 0 || device == null) return -1;
             Guid iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
-            hr = device.Activate(ref iid, 1 /* CLSCTX_INPROC_SERVER */, IntPtr.Zero, out object comInterface);
-            if (hr != 0 || comInterface == null)
-            {
-                logger?.Warning($"WASAPI Activate failed hr=0x{hr:X8}");
-                Marshal.ReleaseComObject(device);
-                Marshal.ReleaseComObject(enumerator);
-                return -1;
-            }
+            hr = device.Activate(ref iid, 1, IntPtr.Zero, out object comInterface);
+            if (hr != 0 || comInterface == null) return -1;
             var vol = (IAudioEndpointVolume)comInterface;
             vol.GetMasterVolumeLevelScalar(out float level);
             Marshal.ReleaseComObject(vol);
@@ -338,11 +483,7 @@ public static class HardwareExecutor
             Marshal.ReleaseComObject(enumerator);
             return (int)Math.Round(level * 100.0f);
         }
-        catch (Exception ex)
-        {
-            logger?.Warning($"GetSystemVolumeLevel exception: {ex.Message}");
-            return -1;
-        }
+        catch { return -1; }
     }
 
     public static bool SetSystemVolumeLevel(int levelPercent, ITetherLogger? logger = null)
@@ -353,34 +494,19 @@ public static class HardwareExecutor
             float scalar = Math.Clamp(levelPercent / 100.0f, 0.0f, 1.0f);
             var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
             int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
-            if (hr != 0 || device == null)
-            {
-                logger?.Warning($"WASAPI SetSystemVolumeLevel GetDefaultAudioEndpoint failed hr=0x{hr:X8}");
-                return false;
-            }
+            if (hr != 0 || device == null) return false;
             Guid iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
-            hr = device.Activate(ref iid, 1 /* CLSCTX_INPROC_SERVER */, IntPtr.Zero, out object comInterface);
-            if (hr != 0 || comInterface == null)
-            {
-                logger?.Warning($"WASAPI SetSystemVolumeLevel Activate failed hr=0x{hr:X8}");
-                Marshal.ReleaseComObject(device);
-                Marshal.ReleaseComObject(enumerator);
-                return false;
-            }
+            hr = device.Activate(ref iid, 1, IntPtr.Zero, out object comInterface);
+            if (hr != 0 || comInterface == null) return false;
             var vol = (IAudioEndpointVolume)comInterface;
             Guid empty = Guid.Empty;
             vol.SetMasterVolumeLevelScalar(scalar, ref empty);
             Marshal.ReleaseComObject(vol);
             Marshal.ReleaseComObject(device);
             Marshal.ReleaseComObject(enumerator);
-            logger?.Info($"WASAPI SetSystemVolumeLevel({levelPercent}) succeeded!");
             return true;
         }
-        catch (Exception ex)
-        {
-            logger?.Warning($"WASAPI SetSystemVolumeLevel({levelPercent}) exception: {ex.Message}");
-            return false;
-        }
+        catch { return false; }
     }
 
     public static bool AdjustSystemVolume(int deltaPercent, ITetherLogger? logger = null)
@@ -398,7 +524,7 @@ public static class HardwareExecutor
             var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
             enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
             Guid iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
-            device.Activate(ref iid, 1 /* CLSCTX_INPROC_SERVER */, IntPtr.Zero, out object comInterface);
+            device.Activate(ref iid, 1, IntPtr.Zero, out object comInterface);
             var vol = (IAudioEndpointVolume)comInterface;
             vol.GetMute(out bool isMuted);
             Guid empty = Guid.Empty;
@@ -408,11 +534,7 @@ public static class HardwareExecutor
             Marshal.ReleaseComObject(enumerator);
             return true;
         }
-        catch (Exception ex)
-        {
-            logger?.Warning($"ToggleSystemMute exception: {ex.Message}");
-            return false;
-        }
+        catch { return false; }
     }
 
     private static bool LaunchInUserSession(string commandLine, ITetherLogger logger)
@@ -428,7 +550,7 @@ public static class HardwareExecutor
         {
             try
             {
-                if (DuplicateTokenEx(userToken, 0x10000000 /* MAXIMUM_ALLOWED */, IntPtr.Zero, 2 /* SecurityImpersonation */, 1 /* TokenPrimary */, out IntPtr primaryToken))
+                if (DuplicateTokenEx(userToken, 0x10000000, IntPtr.Zero, 2, 1, out IntPtr primaryToken))
                 {
                     try
                     {
@@ -494,46 +616,6 @@ public static class HardwareExecutor
         {
             keybd_event(vkCode, 0, 0, UIntPtr.Zero);
             keybd_event(vkCode, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-        }
-    }
-
-    private static void AdjustBrightness(int delta, ITetherLogger logger)
-    {
-        bool ddcSuccess = false;
-        try
-        {
-            IntPtr hMonitor = MonitorFromWindow(IntPtr.Zero, 1);
-            PHYSICAL_MONITOR[] monitors = new PHYSICAL_MONITOR[1];
-            if (GetPhysicalMonitorsFromHMONITOR(hMonitor, 1, monitors))
-            {
-                if (GetMonitorBrightness(monitors[0].hPhysicalMonitor, out uint min, out uint current, out uint max))
-                {
-                    int target = Math.Clamp((int)current + delta, (int)min, (int)max);
-                    ddcSuccess = SetMonitorBrightness(monitors[0].hPhysicalMonitor, (uint)target);
-                }
-                DestroyPhysicalMonitor(monitors[0].hPhysicalMonitor);
-            }
-        }
-        catch { }
-
-        if (!ddcSuccess)
-        {
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "powershell.exe",
-                    Arguments = $"-NoProfile -NonInteractive -Command \"$b = (Get-WmiObject -Namespace root/wmi -Class WmiMonitorBrightness).CurrentBrightness; $target = [math]::Max(0, [math]::Min(100, $b + ({delta}))); (Get-WmiObject -Namespace root/wmi -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, $target)\"",
-                    CreateNoWindow = true,
-                    UseShellExecute = false
-                };
-                using var p = Process.Start(psi);
-                p?.WaitForExit(2000);
-            }
-            catch (Exception ex)
-            {
-                logger.Warning($"WMI brightness adjustment failed: {ex.Message}");
-            }
         }
     }
 }
