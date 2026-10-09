@@ -48,6 +48,8 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun TetherAppScreen(
+    laptopTelemetry: LaptopTelemetry = LaptopTelemetry(),
+    windowsFingerprint: String = "",
     statusText: String,
     statusColor: Color,
     connectionStatus: String,
@@ -62,6 +64,7 @@ fun TetherAppScreen(
     onPanicClick: () -> Unit,
     onSideRestore: () -> Unit,
     onSelectLaptop: () -> Unit,
+    onLaptopCardClick: () -> Unit = {},
     onTriggerStepVerification: (TrustVerificationStep) -> Unit,
     onLanActionRequested: (String) -> Unit,
 ) {
@@ -76,6 +79,7 @@ fun TetherAppScreen(
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // --- Hero Component: LaptopScreenCard ---
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 1000)) + 
@@ -84,102 +88,45 @@ fun TetherAppScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(360.dp)
-                    .graphicsLayer { translationY = -scrollState.value * 0.2f },
+                    .padding(vertical = 12.dp)
+                    .graphicsLayer { translationY = -scrollState.value * 0.15f },
                 contentAlignment = Alignment.Center,
             ) {
-                if (isConnected) {
-                    ActiveLinkVisualizer(
-                        color = statusColor,
-                        status = statusText,
-                        subStatus = connectionStatus,
-                    )
-                } else {
-                    ScanningVisualizer(color = statusColor)
-                }
-            }
-        }
-
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 200)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 200)) { it / 2 },
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                LiquidGlassVolumeControl(
-                    volumeLevel = volumeLevel,
-                    isMuted = isMuted,
-                    onVolumeChange = { level -> onLanActionRequested("volume_set:$level") },
-                    onVolumeUp = { onLanActionRequested("VOL_UP") },
-                    onVolumeDown = { onLanActionRequested("VOL_DOWN") },
-                    onToggleMute = { onLanActionRequested("volume_mute") },
-                    enabled = isConnected,
+                LaptopScreenCard(
+                    telemetry = laptopTelemetry,
+                    windowsFingerprint = windowsFingerprint,
+                    onClick = onLaptopCardClick,
                 )
-
-                ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = stringResource(R.string.header_hardware_directives),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = LiquidCyan,
-                    )
-                    Spacer(modifier = Modifier.height(28.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(20.dp),
-                    ) {
-                        TacticalAction(
-                            label = stringResource(R.string.label_sleep),
-                            accentColor = MatrixGold,
-                            onClick = { onLanActionRequested("PWR_SLEEP") },
-                            modifier = Modifier.weight(1f),
-                            enabled = isConnected,
-                        )
-                        TacticalAction(
-                            label = stringResource(R.string.label_reboot),
-                            accentColor = TextPrimary,
-                            onClick = { onLanActionRequested("PWR_REBOOT") },
-                            modifier = Modifier.weight(1f),
-                            enabled = isConnected,
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(20.dp))
-                    TacticalAction(
-                        label = stringResource(R.string.label_halt_system),
-                        accentColor = AlertRed,
-                        onClick = { onLanActionRequested("PWR_SHUTDOWN") },
-                        enabled = isConnected,
-                    )
-                }
             }
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
+        // --- Tactical Action Chips ---
         AnimatedContent(
             targetState = verificationStep,
-            label = "Security",
+            label = "SecurityActions",
         ) { step ->
-            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 when (step) {
                     TrustVerificationStep.NOT_IN_PANIC -> {
                         if (isPanicActive) {
                             AnimatedVisibility(
                                 visible = visible,
-                                enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 400)) + 
-                                        scaleIn(initialScale = 0.9f),
+                                enter = fadeIn(animationSpec = tween(durationMillis = 800)) + scaleIn(initialScale = 0.9f),
                             ) {
                                 PanicRestoreCard(onSideRestore = onSideRestore)
                             }
                         } else {
                             AnimatedVisibility(
                                 visible = visible,
-                                enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 400)) + 
-                                        slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 400)) { it / 2 },
+                                enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 200)) + 
+                                        slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 200)) { it / 2 },
                             ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(20.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
                                     ) {
                                         TacticalAction(
                                             label = stringResource(R.string.label_unlock),
@@ -198,7 +145,7 @@ fun TetherAppScreen(
                                     }
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(20.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
                                     ) {
                                         TacticalAction(
                                             label = stringResource(R.string.label_target),
@@ -222,6 +169,63 @@ fun TetherAppScreen(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // --- Controls & Telemetry Surfaces ---
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 300)) + 
+                    slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 300)) { it / 2 },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                LiquidGlassVolumeControl(
+                    volumeLevel = volumeLevel,
+                    isMuted = isMuted,
+                    onVolumeChange = { level -> onLanActionRequested("volume_set:$level") },
+                    onVolumeUp = { onLanActionRequested("VOL_UP") },
+                    onVolumeDown = { onLanActionRequested("VOL_DOWN") },
+                    onToggleMute = { onLanActionRequested("volume_mute") },
+                    enabled = isConnected,
+                )
+
+                ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = stringResource(R.string.header_hardware_directives),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = LiquidCyan,
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        TacticalAction(
+                            label = stringResource(R.string.label_sleep),
+                            accentColor = MatrixGold,
+                            onClick = { onLanActionRequested("PWR_SLEEP") },
+                            modifier = Modifier.weight(1f),
+                            enabled = isConnected,
+                        )
+                        TacticalAction(
+                            label = stringResource(R.string.label_reboot),
+                            accentColor = TextPrimary,
+                            onClick = { onLanActionRequested("PWR_REBOOT") },
+                            modifier = Modifier.weight(1f),
+                            enabled = isConnected,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    TacticalAction(
+                        label = stringResource(R.string.label_halt_system),
+                        accentColor = AlertRed,
+                        onClick = { onLanActionRequested("PWR_SHUTDOWN") },
+                        enabled = isConnected,
+                    )
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(64.dp))
     }
 }
@@ -1037,6 +1041,8 @@ fun SystemAppsScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TetherNavigationShell(
+    laptopTelemetry: LaptopTelemetry = LaptopTelemetry(),
+    onLaptopCardClick: () -> Unit = {},
     statusText: String,
     statusColor: Color,
     connectionStatus: String,
@@ -1170,6 +1176,9 @@ fun TetherNavigationShell(
                 ) { screen ->
                     when (screen) {
                         AppScreen.TELEMETRY_DASHBOARD -> TetherAppScreen(
+                            laptopTelemetry = laptopTelemetry,
+                            windowsFingerprint = windowsFingerprint,
+                            onLaptopCardClick = onLaptopCardClick,
                             statusText = statusText,
                             statusColor = statusColor,
                             connectionStatus = connectionStatus,

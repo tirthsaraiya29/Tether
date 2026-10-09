@@ -88,6 +88,8 @@ class MainActivity : FragmentActivity() {
     private var grantedCapabilities = mutableStateOf(setOf<String>())
     private var connectedHostAddress = mutableStateOf("")
 
+    private var laptopTelemetry = mutableStateOf(LaptopTelemetry())
+
     private var activePendingCommand = mutableStateOf<String?>(null)
     private var isCommandConfirmed = mutableStateOf(value = false)
     private var lastCommandSuccess = mutableStateOf<Boolean?>(null)
@@ -123,12 +125,34 @@ class MainActivity : FragmentActivity() {
                 val vol = intent.getIntExtra("extra_volume_level", -1)
                 val hostAddr = intent.getStringExtra("extra_host_address") ?: ""
 
-                Log.d("TetherActivity", "LAN transport state changed: $stateName ($count), trustState=$trustStateName")
+                val laptopPowerStateStr = intent.getStringExtra(TetherLanService.EXTRA_LAPTOP_POWER_STATE)
+                val batPercent = intent.getIntExtra(TetherLanService.EXTRA_LAPTOP_BATTERY_PERCENT, -1)
+                val charging = intent.getBooleanExtra(TetherLanService.EXTRA_LAPTOP_IS_CHARGING, false)
+                val wpPath = intent.getStringExtra(TetherLanService.EXTRA_LAPTOP_WALLPAPER_PATH)
+                val lastSeenMs = intent.getLongExtra(TetherLanService.EXTRA_LAPTOP_LAST_SEEN_MS, 0L)
+                val lastPowerCmd = intent.getStringExtra(TetherLanService.EXTRA_LAPTOP_LAST_POWER_CMD)
+                val lastPowerCmdMs = intent.getLongExtra(TetherLanService.EXTRA_LAPTOP_LAST_POWER_CMD_MS, 0L)
+
+                val powerState = laptopPowerStateStr?.let {
+                    runCatching { LaptopPowerState.valueOf(it) }.getOrNull()
+                } ?: LaptopPowerState.DISCONNECTED
+
+                Log.d("TetherActivity", "LAN transport state changed: $stateName ($count), trustState=$trustStateName, laptopPowerState=$powerState")
                 runOnUiThread {
                     isConnected.value = count > 0
                     phoneFingerprint.value = phoneFp
                     windowsFingerprint.value = winFp
                     connectedHostAddress.value = hostAddr
+
+                    laptopTelemetry.value = LaptopTelemetry(
+                        powerState = powerState,
+                        batteryPercent = batPercent,
+                        isCharging = charging,
+                        wallpaperPath = if (wpPath.isNullOrEmpty()) laptopTelemetry.value.wallpaperPath else wpPath,
+                        lastSeenAtMs = if (lastSeenMs > 0) lastSeenMs else laptopTelemetry.value.lastSeenAtMs,
+                        lastPowerCommand = if (lastPowerCmd.isNullOrEmpty()) null else lastPowerCmd,
+                        lastPowerCommandAtMs = lastPowerCmdMs,
+                    )
 
                     if (vol in 0..100) {
                         volumeLevel.intValue = vol
@@ -243,6 +267,24 @@ class MainActivity : FragmentActivity() {
         val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
         isPanicActive.value = prefs.getBoolean(panicStateKey, false)
 
+        val persistedCmd = prefs.getString("last_power_command", null)
+        val persistedCmdAtMs = prefs.getLong("last_power_command_at_ms", 0L)
+        val savedPowerStateStr = prefs.getString("laptop_power_state", null)
+        val initialPowerState = if (savedPowerStateStr != null) {
+            runCatching { LaptopPowerState.valueOf(savedPowerStateStr) }.getOrDefault(LaptopPowerState.DISCONNECTED)
+        } else when (persistedCmd) {
+            "shutdown" -> LaptopPowerState.POWERED_OFF
+            "reboot" -> LaptopPowerState.RESTARTING
+            else -> LaptopPowerState.DISCONNECTED
+        }
+        val wpFile = java.io.File(filesDir, "laptop_wallpaper.png")
+        laptopTelemetry.value = LaptopTelemetry(
+            powerState = initialPowerState,
+            lastPowerCommand = persistedCmd,
+            lastPowerCommandAtMs = persistedCmdAtMs,
+            wallpaperPath = if (wpFile.exists() && wpFile.length() > 0) wpFile.absolutePath else null,
+        )
+
         // Compulsory App Lock with 1 Minute Timeout (Gated background service start)
         isBiometricSettingEnabled.value = true
         selectedTimeoutMs.longValue = 60_000L
@@ -301,6 +343,8 @@ class MainActivity : FragmentActivity() {
                             CompromisedEnvironmentOverlay(score = currentIntegrityScore.intValue)
                         } else {
                             TetherNavigationShell(
+                                laptopTelemetry = laptopTelemetry.value,
+                                onLaptopCardClick = ::showLaptopHostDetailsDialog,
                                 statusText = uiStatusText.value,
                                 statusColor = uiStatusColor.value,
                                 connectionStatus = uiConnectionStatusText.value,
@@ -846,6 +890,26 @@ class MainActivity : FragmentActivity() {
                 .setNegativeButton(getString(R.string.btn_cancel), null)
                 .show()
         }
+    }
+
+    private fun showLaptopHostDetailsDialog() {
+        val telemetry = laptopTelemetry.value
+        val msg = "Power State: ${telemetry.powerState.name}\n" +
+                "Battery: ${if (telemetry.batteryPercent >= 0) "${telemetry.batteryPercent}%" else "Unknown"}\n" +
+                "Charging: ${telemetry.isCharging}\n" +
+                "Windows Fingerprint: ${if (windowsFingerprint.value.isNotEmpty()) windowsFingerprint.value.takeLast(16) else "N/A"}"
+
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.laptop_details_title))
+            .setMessage(msg)
+            .setPositiveButton(getString(R.string.btn_done), null)
+            .setNeutralButton(getString(R.string.laptop_reset_state)) { _, _ ->
+                val intent = Intent(this, TetherLanService::class.java).apply {
+                    action = TetherLanService.ACTION_RESET_LAPTOP_STATE
+                }
+                startForegroundService(intent)
+            }
+            .show()
     }
 
     private fun triggerLanAction(action: String) {

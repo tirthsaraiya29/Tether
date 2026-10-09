@@ -154,4 +154,15 @@
     <string name="desc_pairing_denied_status">Pairing request was denied by Windows PC.</string>
     <string name="btn_accept">ACCEPT</string>
     <string name="btn_reject">REJECT</string>
+
+    <string name="laptop_state_unlocked">UNLOCKED</string>
+    <string name="laptop_state_locked">LOCKED</string>
+    <string name="laptop_state_disconnected">DISCONNECTED</string>
+    <string name="laptop_state_restarting">Waiting for laptop to come back online…</string>
+    <string name="laptop_state_shutting_down">Shutting down…</string>
+    <string name="laptop_state_powered_off">LAPTOP POWERED OFF</string>
+    <string name="laptop_battery_unknown">--%</string>
+    <string name="laptop_last_seen_just_now">just now</string>
+    <string name="laptop_reset_state">RESET LAPTOP STATE</string>
+    <string name="laptop_details_title">LAPTOP HOST STATUS</string>
 </resources>
