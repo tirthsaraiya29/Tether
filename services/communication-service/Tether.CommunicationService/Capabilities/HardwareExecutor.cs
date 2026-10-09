@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -44,6 +45,27 @@ public static class HardwareExecutor
         int TokenType,
         out IntPtr phNewToken);
 
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool SetTokenInformation(
+        IntPtr TokenHandle,
+        int TokenInformationClass,
+        ref uint TokenInformation,
+        uint TokenInformationLength);
+
+    private const int TokenSessionId = 12;
+
+    [DllImport("userenv.dll", SetLastError = true)]
+    private static extern bool CreateEnvironmentBlock(
+        out IntPtr lpEnvironment,
+        IntPtr hToken,
+        bool bInherit);
+
+    [DllImport("userenv.dll", SetLastError = true)]
+    private static extern bool DestroyEnvironmentBlock(IntPtr lpEnvironment);
+
+    private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
+    private const uint CREATE_NO_WINDOW = 0x08000000;
+
     [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
     private static extern bool CreateProcessAsUser(
         IntPtr hToken,
@@ -70,11 +92,7 @@ public static class HardwareExecutor
     [DllImport("powrprof.dll", SetLastError = true)]
     private static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
 
-    // --- Legacy in-process WASAPI interop -------------------------------------
-    // NOTE: The MMDeviceEnumerator CLSID below was previously incorrect
-    // (BCDE0382-0378-4A96-8208-3B9268011D0D), which caused REGDB_E_CLASSNOTREG
-    // and silently failed every volume operation. The correct CLSID is
-    // BCDE0395-E52F-467C-8E3D-C4579291692E (registered by mmdevapi.dll).
+    // --- Legacy in-process WASAPI interop (Session-0 only; kept for compatibility) ---
     [ComImport]
     [Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
     private class MMDeviceEnumerator { }
@@ -142,6 +160,24 @@ public static class HardwareExecutor
 
     private static readonly IntPtr WTS_CURRENT_SERVER_HANDLE = IntPtr.Zero;
 
+    /// <summary>
+    /// Resolved path of Tether.SessionHelper.exe, expected next to the service assembly.
+    /// </summary>
+    private static string SessionHelperPath =>
+        Path.Combine(AppContext.BaseDirectory, "Tether.SessionHelper.exe");
+
+    /// <summary>
+    /// Reads the interactive user's master volume by spawning the helper inside
+    /// the active console session. Returns 0..100 on success, or -1 on failure.
+    /// Callers may fall back to the Session-0 <see cref="GetSystemVolumeLevel"/>,
+    /// but that will normally return the phantom Session-0 endpoint.
+    /// </summary>
+    public static int GetSystemVolumeLevelInUserSession(ITetherLogger logger)
+    {
+        bool ok = RunHelperAsUser(new[] { "get-volume" }, logger, out int vol);
+        return ok ? vol : -1;
+    }
+
     public static bool ExecuteCommand(string command, ITetherLogger logger)
     {
         string cmd = command.Trim().ToLowerInvariant();
@@ -155,8 +191,8 @@ public static class HardwareExecutor
                 if (parts.Length > 1 && int.TryParse(parts[1], out int targetLevel))
                 {
                     int clamped = Math.Clamp(targetLevel, 0, 100);
-                    bool ok = RunPowerShellAsUser(BuildSetVolumeScript(clamped), logger);
-                    logger.Info($"HardwareExecutor: SetSystemVolumeLevel({clamped}) via user session -> {ok}");
+                    bool ok = RunHelperAsUser(new[] { "set-volume", clamped.ToString() }, logger, out _);
+                    logger.Info($"HardwareExecutor: set-volume({clamped}) -> {ok}");
                     return ok;
                 }
             }
@@ -199,41 +235,44 @@ public static class HardwareExecutor
                     Process.Start(new ProcessStartInfo("shutdown.exe", "/r /t 0 /f") { CreateNoWindow = true, UseShellExecute = false });
                     return true;
 
-                // -------- MEDIA: must run inside the interactive user session --------
+                // -------- MEDIA: run the compiled helper inside the interactive user session --------
                 case "vol_get":
                 case "volume_get":
                 case "get_volume":
-                    int readVol = GetSystemVolumeLevelInUserSession(logger);
-                    if (readVol < 0) readVol = GetSystemVolumeLevel(logger);
-                    logger.Info($"HardwareExecutor: Read volume level in user session -> {readVol}");
-                    return readVol >= 0;
+                    bool getOk = RunHelperAsUser(new[] { "get-volume" }, logger, out int volOut);
+                    if (!getOk)
+                    {
+                        // Fall back to Session-0 WASAPI (will usually be the phantom endpoint)
+                        volOut = GetSystemVolumeLevel(logger);
+                    }
+                    logger.Info($"HardwareExecutor: get-volume -> {volOut}");
+                    return volOut >= 0;
 
                 case "vol_up":
                 case "volume_up":
-                    bool upOk = RunPowerShellAsUser(BuildAdjustVolumeScript(+5), logger);
-                    logger.Info($"HardwareExecutor: volume_up via user session -> {upOk}");
+                    bool upOk = RunHelperAsUser(new[] { "adjust-volume", "+5" }, logger, out _);
+                    logger.Info($"HardwareExecutor: adjust-volume(+5) -> {upOk}");
                     return upOk;
 
                 case "vol_down":
                 case "volume_down":
-                    bool downOk = RunPowerShellAsUser(BuildAdjustVolumeScript(-5), logger);
-                    logger.Info($"HardwareExecutor: volume_down via user session -> {downOk}");
+                    bool downOk = RunHelperAsUser(new[] { "adjust-volume", "-5" }, logger, out _);
+                    logger.Info($"HardwareExecutor: adjust-volume(-5) -> {downOk}");
                     return downOk;
 
                 case "volume_mute":
                 case "mute":
-                    bool muteOk = RunPowerShellAsUser(BuildToggleMuteScript(), logger);
-                    logger.Info($"HardwareExecutor: volume_mute via user session -> {muteOk}");
+                    bool muteOk = RunHelperAsUser(new[] { "toggle-mute" }, logger, out _);
+                    logger.Info($"HardwareExecutor: toggle-mute -> {muteOk}");
                     return muteOk;
 
                 case "bright_up":
                 case "brightness_up":
-                    return RunPowerShellAsUser(BuildBrightnessScript(10), logger);
+                    return RunHelperAsUser(new[] { "brightness-up", "10" }, logger, out _);
 
                 case "bright_down":
                 case "brightness_down":
-                    return RunPowerShellAsUser(BuildBrightnessScript(-10), logger);
-                // ---------------------------------------------------------------------
+                    return RunHelperAsUser(new[] { "brightness-down", "10" }, logger, out _);
 
                 case "launch_browser":
                 case "browser":
@@ -277,130 +316,115 @@ public static class HardwareExecutor
     }
 
     // =====================================================================
-    //  User-session execution helpers
+    //  User-session helper spawn
     // =====================================================================
 
-    public static int GetSystemVolumeLevelInUserSession(ITetherLogger logger)
+    /// <summary>
+    /// Spawns Tether.SessionHelper.exe inside the active console session with the given
+    /// argv, waits for it to exit, and parses stdout for the "OK &lt;value&gt;" line.
+    /// The helper's process exit code is also its return value: 0 success,
+    /// 0..100 volume level for get-volume, non-zero for failures.
+    /// </summary>
+    private static bool RunHelperAsUser(string[] helperArgs, ITetherLogger logger, out int numericResult)
     {
-        try
+        numericResult = -1;
+
+        if (!File.Exists(SessionHelperPath))
         {
-            string script = BuildGetVolumeScript();
-            string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
-
-            uint activeSession = WTSGetActiveConsoleSessionId();
-            if (activeSession == 0xFFFFFFFF)
-            {
-                logger.Warning("HardwareExecutor: No active console session available for user-session volume read.");
-                return -1;
-            }
-
-            if (!WTSQueryUserToken(activeSession, out IntPtr userToken))
-            {
-                logger.Warning($"HardwareExecutor: WTSQueryUserToken failed (err={Marshal.GetLastWin32Error()}).");
-                return -1;
-            }
-
-            try
-            {
-                if (!DuplicateTokenEx(userToken, 0x10000000 /* MAXIMUM_ALLOWED */,
-                        IntPtr.Zero, 2 /* SecurityImpersonation */, 1 /* TokenPrimary */,
-                        out IntPtr primaryToken))
-                {
-                    logger.Warning("HardwareExecutor: DuplicateTokenEx failed.");
-                    return -1;
-                }
-
-                try
-                {
-                    var si = new STARTUPINFO
-                    {
-                        cb = Marshal.SizeOf<STARTUPINFO>(),
-                        lpDesktop = @"WinSta0\Default"
-                    };
-                    var pi = new PROCESS_INFORMATION();
-
-                    string cmdLine =
-                        "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass " +
-                        "-WindowStyle Hidden -EncodedCommand " + encoded;
-
-                    bool ok = CreateProcessAsUser(
-                        primaryToken,
-                        null,
-                        cmdLine,
-                        IntPtr.Zero,
-                        IntPtr.Zero,
-                        false,
-                        0x08000000 /* CREATE_NO_WINDOW */,
-                        IntPtr.Zero,
-                        null,
-                        ref si,
-                        out pi);
-
-                    if (ok)
-                    {
-                        uint waitResult = WaitForSingleObject(pi.hProcess, 5000);
-                        int exitCode = -1;
-                        if (waitResult == 0 /* WAIT_OBJECT_0 */)
-                        {
-                            if (GetExitCodeProcess(pi.hProcess, out uint code) && code >= 0 && code <= 100)
-                            {
-                                exitCode = (int)code;
-                            }
-                        }
-                        CloseHandle(pi.hProcess);
-                        CloseHandle(pi.hThread);
-                        return exitCode;
-                    }
-
-                    logger.Warning($"HardwareExecutor: CreateProcessAsUser (PowerShell Volume Get) failed err={Marshal.GetLastWin32Error()}.");
-                    return -1;
-                }
-                finally { CloseHandle(primaryToken); }
-            }
-            finally { CloseHandle(userToken); }
+            logger.Warning($"HardwareExecutor: helper not found at {SessionHelperPath}");
+            return false;
         }
-        catch (Exception ex)
+
+        uint activeSession = WTSGetActiveConsoleSessionId();
+        if (activeSession == 0xFFFFFFFF)
         {
-            logger.Error($"HardwareExecutor: GetSystemVolumeLevelInUserSession exception: {ex.Message}");
-            return -1;
+            logger.Warning("HardwareExecutor: No active console session available.");
+            return false;
         }
+
+        // Build the command line: "helper.exe" arg1 arg2 ...
+        // Quote the exe path; args are simple tokens so no quoting needed.
+        var sb = new StringBuilder();
+        sb.Append('"').Append(SessionHelperPath).Append('"');
+        foreach (var a in helperArgs)
+        {
+            sb.Append(' ').Append(a);
+        }
+        string cmdLine = sb.ToString();
+
+        long exitCode = SpawnInUserSession(cmdLine, activeSession, logger, out string stdout);
+
+        if (exitCode == -1) return false;
+
+        // Helper prints "OK <value>" (or "ERROR ..."). Parse trailing integer if present.
+        string trimmed = stdout.Trim();
+        if (trimmed.Length > 800) trimmed = trimmed.Substring(0, 800) + "...";
+        logger.Info($"HardwareExecutor: helper exit=0x{exitCode:X} out={trimmed}");
+
+        // If helper was "get-volume", the exit code IS the volume level (0..100).
+        if (helperArgs.Length > 0 &&
+            string.Equals(helperArgs[0], "get-volume", StringComparison.OrdinalIgnoreCase))
+        {
+            if (exitCode >= 0 && exitCode <= 100)
+            {
+                numericResult = (int)exitCode;
+            }
+        }
+
+        return exitCode == 0;
     }
 
     /// <summary>
-    /// Spawns powershell.exe inside the active console session using the logged-in
-    /// user's token, with the provided script passed as a Base64-encoded command.
-    /// This is what fixes Session 0 isolation for media / brightness operations.
-    /// Waits up to 5s for exit and returns false on non-zero exit code so script
-    /// failures surface in the log instead of silently returning true.
+    /// Spawns the given command line in the interactive user session, redirecting
+    /// stdout to a temp file which is read back into <paramref name="output"/>.
+    /// Uses SetTokenInformation(TokenSessionId) + CreateEnvironmentBlock so the
+    /// child actually lands on the user's desktop where WASAPI works correctly.
     /// </summary>
-    private static bool RunPowerShellAsUser(string psScript, ITetherLogger logger)
+    private static long SpawnInUserSession(string cmdLine, uint activeSession, ITetherLogger logger, out string output)
     {
+        string tag = Guid.NewGuid().ToString("N").Substring(0, 8);
+        string outPath = Path.Combine(Path.GetTempPath(), $"tether_{tag}.out.txt");
+
+        // Wrap with cmd.exe so we can capture stdout/stderr. The helper is a single
+        // exe with simple args, so cmd.exe's parser has nothing difficult to swallow.
+        string wrapped =
+            "cmd.exe /d /c \"\"" + cmdLine.Replace("\"", "\\\"") + " > \"\"" + outPath + "\"\" 2>&1\"";
+
+        logger.Debug($"HardwareExecutor: spawn tag={tag} session={activeSession} cmd={wrapped}");
+        return SpawnCmdInUserSession(wrapped, activeSession, outPath, logger, out output);
+    }
+
+    private static long SpawnCmdInUserSession(string cmdLine, uint activeSession, string outPath, ITetherLogger logger, out string output)
+    {
+        output = string.Empty;
+
+        if (!WTSQueryUserToken(activeSession, out IntPtr userToken))
+        {
+            logger.Warning($"HardwareExecutor: WTSQueryUserToken failed err={Marshal.GetLastWin32Error()}.");
+            return -1;
+        }
+
         try
         {
-            // PowerShell's -EncodedCommand expects Base64 of UTF-16LE.
-            string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(psScript));
-
-            uint activeSession = WTSGetActiveConsoleSessionId();
-            if (activeSession == 0xFFFFFFFF)
+            if (!DuplicateTokenEx(userToken, 0x10000000, IntPtr.Zero, 2, 1, out IntPtr primaryToken))
             {
-                logger.Warning("HardwareExecutor: No active console session available for user-session execution.");
-                return false;
-            }
-
-            if (!WTSQueryUserToken(activeSession, out IntPtr userToken))
-            {
-                logger.Warning($"HardwareExecutor: WTSQueryUserToken failed (err={Marshal.GetLastWin32Error()}).");
-                return false;
+                logger.Warning($"HardwareExecutor: DuplicateTokenEx failed err={Marshal.GetLastWin32Error()}.");
+                return -1;
             }
 
             try
             {
-                if (!DuplicateTokenEx(userToken, 0x10000000 /* MAXIMUM_ALLOWED */,
-                        IntPtr.Zero, 2 /* SecurityImpersonation */, 1 /* TokenPrimary */,
-                        out IntPtr primaryToken))
+                uint sid = activeSession;
+                if (!SetTokenInformation(primaryToken, TokenSessionId, ref sid, sizeof(uint)))
                 {
-                    logger.Warning("HardwareExecutor: DuplicateTokenEx failed.");
-                    return false;
+                    logger.Warning($"HardwareExecutor: SetTokenInformation(TokenSessionId={sid}) failed err={Marshal.GetLastWin32Error()}. Continuing.");
+                }
+
+                IntPtr envBlock = IntPtr.Zero;
+                bool envCreated = CreateEnvironmentBlock(out envBlock, primaryToken, false);
+                if (!envCreated)
+                {
+                    logger.Warning($"HardwareExecutor: CreateEnvironmentBlock failed err={Marshal.GetLastWin32Error()}.");
                 }
 
                 try
@@ -412,9 +436,8 @@ public static class HardwareExecutor
                     };
                     var pi = new PROCESS_INFORMATION();
 
-                    string cmdLine =
-                        "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass " +
-                        "-WindowStyle Hidden -EncodedCommand " + encoded;
+                    uint flags = CREATE_NO_WINDOW;
+                    if (envCreated) flags |= CREATE_UNICODE_ENVIRONMENT;
 
                     bool ok = CreateProcessAsUser(
                         primaryToken,
@@ -423,264 +446,43 @@ public static class HardwareExecutor
                         IntPtr.Zero,
                         IntPtr.Zero,
                         false,
-                        0x08000000 /* CREATE_NO_WINDOW */,
-                        IntPtr.Zero,
+                        flags,
+                        envCreated ? envBlock : IntPtr.Zero,
                         null,
                         ref si,
                         out pi);
 
                     if (!ok)
                     {
-                        logger.Warning($"HardwareExecutor: CreateProcessAsUser (PowerShell) failed err={Marshal.GetLastWin32Error()}.");
-                        return false;
+                        logger.Warning($"HardwareExecutor: CreateProcessAsUser failed err={Marshal.GetLastWin32Error()} cmdLine={cmdLine}");
+                        return -1;
                     }
 
-                    uint waitResult = WaitForSingleObject(pi.hProcess, 5000);
-                    bool success = true;
-
-                    if (waitResult == 0 /* WAIT_OBJECT_0 */)
-                    {
-                        if (GetExitCodeProcess(pi.hProcess, out uint exitCode))
-                        {
-                            if (exitCode != 0)
-                            {
-                                logger.Warning($"HardwareExecutor: user-session PowerShell script exited with code 0x{exitCode:X}.");
-                                success = false;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        logger.Warning("HardwareExecutor: user-session PowerShell script did not exit within 5000ms; continuing optimistically.");
-                    }
-
+                    uint waitResult = WaitForSingleObject(pi.hProcess, 8000);
+                    uint exitCode = 0xFFFFFFFF;
+                    bool haveExit = GetExitCodeProcess(pi.hProcess, out exitCode);
                     CloseHandle(pi.hProcess);
                     CloseHandle(pi.hThread);
-                    return success;
+
+                    try { if (File.Exists(outPath)) output = File.ReadAllText(outPath); } catch { }
+                    try { if (File.Exists(outPath)) File.Delete(outPath); } catch { }
+
+                    if (waitResult != 0)
+                    {
+                        logger.Warning($"HardwareExecutor: child did not exit in 8s (waitResult={waitResult}).");
+                        return -1;
+                    }
+                    if (!haveExit) return -1;
+                    return exitCode;
                 }
-                finally { CloseHandle(primaryToken); }
+                finally
+                {
+                    if (envCreated && envBlock != IntPtr.Zero) DestroyEnvironmentBlock(envBlock);
+                }
             }
-            finally { CloseHandle(userToken); }
+            finally { CloseHandle(primaryToken); }
         }
-        catch (Exception ex)
-        {
-            logger.Error($"HardwareExecutor: RunPowerShellAsUser exception: {ex.Message}");
-            return false;
-        }
-    }
-
-    // =====================================================================
-    //  PowerShell script builders
-    // =====================================================================
-
-    /// <summary>
-    /// Shared inline C# source declaring the WASAPI interop surface with the
-    /// CORRECT CLSID for MMDeviceEnumerator (BCDE0395-E52F-467C-8E3D-C4579291692E).
-    /// The previous code used a fabricated GUID which produced REGDB_E_CLASSNOTREG
-    /// and silently failed every volume operation.
-    /// </summary>
-    private static readonly string WasapiInteropSource = """
-using System;
-using System.Runtime.InteropServices;
-
-[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IAudioEndpointVolume {
-    int RegisterControlChangeNotify(IntPtr pNotify);
-    int UnregisterControlChangeNotify(IntPtr pNotify);
-    int GetChannelCount(out uint pnChannelCount);
-    int SetMasterVolumeLevel(float fLevelDB, ref Guid pguidEventContext);
-    int SetMasterVolumeLevelScalar(float fLevel, ref Guid pguidEventContext);
-    int GetMasterVolumeLevel(out float pfLevelDB);
-    int GetMasterVolumeLevelScalar(out float pfLevel);
-    int SetChannelVolumeLevel(uint nChannel, float fLevelDB, ref Guid pguidEventContext);
-    int SetChannelVolumeLevelScalar(uint nChannel, float fLevel, ref Guid pguidEventContext);
-    int GetChannelVolumeLevel(uint nChannel, out float pfLevelDB);
-    int GetChannelVolumeLevelScalar(uint nChannel, out float pfLevel);
-    int SetMute([MarshalAs(UnmanagedType.Bool)] bool bMute, ref Guid pguidEventContext);
-    int GetMute([MarshalAs(UnmanagedType.Bool)] out bool pbMute);
-}
-
-[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IMMDevice {
-    int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
-}
-
-[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IMMDeviceEnumerator {
-    int EnumAudioEndpoints(int dataFlow, int dwStateMask, out object ppDevices);
-    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppEndpoint);
-}
-
-[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
-class MMDeviceEnumeratorComObject { }
-""";
-
-    private static string BuildSetVolumeScript(int level)
-    {
-        return $$"""
-$src = @'
-{{WasapiInteropSource}}
-
-public static class TetherVol {
-    public static int Set(int level) {
-        var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
-        IMMDevice dev;
-        int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out dev);
-        if (hr != 0 || dev == null) throw new Exception("GetDefaultAudioEndpoint hr=" + hr);
-        Guid iid = typeof(IAudioEndpointVolume).GUID;
-        object o;
-        hr = dev.Activate(ref iid, 1, IntPtr.Zero, out o);
-        if (hr != 0 || o == null) throw new Exception("Activate hr=" + hr);
-        var vol = (IAudioEndpointVolume)o;
-        Guid empty = Guid.Empty;
-        float scalar = Math.Max(0f, Math.Min(1f, level / 100f));
-        hr = vol.SetMasterVolumeLevelScalar(scalar, ref empty);
-        if (hr != 0) throw new Exception("SetMasterVolumeLevelScalar hr=" + hr);
-        return level;
-    }
-}
-'@
-try {
-    Add-Type -TypeDefinition $src -Language CSharp -ErrorAction Stop | Out-Null
-    $v = [TetherVol]::Set({{level}})
-    Write-Output "volume set to $v"
-    exit 0
-} catch {
-    Write-Error $_
-    exit 1
-}
-""";
-    }
-
-    private static string BuildAdjustVolumeScript(int delta)
-    {
-        return $$"""
-$src = @'
-{{WasapiInteropSource}}
-
-public static class TetherVolAdjust {
-    public static int Adjust(int delta) {
-        var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
-        IMMDevice dev;
-        int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out dev);
-        if (hr != 0 || dev == null) throw new Exception("GetDefaultAudioEndpoint hr=" + hr);
-        Guid iid = typeof(IAudioEndpointVolume).GUID;
-        object o;
-        hr = dev.Activate(ref iid, 1, IntPtr.Zero, out o);
-        if (hr != 0 || o == null) throw new Exception("Activate hr=" + hr);
-        var vol = (IAudioEndpointVolume)o;
-        float cur = 0f;
-        hr = vol.GetMasterVolumeLevelScalar(out cur);
-        if (hr != 0) throw new Exception("GetMasterVolumeLevelScalar hr=" + hr);
-        int current = (int)Math.Round(cur * 100f);
-        int target = Math.Max(0, Math.Min(100, current + delta));
-        Guid empty = Guid.Empty;
-        hr = vol.SetMasterVolumeLevelScalar(target / 100f, ref empty);
-        if (hr != 0) throw new Exception("SetMasterVolumeLevelScalar hr=" + hr);
-        return target;
-    }
-}
-'@
-try {
-    Add-Type -TypeDefinition $src -Language CSharp -ErrorAction Stop | Out-Null
-    $v = [TetherVolAdjust]::Adjust({{delta}})
-    Write-Output "volume adjusted to $v"
-    exit 0
-} catch {
-    Write-Error $_
-    exit 1
-}
-""";
-    }
-
-    private static string BuildToggleMuteScript()
-    {
-        return $$"""
-$src = @'
-{{WasapiInteropSource}}
-
-public static class TetherMute {
-    public static bool Toggle() {
-        var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
-        IMMDevice dev;
-        int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out dev);
-        if (hr != 0 || dev == null) throw new Exception("GetDefaultAudioEndpoint hr=" + hr);
-        Guid iid = typeof(IAudioEndpointVolume).GUID;
-        object o;
-        hr = dev.Activate(ref iid, 1, IntPtr.Zero, out o);
-        if (hr != 0 || o == null) throw new Exception("Activate hr=" + hr);
-        var vol = (IAudioEndpointVolume)o;
-        bool muted = false;
-        hr = vol.GetMute(out muted);
-        if (hr != 0) throw new Exception("GetMute hr=" + hr);
-        Guid empty = Guid.Empty;
-        hr = vol.SetMute(!muted, ref empty);
-        if (hr != 0) throw new Exception("SetMute hr=" + hr);
-        return !muted;
-    }
-}
-'@
-try {
-    Add-Type -TypeDefinition $src -Language CSharp -ErrorAction Stop | Out-Null
-    $m = [TetherMute]::Toggle()
-    Write-Output "mute toggled to $m"
-    exit 0
-} catch {
-    Write-Error $_
-    exit 1
-}
-""";
-    }
-
-    private static string BuildGetVolumeScript()
-    {
-        return $$"""
-$src = @'
-{{WasapiInteropSource}}
-
-public static class TetherVolGet {
-    public static int Get() {
-        var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
-        IMMDevice dev;
-        int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out dev);
-        if (hr != 0 || dev == null) return -1;
-        Guid iid = typeof(IAudioEndpointVolume).GUID;
-        object o;
-        hr = dev.Activate(ref iid, 1, IntPtr.Zero, out o);
-        if (hr != 0 || o == null) return -1;
-        var vol = (IAudioEndpointVolume)o;
-        float level = 0f;
-        hr = vol.GetMasterVolumeLevelScalar(out level);
-        if (hr != 0) return -1;
-        return (int)Math.Round(level * 100f);
-    }
-}
-'@
-try {
-    Add-Type -TypeDefinition $src -Language CSharp -ErrorAction Stop | Out-Null
-    $v = [TetherVolGet]::Get()
-    if ($v -ge 0) { exit $v } else { exit 255 }
-} catch {
-    Write-Error $_
-    exit 255
-}
-""";
-    }
-
-    private static string BuildBrightnessScript(int delta)
-    {
-        return $$"""
-$delta = {{delta}}
-try {
-    $b = (Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorBrightness -ErrorAction Stop).CurrentBrightness
-    $target = [Math]::Max(0, [Math]::Min(100, $b + $delta))
-    (Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop).WmiSetBrightness(1, $target) | Out-Null
-    exit 0
-} catch {
-    Write-Error $_
-    exit 1
-}
-""";
+        finally { CloseHandle(userToken); }
     }
 
     // =====================================================================
@@ -713,9 +515,6 @@ try {
         }
     }
 
-    // NOTE: Legacy in-process helpers. They still operate inside the service's own
-    // session (Session 0), so they will not affect the interactive user's default
-    // audio endpoint. Kept for backward compatibility with external callers only.
     public static int GetSystemVolumeLevel(ITetherLogger? logger = null)
     {
         try
@@ -805,6 +604,9 @@ try {
                 {
                     try
                     {
+                        uint sid = activeSession;
+                        SetTokenInformation(primaryToken, TokenSessionId, ref sid, sizeof(uint));
+
                         var si = new STARTUPINFO();
                         si.cb = Marshal.SizeOf(si);
                         si.lpDesktop = @"WinSta0\Default";
