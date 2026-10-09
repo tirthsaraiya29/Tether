@@ -53,10 +53,8 @@ public static class WallpaperReader
             double ratioY = (double)maxH / origH;
             double ratio = Math.Min(ratioX, ratioY);
 
-            int newW = (int)(origW * ratio);
-            int newH = (int)(origH * ratio);
-            if (newW < 1) newW = 1;
-            if (newH < 1) newH = 1;
+            int newW = Math.Max(1, (int)(origW * ratio));
+            int newH = Math.Max(1, (int)(origH * ratio));
 
             using var destImage = new Bitmap(newW, newH);
             using (var graphics = Graphics.FromImage(destImage))
@@ -73,18 +71,7 @@ public static class WallpaperReader
             }
 
             using var ms = new MemoryStream();
-            var jpegEncoder = GetEncoder(ImageFormat.Jpeg);
-            using var myEncoderParameters = new EncoderParameters(1);
-            myEncoderParameters.Param[0] = new EncoderParameter(Encoder.Quality, 70L);
-
-            if (jpegEncoder != null)
-            {
-                destImage.Save(ms, jpegEncoder, myEncoderParameters);
-            }
-            else
-            {
-                destImage.Save(ms, ImageFormat.Jpeg);
-            }
+            destImage.Save(ms, ImageFormat.Jpeg);
 
             byte[] bytes = ms.ToArray();
             string b64 = Convert.ToBase64String(bytes);
@@ -97,20 +84,22 @@ public static class WallpaperReader
         }
         catch
         {
+            try
+            {
+                // Fallback: read raw file bytes if image decoding/resizing fails
+                byte[] rawBytes = File.ReadAllBytes(path);
+                if (rawBytes.Length > 0 && rawBytes.Length <= 500_000)
+                {
+                    string b64 = Convert.ToBase64String(rawBytes);
+                    using var sha256 = SHA256.Create();
+                    byte[] hashBytes = sha256.ComputeHash(rawBytes);
+                    string hash = Convert.ToHexString(hashBytes);
+                    return (b64, hash);
+                }
+            }
+            catch { }
+
             return (null, null);
         }
-    }
-
-    private static ImageCodecInfo? GetEncoder(ImageFormat format)
-    {
-        ImageCodecInfo[] codecs = ImageCodecInfo.GetImageEncoders();
-        foreach (ImageCodecInfo codec in codecs)
-        {
-            if (codec.FormatID == format.Guid)
-            {
-                return codec;
-            }
-        }
-        return null;
     }
 }

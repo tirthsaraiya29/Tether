@@ -7,6 +7,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.Pairing;
 using Tether.CommunicationService.Protocol;
