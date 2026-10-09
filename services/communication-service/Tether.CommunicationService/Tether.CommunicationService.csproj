@@ -20,10 +20,6 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\Tether.SessionHelper\Tether.SessionHelper.csproj">
-			<ReferenceOutputAssembly>false</ReferenceOutputAssembly>
-			<Private>false</Private>
-		</ProjectReference>
 		<ProjectReference Include="..\..\..\shared\Tether.Shared\Tether.Shared.csproj" />
 		<ProjectReference Include="..\..\event-bus\Tether.EventBus\Tether.EventBus.csproj" />
 		<ProjectReference Include="..\..\trust-engine\Tether.TrustEngine\Tether.TrustEngine.csproj" />
@@ -31,14 +27,19 @@
 		<ProjectReference Include="..\..\panic-engine\Tether.PanicEngine\Tether.PanicEngine.csproj" />
 		<ProjectReference Include="..\..\recovery-engine\Tether.RecoveryEngine\Tether.RecoveryEngine.csproj" />
 	</ItemGroup>
-	<Target Name="CopySessionHelper" AfterTargets="Build">
+	<Target Name="BuildAndCopySessionHelper" BeforeTargets="BeforeBuild">
+		<MSBuild
+		  Projects="..\Tether.SessionHelper\Tether.SessionHelper.csproj"
+		  Targets="Build"
+		  Properties="Configuration=$(Configuration);Platform=AnyCPU" />
+
 		<ItemGroup>
-			<SessionHelperFiles Include="..\Tether.SessionHelper\bin\$(Configuration)\net8.0-windows\win-x64\publish\**\*" />
-			<SessionHelperFiles Include="..\Tether.SessionHelper\bin\$(Configuration)\net8.0-windows\win-x64\Tether.SessionHelper.exe" />
+			<SessionHelperFiles Include="..\Tether.SessionHelper\bin\$(Configuration)\net8.0-windows\win-x64\**\*.*" />
 		</ItemGroup>
-		<Copy SourceFiles="@(SessionHelperFiles)"
-			  DestinationFolder="$(OutDir)"
-			  SkipUnchangedFiles="true"
-			  Condition="Exists('%(SessionHelperFiles.Identity)')" />
+
+		<Copy
+		  SourceFiles="@(SessionHelperFiles)"
+		  DestinationFolder="$(OutDir)"
+		  SkipUnchangedFiles="true" />
 	</Target>
 </Project>
