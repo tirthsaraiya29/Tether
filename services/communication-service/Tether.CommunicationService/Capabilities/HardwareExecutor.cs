@@ -178,6 +178,12 @@ public static class HardwareExecutor
 
     public static bool ExecuteCommand(string command, ITetherLogger logger)
     {
+        return ExecuteCommand(command, logger, out _);
+    }
+
+    public static bool ExecuteCommand(string command, ITetherLogger logger, out int currentVol)
+    {
+        currentVol = -1;
         string cmd = command.Trim().ToLowerInvariant();
         logger.Info($"HardwareExecutor: Executing hardware command '{cmd}'...");
 
@@ -190,6 +196,7 @@ public static class HardwareExecutor
                 {
                     int clamped = Math.Clamp(targetLevel, 0, 100);
                     bool ok = RunHelperAsUser(new[] { "set-volume", clamped.ToString() }, logger, out _);
+                    if (ok) currentVol = clamped;
                     logger.Info($"HardwareExecutor: set-volume({clamped}) -> {ok}");
                     return ok;
                 }
@@ -237,30 +244,33 @@ public static class HardwareExecutor
                 case "vol_get":
                 case "volume_get":
                 case "get_volume":
-                    bool getOk = RunHelperAsUser(new[] { "get-volume" }, logger, out int volOut);
+                    bool getOk = RunHelperAsUser(new[] { "get-volume" }, logger, out currentVol);
                     if (!getOk)
                     {
                         // Fall back to Session-0 WASAPI (will usually be the phantom endpoint)
-                        volOut = GetSystemVolumeLevel(logger);
+                        currentVol = GetSystemVolumeLevel(logger);
                     }
-                    logger.Info($"HardwareExecutor: get-volume -> {volOut}");
-                    return volOut >= 0;
+                    logger.Info($"HardwareExecutor: get-volume -> {currentVol}");
+                    return currentVol >= 0;
 
                 case "vol_up":
                 case "volume_up":
                     bool upOk = RunHelperAsUser(new[] { "adjust-volume", "+5" }, logger, out _);
+                    if (upOk) RunHelperAsUser(new[] { "get-volume" }, logger, out currentVol);
                     logger.Info($"HardwareExecutor: adjust-volume(+5) -> {upOk}");
                     return upOk;
 
                 case "vol_down":
                 case "volume_down":
                     bool downOk = RunHelperAsUser(new[] { "adjust-volume", "-5" }, logger, out _);
+                    if (downOk) RunHelperAsUser(new[] { "get-volume" }, logger, out currentVol);
                     logger.Info($"HardwareExecutor: adjust-volume(-5) -> {downOk}");
                     return downOk;
 
                 case "volume_mute":
                 case "mute":
                     bool muteOk = RunHelperAsUser(new[] { "toggle-mute" }, logger, out _);
+                    if (muteOk) RunHelperAsUser(new[] { "get-volume" }, logger, out currentVol);
                     logger.Info($"HardwareExecutor: toggle-mute -> {muteOk}");
                     return muteOk;
 
@@ -357,6 +367,18 @@ public static class HardwareExecutor
         if (exitCode < 0) return false;
 
         logger.Info($"HardwareExecutor: helper exit=0x{exitCode:X}");
+
+        // 0x80008096 == .NET apphost FrameworkMissingFailure.
+        // The helper launched but could not load the shared .NET runtime
+        // inside the interactive user session. The helper must be published
+        // self-contained (see Tether.SessionHelper.csproj).
+        if ((uint)exitCode == 0x80008096)
+        {
+            logger.Error(
+                "HardwareExecutor: SessionHelper failed to load the .NET runtime in the user session. " +
+                "Publish Tether.SessionHelper as SelfContained=true (see Tether.SessionHelper.csproj).");
+            return false;
+        }
 
         bool isGetVolume =
             helperArgs.Length > 0 &&

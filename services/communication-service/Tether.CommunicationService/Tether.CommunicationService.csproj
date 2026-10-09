@@ -30,11 +30,11 @@
 	<Target Name="BuildAndCopySessionHelper" BeforeTargets="BeforeBuild">
 		<MSBuild
 		  Projects="..\Tether.SessionHelper\Tether.SessionHelper.csproj"
-		  Targets="Build"
+		  Targets="Publish"
 		  Properties="Configuration=$(Configuration);Platform=AnyCPU" />
 
 		<ItemGroup>
-			<SessionHelperFiles Include="..\Tether.SessionHelper\bin\$(Configuration)\net8.0-windows\win-x64\**\*.*" />
+			<SessionHelperFiles Include="..\Tether.SessionHelper\bin\$(Configuration)\net8.0-windows\win-x64\publish\Tether.SessionHelper.exe" />
 		</ItemGroup>
 
 		<Copy
