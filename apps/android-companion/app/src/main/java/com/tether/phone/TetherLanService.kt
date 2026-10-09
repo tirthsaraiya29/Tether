@@ -21,6 +21,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -34,6 +35,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -79,6 +81,17 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         const val EXTRA_PAIRING_SAS_CODE = "extra_pairing_sas_code"
         const val EXTRA_PEER_DEVICE_NAME = "extra_peer_device_name"
 
+        const val EXTRA_LAPTOP_POWER_STATE = "extra_laptop_power_state"
+        const val EXTRA_LAPTOP_BATTERY_PERCENT = "extra_laptop_battery_percent"
+        const val EXTRA_LAPTOP_IS_CHARGING = "extra_laptop_is_charging"
+        const val EXTRA_LAPTOP_WALLPAPER_PATH = "extra_laptop_wallpaper_path"
+        const val EXTRA_LAPTOP_LAST_SEEN_MS = "extra_laptop_last_seen_ms"
+        const val EXTRA_LAPTOP_LAST_POWER_CMD = "extra_laptop_last_power_cmd"
+        const val EXTRA_LAPTOP_LAST_POWER_CMD_MS = "extra_laptop_last_power_cmd_ms"
+
+        const val ACTION_RESET_LAPTOP_STATE = "com.tether.phone.ACTION_RESET_LAPTOP_STATE"
+        const val DEBUG_INJECT_LAPTOP_STATE = "com.tether.phone.DEBUG_INJECT_LAPTOP_STATE"
+
         const val ALARM_ACTION = "com.tether.phone.ALARM_HEALTH_CHECK"
         const val ACTION_RESTART_SERVER = "com.tether.phone.ACTION_RESTART_SERVER"
 
@@ -121,13 +134,109 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
 
+    @Volatile var currentPowerState: LaptopPowerState = LaptopPowerState.UNKNOWN
+    @Volatile var batteryPercent: Int = -1
+    @Volatile var isCharging: Boolean = false
+    @Volatile var wallpaperPath: String? = null
+    @Volatile var lastSeenAtMs: Long = 0L
+    @Volatile var lastPowerCommand: String? = null
+    @Volatile var lastPowerCommandAtMs: Long = 0L
+
+    private var rebootTimeoutJob: Job? = null
+    private var shutdownTimeoutJob: Job? = null
+
     @Volatile
     var currentState: TransportState = TransportState.DISCONNECTED
         private set(value) {
+            val oldState = field
             field = value
             Log.i(TAG, "Transport state changed to: $value")
+            if ((value == TransportState.READY || value == TransportState.AUTHENTICATED) &&
+                (oldState != TransportState.READY && oldState != TransportState.AUTHENTICATED)) {
+                onHostConnected()
+            } else if ((value == TransportState.DISCONNECTED || value == TransportState.FAILED) &&
+                (oldState == TransportState.READY || oldState == TransportState.AUTHENTICATED)) {
+                onHostDisconnected()
+            }
             notifyStateToInterface()
         }
+
+    private fun onHostConnected() {
+        lastPowerCommand = null
+        lastPowerCommandAtMs = 0L
+        rebootTimeoutJob?.cancel()
+        shutdownTimeoutJob?.cancel()
+        currentPowerState = LaptopPowerState.CONNECTED_LOCKED
+        getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
+            remove("last_power_command")
+            remove("last_power_command_at_ms")
+            putString("laptop_power_state", LaptopPowerState.CONNECTED_LOCKED.name)
+        }
+    }
+
+    private fun onHostDisconnected() {
+        if (currentPowerState != LaptopPowerState.POWERED_OFF && currentPowerState != LaptopPowerState.RESTARTING) {
+            currentPowerState = if (lastPowerCommand == "shutdown") {
+                LaptopPowerState.POWERED_OFF
+            } else if (lastPowerCommand == "reboot") {
+                LaptopPowerState.RESTARTING
+            } else {
+                LaptopPowerState.DISCONNECTED
+            }
+        }
+        getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
+            putString("laptop_power_state", currentPowerState.name)
+        }
+    }
+
+    private fun saveWallpaperBase64(base64Str: String) {
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val cleanB64 = base64Str.trim()
+                if (cleanB64.isEmpty() || cleanB64.length > 1_500_000) {
+                    Log.w(TAG, "Wallpaper payload size guard: string length=${cleanB64.length}")
+                    return@launch
+                }
+                val imageBytes = Base64.decode(cleanB64, Base64.DEFAULT)
+                val file = File(filesDir, "laptop_wallpaper.png")
+                file.writeBytes(imageBytes)
+                wallpaperPath = file.absolutePath
+                notifyStateToInterface()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to save decoded wallpaper: ${e.message}")
+            }
+        }
+    }
+
+    private val debugStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == DEBUG_INJECT_LAPTOP_STATE && BuildConfig.DEBUG) {
+                val stateStr = intent.getStringExtra("powerState")
+                val bat = intent.getIntExtra("batteryPercent", batteryPercent)
+                val charging = intent.getBooleanExtra("isCharging", isCharging)
+                val lockStr = intent.getStringExtra("lockState")
+                val wpPath = intent.getStringExtra("wallpaperPath")
+
+                if (!stateStr.isNullOrEmpty()) {
+                    try { currentPowerState = LaptopPowerState.valueOf(stateStr) } catch (_: Exception) {}
+                } else if (!lockStr.isNullOrEmpty()) {
+                    currentPowerState = if (lockStr.equals("UNLOCKED", ignoreCase = true)) {
+                        LaptopPowerState.CONNECTED_UNLOCKED
+                    } else {
+                        LaptopPowerState.CONNECTED_LOCKED
+                    }
+                }
+                batteryPercent = bat
+                isCharging = charging
+                if (!wpPath.isNullOrEmpty()) {
+                    wallpaperPath = wpPath
+                }
+                lastSeenAtMs = System.currentTimeMillis()
+                Log.i(TAG, "Debug injected laptop state: powerState=$currentPowerState, battery=$batteryPercent, charging=$isCharging")
+                notifyStateToInterface()
+            }
+        }
+    }
 
     @Volatile
     var trustState: TrustState = TrustState.UNPAIRED
@@ -241,6 +350,35 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
+
+        val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
+        lastPowerCommand = prefs.getString("last_power_command", null)
+        lastPowerCommandAtMs = prefs.getLong("last_power_command_at_ms", 0L)
+        val savedPowerState = prefs.getString("laptop_power_state", null)
+        if (savedPowerState != null) {
+            try { currentPowerState = LaptopPowerState.valueOf(savedPowerState) } catch (_: Exception) {}
+        } else if (lastPowerCommand == "shutdown") {
+            currentPowerState = LaptopPowerState.POWERED_OFF
+        } else if (lastPowerCommand == "reboot") {
+            currentPowerState = LaptopPowerState.RESTARTING
+        } else {
+            currentPowerState = LaptopPowerState.DISCONNECTED
+        }
+
+        val wpFile = File(filesDir, "laptop_wallpaper.png")
+        if (wpFile.exists() && wpFile.length() > 0) {
+            wallpaperPath = wpFile.absolutePath
+        }
+
+        if (BuildConfig.DEBUG) {
+            ContextCompat.registerReceiver(
+                this,
+                debugStateReceiver,
+                IntentFilter(DEBUG_INJECT_LAPTOP_STATE),
+                ContextCompat.RECEIVER_EXPORTED,
+            )
+        }
+
         scheduleAlarmForHealthCheck()
         startRequestIdCleanup()
     }
@@ -346,6 +484,25 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val safeReqId = sanitizeLog(reqId)
                 Log.i(TAG, "Reject pairing action received for reqId=$safeReqId")
                 rejectPairing(reqId)
+                return START_STICKY
+            }
+            ACTION_RESET_LAPTOP_STATE -> {
+                Log.i(TAG, "Manual reset of laptop state requested")
+                lastPowerCommand = null
+                lastPowerCommandAtMs = 0L
+                rebootTimeoutJob?.cancel()
+                shutdownTimeoutJob?.cancel()
+                currentPowerState = if (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED) {
+                    LaptopPowerState.CONNECTED_LOCKED
+                } else {
+                    LaptopPowerState.DISCONNECTED
+                }
+                getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
+                    remove("last_power_command")
+                    remove("last_power_command_at_ms")
+                    remove("laptop_power_state")
+                }
+                notifyStateToInterface()
                 return START_STICKY
             }
             null -> {
@@ -675,7 +832,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     sendBroadcast(intent)
                 }
             }
-            "HARDWARE_METRICS" -> {
+            "HARDWARE_METRICS", "LAPTOP_STATE" -> {
                 val vol = json.optInt("volumeLevel", -1)
                 val bright = json.optInt("brightnessLevel", -1)
                 if ((vol >= 0) && (vol <= 100)) {
@@ -689,6 +846,27 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     }
                     sendBroadcast(intent)
                 }
+
+                val bat = if (json.has("batteryPercent")) json.optInt("batteryPercent", -1) else json.optInt("batteryLevel", -1)
+                if (bat in 0..100) {
+                    batteryPercent = bat
+                }
+                if (json.has("isCharging")) {
+                    isCharging = json.optBoolean("isCharging", false)
+                }
+                val lockState = json.optString("lockState", "")
+                if (lockState.equals("UNLOCKED", ignoreCase = true)) {
+                    currentPowerState = LaptopPowerState.CONNECTED_UNLOCKED
+                } else if (lockState.equals("LOCKED", ignoreCase = true)) {
+                    currentPowerState = LaptopPowerState.CONNECTED_LOCKED
+                }
+                val wpB64 = json.optString("wallpaperB64", json.optString("wallpaper", ""))
+                if (wpB64.isNotEmpty()) {
+                    saveWallpaperBase64(wpB64)
+                }
+
+                lastSeenAtMs = System.currentTimeMillis()
+                notifyStateToInterface()
             }
         }
     }
@@ -696,14 +874,60 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     fun dispatchCommand(actionCommand: String) {
         serviceScope.launch {
             try {
+                val normCmd = when (actionCommand.uppercase()) {
+                    "PWR_SHUTDOWN", "SHUTDOWN" -> "shutdown"
+                    "PWR_REBOOT", "REBOOT" -> "reboot"
+                    "PWR_SLEEP", "SLEEP" -> "sleep"
+                    else -> actionCommand.lowercase()
+                }
+
+                if (normCmd in setOf("shutdown", "reboot", "sleep")) {
+                    lastPowerCommand = normCmd
+                    lastPowerCommandAtMs = System.currentTimeMillis()
+                    rebootTimeoutJob?.cancel()
+                    shutdownTimeoutJob?.cancel()
+
+                    if (normCmd == "shutdown") {
+                        currentPowerState = LaptopPowerState.SHUTTING_DOWN
+                        shutdownTimeoutJob = serviceScope.launch {
+                            delay(30.seconds)
+                            if (currentPowerState == LaptopPowerState.SHUTTING_DOWN) {
+                                currentPowerState = LaptopPowerState.POWERED_OFF
+                                getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
+                                    putString("laptop_power_state", LaptopPowerState.POWERED_OFF.name)
+                                }
+                                notifyStateToInterface()
+                            }
+                        }
+                    } else if (normCmd == "reboot") {
+                        currentPowerState = LaptopPowerState.RESTARTING
+                        rebootTimeoutJob = serviceScope.launch {
+                            delay(180.seconds)
+                            if (currentPowerState == LaptopPowerState.RESTARTING) {
+                                currentPowerState = LaptopPowerState.DISCONNECTED
+                                getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
+                                    putString("laptop_power_state", LaptopPowerState.DISCONNECTED.name)
+                                }
+                                notifyStateToInterface()
+                            }
+                        }
+                    }
+                    getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
+                        putString("last_power_command", normCmd)
+                        putLong("last_power_command_at_ms", lastPowerCommandAtMs)
+                        putString("laptop_power_state", currentPowerState.name)
+                    }
+                    notifyStateToInterface()
+                }
+
                 if ((currentState != TransportState.READY) && (currentState != TransportState.AUTHENTICATED)) {
                     Log.w(TAG, "Transport not ready ($currentState). Queuing command and starting discovery...")
                     startDiscovery()
                     delay(1.seconds)
                 }
 
-                if (!capabilityManager.canExecuteCommand(actionCommand)) {
-                    Log.w(TAG, "Capability check failed for command: ${sanitizeLog(actionCommand)}")
+                if (!capabilityManager.canExecuteCommand(normCmd)) {
+                    Log.w(TAG, "Capability check failed for command: ${sanitizeLog(normCmd)}")
                     return@launch
                 }
 
@@ -711,15 +935,14 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val cmdJson = JSONObject().apply {
                     put("type", "COMMAND_EXECUTE")
                     put("requestId", reqId)
-                    put("command", actionCommand)
+                    put("command", normCmd)
                     put("timestamp", System.currentTimeMillis())
                 }
 
                 val transport = activeTransport
                 if ((transport != null) && transport.isConnected()) {
                     transport.sendFrame(cmdJson.toString().toByteArray(StandardCharsets.UTF_8))
-                    // SECURITY FIX: CWE-117 Sanitize actionCommand in logs
-                    Log.i(TAG, "Dispatched command frame over TLS 1.3: ${sanitizeLog(actionCommand)} (reqId=$reqId)")
+                    Log.i(TAG, "Dispatched command frame over TLS 1.3: ${sanitizeLog(normCmd)} (reqId=$reqId)")
                 } else {
                     Log.w(TAG, "Active transport disconnected. Re-initiating discovery...")
                     startDiscovery()
@@ -798,6 +1021,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             putExtra("extra_host_address", sanitizeLog(connectedHostAddress))
             putExtra("extra_granted_capabilities", capabilityManager.getNegotiatedCapabilitiesString())
             putExtra("extra_volume_level", currentVolumeLevel)
+
+            putExtra(EXTRA_LAPTOP_POWER_STATE, currentPowerState.name)
+            putExtra(EXTRA_LAPTOP_BATTERY_PERCENT, batteryPercent)
+            putExtra(EXTRA_LAPTOP_IS_CHARGING, isCharging)
+            putExtra(EXTRA_LAPTOP_WALLPAPER_PATH, wallpaperPath ?: "")
+            putExtra(EXTRA_LAPTOP_LAST_SEEN_MS, lastSeenAtMs)
+            putExtra(EXTRA_LAPTOP_LAST_POWER_CMD, lastPowerCommand ?: "")
+            putExtra(EXTRA_LAPTOP_LAST_POWER_CMD_MS, lastPowerCommandAtMs)
+
             setPackage(packageName)
         }
         sendBroadcast(intent)
