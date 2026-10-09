@@ -43,8 +43,6 @@ public static class LaptopStateCollector
     private static extern uint WTSGetActiveConsoleSessionId();
 
     private static readonly object _lock = new();
-    private static string? _lastWallpaperHash;
-    private static string? _lastWallpaperB64;
     private static SessionManager? _sessionManager;
     private static ITetherLogger? _logger;
     private static bool _eventsSubscribed = false;
@@ -196,7 +194,7 @@ public static class LaptopStateCollector
 
                     using var wrapMode = new ImageAttributes();
                     wrapMode.SetWrapMode(WrapMode.TileFlipXY);
-                    graphics.DrawImage(src, new Rectangle(0, 0, newW, newH), 0, 0, origW, origH, GraphicsUnit.Pixel, wrapMode);
+                    graphics.DrawImage(src, new Rectangle(0, 0, newW, newH), 0, 0, origW, origH, GraphicsUnit.Pixel);
                 }
 
                 destImage.Save(msOutput, ImageFormat.Jpeg);
@@ -279,23 +277,6 @@ public static class LaptopStateCollector
                     }
                 }
                 catch { }
-            }
-        }
-
-        lock (_lock)
-        {
-            if (!string.IsNullOrEmpty(wallpaperHash))
-            {
-                if (wallpaperHash == _lastWallpaperHash && _lastWallpaperB64 != null)
-                {
-                    // Cache hit: don't re-transmit identical Base64 payload on every 3s poll
-                    wallpaperB64 = null;
-                }
-                else
-                {
-                    _lastWallpaperHash = wallpaperHash;
-                    _lastWallpaperB64 = wallpaperB64;
-                }
             }
         }
 

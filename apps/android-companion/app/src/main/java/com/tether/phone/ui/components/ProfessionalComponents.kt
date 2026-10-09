@@ -58,8 +58,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -251,7 +250,14 @@ fun LiquidGlassVolumeControl(
     onToggleMute: () -> Unit,
     enabled: Boolean = true,
 ) {
-    var sliderPosition by remember(volumeLevel) { mutableFloatStateOf(volumeLevel.toFloat()) }
+    var isDragging by remember { mutableStateOf(false) }
+    var localVolume by remember(volumeLevel) { mutableIntStateOf(volumeLevel) }
+
+    LaunchedEffect(volumeLevel) {
+        if (!isDragging) {
+            localVolume = volumeLevel
+        }
+    }
 
     ProfessionalGlassSurface(
         tint = LiquidCyan,
@@ -272,7 +278,7 @@ fun LiquidGlassVolumeControl(
                         letterSpacing = 2.sp,
                     )
                     Text(
-                        text = if (isMuted) "MUTED" else "${sliderPosition.toInt()}%",
+                        text = if (isMuted) "MUTED" else "$localVolume%",
                         style = MaterialTheme.typography.headlineMedium,
                         color = if (isMuted) AlertRed else TextPrimary,
                         fontWeight = FontWeight.Bold,
@@ -302,10 +308,14 @@ fun LiquidGlassVolumeControl(
             Spacer(modifier = Modifier.height(16.dp))
 
             Slider(
-                value = sliderPosition,
-                onValueChange = { sliderPosition = it },
+                value = localVolume.toFloat(),
+                onValueChange = { newValue ->
+                    isDragging = true
+                    localVolume = newValue.toInt()
+                },
                 onValueChangeFinished = {
-                    onVolumeChange(sliderPosition.toInt())
+                    isDragging = false
+                    onVolumeChange(localVolume)
                 },
                 valueRange = 0f..100f,
                 enabled = enabled,
@@ -326,14 +336,22 @@ fun LiquidGlassVolumeControl(
                 TacticalAction(
                     label = "VOL -",
                     accentColor = TextSecondary,
-                    onClick = onVolumeDown,
+                    onClick = {
+                        val newVol = (localVolume - 5).coerceIn(0, 100)
+                        localVolume = newVol
+                        onVolumeDown()
+                    },
                     enabled = enabled,
                     modifier = Modifier.weight(1f),
                 )
                 TacticalAction(
                     label = "VOL +",
                     accentColor = LiquidCyan,
-                    onClick = onVolumeUp,
+                    onClick = {
+                        val newVol = (localVolume + 5).coerceIn(0, 100)
+                        localVolume = newVol
+                        onVolumeUp()
+                    },
                     enabled = enabled,
                     modifier = Modifier.weight(1f),
                 )

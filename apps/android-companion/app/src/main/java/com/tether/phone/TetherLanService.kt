@@ -201,7 +201,11 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 if (oldPng.exists()) try { oldPng.delete() } catch (_: Exception) {}
 
                 val file = File(filesDir, "laptop_wallpaper.jpg")
-                file.writeBytes(imageBytes)
+                val tmpFile = File(filesDir, "laptop_wallpaper.jpg.tmp")
+                tmpFile.writeBytes(imageBytes)
+                if (tmpFile.exists()) {
+                    tmpFile.renameTo(file)
+                }
                 wallpaperPath = file.absolutePath
                 Log.i(TAG, "Successfully saved wallpaper file (${imageBytes.size} bytes) to ${file.absolutePath}")
                 notifyStateToInterface()
