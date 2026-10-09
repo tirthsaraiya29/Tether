@@ -70,9 +70,13 @@ public static class HardwareExecutor
     [DllImport("powrprof.dll", SetLastError = true)]
     private static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
 
-    // --- WASAPI COM (kept for legacy callers, not used by the volume command path) ---
+    // --- Legacy in-process WASAPI interop -------------------------------------
+    // NOTE: The MMDeviceEnumerator CLSID below was previously incorrect
+    // (BCDE0382-0378-4A96-8208-3B9268011D0D), which caused REGDB_E_CLASSNOTREG
+    // and silently failed every volume operation. The correct CLSID is
+    // BCDE0395-E52F-467C-8E3D-C4579291692E (registered by mmdevapi.dll).
     [ComImport]
-    [Guid("BCDE0382-0378-4A96-8208-3B9268011D0D")]
+    [Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
     private class MMDeviceEnumerator { }
 
     [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -206,15 +210,21 @@ public static class HardwareExecutor
 
                 case "vol_up":
                 case "volume_up":
-                    return RunPowerShellAsUser(BuildKeybdScript(VK_VOLUME_UP, 2), logger);
+                    bool upOk = RunPowerShellAsUser(BuildAdjustVolumeScript(+5), logger);
+                    logger.Info($"HardwareExecutor: volume_up via user session -> {upOk}");
+                    return upOk;
 
                 case "vol_down":
                 case "volume_down":
-                    return RunPowerShellAsUser(BuildKeybdScript(VK_VOLUME_DOWN, 2), logger);
+                    bool downOk = RunPowerShellAsUser(BuildAdjustVolumeScript(-5), logger);
+                    logger.Info($"HardwareExecutor: volume_down via user session -> {downOk}");
+                    return downOk;
 
                 case "volume_mute":
                 case "mute":
-                    return RunPowerShellAsUser(BuildKeybdScript(VK_VOLUME_MUTE, 1), logger);
+                    bool muteOk = RunPowerShellAsUser(BuildToggleMuteScript(), logger);
+                    logger.Info($"HardwareExecutor: volume_mute via user session -> {muteOk}");
+                    return muteOk;
 
                 case "bright_up":
                 case "brightness_up":
@@ -328,11 +338,11 @@ public static class HardwareExecutor
 
                     if (ok)
                     {
-                        uint waitResult = WaitForSingleObject(pi.hProcess, 3000);
+                        uint waitResult = WaitForSingleObject(pi.hProcess, 5000);
                         int exitCode = -1;
                         if (waitResult == 0 /* WAIT_OBJECT_0 */)
                         {
-                            if (GetExitCodeProcess(pi.hProcess, out uint code) && code <= 100)
+                            if (GetExitCodeProcess(pi.hProcess, out uint code) && code >= 0 && code <= 100)
                             {
                                 exitCode = (int)code;
                             }
@@ -360,6 +370,8 @@ public static class HardwareExecutor
     /// Spawns powershell.exe inside the active console session using the logged-in
     /// user's token, with the provided script passed as a Base64-encoded command.
     /// This is what fixes Session 0 isolation for media / brightness operations.
+    /// Waits up to 5s for exit and returns false on non-zero exit code so script
+    /// failures surface in the log instead of silently returning true.
     /// </summary>
     private static bool RunPowerShellAsUser(string psScript, ITetherLogger logger)
     {
@@ -417,15 +429,34 @@ public static class HardwareExecutor
                         ref si,
                         out pi);
 
-                    if (ok)
+                    if (!ok)
                     {
-                        CloseHandle(pi.hProcess);
-                        CloseHandle(pi.hThread);
-                        return true;
+                        logger.Warning($"HardwareExecutor: CreateProcessAsUser (PowerShell) failed err={Marshal.GetLastWin32Error()}.");
+                        return false;
                     }
 
-                    logger.Warning($"HardwareExecutor: CreateProcessAsUser (PowerShell) failed err={Marshal.GetLastWin32Error()}.");
-                    return false;
+                    uint waitResult = WaitForSingleObject(pi.hProcess, 5000);
+                    bool success = true;
+
+                    if (waitResult == 0 /* WAIT_OBJECT_0 */)
+                    {
+                        if (GetExitCodeProcess(pi.hProcess, out uint exitCode))
+                        {
+                            if (exitCode != 0)
+                            {
+                                logger.Warning($"HardwareExecutor: user-session PowerShell script exited with code 0x{exitCode:X}.");
+                                success = false;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        logger.Warning("HardwareExecutor: user-session PowerShell script did not exit within 5000ms; continuing optimistically.");
+                    }
+
+                    CloseHandle(pi.hProcess);
+                    CloseHandle(pi.hThread);
+                    return success;
                 }
                 finally { CloseHandle(primaryToken); }
             }
@@ -442,42 +473,29 @@ public static class HardwareExecutor
     //  PowerShell script builders
     // =====================================================================
 
-    private static string BuildKeybdScript(byte vkCode, int times)
-    {
-        // vkCode/times are compile-time ints, safe to inline.
-        return $$"""
-$src = @'
-using System;
-using System.Runtime.InteropServices;
-public static class TetherKb {
-    [DllImport("user32.dll")]
-    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-    public static void Press(byte vk, int count) {
-        for (int i = 0; i < count; i++) {
-            keybd_event(vk, 0, 0, UIntPtr.Zero);
-            keybd_event(vk, 0, 2, UIntPtr.Zero);
-        }
-    }
-}
-'@
-Add-Type -TypeDefinition $src -Language CSharp | Out-Null
-[TetherKb]::Press({{vkCode}}, {{times}})
-""";
-    }
-
-    private static string BuildSetVolumeScript(int level)
-    {
-        return $$"""
-$src = @'
+    /// <summary>
+    /// Shared inline C# source declaring the WASAPI interop surface with the
+    /// CORRECT CLSID for MMDeviceEnumerator (BCDE0395-E52F-467C-8E3D-C4579291692E).
+    /// The previous code used a fabricated GUID which produced REGDB_E_CLASSNOTREG
+    /// and silently failed every volume operation.
+    /// </summary>
+    private static readonly string WasapiInteropSource = """
 using System;
 using System.Runtime.InteropServices;
 
 [Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IAudioEndpointVolume {
-    int a(); int b(); int c();
+    int RegisterControlChangeNotify(IntPtr pNotify);
+    int UnregisterControlChangeNotify(IntPtr pNotify);
+    int GetChannelCount(out uint pnChannelCount);
     int SetMasterVolumeLevel(float fLevelDB, ref Guid pguidEventContext);
     int SetMasterVolumeLevelScalar(float fLevel, ref Guid pguidEventContext);
-    int d(); int e(); int f(); int g(); int h(); int i(); int j(); int k(); int l(); int m();
+    int GetMasterVolumeLevel(out float pfLevelDB);
+    int GetMasterVolumeLevelScalar(out float pfLevel);
+    int SetChannelVolumeLevel(uint nChannel, float fLevelDB, ref Guid pguidEventContext);
+    int SetChannelVolumeLevelScalar(uint nChannel, float fLevel, ref Guid pguidEventContext);
+    int GetChannelVolumeLevel(uint nChannel, out float pfLevelDB);
+    int GetChannelVolumeLevelScalar(uint nChannel, out float pfLevel);
     int SetMute([MarshalAs(UnmanagedType.Bool)] bool bMute, ref Guid pguidEventContext);
     int GetMute([MarshalAs(UnmanagedType.Bool)] out bool pbMute);
 }
@@ -489,15 +507,22 @@ interface IMMDevice {
 
 [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IMMDeviceEnumerator {
-    int a();
+    int EnumAudioEndpoints(int dataFlow, int dwStateMask, out object ppDevices);
     int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppEndpoint);
 }
 
-[ComImport, Guid("BCDE0382-0378-4A96-8208-3B9268011D0D")]
+[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
 class MMDeviceEnumeratorComObject { }
+""";
+
+    private static string BuildSetVolumeScript(int level)
+    {
+        return $$"""
+$src = @'
+{{WasapiInteropSource}}
 
 public static class TetherVol {
-    public static void Set(int level) {
+    public static int Set(int level) {
         var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
         IMMDevice dev;
         int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out dev);
@@ -509,12 +534,101 @@ public static class TetherVol {
         var vol = (IAudioEndpointVolume)o;
         Guid empty = Guid.Empty;
         float scalar = Math.Max(0f, Math.Min(1f, level / 100f));
-        vol.SetMasterVolumeLevelScalar(scalar, ref empty);
+        hr = vol.SetMasterVolumeLevelScalar(scalar, ref empty);
+        if (hr != 0) throw new Exception("SetMasterVolumeLevelScalar hr=" + hr);
+        return level;
     }
 }
 '@
-Add-Type -TypeDefinition $src -Language CSharp | Out-Null
-[TetherVol]::Set({{level}})
+try {
+    Add-Type -TypeDefinition $src -Language CSharp -ErrorAction Stop | Out-Null
+    $v = [TetherVol]::Set({{level}})
+    Write-Output "volume set to $v"
+    exit 0
+} catch {
+    Write-Error $_
+    exit 1
+}
+""";
+    }
+
+    private static string BuildAdjustVolumeScript(int delta)
+    {
+        return $$"""
+$src = @'
+{{WasapiInteropSource}}
+
+public static class TetherVolAdjust {
+    public static int Adjust(int delta) {
+        var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
+        IMMDevice dev;
+        int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out dev);
+        if (hr != 0 || dev == null) throw new Exception("GetDefaultAudioEndpoint hr=" + hr);
+        Guid iid = typeof(IAudioEndpointVolume).GUID;
+        object o;
+        hr = dev.Activate(ref iid, 1, IntPtr.Zero, out o);
+        if (hr != 0 || o == null) throw new Exception("Activate hr=" + hr);
+        var vol = (IAudioEndpointVolume)o;
+        float cur = 0f;
+        hr = vol.GetMasterVolumeLevelScalar(out cur);
+        if (hr != 0) throw new Exception("GetMasterVolumeLevelScalar hr=" + hr);
+        int current = (int)Math.Round(cur * 100f);
+        int target = Math.Max(0, Math.Min(100, current + delta));
+        Guid empty = Guid.Empty;
+        hr = vol.SetMasterVolumeLevelScalar(target / 100f, ref empty);
+        if (hr != 0) throw new Exception("SetMasterVolumeLevelScalar hr=" + hr);
+        return target;
+    }
+}
+'@
+try {
+    Add-Type -TypeDefinition $src -Language CSharp -ErrorAction Stop | Out-Null
+    $v = [TetherVolAdjust]::Adjust({{delta}})
+    Write-Output "volume adjusted to $v"
+    exit 0
+} catch {
+    Write-Error $_
+    exit 1
+}
+""";
+    }
+
+    private static string BuildToggleMuteScript()
+    {
+        return $$"""
+$src = @'
+{{WasapiInteropSource}}
+
+public static class TetherMute {
+    public static bool Toggle() {
+        var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
+        IMMDevice dev;
+        int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out dev);
+        if (hr != 0 || dev == null) throw new Exception("GetDefaultAudioEndpoint hr=" + hr);
+        Guid iid = typeof(IAudioEndpointVolume).GUID;
+        object o;
+        hr = dev.Activate(ref iid, 1, IntPtr.Zero, out o);
+        if (hr != 0 || o == null) throw new Exception("Activate hr=" + hr);
+        var vol = (IAudioEndpointVolume)o;
+        bool muted = false;
+        hr = vol.GetMute(out muted);
+        if (hr != 0) throw new Exception("GetMute hr=" + hr);
+        Guid empty = Guid.Empty;
+        hr = vol.SetMute(!muted, ref empty);
+        if (hr != 0) throw new Exception("SetMute hr=" + hr);
+        return !muted;
+    }
+}
+'@
+try {
+    Add-Type -TypeDefinition $src -Language CSharp -ErrorAction Stop | Out-Null
+    $m = [TetherMute]::Toggle()
+    Write-Output "mute toggled to $m"
+    exit 0
+} catch {
+    Write-Error $_
+    exit 1
+}
 """;
     }
 
@@ -522,31 +636,7 @@ Add-Type -TypeDefinition $src -Language CSharp | Out-Null
     {
         return $$"""
 $src = @'
-using System;
-using System.Runtime.InteropServices;
-
-[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IAudioEndpointVolume {
-    int a(); int b(); int c();
-    int SetMasterVolumeLevel(float fLevelDB, ref Guid pguidEventContext);
-    int SetMasterVolumeLevelScalar(float fLevel, ref Guid pguidEventContext);
-    int GetMasterVolumeLevel(out float pfLevelDB);
-    int GetMasterVolumeLevelScalar(out float pfLevel);
-}
-
-[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IMMDevice {
-    int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
-}
-
-[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IMMDeviceEnumerator {
-    int a();
-    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppEndpoint);
-}
-
-[ComImport, Guid("BCDE0382-0378-4A96-8208-3B9268011D0D")]
-class MMDeviceEnumeratorComObject { }
+{{WasapiInteropSource}}
 
 public static class TetherVolGet {
     public static int Get() {
@@ -560,14 +650,20 @@ public static class TetherVolGet {
         if (hr != 0 || o == null) return -1;
         var vol = (IAudioEndpointVolume)o;
         float level = 0f;
-        vol.GetMasterVolumeLevelScalar(out level);
+        hr = vol.GetMasterVolumeLevelScalar(out level);
+        if (hr != 0) return -1;
         return (int)Math.Round(level * 100f);
     }
 }
 '@
-Add-Type -TypeDefinition $src -Language CSharp | Out-Null
-$v = [TetherVolGet]::Get()
-if ($v -ge 0) { exit $v } else { exit 255 }
+try {
+    Add-Type -TypeDefinition $src -Language CSharp -ErrorAction Stop | Out-Null
+    $v = [TetherVolGet]::Get()
+    if ($v -ge 0) { exit $v } else { exit 255 }
+} catch {
+    Write-Error $_
+    exit 255
+}
 """;
     }
 
@@ -579,7 +675,9 @@ try {
     $b = (Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorBrightness -ErrorAction Stop).CurrentBrightness
     $target = [Math]::Max(0, [Math]::Min(100, $b + $delta))
     (Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop).WmiSetBrightness(1, $target) | Out-Null
+    exit 0
 } catch {
+    Write-Error $_
     exit 1
 }
 """;
@@ -615,9 +713,9 @@ try {
         }
     }
 
-    // NOTE: These legacy WASAPI helpers still operate in the service's own session,
-    // so they should NOT be used to read/write the interactive user's volume.
-    // They remain for backward compatibility with any external callers.
+    // NOTE: Legacy in-process helpers. They still operate inside the service's own
+    // session (Session 0), so they will not affect the interactive user's default
+    // audio endpoint. Kept for backward compatibility with external callers only.
     public static int GetSystemVolumeLevel(ITetherLogger? logger = null)
     {
         try
