@@ -113,6 +113,26 @@ public sealed class TetherSession : IDisposable
                 Source = nameof(TetherSession)
             });
 
+            // Send initial LAPTOP_STATE frame immediately on authentication
+            try
+            {
+                var initSnap = LaptopStateCollector.GetLaptopSnapshot(_logger);
+                await FrameCodec.WriteJsonFrameAsync(_tls!, new LaptopStateFrame
+                {
+                    BatteryLevel = initSnap.BatteryLevel,
+                    BatteryPercent = initSnap.BatteryLevel,
+                    IsCharging = initSnap.IsCharging,
+                    LockState = initSnap.LockState,
+                    WallpaperB64 = initSnap.WallpaperB64,
+                    WallpaperHash = initSnap.WallpaperHash,
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }, serviceCt);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: Failed sending initial LAPTOP_STATE frame: {ex.Message}");
+            }
+
             await CommandAndHeartbeatLoopAsync(serviceCt);
         }
         catch (OperationCanceledException) { _logger.Info($"TetherSession [{SessionId}]: Handshake timed out."); }
