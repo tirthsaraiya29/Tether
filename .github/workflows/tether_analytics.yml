@@ -30,7 +30,7 @@ jobs:
           python-version: "3.12"
 
       - name: Generate reports
-        run: python .github/scripts/tether_analytics.py
+        run: python .github/tether_analytics.py
 
       - name: Upload analytics reports
         uses: actions/upload-artifact@v4
