@@ -40,6 +40,10 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<PowerEventWatcher>();
         services.AddSingleton<PowerEventNotifier>();
 
+        // Input relay to the interactive-session SessionHelper.
+        services.AddSingleton<InputForwarder>();
+        services.AddHostedService(sp => sp.GetRequiredService<InputForwarder>());
+
         services.AddSingleton<TrustStateManager>();
         services.AddSingleton<EnforcementManager>();
         services.AddSingleton<PanicManager>();

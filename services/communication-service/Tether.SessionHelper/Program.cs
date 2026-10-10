@@ -1,98 +1,99 @@
 ﻿using System;
 using System.IO;
-using System.Text.Json;
+using System.IO.Pipes;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Tether.SessionHelper;
 
-public static class Program
+internal static class Program
 {
-    public static int Main(string[] args)
+    private const string InputPipeName = "Tether.InputPipe";
+    private const int MaxFrameBytes = 1024 * 1024;
+
+    private static async Task<int> Main(string[] args)
     {
-        if (args.Length < 1)
+        var injector = new InputInjector();
+
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => cts.Cancel();
+
+        Console.WriteLine("[INF] Tether.SessionHelper starting; connecting to input pipe...");
+
+        while (!cts.IsCancellationRequested)
         {
-            Console.Error.WriteLine("usage: Tether.SessionHelper <get-volume|set-volume|adjust-volume|toggle-mute|get-lock-state|dump-laptop-state> [value]");
-            return 64;
+            try
+            {
+                using var pipe = new NamedPipeClientStream(
+                    serverName: ".",
+                    pipeName: InputPipeName,
+                    direction: PipeDirection.In,
+                    options: PipeOptions.Asynchronous);
+
+                await pipe.ConnectAsync(5000, cts.Token);
+                Console.WriteLine("[INF] Connected to input pipe.");
+
+                await PumpAsync(pipe, injector, cts.Token);
+
+                Console.WriteLine("[WRN] Input pipe closed.");
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[WRN] Input pipe error: {ex.Message}");
+            }
+
+            try { await Task.Delay(1000, cts.Token); } catch { break; }
         }
 
-        try
+        Console.WriteLine("[INF] Tether.SessionHelper exiting.");
+        return 0;
+    }
+
+    private static async Task PumpAsync(Stream pipe, InputInjector injector, CancellationToken ct)
+    {
+        var lenBuf = new byte[4];
+        while (!ct.IsCancellationRequested)
         {
-            switch (args[0].ToLowerInvariant())
+            if (!await ReadExactAsync(pipe, lenBuf, ct)) return;
+
+            int len = (lenBuf[0] << 24) | (lenBuf[1] << 16) | (lenBuf[2] << 8) | lenBuf[3];
+            if (len <= 0 || len > MaxFrameBytes)
             {
-                case "get-volume":
-                case "volume_get":
-                    int cur = AudioController.GetMasterVolume();
-                    Console.WriteLine($"OK {cur}");
-                    return cur; // 0..100 == volume level
+                Console.WriteLine($"[WRN] Invalid frame length {len}; closing pipe.");
+                return;
+            }
 
-                case "set-volume":
-                case "volume_set":
-                    if (args.Length < 2 || !int.TryParse(args[1], out int target))
-                    {
-                        Console.Error.WriteLine("set-volume requires integer argument");
-                        return 65;
-                    }
-                    AudioController.SetMasterVolume(Math.Clamp(target, 0, 100));
-                    Console.WriteLine($"OK {target}");
-                    return 0;
+            var body = new byte[len];
+            if (!await ReadExactAsync(pipe, body, ct)) return;
 
-                case "adjust-volume":
-                case "volume_adjust":
-                    if (args.Length < 2 || !int.TryParse(args[1], out int delta))
-                    {
-                        Console.Error.WriteLine("adjust-volume requires integer argument");
-                        return 65;
-                    }
-                    int nv = AudioController.AdjustMasterVolume(delta);
-                    Console.WriteLine($"OK {nv}");
-                    return 0;
-
-                case "toggle-mute":
-                case "volume_mute":
-                    bool muted = AudioController.ToggleMute();
-                    Console.WriteLine($"OK {muted}");
-                    return 0;
-
-                case "get-lock-state":
-                case "lock_state_get":
-                    bool isLocked = LockStateDetector.IsLocked();
-                    string lockStr = isLocked ? "LOCKED" : "UNLOCKED";
-                    Console.WriteLine($"OK {lockStr}");
-                    return isLocked ? 0 : 1;
-
-                case "dump-laptop-state":
-                case "laptop_state_dump":
-                    string outputPath = args.Length > 1 ? args[1] : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether", "laptop_state.json");
-                    string lockState = LockStateDetector.GetLockStateString();
-                    string? wallpaperPath = WallpaperReader.GetCurrentWallpaperPath();
-                    var (wallpaperB64, wallpaperHash) = WallpaperReader.GetDownscaledWallpaperBase64AndHash();
-
-                    var stateBlob = new
-                    {
-                        lockState = lockState,
-                        wallpaperPath = wallpaperPath,
-                        wallpaperB64 = wallpaperB64,
-                        wallpaperHash = wallpaperHash
-                    };
-
-                    string dir = Path.GetDirectoryName(outputPath) ?? "";
-                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                    {
-                        Directory.CreateDirectory(dir);
-                    }
-
-                    File.WriteAllText(outputPath, JsonSerializer.Serialize(stateBlob));
-                    Console.WriteLine("OK DUMPED");
-                    return 0;
-
-                default:
-                    Console.Error.WriteLine($"unknown command: {args[0]}");
-                    return 64;
+            try
+            {
+                injector.Handle(body);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[WRN] Injector threw: {ex.Message}");
             }
         }
-        catch (Exception ex)
+    }
+
+    private static async Task<bool> ReadExactAsync(Stream s, byte[] buf, CancellationToken ct)
+    {
+        int read = 0;
+        while (read < buf.Length)
         {
-            Console.Error.WriteLine($"ERROR {ex.GetType().Name}: {ex.Message}");
-            return 1;
+            int n;
+            try { n = await s.ReadAsync(buf.AsMemory(read, buf.Length - read), ct); }
+            catch (OperationCanceledException) { return false; }
+            catch { return false; }
+            if (n <= 0) return false;
+            read += n;
         }
+        return true;
     }
 }
