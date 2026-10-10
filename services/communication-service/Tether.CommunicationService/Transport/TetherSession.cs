@@ -23,7 +23,9 @@ namespace Tether.CommunicationService.Transport;
 public sealed class TetherSession : IDisposable
 {
     private const string ProtocolVersion = "2.0";
-    private const string ServerCaps = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED";
+    private const string ServerCaps = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT";
+
+    private const byte PacketTypeInputEvent = 0x05;
 
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
@@ -32,6 +34,7 @@ public sealed class TetherSession : IDisposable
     private readonly SessionManager _sessionManager;
     private readonly PairingManager _pairingManager;
     private readonly PacketRouter _packetRouter;
+    private readonly InputForwarder _inputForwarder;
 
     private SslStream? _tls;
     private long _lastFrameReceivedTicks;
@@ -46,7 +49,8 @@ public sealed class TetherSession : IDisposable
         DeviceManager deviceManager,
         SessionManager sessionManager,
         PairingManager pairingManager,
-        PacketRouter packetRouter)
+        PacketRouter packetRouter,
+        InputForwarder inputForwarder)
     {
         _eventBus = eventBus;
         _logger = logger;
@@ -55,6 +59,7 @@ public sealed class TetherSession : IDisposable
         _sessionManager = sessionManager;
         _pairingManager = pairingManager;
         _packetRouter = packetRouter;
+        _inputForwarder = inputForwarder;
         _lastFrameReceivedTicks = DateTime.UtcNow.Ticks;
     }
 
@@ -151,7 +156,6 @@ public sealed class TetherSession : IDisposable
                 Source = nameof(TetherSession)
             });
 
-            // Send initial LAPTOP_STATE frame immediately on authentication
             try
             {
                 var initSnap = LaptopStateCollector.GetLaptopSnapshot(_logger);
@@ -318,16 +322,35 @@ public sealed class TetherSession : IDisposable
 
             try
             {
-                var doc = await FrameCodec.ReadJsonFrameAsync(stream, readCts.Token);
-                if (doc != null)
-                {
-                    Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
-                    await _packetRouter.RouteFrameAsync(doc, this, Device!, stream, ct);
-                }
-                else
+                var frameBytes = await FrameCodec.ReadFrameAsync(stream, readCts.Token);
+                if (frameBytes is null)
                 {
                     _logger.Info($"TetherSession [{SessionId}]: Socket EOF received. Closing session.");
                     break;
+                }
+
+                Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
+
+                // Binary input path (hot, 60-120 Hz). Session is only reached here after
+                // the device has been authenticated as Paired, so we forward unconditionally.
+                if (frameBytes.Length >= 1 && frameBytes[0] == PacketTypeInputEvent)
+                {
+                    _inputForwarder.Forward(frameBytes);
+                    continue;
+                }
+
+                // JSON control path.
+                JsonDocument doc;
+                try { doc = JsonDocument.Parse(frameBytes); }
+                catch (JsonException ex)
+                {
+                    _logger.Warning($"TetherSession [{SessionId}]: Malformed JSON frame: {ex.Message}");
+                    continue;
+                }
+
+                using (doc)
+                {
+                    await _packetRouter.RouteFrameAsync(doc, this, Device!, stream, ct);
                 }
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)

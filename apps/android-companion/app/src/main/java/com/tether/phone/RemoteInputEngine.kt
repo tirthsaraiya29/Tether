@@ -30,8 +30,27 @@ class RemoteInputEngine(
     companion object {
         private const val TAG = "RemoteInputEngine"
         private const val CLICK_HOLD_DELAY_MS = 35L
-        private const val GYRO_DEADZONE = 0.025f
-        private const val GYRO_GAIN = 1200f
+
+        // Gyro tuning: gentler gain, larger deadzone. A typical gentle tilt
+        // produces ~0.05 rad/s; a moderate flick ~0.5 rad/s. At 50 Hz sample
+        // rate, gain 220 yields ~10-55 px per event, which is a controllable
+        // pointer speed without feeling sluggish.
+        private const val GYRO_DEADZONE = 0.05f
+        private const val GYRO_GAIN = 220f
+
+        // Trackpad pointer scaling.
+        //   - BASE_SCALE converts raw touch-pixel deltas to cursor deltas.
+        //     At 1.0 sensitivity, moving a finger across the whole screen
+        //     should move the cursor across the whole desktop.
+        //   - ACCEL_MAX caps the linear velocity-based boost.
+        private const val POINTER_BASE_SCALE = 0.35f
+        private const val POINTER_ACCEL_VEL_REF = 40f   // px per event to reach full accel
+        private const val POINTER_ACCEL_MAX = 2.5f      // 1.0x baseline -> 2.5x max
+
+        // Scroll scaling: rawDy * SCROLL_BASE_SCALE == wheel notches.
+        // 0.10 -> ~3 notches for a 30 px drag event, which is one usable
+        // Windows WHEEL_DELTA tick every few events.
+        private const val SCROLL_BASE_SCALE = 0.10f
     }
 
     private val engineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -63,17 +82,10 @@ class RemoteInputEngine(
     private val gyroSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
     private val accelSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
-    /**
-     * Dispatch an InputEvent directly by serializing to binary frame
-     */
     fun dispatchEvent(event: InputEvent) {
-        val bytes = event.toBinaryFrame()
-        sendFrameCallback(bytes)
+        sendFrameCallback(event.toBinaryFrame())
     }
 
-    /**
-     * Dispatch a list of InputEvents sequentially
-     */
     fun dispatchEvents(events: List<InputEvent>) {
         engineScope.launch {
             for (event in events) {
@@ -83,21 +95,21 @@ class RemoteInputEngine(
     }
 
     /**
-     * Non-linear velocity scaling for Trackpad Pointer Drag.
-     * Applies deadband filter + dynamic acceleration curve.
+     * Trackpad pointer drag. Deliberately simple: linear base scale, plus a
+     * bounded acceleration term driven by instantaneous speed only.
      */
     fun processPointerDrag(rawDx: Float, rawDy: Float) {
         val rawVel = hypot(rawDx, rawDy)
-        if (rawVel < 0.2f) return
+        // Deadzone: sub-pixel jitter from the touch panel.
+        if (rawVel < 0.5f) return
 
-        // Dynamic Acceleration Curve:
-        // Slow speed (rawVel < 2.0) -> subtle precision scaling
-        // High speed (rawVel >= 5.0) -> exponential gain to cross 4K resolution
-        val normalizedVel = (rawVel / 2.5f).coerceIn(0.1f, 15.0f)
-        val accelMultiplier = 1.0f + pointerSensitivity * normalizedVel.pow(1.3f)
+        val accelFactor = 1.0f + (rawVel / POINTER_ACCEL_VEL_REF)
+            .coerceIn(0f, POINTER_ACCEL_MAX - 1.0f)
 
-        val scaledDx = (rawDx * accelMultiplier * pointerSensitivity).roundToInt().coerceIn(-32768, 32767).toShort()
-        val scaledDy = (rawDy * accelMultiplier * pointerSensitivity).roundToInt().coerceIn(-32768, 32767).toShort()
+        val scale = POINTER_BASE_SCALE * pointerSensitivity * accelFactor
+
+        val scaledDx = (rawDx * scale).roundToInt().coerceIn(-32768, 32767).toShort()
+        val scaledDy = (rawDy * scale).roundToInt().coerceIn(-32768, 32767).toShort()
 
         if (scaledDx != 0.toShort() || scaledDy != 0.toShort()) {
             dispatchEvent(InputEvent.RelativeMove(scaledDx, scaledDy))
@@ -105,18 +117,19 @@ class RemoteInputEngine(
     }
 
     /**
-     * Process 2-finger vertical scroll drag.
+     * Two-finger vertical scroll. `scrollDelta` on the wire is in Windows
+     * WHEEL_DELTA ticks (each tick == 120 wheel units), so keep it small.
      */
     fun processScrollDrag(rawDy: Float) {
-        val scrollAmount = (rawDy * scrollSensitivity * 12f).roundToInt().coerceIn(-32768, 32767).toShort()
+        val scrollAmount = (rawDy * SCROLL_BASE_SCALE * scrollSensitivity)
+            .roundToInt()
+            .coerceIn(-32768, 32767)
+            .toShort()
         if (scrollAmount != 0.toShort()) {
             dispatchEvent(InputEvent.ScrollDelta(scrollAmount))
         }
     }
 
-    /**
-     * Single Tap -> Left Button Click Sequence
-     */
     fun triggerSingleTapClick() {
         engineScope.launch {
             dispatchEvent(InputEvent.ButtonState(MOUSE_BUTTON_LEFT, BUTTON_STATE_DOWN))
@@ -125,9 +138,6 @@ class RemoteInputEngine(
         }
     }
 
-    /**
-     * Two-Finger Tap -> Right Button Click Sequence
-     */
     fun triggerTwoFingerTapClick() {
         engineScope.launch {
             dispatchEvent(InputEvent.ButtonState(MOUSE_BUTTON_RIGHT, BUTTON_STATE_DOWN))
@@ -136,9 +146,6 @@ class RemoteInputEngine(
         }
     }
 
-    /**
-     * Start Tap-and-Hold Drag mode
-     */
     fun startTapAndHoldDrag() {
         if (!isTapAndHoldActive) {
             isTapAndHoldActive = true
@@ -146,9 +153,6 @@ class RemoteInputEngine(
         }
     }
 
-    /**
-     * Stop Tap-and-Hold Drag mode
-     */
     fun stopTapAndHoldDrag() {
         if (isTapAndHoldActive) {
             isTapAndHoldActive = false
@@ -156,17 +160,11 @@ class RemoteInputEngine(
         }
     }
 
-    /**
-     * Physical Left Button Down / Up Target Click
-     */
     fun setButtonState(buttonId: Byte, isDown: Boolean) {
         val state = if (isDown) BUTTON_STATE_DOWN else BUTTON_STATE_UP
         dispatchEvent(InputEvent.ButtonState(buttonId, state))
     }
 
-    /**
-     * Toggle modifier key latch states
-     */
     fun toggleModifier(vkCode: Short) {
         when (vkCode) {
             VK_CONTROL -> {
@@ -189,16 +187,10 @@ class RemoteInputEngine(
                 val state = if (isWinLatched) BUTTON_STATE_DOWN else BUTTON_STATE_UP
                 dispatchEvent(InputEvent.VirtualKey(VK_LWIN, state))
             }
-            else -> {
-                // Tap key directly
-                triggerKeyTap(vkCode)
-            }
+            else -> triggerKeyTap(vkCode)
         }
     }
 
-    /**
-     * Single Virtual Key Tap (Down + Up sequence)
-     */
     fun triggerKeyTap(vkCode: Short, isExtended: Boolean = false) {
         engineScope.launch {
             val flags = if (isExtended) KEY_STATE_EXTENDED else KEY_STATE_DOWN
@@ -208,18 +200,11 @@ class RemoteInputEngine(
         }
     }
 
-    /**
-     * Serialize and transmit typed text buffer as Unicode chunks
-     */
     fun sendUnicodeText(text: String) {
         if (text.isEmpty()) return
-        val unicodeEvents = InputFactory.createUnicodeText(text)
-        dispatchEvents(unicodeEvents)
+        dispatchEvents(InputFactory.createUnicodeText(text))
     }
 
-    /**
-     * Reset/Release all latched modifiers
-     */
     fun releaseAllModifiers() {
         if (isCtrlLatched) {
             isCtrlLatched = false
@@ -239,21 +224,11 @@ class RemoteInputEngine(
         }
     }
 
-    /**
-     * Toggle Air Mouse Sensor Fusion mode
-     */
     fun toggleAirMouse(): Boolean {
-        if (isAirMouseActive) {
-            stopAirMouse()
-        } else {
-            startAirMouse()
-        }
+        if (isAirMouseActive) stopAirMouse() else startAirMouse()
         return isAirMouseActive
     }
 
-    /**
-     * Start Air Mouse Sensor Fusion
-     */
     fun startAirMouse() {
         if (sensorManager == null || gyroSensor == null) {
             Log.w(TAG, "Gyroscope sensor not available on this device")
@@ -267,9 +242,6 @@ class RemoteInputEngine(
         }
     }
 
-    /**
-     * Stop Air Mouse Sensor Fusion
-     */
     fun stopAirMouse() {
         if (isAirMouseActive) {
             isAirMouseActive = false
@@ -282,18 +254,17 @@ class RemoteInputEngine(
         if (!isAirMouseActive || event == null) return
 
         if (event.sensor.type == Sensor.TYPE_GYROSCOPE) {
-            // Gyro values: x (pitch rate), y (roll rate), z (yaw rate)
-            val gyroX = event.values[0] // pitch velocity (rad/s)
-            val gyroY = event.values[1] // roll velocity (rad/s)
-            val gyroZ = event.values[2] // yaw velocity (rad/s)
+            val gyroX = event.values[0]
+            val gyroY = event.values[1]
+            val gyroZ = event.values[2]
 
-            // Calculate rotational magnitude for deadzone filter
             val radMagnitude = hypot(gyroZ, gyroX)
             if (radMagnitude < GYRO_DEADZONE) return
 
-            // Map Yaw (rotation around Z/Y axis) to DeltaX and Pitch (rotation around X axis) to DeltaY
-            val deltaX = (-gyroZ * GYRO_GAIN * airMouseSensitivity).roundToInt().coerceIn(-32768, 32767).toShort()
-            val deltaY = (-gyroX * GYRO_GAIN * airMouseSensitivity).roundToInt().coerceIn(-32768, 32767).toShort()
+            val deltaX = (-gyroZ * GYRO_GAIN * airMouseSensitivity)
+                .roundToInt().coerceIn(-32768, 32767).toShort()
+            val deltaY = (-gyroX * GYRO_GAIN * airMouseSensitivity)
+                .roundToInt().coerceIn(-32768, 32767).toShort()
 
             if (deltaX != 0.toShort() || deltaY != 0.toShort()) {
                 dispatchEvent(InputEvent.RelativeMove(deltaX, deltaY))

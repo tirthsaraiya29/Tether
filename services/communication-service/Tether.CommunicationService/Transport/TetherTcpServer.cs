@@ -25,6 +25,7 @@ public sealed class TetherTcpServer : IDisposable
     private readonly SessionManager _sessionManager;
     private readonly PairingManager _pairingManager;
     private readonly PacketRouter _packetRouter;
+    private readonly InputForwarder _inputForwarder;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -37,7 +38,8 @@ public sealed class TetherTcpServer : IDisposable
         DeviceManager deviceManager,
         SessionManager sessionManager,
         PairingManager pairingManager,
-        PacketRouter packetRouter)
+        PacketRouter packetRouter,
+        InputForwarder inputForwarder)
     {
         _eventBus = eventBus;
         _logger = logger;
@@ -46,6 +48,7 @@ public sealed class TetherTcpServer : IDisposable
         _sessionManager = sessionManager;
         _pairingManager = pairingManager;
         _packetRouter = packetRouter;
+        _inputForwarder = inputForwarder;
     }
 
     public void Start()
@@ -111,7 +114,8 @@ public sealed class TetherTcpServer : IDisposable
                 _deviceManager,
                 _sessionManager,
                 _pairingManager,
-                _packetRouter);
+                _packetRouter,
+                _inputForwarder);
 
             await session.RunAsync(client, ct);
         }
