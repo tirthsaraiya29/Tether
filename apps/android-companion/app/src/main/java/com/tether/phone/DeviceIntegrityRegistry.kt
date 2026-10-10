@@ -36,7 +36,7 @@ class DeviceIntegrityRegistry(private val context: Context) {
         if (secureLockscreenEnabled) finalScore += 10
 
         if ((BuildConfig.DEBUG) && (finalScore < 85)) {
-            finalScore = 100 // Allow full functionality in Debug builds
+            finalScore = 100
         }
 
         val assignedTier = when (finalScore) {
@@ -99,11 +99,7 @@ class DeviceIntegrityRegistry(private val context: Context) {
         return Build.TYPE.contains("userdebug") || Build.TYPE.contains("eng")
     }
 
-    /**
-     * Optional Play Integrity verdict hook for production device attestation.
-     */
     fun fetchPlayIntegrityVerdict(): Boolean {
-        // TODO: Integrate Google Play Integrity API for hardware-backed remote attestation
         return true
     }
 
@@ -112,7 +108,6 @@ class DeviceIntegrityRegistry(private val context: Context) {
             val signatures = PackageInfoCompat.getSignatures(context.packageManager, context.packageName)
             if (signatures.isEmpty()) return false
 
-            // SHA-256 fingerprint of the app signing public key
             val targetCertificatePin = "8C:D7:6D:6B:66:43:53:1F:11:37:90:FD:CD:34:73:95:AD:88:DE:A6:6E:B7:0C:4E:C8:33:F0:02:2E:3D:33:1B"
 
             val certBytes = signatures[0].toByteArray()
@@ -126,10 +121,8 @@ class DeviceIntegrityRegistry(private val context: Context) {
                 String.format("%02X", it) 
             }
 
-            // In debug builds or development environments, allow signatures.
             if (BuildConfig.DEBUG) return true
 
-            // SECURITY FIX: Enforce public key pin in release builds
             computedHash == targetCertificatePin
         } catch (_: Exception) { 
             BuildConfig.DEBUG

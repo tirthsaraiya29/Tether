@@ -117,9 +117,6 @@ class TetherTlsTransport(
     private fun createSslContext(): SSLContext {
         val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
 
-        // Suppress CodeQL false positive: Implements Trust-On-First-Use (TOFU) pinning for peer-to-peer self-signed TLS connections.
-        // codeql[java/unsafe-cert-trust]
-        // codeql[java/insecure-trustmanager]
         val pinningTrustManager = object : javax.net.ssl.X509ExtendedTrustManager() {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
                 throw CertificateException("Client certificates are not supported by this transport")
@@ -152,11 +149,8 @@ class TetherTlsTransport(
                     throw CertificateException("Server certificate chain is null or empty")
                 }
                 val leaf = chain[0]
-                leaf.checkValidity() // Validate certificate validity dates
+                leaf.checkValidity()
 
-                // If a pinned key is saved (paired state), strictly enforce public key fingerprint matching.
-                // If pinnedBytes is null (unpaired / TOFU mode), allow TLS handshake to complete
-                // so executeHandshake() can verify the PIN and show the PairingConfirmationActivity popup.
                 if ((pinnedBytes != null) && pinnedBytes.isNotEmpty()) {
                     val md = MessageDigest.getInstance("SHA-256")
                     val presentedHash = md.digest(leaf.publicKey.encoded)

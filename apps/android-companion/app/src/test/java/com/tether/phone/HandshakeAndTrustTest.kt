@@ -11,11 +11,6 @@ import java.security.MessageDigest
 import java.security.Signature
 import java.security.spec.X509EncodedKeySpec
 
-/**
- * Comprehensive security test suite verifying Tether's local network connection,
- * TLS identity verification, TOFU key pinning, MITM rejection, capability authorization,
- * framing bounds enforcement, and post-quantum cryptographic primitives.
- */
 class HandshakeAndTrustTest {
 
     private lateinit var phoneKeyPair: KeyPair
@@ -134,7 +129,6 @@ class HandshakeAndTrustTest {
         assertFalse("Elevated power command must be denied without POWER_ELEVATED capability", capManager.canExecuteCommand("shutdown"))
         assertFalse("Terminal command must be denied without TERMINAL capability", capManager.canExecuteCommand("powershell"))
 
-        // Re-negotiate with elevated capability
         capManager.negotiateCapabilities("CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
         assertTrue("Elevated power command must be allowed when capability is granted", capManager.canExecuteCommand("shutdown"))
         assertTrue("Terminal command must be allowed when capability is granted", capManager.canExecuteCommand("powershell"))
@@ -144,9 +138,9 @@ class HandshakeAndTrustTest {
 
     @Test
     fun testFramingBoundaryLimits() {
-        val maxFrameSize = 1024 * 1024 // 1 MB
-        val validFrameSize = 512 * 1024 // 512 KB
-        val oversizedFrameSize = 2 * 1024 * 1024 // 2 MB
+        val maxFrameSize = 1024 * 1024
+        val validFrameSize = 512 * 1024
+        val oversizedFrameSize = 2 * 1024 * 1024
 
         assertTrue("Valid frame size must be within limit", isFrameWithinLimit(validFrameSize, maxFrameSize))
         assertFalse("Oversized frame must exceed limit", isFrameWithinLimit(oversizedFrameSize, maxFrameSize))
@@ -170,8 +164,6 @@ class HandshakeAndTrustTest {
         val reqIdBytes = requestId.toByteArray(Charsets.UTF_8)
         val transcriptHash = MessageDigest.getInstance("SHA-512").digest("TRANSCRIPT_DATA".toByteArray())
 
-        // Calculate expectedPhoneProof exactly as Windows PairingManager.cs:
-        // ComputeSha512(pin, phoneSpkiDer, winSpkiDer, requestId, transcriptHash)
         val digest = MessageDigest.getInstance("SHA-512")
         digest.update(pinBytes)
         digest.update(phonePubKey)
@@ -183,7 +175,6 @@ class HandshakeAndTrustTest {
         assertNotNull(phoneProof)
         assertEquals(64, phoneProof.size)
 
-        // Verify that swapped public key order produces a non-matching hash
         val digestSwappedKeys = MessageDigest.getInstance("SHA-512")
         digestSwappedKeys.update(pinBytes)
         digestSwappedKeys.update(winPubKey)

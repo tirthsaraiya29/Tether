@@ -13,11 +13,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-/**
- * Tether Liquid Glass Theme
- * Implements a modern dark-mode aesthetic with realistic material behaviors.
- */
-
 val TetherEase = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
 private val LiquidGlassColorScheme = darkColorScheme(
@@ -41,7 +36,6 @@ private val LiquidGlassColorScheme = darkColorScheme(
 @Composable
 fun TetherTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
@@ -54,7 +48,6 @@ fun TetherTheme(
         else -> LiquidGlassColorScheme
     }
 
-    // Utilize design tokens for consistent theme integration
     val colorScheme = baseColorScheme.copy(
         error = ColorPanic,
     )
@@ -69,7 +62,6 @@ fun TetherTheme(
             insetsController.isAppearanceLightStatusBars = false
             insetsController.isAppearanceLightNavigationBars = false
             
-            // Ensure content draws under system bars for edge-to-edge glass feel
             WindowCompat.setDecorFitsSystemWindows(window, false)
         }
     }

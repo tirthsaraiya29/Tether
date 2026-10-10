@@ -58,7 +58,6 @@ class TetherPairingManager(
         private const val TAG = "TetherPairingManager"
         const val PROTOCOL_VERSION = "2.0"
 
-        // SECURITY FIX: CWE-117 Defensive log sanitizer stripping control chars
         fun sanitizeLog(input: String?): String {
             if (input == null) return "null"
             return input
@@ -91,10 +90,8 @@ class TetherPairingManager(
             val pinnedFingerprint = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
             val isAlreadyPinned = ((pinnedKeyBytes != null) && pinnedKeyBytes.isNotEmpty())
 
-            // SECURITY FIX: Generate client nonce for proof-of-possession
             val clientNonce = ByteArray(32).also { SecureRandom().nextBytes(it) }
 
-            // 1. Construct HANDSHAKE_INIT payload
             val initJson = JSONObject().apply {
                 put("type", "HANDSHAKE_INIT")
                 put("version", PROTOCOL_VERSION)
@@ -110,7 +107,6 @@ class TetherPairingManager(
             Log.i(TAG, "Sending HANDSHAKE_INIT v2.0 over TLS 1.3 (isPairingRequested=${isUserInitiatedPairing || !isAlreadyPinned})...")
             transport.sendFrame(initJsonStr.toByteArray(StandardCharsets.UTF_8))
 
-            // 2. Read HANDSHAKE_RESPONSE payload
             val respBytes = transport.readFrame() ?: return PairingResult.Error("No response from Windows host")
             val respJsonStr = String(respBytes, StandardCharsets.UTF_8)
             val respJson = JSONObject(respJsonStr)
@@ -137,7 +133,6 @@ class TetherPairingManager(
             val safeDevId = sanitizeLog(winDeviceId)
             val safeFp = sanitizeLog(winFingerprint)
             val safeStatus = sanitizeLog(pairingStatus)
-            // SECURITY FIX: CWE-117 Log Injection - All peer-controlled fields below are passed through sanitizeLog() to prevent log injection.
             Log.i(TAG, "Received HANDSHAKE_RESPONSE from $safeName ($safeDevId), FP=$safeFp, status=$safeStatus")
 
             val transcriptHash = computeSha512(
@@ -145,7 +140,6 @@ class TetherPairingManager(
                 respBytes,
             )
 
-            // 3. Verify against pinned key if previously paired
             if (isAlreadyPinned) {
                 if (!winPubKeyBytes.contentEquals(pinnedKeyBytes)) {
                     Log.e(TAG, "SECURITY ALERT: Windows identity key mismatch! Presented: $winFingerprint, Pinned: $pinnedFingerprint")
@@ -155,7 +149,6 @@ class TetherPairingManager(
                     )
                 }
 
-                // Send HANDSHAKE_PROOF signed with identity key for established trust
                 val proofPayload = transcriptHash + winPubKeyBytes
                 val signature = securityEngine.signWithIdentityKey(proofPayload)
                 val proofBase64 = Base64.encodeToString(signature, Base64.NO_WRAP)
@@ -167,7 +160,6 @@ class TetherPairingManager(
                 }
                 transport.sendFrame(proofJson.toString().toByteArray(StandardCharsets.UTF_8))
 
-                // Read HANDSHAKE_VERIFIED response with backward compatibility fallback
                 val verifiedBytes = try {
                     transport.readFrame()
                 } catch (e: Exception) {
@@ -196,7 +188,6 @@ class TetherPairingManager(
                 )
             }
 
-            // 4. Handle First Pairing vs Pending
             when (pairingStatus) {
                 "PAIRED", "PAIRING_ACCEPTED" -> {
                     Log.i(TAG, "First pairing auto-accepted by Windows. Pinning keys...")
@@ -259,11 +250,9 @@ class TetherPairingManager(
             val reqIdBytes = requestId.toByteArray(StandardCharsets.UTF_8)
             val pinBytes = userEnteredPin.trim().toByteArray(StandardCharsets.UTF_8)
 
-            // PhoneProof = SHA-512(PIN || PhonePubKey || WinPubKey || RequestId || TranscriptHash)
             val phoneProof = computeSha512(pinBytes, phonePubKeyBytes, winEcPubKeyBytes, reqIdBytes, transcriptHash)
             val phoneProofBase64 = Base64.encodeToString(phoneProof, Base64.NO_WRAP)
 
-            // 1. Send PAIRING_CONFIRMED frame
             val confirmedJson = JSONObject().apply {
                 put("type", "PAIRING_CONFIRMED")
                 put("requestId", requestId)
@@ -273,7 +262,6 @@ class TetherPairingManager(
             Log.i(TAG, "Sending PAIRING_CONFIRMED frame for requestId=$safeReqId...")
             transport.sendFrame(confirmedJson.toString().toByteArray(StandardCharsets.UTF_8))
 
-            // 2. Read PAIRING_COMPLETE frame
             val completeBytes = transport.readFrame() ?: return PairingResult.Error("No PAIRING_COMPLETE response from Windows")
             val completeJson = JSONObject(String(completeBytes, StandardCharsets.UTF_8))
             val status = completeJson.optString("status", "OK")
@@ -282,7 +270,6 @@ class TetherPairingManager(
                 return PairingResult.Error("Pairing complete failed with status: $status")
             }
 
-            // SECURITY FIX: Verify Windows pairing proof
             val winProofBase64 = completeJson.optString("proof", "")
             if (winProofBase64.isNotBlank()) {
                 val expectedWinProof = computeSha512(
@@ -307,7 +294,6 @@ class TetherPairingManager(
                 Log.w(TAG, "Windows did not return pairing proof; continuing with caution.")
             }
 
-            // 3. Pin Windows key securely
             securityEngine.storePinnedKeySecurely(context, winEcPubKeyBytes)
             Log.i(TAG, "Successfully pinned Windows public key after interactive 6-digit PIN confirmation!")
 

@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Discovery;
 using Tether.CommunicationService.Ipc;
+using Tether.CommunicationService.Power;
 using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
@@ -31,6 +32,8 @@ public sealed class Worker : BackgroundService
     private readonly UdpDiscovery _udpDiscovery;
     private readonly WindowsIdentity _identity;
     private readonly SessionManager _sessionManager;
+    private readonly PowerEventWatcher _powerWatcher;
+    private readonly PowerEventNotifier _powerNotifier;
 
     public Worker(
         ILogger<Worker> logger,
@@ -41,6 +44,8 @@ public sealed class Worker : BackgroundService
         UdpDiscovery udpDiscovery,
         WindowsIdentity identity,
         SessionManager sessionManager,
+        PowerEventWatcher powerWatcher,
+        PowerEventNotifier powerNotifier,
         TrustStateManager trustStateManager,
         EnforcementManager enforcementManager,
         PanicManager panicManager,
@@ -55,6 +60,8 @@ public sealed class Worker : BackgroundService
         _udpDiscovery = udpDiscovery;
         _identity = identity;
         _sessionManager = sessionManager;
+        _powerWatcher = powerWatcher;
+        _powerNotifier = powerNotifier;
         _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager; _ = ipcEventRelay;
     }
 
@@ -78,6 +85,10 @@ public sealed class Worker : BackgroundService
 
         _tetherLogger.Info($"Transport up. DeviceId={_identity.DeviceId}");
 
+        PowerEventHub.Watcher = _powerWatcher;
+        _powerWatcher.Start();
+        _tetherLogger.Info("PowerEventWatcher: started (WMI + SystemEvents).");
+
         LaptopStateCollector.Initialize(_sessionManager, _tetherLogger);
 
         _ = Task.Run(async () =>
@@ -91,6 +102,7 @@ public sealed class Worker : BackgroundService
                 try
                 {
                     await Task.Delay(3000, stoppingToken);
+
                     if (_sessionManager.ActiveSessionCount > 0)
                     {
                         var snap = LaptopStateCollector.GetLaptopSnapshot(_tetherLogger);
@@ -100,6 +112,19 @@ public sealed class Worker : BackgroundService
                             lastBattery = snap.BatteryLevel;
                             lastLock = snap.LockState;
                             _sessionManager.BroadcastLaptopState(snap);
+                        }
+
+                        if (_powerWatcher.HasPending)
+                        {
+                            try
+                            {
+                                _powerNotifier.FlushToSession(
+                                    json => _sessionManager.BroadcastRawFrame(json));
+                            }
+                            catch (Exception ex)
+                            {
+                                _tetherLogger.Warning($"Worker: power-event flush failed: {ex.Message}");
+                            }
                         }
                     }
                 }
@@ -141,6 +166,10 @@ public sealed class Worker : BackgroundService
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _tetherLogger.Info("Tether Communication Service is stopping.");
+
+        try { _powerWatcher.Dispose(); } catch { }
+        PowerEventHub.Watcher = null;
+
         _mdns.Stop();
         _udpDiscovery.Stop();
         _tcpServer.Stop();

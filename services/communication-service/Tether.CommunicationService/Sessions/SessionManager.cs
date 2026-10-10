@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.Transport;
@@ -32,7 +33,6 @@ public sealed class SessionManager
         var device = session.Device;
         if (device == null) return;
 
-        // If the device already has an active session, close the older session
         if (device.CurrentSession != null && device.CurrentSession != session)
         {
             _logger.Info($"SessionManager: Terminating older stale session '{device.CurrentSession.SessionId}' for device '{device.DisplayName}'.");
@@ -65,6 +65,26 @@ public sealed class SessionManager
         foreach (var session in sessions)
         {
             _ = session.SendLaptopStateAsync(snap, System.Threading.CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// Broadcasts an already-serialized UTF-8 JSON frame to every active session.
+    /// Used by the power-event pipeline (PowerEventNotifier) so the phone receives
+    /// POWER_EVENT frames over the same TLS channel that carries laptop state.
+    /// </summary>
+    public void BroadcastRawFrame(string json)
+    {
+        if (string.IsNullOrEmpty(json)) return;
+
+        var sessions = GetActiveSessions();
+        if (sessions.Count == 0) return;
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+
+        foreach (var session in sessions)
+        {
+            _ = session.SendRawFrameAsync(bytes, System.Threading.CancellationToken.None);
         }
     }
 }

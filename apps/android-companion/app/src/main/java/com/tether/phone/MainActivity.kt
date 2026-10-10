@@ -304,7 +304,6 @@ class MainActivity : FragmentActivity() {
             wallpaperPath = if (wpFile.exists() && wpFile.length() > 0) wpFile.absolutePath else null,
         )
 
-        // Compulsory App Lock with 1 Minute Timeout (Gated background service start)
         isBiometricSettingEnabled.value = true
         selectedTimeoutMs.longValue = 60_000L
         isAppLocked.value = true

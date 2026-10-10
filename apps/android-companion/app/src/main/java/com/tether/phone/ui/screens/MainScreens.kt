@@ -79,7 +79,6 @@ fun TetherAppScreen(
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // --- Hero Component: LaptopScreenCard ---
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 1000)) + 
@@ -102,7 +101,6 @@ fun TetherAppScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // --- Tactical Action Chips ---
         AnimatedContent(
             targetState = verificationStep,
             label = "SecurityActions",
@@ -172,7 +170,6 @@ fun TetherAppScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // --- Controls & Telemetry Surfaces ---
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 300)) + 
@@ -1237,4 +1234,3 @@ fun TetherNavigationShell(
         }
     }
 }
-

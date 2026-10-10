@@ -84,7 +84,6 @@ fun LaptopScreenCard(
             )
             .clickable(onClick = onClick),
     ) {
-        // --- Layer 1: Background Wallpaper / Fallback ---
         if (telemetry.powerState != LaptopPowerState.POWERED_OFF) {
             if (wallpaperBitmap != null) {
                 Image(
@@ -116,12 +115,10 @@ fun LaptopScreenCard(
             }
         }
 
-        // --- Layer 2: Animated Scan Line (Only when CONNECTED_UNLOCKED) ---
         if (telemetry.powerState == LaptopPowerState.CONNECTED_UNLOCKED) {
             ScanLineOverlay(modifier = Modifier.fillMaxSize())
         }
 
-        // --- Layer 3: Power State Overlays ---
         when (telemetry.powerState) {
             LaptopPowerState.POWERED_OFF -> {
                 Box(
@@ -180,20 +177,17 @@ fun LaptopScreenCard(
             else -> {}
         }
 
-        // --- Layer 4: HUD Elements Overlay (Top & Bottom bars) ---
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            // Top Row: Status Badge (Left) & Battery Chip (Right)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Connection State Pill
                 Surface(
                     color = DeepSpace.copy(alpha = 0.75f),
                     shape = CircleShape,
@@ -229,7 +223,6 @@ fun LaptopScreenCard(
                     }
                 }
 
-                // Battery Chip (Hidden if batteryPercent < 0)
                 if (telemetry.batteryPercent >= 0) {
                     Surface(
                         color = DeepSpace.copy(alpha = 0.75f),
@@ -273,7 +266,6 @@ fun LaptopScreenCard(
                 }
             }
 
-            // Bottom Bar: Monospace fingerprint & relative time
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

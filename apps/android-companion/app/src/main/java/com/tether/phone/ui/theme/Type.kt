@@ -6,15 +6,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-/**
- * Tether 2026 Typography System
- * Refined for high-precision instrumentation and a technical, premium feel.
- */
-
 val Typography = Typography(
     headlineLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Light, // Sophisticated, thin look
+        fontWeight = FontWeight.Light,
         fontSize = 42.sp,
         lineHeight = 52.sp,
         letterSpacing = (-1.5).sp,
@@ -31,7 +26,7 @@ val Typography = Typography(
         fontWeight = FontWeight.Bold,
         fontSize = 20.sp,
         lineHeight = 28.sp,
-        letterSpacing = 3.sp, // Extreme tracking for tech aesthetic
+        letterSpacing = 3.sp,
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
@@ -66,7 +61,7 @@ val Typography = Typography(
         fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
         lineHeight = 16.sp,
-        letterSpacing = 4.sp, // Highly technical feel
+        letterSpacing = 4.sp,
     ),
     labelSmall = TextStyle(
         fontFamily = FontFamily.Monospace,
