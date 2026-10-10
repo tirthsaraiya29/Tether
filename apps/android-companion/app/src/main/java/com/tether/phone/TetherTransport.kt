@@ -67,10 +67,12 @@ class TetherTlsTransport(
         val factory: SSLSocketFactory = sslContext.socketFactory
 
         val rawSocket = java.net.Socket()
+        rawSocket.tcpNoDelay = true
         rawSocket.connect(InetSocketAddress(host, port), timeoutMs)
         rawSocket.soTimeout = 15000
 
         val sslSock = factory.createSocket(rawSocket, host, port, true) as SSLSocket
+        sslSock.tcpNoDelay = true
         sslSock.useClientMode = true
 
         val sslParams = sslSock.sslParameters

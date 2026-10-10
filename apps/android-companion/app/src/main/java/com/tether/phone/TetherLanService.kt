@@ -112,6 +112,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 .filter { (it.code >= 0x20) && (it.code != 0x7F) }
                 .take(256)
         }
+
+        @Volatile
+        var instance: TetherLanService? = null
+            private set
     }
 
     private val serviceJob = SupervisorJob()
@@ -310,6 +314,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         createNotificationChannel()
 
         try {
@@ -782,8 +787,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     }
                     continue
                 }
-                val jsonStr = String(frameBytes, StandardCharsets.UTF_8)
-                processIncomingFrame(JSONObject(jsonStr), transport)
+                if (frameBytes.isNotEmpty() && frameBytes[0] == 0x05.toByte()) {
+                    processIncomingBinaryFrame(frameBytes, transport)
+                } else if (frameBytes.isNotEmpty() && frameBytes[0] == '{'.code.toByte()) {
+                    val jsonStr = String(frameBytes, StandardCharsets.UTF_8)
+                    processIncomingFrame(JSONObject(jsonStr), transport)
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Transport socket loop terminated: ${e.message}")
@@ -795,6 +804,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 startDiscovery()
             }
         }
+    }
+
+    private fun processIncomingBinaryFrame(bytes: ByteArray, transport: TetherTransport) {
+        Log.d(TAG, "Received binary input frame: ${bytes.size} bytes (type=0x${String.format("%02X", bytes[0])})")
     }
 
     private fun processIncomingFrame(json: JSONObject, transport: TetherTransport) {
@@ -1241,11 +1254,30 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         .setPriority(NotificationCompat.PRIORITY_LOW)
         .build()
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    inner class LocalBinder : android.os.Binder() {
+        fun getService(): TetherLanService = this@TetherLanService
+    }
+    private val binder = LocalBinder()
+
+    override fun onBind(intent: Intent?): IBinder = binder
+
+    fun sendInputFrame(data: ByteArray) {
+        val transport = activeTransport
+        if (transport != null && transport.isConnected() && (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED)) {
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    transport.sendFrame(data)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed transmitting input frame: ${e.message}")
+                }
+            }
+        }
+    }
 
     fun getDiscoveredDevices(): List<DiscoveredDevice> = discoveryManager.getDiscoveredDevices()
 
     override fun onDestroy() {
+        instance = null
         serviceJob.cancelChildren()
 
         try { unregisterReceiver(powerSaveReceiver) } catch (_: Exception) {}
