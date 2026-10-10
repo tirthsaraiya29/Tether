@@ -36,9 +36,6 @@ interface TetherDiscoveryListener {
     fun onDiscoveryError(errorCode: Int, message: String)
 }
 
-/**
- * Validates whether the given address belongs to a private local area network scope.
- */
 fun isPrivateAddress(address: InetAddress): Boolean {
     if (address.isLoopbackAddress || address.isSiteLocalAddress || address.isLinkLocalAddress) {
         return true
@@ -47,21 +44,15 @@ fun isPrivateAddress(address: InetAddress): Boolean {
         val bytes = address.address
         val firstOctet = bytes[0].toInt() and 0xFF
         val secondOctet = bytes[1].toInt() and 0xFF
-        // CGNAT 100.64.0.0/10
         if ((firstOctet == 100) && ((secondOctet and 0xC0) == 0x40)) return true
     } else if (address is Inet6Address) {
         val bytes = address.address
         val firstOctet = bytes[0].toInt() and 0xFF
-        // IPv6 Unique Local fc00::/7
         if ((firstOctet and 0xFE) == 0xFC) return true
     }
     return false
 }
 
-/**
- * Thread-safe queue for resolving NsdServiceInfo entries sequentially.
- * Prevents NsdManager error 3 (FAILURE_ALREADY_ACTIVE) caused by concurrent resolutions.
- */
 class NsdResolveQueue(private val nsdManager: NsdManager) {
     private val lock = Any()
 
@@ -286,11 +277,9 @@ class TetherDiscoveryManager(
 
                 while (isSearching && !Thread.currentThread().isInterrupted) {
                     try {
-                        // 1. Broadcast discovery probe packet
                         val sendPacket = DatagramPacket(probeBytes, probeBytes.size, broadcastAddr, UDP_DISCOVERY_PORT)
                         socket.send(sendPacket)
 
-                        // 2. Receive responses
                         val recvPacket = DatagramPacket(buffer, buffer.size)
                         socket.receive(recvPacket)
 
@@ -319,7 +308,6 @@ class TetherDiscoveryManager(
                             }
                         }
                     } catch (_: SocketTimeoutException) {
-                        // Expected socket receive timeout
                     } catch (e: Exception) {
                         if (!isSearching) break
                         Log.d(TAG, "UDP receive exception: ${e.message}")

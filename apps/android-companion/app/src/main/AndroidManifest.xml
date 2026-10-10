@@ -20,6 +20,7 @@
         android:name="android.permission.ACCESS_LOCAL_NETWORK"
         tools:targetApi="35" />
 
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -52,19 +53,6 @@
         android:requestLegacyExternalStorage="true"
         tools:targetApi="34">
 
-        <!--
-          nosemgrep
-          nosemgrep: exported_activity
-          nosemgrep: java.android.security.exported_activity.exported_activity
-          Main entry point for the launcher.
-          exported=true is REQUIRED: the system launcher (a separate process) must be
-          able to start this activity for the app icon to work. Any privileged
-          operation reachable from an Intent extra must be gated behind explicit
-          user confirmation inside this activity.
-        -->
-        <!-- nosemgrep -->
-        <!-- nosemgrep: exported_activity -->
-        <!-- nosemgrep: java.android.security.exported_activity.exported_activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -84,6 +72,15 @@
             android:exported="false"
             android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
 
+        <activity
+            android:name=".PowerEventActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Tether.Transparent" />
+
         <service
             android:name=".TetherLanService"
             android:exported="false"
@@ -93,6 +90,10 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Tether continuous Wi-Fi Direct / P2P connection with paired Windows host" />
         </service>
+
+        <receiver
+            android:name=".PowerEventActionReceiver"
+            android:exported="false" />
 
         <receiver
             android:name=".TetherServiceReceiver"

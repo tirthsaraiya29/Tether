@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Tether.CommunicationService.Power;
 using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService.Capabilities;
@@ -92,7 +93,6 @@ public static class HardwareExecutor
     [DllImport("powrprof.dll", SetLastError = true)]
     private static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
 
-    // --- Legacy in-process WASAPI interop (Session-0 only; kept for compatibility) ---
     [ComImport]
     [Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
     private class MMDeviceEnumerator { }
@@ -160,16 +160,9 @@ public static class HardwareExecutor
 
     private static readonly IntPtr WTS_CURRENT_SERVER_HANDLE = IntPtr.Zero;
 
-    /// <summary>
-    /// Resolved path of Tether.SessionHelper.exe, expected next to the service assembly.
-    /// </summary>
     private static string SessionHelperPath =>
         Path.Combine(AppContext.BaseDirectory, "Tether.SessionHelper.exe");
 
-    /// <summary>
-    /// Reads the interactive user's master volume by spawning the helper inside
-    /// the active console session. Returns 0..100 on success, or -1 on failure.
-    /// </summary>
     public static int GetSystemVolumeLevelInUserSession(ITetherLogger logger)
     {
         bool ok = RunHelperAsUser(new[] { "get-volume" }, logger, out int vol);
@@ -223,6 +216,8 @@ public static class HardwareExecutor
 
                 case "sleep":
                 case "pwr_sleep":
+                    PowerEventHub.Watcher?.RecordInitiated(
+                        TetherPowerEventType.Sleep, "Tether.HardwareExecutor");
                     bool slept = SetSuspendState(false, true, false);
                     if (!slept)
                     {
@@ -232,22 +227,24 @@ public static class HardwareExecutor
 
                 case "shutdown":
                 case "pwr_shutdown":
+                    PowerEventHub.Watcher?.RecordInitiated(
+                        TetherPowerEventType.Shutdown, "Tether.HardwareExecutor");
                     Process.Start(new ProcessStartInfo("shutdown.exe", "/s /t 0 /f") { CreateNoWindow = true, UseShellExecute = false });
                     return true;
 
                 case "reboot":
                 case "pwr_reboot":
+                    PowerEventHub.Watcher?.RecordInitiated(
+                        TetherPowerEventType.Restart, "Tether.HardwareExecutor");
                     Process.Start(new ProcessStartInfo("shutdown.exe", "/r /t 0 /f") { CreateNoWindow = true, UseShellExecute = false });
                     return true;
 
-                // -------- MEDIA: run the compiled helper inside the interactive user session --------
                 case "vol_get":
                 case "volume_get":
                 case "get_volume":
                     bool getOk = RunHelperAsUser(new[] { "get-volume" }, logger, out currentVol);
                     if (!getOk)
                     {
-                        // Fall back to Session-0 WASAPI (will usually be the phantom endpoint)
                         currentVol = GetSystemVolumeLevel(logger);
                     }
                     logger.Info($"HardwareExecutor: get-volume -> {currentVol}");
@@ -323,20 +320,6 @@ public static class HardwareExecutor
         }
     }
 
-    // =====================================================================
-    //  User-session helper spawn (direct binary, no cmd.exe, no redirect)
-    // =====================================================================
-
-    /// <summary>
-    /// Launches Tether.SessionHelper.exe directly in the active console session and
-    /// interprets its process exit code as the command result:
-    ///   - "get-volume": exit code 0..100 is the volume percentage (success)
-    ///   - any other command: exit code 0 means success
-    ///   - exit code 128 indicates the helper caught an internal exception
-    /// No cmd.exe, no temp-file redirection — the helper communicates entirely via
-    /// its exit code, which sidesteps every quoting and file-permission pitfall that
-    /// broke the previous redirected-spawn approach.
-    /// </summary>
     public static bool RunHelperAsUser(string[] helperArgs, ITetherLogger logger, out int numericResult)
     {
         numericResult = -1;
@@ -354,7 +337,6 @@ public static class HardwareExecutor
             return false;
         }
 
-        // Build standard command-line: "helper.exe" arg1 arg2 ...
         var sb = new StringBuilder();
         sb.Append('"').Append(SessionHelperPath).Append('"');
         foreach (var a in helperArgs)
@@ -368,10 +350,6 @@ public static class HardwareExecutor
 
         logger.Info($"HardwareExecutor: helper exit=0x{exitCode:X}");
 
-        // 0x80008096 == .NET apphost FrameworkMissingFailure.
-        // The helper launched but could not load the shared .NET runtime
-        // inside the interactive user session. The helper must be published
-        // self-contained (see Tether.SessionHelper.csproj).
         if ((uint)exitCode == 0x80008096)
         {
             logger.Error(
@@ -386,7 +364,6 @@ public static class HardwareExecutor
 
         if (isGetVolume)
         {
-            // Helper returns 0..100 on success. 128 (or anything above 100) is an error.
             if (exitCode >= 0 && exitCode <= 100)
             {
                 numericResult = (int)exitCode;
@@ -398,12 +375,6 @@ public static class HardwareExecutor
         return exitCode == 0;
     }
 
-    /// <summary>
-    /// Spawns the given command line under the interactive user's token using
-    /// CreateProcessAsUser. The command line must begin with a quoted path to
-    /// the target executable. No shell is involved, so arguments pass through
-    /// verbatim.
-    /// </summary>
     private static long SpawnHelperDirectInUserSession(string cmdLine, uint activeSession, ITetherLogger logger)
     {
         if (!WTSQueryUserToken(activeSession, out IntPtr userToken))
@@ -440,7 +411,6 @@ public static class HardwareExecutor
                     uint flags = CREATE_NO_WINDOW;
                     if (envCreated) flags |= CREATE_UNICODE_ENVIRONMENT;
 
-                    // Explicitly set the working directory to the folder containing SessionHelper
                     string workingDir = Path.GetDirectoryName(SessionHelperPath) ?? AppContext.BaseDirectory;
 
                     bool ok = CreateProcessAsUser(
@@ -485,10 +455,6 @@ public static class HardwareExecutor
         }
         finally { CloseHandle(userToken); }
     }
-
-    // =====================================================================
-    //  Existing helpers (unlock / launch / legacy WASAPI surface)
-    // =====================================================================
 
     private static bool SignalUnlockEvent(string eventName, ITetherLogger logger)
     {
@@ -588,11 +554,6 @@ public static class HardwareExecutor
         catch { return false; }
     }
 
-    /// <summary>
-    /// Launches an arbitrary interactive user-session process (browser, explorer,
-    /// task manager, etc.). Uses its own local token/env/flags — completely
-    /// independent of SpawnHelperDirectInUserSession.
-    /// </summary>
     private static bool LaunchInUserSession(string commandLine, ITetherLogger logger)
     {
         uint activeSession = WTSGetActiveConsoleSessionId();
@@ -625,7 +586,7 @@ public static class HardwareExecutor
                             };
                             var pi = new PROCESS_INFORMATION();
 
-                            uint flags = 0x00000010 /* CREATE_NEW_CONSOLE */;
+                            uint flags = 0x00000010;
                             if (envCreated) flags |= CREATE_UNICODE_ENVIRONMENT;
 
                             string workingDir = AppContext.BaseDirectory;

@@ -11,6 +11,7 @@ using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
 using Tether.CommunicationService.Trust;
+using Tether.CommunicationService.Power;
 using Tether.EnforcementEngine;
 using Tether.EventBus;
 using Tether.PanicEngine;
@@ -36,6 +37,8 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<MdnsAdvertiser>();
         services.AddSingleton<UdpDiscovery>();
         services.AddSingleton<TetherTcpServer>();
+        services.AddSingleton<PowerEventWatcher>();
+        services.AddSingleton<PowerEventNotifier>();
 
         services.AddSingleton<TrustStateManager>();
         services.AddSingleton<EnforcementManager>();

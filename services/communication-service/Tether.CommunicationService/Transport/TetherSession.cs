@@ -86,6 +86,20 @@ public sealed class TetherSession : IDisposable
         }
     }
 
+    public async Task SendRawFrameAsync(byte[] payload, CancellationToken ct)
+    {
+        var tls = _tls;
+        if (tls == null || payload == null || payload.Length == 0) return;
+        try
+        {
+            await FrameCodec.WriteFrameAsync(tls, payload, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"TetherSession [{SessionId}]: Error pushing raw frame: {ex.Message}");
+        }
+    }
+
     public async Task RunAsync(TcpClient client, CancellationToken serviceCt)
     {
         var remote = (client.Client.RemoteEndPoint as System.Net.IPEndPoint)?.Address?.ToString() ?? "unknown";

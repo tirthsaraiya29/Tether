@@ -10,6 +10,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
@@ -23,7 +24,9 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
@@ -100,7 +103,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         private const val HEALTH_CHECK_INTERVAL_MS = 60000L
         private const val WAKE_LOCK_TAG = "tether:LanWakeLock"
 
-        // SECURITY FIX: CWE-117 Defensive log sanitizer stripping control chars
         fun sanitizeLog(input: String?): String {
             if (input == null) return "null"
             return input
@@ -141,6 +143,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     @Volatile var lastSeenAtMs: Long = 0L
     @Volatile var lastPowerCommand: String? = null
     @Volatile var lastPowerCommandAtMs: Long = 0L
+
+    @Volatile var lastPowerEventType: String? = null
+    @Volatile var lastPowerEventTimestampMs: Long = 0L
 
     private var rebootTimeoutJob: Job? = null
     private var shutdownTimeoutJob: Job? = null
@@ -361,6 +366,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
         lastPowerCommand = prefs.getString("last_power_command", null)
         lastPowerCommandAtMs = prefs.getLong("last_power_command_at_ms", 0L)
+        lastPowerEventType = prefs.getString("last_power_event_type", null)
+        lastPowerEventTimestampMs = prefs.getLong("last_power_event_timestamp_ms", 0L)
         val savedPowerState = prefs.getString("laptop_power_state", null)
         if (savedPowerState != null) {
             try { currentPowerState = LaptopPowerState.valueOf(savedPowerState) } catch (_: Exception) {}
@@ -405,7 +412,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
     }
 
-    // SECURITY FIX: CWE-400 Bounded processedRequestIds with periodic cleanup
     private fun startRequestIdCleanup() {
         serviceScope.launch {
             while (isActive) {
@@ -721,7 +727,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     pendingTranscriptHash = null
                     trustState = TrustState.PAIRED
                     currentState = TransportState.AUTHENTICATED
-                    // SECURITY FIX: Negotiate capabilities based on peer advertisement
                     capabilityManager.negotiateCapabilities(result.peerCapabilities.ifBlank { "" })
 
                     mainHandler.postDelayed(
@@ -793,7 +798,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun processIncomingFrame(json: JSONObject, transport: TetherTransport) {
-        // SECURITY FIX: CWE-400 Bounded processedRequestIds map
         if (processedRequestIds.size > 10_000) {
             Log.w(TAG, "processedRequestIds exceeded cap; clearing oldest half")
             val sorted = processedRequestIds.entries.sortedBy { (_, timestamp) -> timestamp }
@@ -831,6 +835,50 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         Log.w(TAG, "Failed sending PONG frame: ${e.message}")
                     }
                 }
+            }
+            "POWER_EVENT" -> {
+                val eventsArray = json.optJSONArray("events") ?: return
+                var newestEvent: JSONObject? = null
+                var newestTimestamp: Long = -1L
+
+                val qualifyingTypes = setOf("SHUTDOWN", "RESTART", "SLEEP", "HIBERNATE", "LOCK")
+
+                for (i in 0 until eventsArray.length()) {
+                    val eventObj = eventsArray.optJSONObject(i) ?: continue
+                    val eventType = eventObj.optString("eventType", "").uppercase()
+                    val timestamp = eventObj.optLong("timestamp", 0L)
+
+                    if (eventType in qualifyingTypes) {
+                        if (timestamp > newestTimestamp) {
+                            newestTimestamp = timestamp
+                            newestEvent = eventObj
+                        }
+                    }
+                }
+
+                if (newestEvent == null) return
+
+                val eventType = newestEvent.optString("eventType", "").uppercase()
+                val timestamp = newestTimestamp
+
+                lastPowerEventType = eventType
+                lastPowerEventTimestampMs = timestamp
+
+                val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
+                prefs.edit {
+                    putString("last_power_event_type", eventType)
+                    putLong("last_power_event_timestamp_ms", timestamp)
+                }
+
+                val lastAnsweredType = prefs.getString("last_answered_power_event_type", null)
+                val lastAnsweredTs = prefs.getLong("last_answered_power_event_timestamp_ms", 0L)
+
+                if (eventType.equals(lastAnsweredType, ignoreCase = true) && timestamp == lastAnsweredTs) {
+                    Log.i(TAG, "Ignoring already answered power event: $eventType at $timestamp")
+                    return
+                }
+
+                postPowerEventNotification(eventType, timestamp)
             }
             "CONFIRM_COMMAND" -> {
                 val confirmedCmd = json.optString("confirmedCommand", command)
@@ -891,6 +939,73 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 notifyStateToInterface()
             }
         }
+    }
+
+    private fun postPowerEventNotification(eventType: String, timestamp: Long) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ActivityCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w(TAG, "POST_NOTIFICATIONS permission not granted; skipping power event notification")
+            return
+        }
+
+        val activityIntent = Intent(this, PowerEventActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            putExtra(PowerEventActionReceiver.EXTRA_POWER_EVENT_TYPE, eventType)
+            putExtra(PowerEventActionReceiver.EXTRA_POWER_EVENT_TIMESTAMP, timestamp)
+        }
+
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            this,
+            4001,
+            activityIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val acceptIntent = Intent(this, PowerEventActionReceiver::class.java).apply {
+            action = PowerEventActionReceiver.ACTION_ACCEPT
+            putExtra(PowerEventActionReceiver.EXTRA_POWER_EVENT_TYPE, eventType)
+            putExtra(PowerEventActionReceiver.EXTRA_POWER_EVENT_TIMESTAMP, timestamp)
+        }
+        val acceptPendingIntent = PendingIntent.getBroadcast(
+            this,
+            4002,
+            acceptIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val rejectIntent = Intent(this, PowerEventActionReceiver::class.java).apply {
+            action = PowerEventActionReceiver.ACTION_REJECT
+            putExtra(PowerEventActionReceiver.EXTRA_POWER_EVENT_TYPE, eventType)
+            putExtra(PowerEventActionReceiver.EXTRA_POWER_EVENT_TIMESTAMP, timestamp)
+        }
+        val rejectPendingIntent = PendingIntent.getBroadcast(
+            this,
+            4003,
+            rejectIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, "tether_power_events")
+            .setContentTitle("PC $eventType detected")
+            .setContentText("Tap to unlock your PC.")
+            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setAutoCancel(true)
+            .setOngoing(true)
+            .setContentIntent(fullScreenPendingIntent)
+            .setFullScreenIntent(fullScreenPendingIntent, true)
+            .setDeleteIntent(rejectPendingIntent)
+            .addAction(0, "YES", acceptPendingIntent)
+            .addAction(0, "NO", rejectPendingIntent)
+            .build()
+
+        NotificationManagerCompat.from(this)
+            .notify(PowerEventActionReceiver.POWER_EVENT_NOTIFICATION_ID, notification)
     }
 
     fun dispatchCommand(actionCommand: String) {
@@ -1106,6 +1221,17 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             NotificationManager.IMPORTANCE_LOW,
         )
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+
+        val powerChannel = NotificationChannel(
+            "tether_power_events",
+            "Tether Power Events",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Alerts when your PC powers off, sleeps, or locks."
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            enableVibration(true)
+        }
+        getSystemService(NotificationManager::class.java).createNotificationChannel(powerChannel)
     }
 
     private fun createNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)

@@ -14,10 +14,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.tether.phone.ui.theme.*
 
-/**
- * Deep Space Atmospheric Canvas Visualizer
- * Professional grade background with complex refractive layers, nebula glows, and shimmering starfields.
- */
 @Composable
 fun DeepSpaceCanvasVisualizer() {
     val density = LocalDensity.current
@@ -54,7 +50,6 @@ fun DeepSpaceCanvasVisualizer() {
     Canvas(modifier = Modifier.fillMaxSize()) {
         drawRect(color = DeepSpace)
 
-        // Refractive Mesh Grid with dynamic distortion
         var x = (shift % gridStep) - gridStep
         while (x < (size.width + gridStep)) {
             val distortion = kotlin.math.sin((x + shift) / 150.0).toFloat() * 6f
@@ -78,7 +73,6 @@ fun DeepSpaceCanvasVisualizer() {
             y += gridStep
         }
 
-        // Nebula Plasma Core 1 (Cyan - Top Left)
         drawCircle(
             brush = Brush.radialGradient(
                 0.0f to LiquidCyan.copy(alpha = nebAlpha),
@@ -91,7 +85,6 @@ fun DeepSpaceCanvasVisualizer() {
             radius = 1200.dp.toPx(),
         )
 
-        // Nebula Plasma Core 2 (Green - Bottom Right)
         drawCircle(
             brush = Brush.radialGradient(
                 0.0f to IntegrityGreen.copy(alpha = nebAlpha * 0.7f),
@@ -104,7 +97,6 @@ fun DeepSpaceCanvasVisualizer() {
             radius = 1000.dp.toPx(),
         )
 
-        // Nebula Plasma Core 3 (Subtle Red - Center Right)
         drawCircle(
             brush = Brush.radialGradient(
                 0.0f to AlertRed.copy(alpha = nebAlpha * 0.4f),
@@ -116,7 +108,6 @@ fun DeepSpaceCanvasVisualizer() {
             radius = 800.dp.toPx(),
         )
 
-        // High-Density Starfield
         val rnd = java.util.Random(42)
         repeat(60) {
             val px = rnd.nextFloat() * size.width
@@ -131,4 +122,3 @@ fun DeepSpaceCanvasVisualizer() {
         }
     }
 }
-
