@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -1110,6 +1111,7 @@ fun TetherNavigationShell(
 
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
+                            Triple("REMOTE INPUT", Icons.Default.TouchApp, AppScreen.REMOTE_INPUT),
                             Triple(stringResource(R.string.nav_hardware), Icons.Default.Menu, AppScreen.LAPTOP_CONTROL),
                             Triple(stringResource(R.string.nav_apps), Icons.Default.Refresh, AppScreen.SYSTEM_APPS),
                             Triple(stringResource(R.string.nav_security), Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
@@ -1227,6 +1229,9 @@ fun TetherNavigationShell(
                             onCancelPairing = onCancelPairing,
                             onForgetTrust = onForgetTrust,
                             onShowQR = onShowQR
+                        )
+                        AppScreen.REMOTE_INPUT -> RemoteInputScreen(
+                            transportState = TetherLanService.instance?.currentState ?: TransportState.DISCONNECTED
                         )
                     }
                 }
