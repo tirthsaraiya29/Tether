@@ -113,7 +113,7 @@ class PowerEventActivity : FragmentActivity() {
                     val cipher = result.cryptoObject?.cipher
                     if (cipher != null) {
                         try {
-                            val authPayload = "tether_power_event_unlock_${eventTimestamp}".toByteArray(Charsets.UTF_8)
+                            val authPayload = "tether_power_event_unlock_$eventTimestamp".toByteArray(Charsets.UTF_8)
                             cipher.doFinal(authPayload)
                             Log.i(TAG, "Hardware CryptoObject operation succeeded for biometric unlock")
                         } catch (e: Exception) {
