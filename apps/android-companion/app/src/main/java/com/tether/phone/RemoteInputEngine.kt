@@ -16,7 +16,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.hypot
-import kotlin.math.pow
 import kotlin.math.roundToInt
 
 class RemoteInputEngine(
@@ -82,7 +81,12 @@ class RemoteInputEngine(
     private val accelSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
     fun dispatchEvent(event: InputEvent) {
-        sendFrameCallback(event.toBinaryFrame())
+        val frame = event.toBinaryFrame()
+        if (frame.isNotEmpty()) {
+            val firstByte = frame[0]
+            Log.d(TAG, "Emitting input frame (firstByte=0x${String.format(java.util.Locale.US, "%02X", firstByte)}, size=${frame.size})")
+        }
+        sendFrameCallback(frame)
     }
 
     fun dispatchEvents(events: List<InputEvent>) {

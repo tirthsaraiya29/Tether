@@ -1315,15 +1315,35 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     override fun onBind(intent: Intent?): IBinder = binder
 
+    private var lastNotReadyInputLogMs = 0L
+    private var inputFramesSent = 0L
+
     fun sendInputFrame(data: ByteArray) {
         val transport = activeTransport
-        if (transport != null && transport.isConnected() && (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED)) {
-            serviceScope.launch(Dispatchers.IO) {
-                try {
-                    transport.sendFrame(data)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed transmitting input frame: ${e.message}")
-                }
+        val isReady = transport != null && transport.isConnected() &&
+                (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED)
+
+        if (!isReady) {
+            val now = System.currentTimeMillis()
+            if (now - lastNotReadyInputLogMs > 5000L) {
+                lastNotReadyInputLogMs = now
+                Log.w(TAG, "Input frame discarded locally: Session not ready (transport=$transport, connected=${transport?.isConnected()}, state=$currentState)")
+            }
+            return
+        }
+
+        if (BuildConfig.DEBUG) {
+            val count = ++inputFramesSent
+            if (count % 500L == 0L) {
+                Log.d(TAG, "DEBUG: Input frames transmitted: $count framesSent")
+            }
+        }
+
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                transport.sendFrame(data)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed transmitting input frame: ${e.message}")
             }
         }
     }

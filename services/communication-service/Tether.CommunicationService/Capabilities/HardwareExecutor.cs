@@ -169,6 +169,23 @@ public static class HardwareExecutor
         return ok ? vol : -1;
     }
 
+    public static bool LaunchHelperDaemonInUserSession(ITetherLogger logger)
+    {
+        if (!File.Exists(SessionHelperPath))
+        {
+            logger.Warning($"HardwareExecutor: helper not found at {SessionHelperPath}");
+            return false;
+        }
+
+        uint activeSession = WTSGetActiveConsoleSessionId();
+        if (activeSession == 0xFFFFFFFF)
+        {
+            return false;
+        }
+
+        return SpawnHelperDaemonInUserSession(activeSession, logger);
+    }
+
     public static bool ExecuteCommand(string command, ITetherLogger logger)
     {
         return ExecuteCommand(command, logger, out _);
@@ -373,6 +390,79 @@ public static class HardwareExecutor
         }
 
         return exitCode == 0;
+    }
+
+    private static bool SpawnHelperDaemonInUserSession(uint activeSession, ITetherLogger logger)
+    {
+        if (!WTSQueryUserToken(activeSession, out IntPtr userToken))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!DuplicateTokenEx(userToken, 0x10000000, IntPtr.Zero, 2, 1, out IntPtr primaryToken))
+            {
+                return false;
+            }
+
+            try
+            {
+                uint sid = activeSession;
+                SetTokenInformation(primaryToken, TokenSessionId, ref sid, sizeof(uint));
+
+                IntPtr envBlock = IntPtr.Zero;
+                bool envCreated = CreateEnvironmentBlock(out envBlock, primaryToken, false);
+
+                try
+                {
+                    var si = new STARTUPINFO
+                    {
+                        cb = Marshal.SizeOf<STARTUPINFO>(),
+                        lpDesktop = @"WinSta0\Default"
+                    };
+                    var pi = new PROCESS_INFORMATION();
+
+                    uint flags = CREATE_NO_WINDOW;
+                    if (envCreated) flags |= CREATE_UNICODE_ENVIRONMENT;
+
+                    string workingDir = Path.GetDirectoryName(SessionHelperPath) ?? AppContext.BaseDirectory;
+                    string cmdLine = "\"" + SessionHelperPath + "\"";
+
+                    bool ok = CreateProcessAsUser(
+                        primaryToken,
+                        SessionHelperPath,
+                        cmdLine,
+                        IntPtr.Zero,
+                        IntPtr.Zero,
+                        false,
+                        flags,
+                        envCreated ? envBlock : IntPtr.Zero,
+                        workingDir,
+                        ref si,
+                        out pi);
+
+                    if (ok)
+                    {
+                        logger.Info($"HardwareExecutor: launched helper daemon in session {activeSession} (PID {pi.dwProcessId}).");
+                        CloseHandle(pi.hProcess);
+                        CloseHandle(pi.hThread);
+                    }
+                    else
+                    {
+                        logger.Warning($"HardwareExecutor: daemon CreateProcessAsUser failed err={Marshal.GetLastWin32Error()}.");
+                    }
+
+                    return ok;
+                }
+                finally
+                {
+                    if (envCreated && envBlock != IntPtr.Zero) DestroyEnvironmentBlock(envBlock);
+                }
+            }
+            finally { CloseHandle(primaryToken); }
+        }
+        finally { CloseHandle(userToken); }
     }
 
     private static long SpawnHelperDirectInUserSession(string cmdLine, uint activeSession, ITetherLogger logger)

@@ -29,14 +29,8 @@ bool runningAsService = WindowsServiceHelpers.IsWindowsService();
 
 if (runningAsService)
 {
-    // Windows services start with CWD = C:\Windows\System32. Fix the content root
-    // so appsettings.json and any relative paths resolve next to the EXE.
     builder.UseContentRoot(AppContext.BaseDirectory);
 
-    // Configure the Windows Event Log directly. We deliberately do NOT call
-    // UseWindowsService() because it installs the WindowsServiceLifetime, whose
-    // ServiceBase overrides for OnPowerEvent/OnSessionChange/OnShutdown are
-    // no-ops and would shadow ours. TetherWindowsService drives the lifecycle.
     builder.ConfigureLogging(logging =>
     {
         logging.AddEventLog(settings =>
@@ -66,9 +60,10 @@ var host = builder
         services.AddSingleton<PowerEventWatcher>();
         services.AddSingleton<PowerEventNotifier>();
 
-        // Input relay to the interactive-session SessionHelper.
         services.AddSingleton<InputForwarder>();
         services.AddHostedService(sp => sp.GetRequiredService<InputForwarder>());
+
+        services.AddHostedService<SessionHelperDaemon>();
 
         services.AddSingleton<TrustStateManager>();
         services.AddSingleton<EnforcementManager>();
@@ -83,12 +78,9 @@ var host = builder
 
 if (runningAsService)
 {
-    // ServiceBase.Run blocks. It drives the SCM handshake and dispatches
-    // SERVICE_CONTROL_* callbacks into TetherWindowsService.
     ServiceBase.Run(new TetherWindowsService(host));
 }
 else
 {
-    // Console / F5 debugging path — same host, unchanged behavior.
     await host.RunAsync();
 }
