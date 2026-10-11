@@ -47,6 +47,12 @@ class TetherCapabilityManager {
 
         negotiatedCapabilities = DEFAULT_ANDROID_CAPABILITIES.intersect(peerCaps)
         Log.i(TAG, "Negotiated capabilities: ${getNegotiatedCapabilitiesString()}")
+        if (!isCapabilityGranted(TetherCapability.MEDIA)) {
+            Log.w(TAG, "WARNING: MEDIA capability is missing from negotiated set! Volume and media commands will be blocked.")
+        }
+        if (!isCapabilityGranted(TetherCapability.POWER_ELEVATED)) {
+            Log.w(TAG, "WARNING: POWER_ELEVATED capability is missing from negotiated set! Power commands (shutdown, reboot, lock) will be blocked.")
+        }
         return negotiatedCapabilities
     }
 
@@ -57,7 +63,7 @@ class TetherCapabilityManager {
     fun canExecuteCommand(command: String): Boolean {
         val cmdLower = command.lowercase()
         val requiredCap = when {
-            cmdLower in setOf("shutdown", "reboot", "sleep", "halt") -> TetherCapability.POWER_ELEVATED
+            cmdLower in setOf("shutdown", "reboot", "sleep", "halt", "lock_now", "unlock", "lock") -> TetherCapability.POWER_ELEVATED
             cmdLower in setOf("cmd", "powershell", "powershell7", "wsl", "bash") -> TetherCapability.TERMINAL
             cmdLower in setOf("copy", "paste", "clipboard") -> TetherCapability.CLIPBOARD
             cmdLower in setOf("file_transfer", "file_list") -> TetherCapability.FILES

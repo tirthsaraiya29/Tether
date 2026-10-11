@@ -111,6 +111,17 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 .take(256)
         }
 
+        fun normalizeCommand(cmd: String): String {
+            return when (cmd.trim().uppercase()) {
+                "PWR_SHUTDOWN", "SHUTDOWN", "HALT" -> "shutdown"
+                "PWR_REBOOT", "REBOOT", "PWR_RESTART", "RESTART" -> "reboot"
+                "PWR_SLEEP", "SLEEP", "HIBERNATE" -> "sleep"
+                "LOCK_NOW", "LOCK" -> "lock_now"
+                "UNLOCK" -> "unlock"
+                else -> cmd.trim().lowercase()
+            }
+        }
+
         @Volatile
         var instance: TetherLanService? = null
             private set
@@ -1066,13 +1077,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             if ((currentState != TransportState.READY) && (currentState != TransportState.AUTHENTICATED)) {
                 return@withContext Result.failure(IllegalStateException("TLS session not connected (state=$currentState)"))
             }
-            val normCmd = when (command.uppercase()) {
-                "PWR_SHUTDOWN", "SHUTDOWN" -> "shutdown"
-                "PWR_REBOOT", "REBOOT" -> "reboot"
-                "PWR_SLEEP", "SLEEP" -> "sleep"
-                "UNLOCK" -> "unlock"
-                else -> command.lowercase()
-            }
+            val normCmd = normalizeCommand(command)
             val reqId = UUID.randomUUID().toString()
             val cmdJson = JSONObject().apply {
                 put("type", "COMMAND_EXECUTE")
@@ -1097,12 +1102,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     fun dispatchCommand(actionCommand: String) {
         serviceScope.launch {
             try {
-                val normCmd = when (actionCommand.uppercase()) {
-                    "PWR_SHUTDOWN", "SHUTDOWN" -> "shutdown"
-                    "PWR_REBOOT", "REBOOT" -> "reboot"
-                    "PWR_SLEEP", "SLEEP" -> "sleep"
-                    else -> actionCommand.lowercase()
-                }
+                val normCmd = normalizeCommand(actionCommand)
 
                 if (normCmd in setOf("shutdown", "reboot", "sleep")) {
                     lastPowerCommand = normCmd
