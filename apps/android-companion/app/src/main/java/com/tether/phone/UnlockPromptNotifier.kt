@@ -94,10 +94,12 @@ object UnlockPromptNotifier {
     }
 
     /**
-     * Instantly removes any active unlock prompt notification when the TLS session drops
+     * Instantly removes any active unlock prompt notification and power event notification when the TLS session drops
      * or when an unlock/dismiss action completes.
      */
     fun cancelUnlockPrompt(context: Context) {
-        NotificationManagerCompat.from(context).cancel(UNLOCK_NOTIFICATION_ID)
+        val nm = NotificationManagerCompat.from(context)
+        nm.cancel(UNLOCK_NOTIFICATION_ID)
+        nm.cancel(PowerEventActionReceiver.POWER_EVENT_NOTIFICATION_ID)
     }
 }
