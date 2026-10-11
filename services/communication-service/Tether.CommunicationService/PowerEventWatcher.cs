@@ -11,6 +11,7 @@ public enum TetherPowerEventType
     None,
     Shutdown,
     Restart,
+    Logoff,
     Sleep,
     Hibernate,
     Lock,
@@ -80,9 +81,15 @@ public sealed class PowerEventWatcher : IDisposable
         }
     }
 
-    public void RecordInitiated(TetherPowerEventType type, string source)
+    /// <summary>
+    /// Called by the ServiceBase handler (and HardwareExecutor) for authoritative
+    /// power/session transitions. The optional <paramref name="sessionId"/> lets
+    /// SERVICE_CONTROL_SESSIONCHANGE filter out session 0.
+    /// </summary>
+    public void RecordInitiated(TetherPowerEventType type, string source, int? sessionId = null)
     {
         if (type == TetherPowerEventType.None) return;
+        if (sessionId is 0) return; // ignore session 0 (services)
         Record(type, source);
     }
 
@@ -132,7 +139,7 @@ public sealed class PowerEventWatcher : IDisposable
         var type = e.Reason switch
         {
             SessionEndReasons.SystemShutdown => TetherPowerEventType.Shutdown,
-            SessionEndReasons.Logoff => TetherPowerEventType.Shutdown,
+            SessionEndReasons.Logoff => TetherPowerEventType.Logoff,
             _ => TetherPowerEventType.None,
         };
         if (type != TetherPowerEventType.None)

@@ -19,6 +19,7 @@
 		<PackageReference Include="System.Threading.AccessControl" Version="10.0.8" />
 		<PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
 		<PackageReference Include="System.Management" Version="8.0.0" />
+		<PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
 	</ItemGroup>
 
 	<ItemGroup>

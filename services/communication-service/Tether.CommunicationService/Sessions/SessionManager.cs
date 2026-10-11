@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.Transport;
@@ -85,6 +86,34 @@ public sealed class SessionManager
         foreach (var session in sessions)
         {
             _ = session.SendRawFrameAsync(bytes, System.Threading.CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// Synchronous, bounded broadcast used on the pre-shutdown / shutdown path.
+    /// Waits up to <paramref name="timeout"/> for the TLS writes to drain.
+    /// Returns true if every write completed within the budget.
+    /// </summary>
+    public bool TryBroadcastRawFrameBlocking(string json, TimeSpan timeout)
+    {
+        if (string.IsNullOrEmpty(json)) return false;
+
+        var sessions = GetActiveSessions();
+        if (sessions.Count == 0) return false;
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+        var tasks = new Task[sessions.Count];
+        int i = 0;
+        foreach (var s in sessions)
+            tasks[i++] = s.SendRawFrameAsync(bytes, System.Threading.CancellationToken.None);
+
+        try
+        {
+            return Task.WaitAll(tasks, timeout);
+        }
+        catch (AggregateException)
+        {
+            return false;
         }
     }
 }

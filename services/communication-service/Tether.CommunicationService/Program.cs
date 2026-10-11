@@ -1,5 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting.WindowsServices;
+using Microsoft.Extensions.Logging;
+using System;
+using System.ServiceProcess;
 using Tether.CommunicationService;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
@@ -19,8 +23,30 @@ using Tether.RecoveryEngine;
 using Tether.Shared.Logging;
 using Tether.TrustEngine;
 
-var host = Host.CreateDefaultBuilder(args)
-    .UseWindowsService(options => { options.ServiceName = "TetherCommService"; })
+var builder = Host.CreateDefaultBuilder(args);
+
+bool runningAsService = WindowsServiceHelpers.IsWindowsService();
+
+if (runningAsService)
+{
+    // Windows services start with CWD = C:\Windows\System32. Fix the content root
+    // so appsettings.json and any relative paths resolve next to the EXE.
+    builder.UseContentRoot(AppContext.BaseDirectory);
+
+    // Configure the Windows Event Log directly. We deliberately do NOT call
+    // UseWindowsService() because it installs the WindowsServiceLifetime, whose
+    // ServiceBase overrides for OnPowerEvent/OnSessionChange/OnShutdown are
+    // no-ops and would shadow ours. TetherWindowsService drives the lifecycle.
+    builder.ConfigureLogging(logging =>
+    {
+        logging.AddEventLog(settings =>
+        {
+            settings.SourceName = "TetherCommService";
+        });
+    });
+}
+
+var host = builder
     .ConfigureServices((ctx, services) =>
     {
         services.AddSingleton<ITetherLogger, SerilogTetherLogger>();
@@ -55,4 +81,14 @@ var host = Host.CreateDefaultBuilder(args)
     })
     .Build();
 
-await host.RunAsync();
+if (runningAsService)
+{
+    // ServiceBase.Run blocks. It drives the SCM handshake and dispatches
+    // SERVICE_CONTROL_* callbacks into TetherWindowsService.
+    ServiceBase.Run(new TetherWindowsService(host));
+}
+else
+{
+    // Console / F5 debugging path — same host, unchanged behavior.
+    await host.RunAsync();
+}
