@@ -77,8 +77,8 @@ Unlike cloud-dependent companion apps, Tether operates **exclusively over local 
 ### 🪟 Windows Integration & Session 0 Isolation Bypass
 - **Custom Credential Provider**: Native C++ Win32 DLL (`TetherCredentialProvider`) integrated into the Windows logon screen.
 - **Background Communication Service**: Robust Windows service (`Tether.CommunicationService`) running locally on port `37123`.
-- **Session Helper Executable**: `Tether.SessionHelper.exe` launches in user sessions (Session 1+) via token duplication to access user audio endpoints, wallpaper paths, and display UI overlays.
-- **Interactive UI Feedback**: Native WPF overlay (`Tether.OverlayUI`) and desktop configuration utility (`Tether.DesktopUI`).
+- **Session Helper Executable**: `Tether.SessionHelper.exe` launches in user sessions (Session 1+) via token duplication to access user audio endpoints and wallpaper paths.
+- **Interactive UI Feedback**: Desktop configuration utility (`Tether.DesktopUI`).
 
 ---
 
@@ -92,9 +92,6 @@ Unlike cloud-dependent companion apps, Tether operates **exclusively over local 
 
 <!-- TODO: Windows Desktop Configuration UI Screenshot -->
 *Windows Desktop Configuration & Device Management UI*
-
-<!-- TODO: Windows Overlay UI Lock/Unlock Animation Screenshot -->
-*Windows WPF Overlay Screen Notification*
 
 ---
 
@@ -114,7 +111,6 @@ graph TD
     subgraph WindowsHost ["Windows Workstation"]
         B1["Tether.CommunicationService (Session 0)"] --> B2["Trust & Panic Engines"]
         B1 -->|Token Duplication| B3["Tether.SessionHelper (Session 1+)"]
-        B3 --> B4["Tether.OverlayUI"]
         B1 --> B5["TetherCredentialProvider (Logon UI)"]
     end
 
@@ -137,8 +133,7 @@ Tether Windows Communication Service (Tether.CommunicationService - Session 0)
 └── Session Helper (Tether.SessionHelper - Session 1+)
     ├── Audio & Brightness Controller
     ├── Lock State Detector
-    ├── TetherCredentialProvider (Win32 Logon UI)
-    └── Overlay UI (Tether.OverlayUI)
+    └── TetherCredentialProvider (Win32 Logon UI)
 
 BLE                 → NOT USED FOR COMMAND TRANSPORT
 Internet            → NOT REQUIRED
@@ -159,7 +154,7 @@ Windows services run in **Session 0**, which is completely isolated from interac
 ### Named Pipe IPC Mapping
 Communication across Windows processes uses named pipes configured with strict ACLs:
 - **`TetherPipe`**: Service ↔ Desktop UI event bus (`Tether.Shared.IPC.IpcConstants.PipeName`).
-- **`TetherUiPipe`**: Service ↔ Overlay UI display relay (`IpcConstants.UiPipeName`).
+- **`TetherUiPipe`**: Service ↔ Desktop UI display relay (`IpcConstants.UiPipeName`).
 - **`Tether.InputPipe`**: Communication Service ↔ Session Helper stream for remote touch & keyboard events.
 
 ### Developer Test Suite Commands
@@ -276,7 +271,6 @@ The Windows component suite is organized around a solution file (`Tether.slnx`).
 ```
 Tether/
 ├── Tether.slnx                      # Windows solution file
-├── Tether.OverlayUI/                # WPF overlay feedback UI
 ├── TetherCredentialProvider/        # Native C++ Windows Credential Provider
 ├── apps/
 │   ├── android-companion/           # Android Kotlin / Compose companion app
