@@ -1002,7 +1002,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun postPowerEventNotification(eventType: String, timestamp: Long) {
         if (!eventType.equals("LOCK", ignoreCase = true) && !eventType.equals("SLEEP", ignoreCase = true)) {
-            Log.i(TAG, "Power event $eventType does not allow unlock operation; skipping notification.")
+            val safeEventType = sanitizeLog(eventType)
+            Log.i(TAG, "Power event $safeEventType does not allow unlock operation; skipping notification.")
             return
         }
 
