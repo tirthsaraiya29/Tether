@@ -44,9 +44,9 @@ import java.io.File
 @Composable
 fun LaptopScreenCard(
     telemetry: LaptopTelemetry,
+    modifier: Modifier = Modifier,
     windowsFingerprint: String = "",
     onClick: () -> Unit = {},
-    modifier: Modifier = Modifier,
 ) {
     val wallpaperBitmap = rememberWallpaperBitmap(telemetry.wallpaperPath)
 
@@ -304,7 +304,7 @@ private fun rememberWallpaperBitmap(wallpaperPath: String?): ImageBitmap? {
         withContext(Dispatchers.IO) {
             try {
                 val file = File(wallpaperPath)
-                if (!file.exists() || file.length() == 0L) {
+                if ((!file.exists()) || (file.length() == 0L)) {
                     bitmap = null
                     return@withContext
                 }
@@ -316,7 +316,7 @@ private fun rememberWallpaperBitmap(wallpaperPath: String?): ImageBitmap? {
                 var sampleSize = 1
                 val targetW = 1080
                 val targetH = 720
-                if (options.outWidth > targetW || options.outHeight > targetH) {
+                if ((options.outWidth > targetW) || (options.outHeight > targetH)) {
                     val halfW = options.outWidth / 2
                     val halfH = options.outHeight / 2
                     while ((halfW / sampleSize) >= targetW && (halfH / sampleSize) >= targetH) {

@@ -2,7 +2,6 @@ package com.tether.phone
 
 import android.app.AlarmManager
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
@@ -162,11 +161,11 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             val oldState = field
             field = value
             Log.i(TAG, "Transport state changed to: $value")
-            if ((value == TransportState.READY || value == TransportState.AUTHENTICATED) &&
-                (oldState != TransportState.READY && oldState != TransportState.AUTHENTICATED)) {
+            if (((value == TransportState.READY) || (value == TransportState.AUTHENTICATED)) &&
+                ((oldState != TransportState.READY) && (oldState != TransportState.AUTHENTICATED))) {
                 onHostConnected()
-            } else if ((value == TransportState.DISCONNECTED || value == TransportState.FAILED) &&
-                (oldState == TransportState.READY || oldState == TransportState.AUTHENTICATED)) {
+            } else if (((value == TransportState.DISCONNECTED) || (value == TransportState.FAILED)) &&
+                ((oldState == TransportState.READY) || (oldState == TransportState.AUTHENTICATED))) {
                 onHostDisconnected()
             }
             notifyStateToInterface()
@@ -188,13 +187,11 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun onHostDisconnected() {
         UnlockPromptNotifier.cancelUnlockPrompt(this)
-        if (currentPowerState != LaptopPowerState.POWERED_OFF && currentPowerState != LaptopPowerState.RESTARTING) {
-            currentPowerState = if (lastPowerCommand == "shutdown") {
-                LaptopPowerState.POWERED_OFF
-            } else if (lastPowerCommand == "reboot") {
-                LaptopPowerState.RESTARTING
-            } else {
-                LaptopPowerState.DISCONNECTED
+        if ((currentPowerState != LaptopPowerState.POWERED_OFF) && (currentPowerState != LaptopPowerState.RESTARTING)) {
+            currentPowerState = when (lastPowerCommand) {
+                "shutdown" -> LaptopPowerState.POWERED_OFF
+                "reboot" -> LaptopPowerState.RESTARTING
+                else -> LaptopPowerState.DISCONNECTED
             }
         }
         getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
@@ -812,7 +809,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun processIncomingBinaryFrame(bytes: ByteArray, transport: TetherTransport) {
-        Log.d(TAG, "Received binary input frame: ${bytes.size} bytes (type=0x${String.format("%02X", bytes[0])})")
+        Log.d(TAG, "Received binary input frame from transport gen=${transport.generationId}: ${bytes.size} bytes (type=0x${String.format("%02X", bytes[0])})")
     }
 
     private fun processIncomingFrame(json: JSONObject, transport: TetherTransport) {
@@ -892,7 +889,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val lastAnsweredTs = prefs.getLong("last_answered_power_event_timestamp_ms", 0L)
 
                 if (eventType.equals(lastAnsweredType, ignoreCase = true) && timestamp == lastAnsweredTs) {
-                    Log.i(TAG, "Ignoring already answered power event: $eventType at $timestamp")
+                    val safeEventType = sanitizeLog(eventType)
+                    Log.i(TAG, "Ignoring already answered power event: $safeEventType at $timestamp")
                     return
                 }
 
@@ -1192,15 +1190,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun computeEffectivePowerState(): LaptopPowerState {
         val isConn = (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED)
-        if (isConn) {
-            return when (currentPowerState) {
+        return if (isConn) {
+            when (currentPowerState) {
                 LaptopPowerState.SHUTTING_DOWN -> LaptopPowerState.SHUTTING_DOWN
                 LaptopPowerState.RESTARTING -> LaptopPowerState.RESTARTING
                 LaptopPowerState.CONNECTED_UNLOCKED -> LaptopPowerState.CONNECTED_UNLOCKED
                 else -> LaptopPowerState.CONNECTED_LOCKED
             }
         } else {
-            return when {
+            when {
                 lastPowerCommand == "shutdown" || currentPowerState == LaptopPowerState.POWERED_OFF -> LaptopPowerState.POWERED_OFF
                 lastPowerCommand == "reboot" || currentPowerState == LaptopPowerState.RESTARTING -> LaptopPowerState.RESTARTING
                 else -> LaptopPowerState.DISCONNECTED
@@ -1263,26 +1261,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private fun cancelAlarm() {
         alarmPendingIntent?.let { alarmManager?.cancel(it) }
         alarmPendingIntent = null
-    }
-
-    private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            getString(R.string.notification_channel_name),
-            NotificationManager.IMPORTANCE_LOW,
-        )
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-
-        val powerChannel = NotificationChannel(
-            "tether_power_events",
-            "Tether Power Events",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "Alerts when your PC powers off, sleeps, or locks."
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            enableVibration(true)
-        }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(powerChannel)
     }
 
     private fun createNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)

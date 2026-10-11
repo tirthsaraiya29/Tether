@@ -15,16 +15,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
 class RemoteInputEngine(
-    private val context: Context,
+    context: Context,
     private val sendFrameCallback: (ByteArray) -> Unit = { frame ->
         TetherLanService.instance?.sendInputFrame(frame)
-    }
+    },
 ) : SensorEventListener {
 
     companion object {
@@ -111,7 +110,7 @@ class RemoteInputEngine(
         val scaledDx = (rawDx * scale).roundToInt().coerceIn(-32768, 32767).toShort()
         val scaledDy = (rawDy * scale).roundToInt().coerceIn(-32768, 32767).toShort()
 
-        if (scaledDx != 0.toShort() || scaledDy != 0.toShort()) {
+        if ((scaledDx != 0.toShort()) || (scaledDy != 0.toShort())) {
             dispatchEvent(InputEvent.RelativeMove(scaledDx, scaledDy))
         }
     }
@@ -255,7 +254,6 @@ class RemoteInputEngine(
 
         if (event.sensor.type == Sensor.TYPE_GYROSCOPE) {
             val gyroX = event.values[0]
-            val gyroY = event.values[1]
             val gyroZ = event.values[2]
 
             val radMagnitude = hypot(gyroZ, gyroX)
@@ -266,7 +264,7 @@ class RemoteInputEngine(
             val deltaY = (-gyroX * GYRO_GAIN * airMouseSensitivity)
                 .roundToInt().coerceIn(-32768, 32767).toShort()
 
-            if (deltaX != 0.toShort() || deltaY != 0.toShort()) {
+            if ((deltaX != 0.toShort()) || (deltaY != 0.toShort())) {
                 dispatchEvent(InputEvent.RelativeMove(deltaX, deltaY))
             }
         }
