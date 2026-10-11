@@ -56,7 +56,6 @@ class MainActivity : FragmentActivity() {
     private val preferenceName = "tether_secure_prefs"
     private val panicStateKey = "is_panic_active"
 
-    private val appLockTimeoutKey = "app_lock_timeout_ms"
     private val appLockBackgroundTimestampKey = "app_lock_bg_timestamp"
 
     private var uiStatusText = mutableStateOf("")
@@ -85,7 +84,7 @@ class MainActivity : FragmentActivity() {
 
     private var volumeLevel = mutableIntStateOf(50)
     private var lastLocalVolumeChangeTimeMs = 0L
-    private var isMuted = mutableStateOf(false)
+    private var isMuted = mutableStateOf(value = false)
     private var grantedCapabilities = mutableStateOf(setOf<String>())
     private var connectedHostAddress = mutableStateOf("")
 
@@ -526,6 +525,11 @@ class MainActivity : FragmentActivity() {
         val action = intent.action
 
         if ((commandType != null) || (action == "com.tether.phone.ACTION_VOICE_COMMAND")) {
+            val permission = "com.tether.phone.permission.VOICE_COMMAND"
+            if (checkCallingOrSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
+                Log.w("TetherActivity", "Caller lacks permission $permission for voice command execution")
+                return
+            }
             val command = commandType ?: "unknown"
             if (!isEnvironmentRestricted.value && !isAppLocked.value) {
                 val lanCommand = when (command) {
@@ -811,6 +815,12 @@ class MainActivity : FragmentActivity() {
                         super.onAuthenticationSucceeded(result)
                         val cipher = result.cryptoObject?.cipher
                         if (cipher != null) {
+                            try {
+                                val dummyPayload = "tether_auth_verify".toByteArray(Charsets.UTF_8)
+                                cipher.doFinal(dummyPayload)
+                            } catch (e: Exception) {
+                                Log.w("TetherActivity", "CryptoObject operation error: ${e.message}")
+                            }
                             Log.i("TetherActivity", "Hardware CryptoObject authenticated via biometric prompt.")
                         }
                         callback(true)

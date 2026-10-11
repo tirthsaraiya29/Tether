@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.milliseconds
 
 class UnlockActionReceiver : BroadcastReceiver() {
 
@@ -37,7 +38,7 @@ class UnlockActionReceiver : BroadcastReceiver() {
                     try {
                         val service = TetherLanService.instance
                         if (service != null) {
-                            withTimeoutOrNull(5000L) {
+                            withTimeoutOrNull(5000.milliseconds) {
                                 service.sendCommand("unlock")
                             }
                             Log.i(TAG, "Unlock command dispatched over active TLS session.")

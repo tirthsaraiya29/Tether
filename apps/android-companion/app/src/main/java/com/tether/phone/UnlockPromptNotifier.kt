@@ -61,7 +61,7 @@ object UnlockPromptNotifier {
                 NotificationCompat.BigTextStyle()
                     .setBigContentTitle("Unlock $safePeerName")
                     .bigText("TLS 1.3 session established with $safePeerName. Tap UNLOCK PC below or open Tether to manage your session.")
-                    .setSummaryText("TETHER • SECURE LINK")
+                    .setSummaryText("TETHER • SECURE LINK"),
             )
             .setSubText("TETHER • SECURE LINK")
             .setSmallIcon(R.drawable.ic_shortcut_unlock)

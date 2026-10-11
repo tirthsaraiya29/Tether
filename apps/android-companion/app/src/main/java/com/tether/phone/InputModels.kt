@@ -55,7 +55,7 @@ sealed class InputEvent {
      */
     data class RelativeMove(
         val deltaX: Short,
-        val deltaY: Short
+        val deltaY: Short,
     ) : InputEvent() {
         override fun toBinaryFrame(): ByteArray {
             return ByteBuffer.allocate(6).order(ByteOrder.BIG_ENDIAN)
@@ -153,9 +153,8 @@ object InputFactory {
 
     fun createUnicodeText(text: String): List<InputEvent.UnicodeChar> {
         val events = ArrayList<InputEvent.UnicodeChar>(text.length)
-        for (i in 0 until text.length) {
-            val codeUnit = text[i].code.toShort()
-            events.add(InputEvent.UnicodeChar(codeUnit))
+        for (ch in text) {
+            events.add(InputEvent.UnicodeChar(ch.code.toShort()))
         }
         return events
     }

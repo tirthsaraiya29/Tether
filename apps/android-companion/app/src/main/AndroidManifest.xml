@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    tools:ignore="ForegroundServiceType,FgsTypeCheck,ForegroundServicePermission"
     package="com.tether.phone">
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -29,12 +28,8 @@
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <uses-permission
-        android:name="android.permission.FOREGROUND_SERVICE"
-        tools:ignore="ForegroundServiceTypePermission,ForegroundServiceType" />
-    <uses-permission
-        android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"
-        tools:ignore="ForegroundServiceTypePermission,ForegroundServiceType" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <permission
@@ -50,7 +45,6 @@
         android:icon="@mipmap/ic_launcher"
         android:label="Tether"
         android:theme="@style/Theme.AppCompat.Light"
-        android:requestLegacyExternalStorage="true"
         tools:targetApi="34">
 
         <activity

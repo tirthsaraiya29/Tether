@@ -1,6 +1,5 @@
 package com.tether.phone
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
 import java.io.DataInputStream
@@ -115,7 +114,6 @@ class TetherTlsTransport(
         this.connected = true
     }
 
-    @SuppressLint("CustomX509TrustManager")
     private fun createSslContext(): SSLContext {
         val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
 

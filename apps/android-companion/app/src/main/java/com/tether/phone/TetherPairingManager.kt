@@ -64,7 +64,7 @@ class TetherPairingManager(
                 .replace("\r", "\\r")
                 .replace("\n", "\\n")
                 .replace("\t", "\\t")
-                .filter { it.code in 0x20..0x7E || it.code > 0x7F }
+                .filter { (it.code in 0x20..0x7E) || (it.code > 0x7F) }
                 .take(256)
         }
 

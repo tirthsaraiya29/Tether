@@ -53,7 +53,10 @@ fun isPrivateAddress(address: InetAddress): Boolean {
     return false
 }
 
-class NsdResolveQueue(private val nsdManager: NsdManager) {
+class NsdResolveQueue(
+    private val context: Context,
+    private val nsdManager: NsdManager,
+) {
     private val lock = Any()
 
     private data class PendingResolve(
@@ -126,8 +129,33 @@ class NsdResolveQueue(private val nsdManager: NsdManager) {
         }
 
         try {
-            @Suppress("DEPRECATION")
-            nsdManager.resolveService(item.serviceInfo, resolveListener)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val executor = androidx.core.content.ContextCompat.getMainExecutor(context)
+                val callback = object : NsdManager.ServiceInfoCallback {
+                    override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
+                        resolveListener.onResolveFailed(item.serviceInfo, errorCode)
+                    }
+
+                    override fun onServiceUpdated(serviceInfo: NsdServiceInfo) {
+                        resolveListener.onServiceResolved(serviceInfo)
+                        try {
+                            nsdManager.unregisterServiceInfoCallback(this)
+                        } catch (_: Exception) {}
+                    }
+
+                    override fun onServiceLost() {}
+
+                    override fun onServiceInfoCallbackUnregistered() {}
+                }
+                nsdManager.registerServiceInfoCallback(item.serviceInfo, executor, callback)
+            } else {
+                try {
+                    NsdManager::class.java.getMethod("resolveService", NsdServiceInfo::class.java, NsdManager.ResolveListener::class.java)
+                        .invoke(nsdManager, item.serviceInfo, resolveListener)
+                } catch (e: Exception) {
+                    Log.e("NsdResolveQueue", "Legacy resolveService reflection failed: ${e.message}")
+                }
+            }
         } catch (e: Exception) {
             Log.e("NsdResolveQueue", "Exception invoking resolveService: ${e.message}")
             synchronized(lock) {
@@ -159,7 +187,7 @@ class TetherDiscoveryManager(
         setReferenceCounted(false)
     }
 
-    private val nsdResolveQueue = NsdResolveQueue(nsdManager)
+    private val nsdResolveQueue = NsdResolveQueue(context, nsdManager)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var discoveryListener: NsdManager.DiscoveryListener? = null
@@ -325,8 +353,15 @@ class TetherDiscoveryManager(
         nsdResolveQueue.resolveOrEnqueue(
             serviceInfo,
             onResolved = { resolvedInfo ->
-                @Suppress("DEPRECATION")
-                val host: InetAddress? = resolvedInfo.host
+                val host: InetAddress? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    resolvedInfo.hostAddresses.firstOrNull()
+                } else {
+                    try {
+                        NsdServiceInfo::class.java.getMethod("getHost").invoke(resolvedInfo) as? InetAddress
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
                 val port: Int = resolvedInfo.port
                 val hostAddr = host?.hostAddress ?: return@resolveOrEnqueue
 

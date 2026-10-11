@@ -61,7 +61,7 @@ class TetherCapabilityManager {
             cmdLower in setOf("cmd", "powershell", "powershell7", "wsl", "bash") -> TetherCapability.TERMINAL
             cmdLower in setOf("copy", "paste", "clipboard") -> TetherCapability.CLIPBOARD
             cmdLower in setOf("file_transfer", "file_list") -> TetherCapability.FILES
-            cmdLower in setOf("volume_up", "volume_down", "volume_mute", "volume_get", "vol_get", "get_volume", "set_volume", "brightness_up", "brightness_down") ||
+            (cmdLower in setOf("volume_up", "volume_down", "volume_mute", "volume_get", "vol_get", "get_volume", "set_volume", "brightness_up", "brightness_down")) ||
                 cmdLower.startsWith("volume_set:") || cmdLower.startsWith("set_volume:") || cmdLower.startsWith("vol_set:") -> TetherCapability.MEDIA
             else -> TetherCapability.MEDIA
         }
