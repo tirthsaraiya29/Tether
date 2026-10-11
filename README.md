@@ -2,10 +2,10 @@
 
 > **Adaptive personal trust and security system for Windows and Android.**
 
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android-blue.svg)](https://github.com/tirthsaraiya29/Tether)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/tirthsaraiya29/Tether)
-[![Status](https://img.shields.io/badge/status-Canary%20%2F%2F%20Active%20Development-orange.svg)](https://github.com/tirthsaraiya29/Tether)
-[![Transport](https://img.shields.io/badge/transport-LAN%20Only%20(AES--256--GCM)-purple.svg)](https://github.com/tirthsaraiya29/Tether)
+[![Platform](https://img.shields.io/badge/platform-Windows_%7C_Android-blue)](https://github.com/tirthsaraiya29/Tether)
+[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/tirthsaraiya29/Tether)
+[![Status](https://img.shields.io/badge/status-Canary_Active-orange)](https://github.com/tirthsaraiya29/Tether)
+[![Transport](https://img.shields.io/badge/transport-LAN_Only-purple)](https://github.com/tirthsaraiya29/Tether)
 
 ---
 
