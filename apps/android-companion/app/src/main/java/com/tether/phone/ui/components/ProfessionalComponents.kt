@@ -87,7 +87,6 @@ import com.tether.phone.ui.theme.DeepSpace
 import com.tether.phone.ui.theme.GlassBorder
 import com.tether.phone.ui.theme.IntegrityGreen
 import com.tether.phone.ui.theme.LiquidCyan
-import com.tether.phone.ui.theme.MatrixGold
 import com.tether.phone.ui.theme.SurfaceElevated
 import com.tether.phone.ui.theme.TetherEase
 import com.tether.phone.ui.theme.TextMuted
