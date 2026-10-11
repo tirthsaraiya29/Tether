@@ -71,9 +71,9 @@ class MainActivity : FragmentActivity() {
     private var isBiometricSettingEnabled = mutableStateOf(value = true)
     private var selectedTimeoutMs = mutableLongStateOf(value = 0L)
 
-    private var isPrivacyMaskEnabled = mutableStateOf(value = true)
-    private var isBlockScreenReadingEnabled = mutableStateOf(value = true)
-    private var isHideInRecentsEnabled = mutableStateOf(value = true)
+    private var isPrivacyMaskEnabled = mutableStateOf(value = false)
+    private var isBlockScreenReadingEnabled = mutableStateOf(value = false)
+    private var isHideInRecentsEnabled = mutableStateOf(value = false)
 
     private var isEnvironmentRestricted = mutableStateOf(value = false)
     private var currentIntegrityScore = mutableIntStateOf(value = 100)
@@ -308,9 +308,9 @@ class MainActivity : FragmentActivity() {
         selectedTimeoutMs.longValue = 60_000L
         isAppLocked.value = true
 
-        isPrivacyMaskEnabled.value = true
-        isBlockScreenReadingEnabled.value = true
-        isHideInRecentsEnabled.value = true
+        isPrivacyMaskEnabled.value = false
+        isBlockScreenReadingEnabled.value = false
+        isHideInRecentsEnabled.value = false
 
         applyWindowSecurityFlags()
 
@@ -544,17 +544,12 @@ class MainActivity : FragmentActivity() {
 
     private fun applyWindowSecurityFlags() {
         runOnUiThread {
-            if (isPrivacyMaskEnabled.value || isBlockScreenReadingEnabled.value) {
-                window.setFlags(
-                    WindowManager.LayoutParams.FLAG_SECURE,
-                    WindowManager.LayoutParams.FLAG_SECURE,
-                )
-            } else {
-                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-            }
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
 
             if (isHideInRecentsEnabled.value && Build.VERSION.SDK_INT >= 33) {
                 setRecentsScreenshotEnabled(false)
+            } else if (Build.VERSION.SDK_INT >= 33) {
+                setRecentsScreenshotEnabled(true)
             }
         }
     }
