@@ -181,11 +181,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             remove("last_power_command_at_ms")
             putString("laptop_power_state", LaptopPowerState.CONNECTED_LOCKED.name)
         }
-        UnlockPromptNotifier.showUnlockPrompt(this, connectedPeerName)
+        updateUnlockNotificationState()
     }
 
     private fun onHostDisconnected() {
-        UnlockPromptNotifier.cancelUnlockPrompt(this)
         if ((currentPowerState != LaptopPowerState.POWERED_OFF) && (currentPowerState != LaptopPowerState.RESTARTING)) {
             currentPowerState = when (lastPowerCommand) {
                 "shutdown" -> LaptopPowerState.POWERED_OFF
@@ -195,6 +194,20 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
         getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
             putString("laptop_power_state", currentPowerState.name)
+        }
+        updateUnlockNotificationState()
+    }
+
+    fun updateUnlockNotificationState() {
+        val isConnected = (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED)
+        val isLocked = (currentPowerState == LaptopPowerState.CONNECTED_LOCKED)
+
+        if (isConnected && isLocked) {
+            Log.i(TAG, "PC is connected and locked. Displaying unlock prompt push notification.")
+            UnlockPromptNotifier.showUnlockPrompt(this, connectedPeerName)
+        } else {
+            Log.i(TAG, "PC is not locked or not connected (state=$currentPowerState). Dismissing unlock prompt notification.")
+            UnlockPromptNotifier.cancelUnlockPrompt(this)
         }
     }
 
@@ -893,7 +906,22 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     return
                 }
 
-                postPowerEventNotification(eventType, timestamp)
+                when (eventType) {
+                    "LOCK", "SLEEP" -> {
+                        currentPowerState = LaptopPowerState.CONNECTED_LOCKED
+                        postPowerEventNotification(eventType, timestamp)
+                    }
+                    "UNLOCK" -> {
+                        currentPowerState = LaptopPowerState.CONNECTED_UNLOCKED
+                    }
+                    "SHUTDOWN", "POWER_OFF" -> {
+                        currentPowerState = LaptopPowerState.POWERED_OFF
+                    }
+                    "RESTART", "REBOOT" -> {
+                        currentPowerState = LaptopPowerState.RESTARTING
+                    }
+                }
+                updateUnlockNotificationState()
             }
             "CONFIRM_COMMAND" -> {
                 val confirmedCmd = json.optString("confirmedCommand", command)
@@ -906,6 +934,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val safeConfirmed = sanitizeLog(confirmedCmd)
                 val safeReason = sanitizeLog(errorReason)
                 Log.i(TAG, "Command response from Windows host: $safeConfirmed (success=$success, reason=$safeReason, vol=$currentVolumeLevel)")
+                if (safeConfirmed.equals("unlock", ignoreCase = true) && success) {
+                    currentPowerState = LaptopPowerState.CONNECTED_UNLOCKED
+                    updateUnlockNotificationState()
+                }
                 mainHandler.post {
                     val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
                         putExtra("confirmed_command", confirmedCmd)
@@ -945,6 +977,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 } else if (lockState.equals("LOCKED", ignoreCase = true)) {
                     currentPowerState = LaptopPowerState.CONNECTED_LOCKED
                 }
+                updateUnlockNotificationState()
                 val wpB64 = json.optString("wallpaperB64", json.optString("wallpaper", ""))
                 if (wpB64.isNotEmpty()) {
                     saveWallpaperBase64(wpB64)
@@ -957,6 +990,11 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun postPowerEventNotification(eventType: String, timestamp: Long) {
+        if (!eventType.equals("LOCK", ignoreCase = true) && !eventType.equals("SLEEP", ignoreCase = true)) {
+            Log.i(TAG, "Power event $eventType does not allow unlock operation; skipping notification.")
+            return
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ActivityCompat.checkSelfPermission(
                 this,
