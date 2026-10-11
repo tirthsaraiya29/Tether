@@ -37,10 +37,14 @@ class PowerEventActionReceiver : BroadcastReceiver() {
                     putExtra(EXTRA_ACTION, "ACCEPT")
                 }
                 context.startActivity(activityIntent)
-                NotificationManagerCompat.from(context).cancel(POWER_EVENT_NOTIFICATION_ID)
+                val nm = NotificationManagerCompat.from(context)
+                nm.cancel(POWER_EVENT_NOTIFICATION_ID)
+                nm.cancel(UnlockPromptNotifier.UNLOCK_NOTIFICATION_ID)
             }
             ACTION_REJECT -> {
-                NotificationManagerCompat.from(context).cancel(POWER_EVENT_NOTIFICATION_ID)
+                val nm = NotificationManagerCompat.from(context)
+                nm.cancel(POWER_EVENT_NOTIFICATION_ID)
+                nm.cancel(UnlockPromptNotifier.UNLOCK_NOTIFICATION_ID)
             }
         }
     }

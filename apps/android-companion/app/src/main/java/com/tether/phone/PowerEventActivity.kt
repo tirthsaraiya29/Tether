@@ -134,7 +134,9 @@ class PowerEventActivity : FragmentActivity() {
                     action = "unlock"
                 }
                 startService(serviceIntent)
-                NotificationManagerCompat.from(this@PowerEventActivity).cancel(PowerEventActionReceiver.POWER_EVENT_NOTIFICATION_ID)
+                val nm = NotificationManagerCompat.from(this@PowerEventActivity)
+                nm.cancel(PowerEventActionReceiver.POWER_EVENT_NOTIFICATION_ID)
+                nm.cancel(UnlockPromptNotifier.UNLOCK_NOTIFICATION_ID)
                 finish()
             }
 
@@ -168,7 +170,9 @@ class PowerEventActivity : FragmentActivity() {
             putString("last_answered_power_event_type", eventType)
             putLong("last_answered_power_event_timestamp_ms", eventTimestamp)
         }
-        NotificationManagerCompat.from(this).cancel(PowerEventActionReceiver.POWER_EVENT_NOTIFICATION_ID)
+        val nm = NotificationManagerCompat.from(this)
+        nm.cancel(PowerEventActionReceiver.POWER_EVENT_NOTIFICATION_ID)
+        nm.cancel(UnlockPromptNotifier.UNLOCK_NOTIFICATION_ID)
         finish()
     }
 }
