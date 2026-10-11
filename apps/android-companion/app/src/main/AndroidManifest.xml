@@ -96,6 +96,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".UnlockActionReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".TetherServiceReceiver"
             android:exported="true"
             android:permission="android.permission.RECEIVE_BOOT_COMPLETED"
