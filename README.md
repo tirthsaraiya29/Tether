@@ -104,22 +104,22 @@ Tether consists of an Android companion application communicating securely with 
 
 ```mermaid
 graph TD
-    subgraph Android Device ["Android Companion App"]
-        A1[TetherApp UI] --> A2[TetherLanService]
-        A2 --> A3[DeviceIntegrityRegistry]
-        A2 --> A4[Android KeyStore / StrongBox]
+    subgraph AndroidDevice ["Android Companion App"]
+        A1["TetherApp UI"] --> A2["TetherLanService"]
+        A2 --> A3["DeviceIntegrityRegistry"]
+        A2 --> A4["Android KeyStore / StrongBox"]
         A2 -->|TLS 1.3 TCP:37123| B1
     end
 
-    subgraph Windows Host ["Windows Workstation"]
-        B1[Tether.CommunicationService (Session 0)] --> B2[Trust & Panic Engines]
-        B1 -->|Token Duplication| B3[Tether.SessionHelper (Session 1+)]
-        B3 --> B4[Tether.OverlayUI]
-        B1 --> B5[TetherCredentialProvider (Logon UI)]
+    subgraph WindowsHost ["Windows Workstation"]
+        B1["Tether.CommunicationService (Session 0)"] --> B2["Trust & Panic Engines"]
+        B1 -->|Token Duplication| B3["Tether.SessionHelper (Session 1+)"]
+        B3 --> B4["Tether.OverlayUI"]
+        B1 --> B5["TetherCredentialProvider (Logon UI)"]
     end
 
-    style Android Device fill:#eef2f7,stroke:#333,stroke-width:2px
-    style Windows Host fill:#e1f5fe,stroke:#333,stroke-width:2px
+    style AndroidDevice fill:#eef2f7,stroke:#333,stroke-width:2px
+    style WindowsHost fill:#e1f5fe,stroke:#333,stroke-width:2px
 ```
 
 ### ASCII Architecture Overview
