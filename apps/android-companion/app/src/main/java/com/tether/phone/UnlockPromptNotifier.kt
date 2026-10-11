@@ -10,24 +10,23 @@ import androidx.core.app.NotificationManagerCompat
 object UnlockPromptNotifier {
 
     const val UNLOCK_NOTIFICATION_ID = 2001
-    private const val BRAND_COLOR = 0xFF0F766E.toInt() // Deep Teal (#0F766E)
+
+    // LiquidCyan (#00E5FF) - Tether's signature brand accent color
+    private const val LIQUID_CYAN_ACCENT = 0xFF00E5FF.toInt()
 
     /**
-     * Posts or updates the high-priority "Unlock your PC?" notification.
-     * Uses a deterministic notification ID [UNLOCK_NOTIFICATION_ID] so new connections
-     * collapse and update existing prompts rather than stacking.
+     * Posts or updates the high-priority "Unlock PC" notification.
+     * Styled to match Tether's signature cyan accent, terminology, and industrial UI tone.
+     * Uses deterministic ID [UNLOCK_NOTIFICATION_ID] so new connections update in place.
      */
     fun showUnlockPrompt(context: Context, peerDeviceName: String) {
-        val safePeerName = peerDeviceName.ifBlank { "your PC" }
+        val safePeerName = peerDeviceName.ifBlank { "Connected PC" }
 
-        // PendingIntent for "Unlock" action
+        // PendingIntent for "UNLOCK PC" action
         val unlockIntent = Intent(context, UnlockActionReceiver::class.java).apply {
             action = UnlockActionReceiver.ACTION_UNLOCK
             putExtra(UnlockActionReceiver.EXTRA_PEER_NAME, safePeerName)
         }
-        // PendingIntent.FLAG_IMMUTABLE is required on API 31+ (Android 12+) to prevent
-        // unauthorized apps from modifying intent contents. FLAG_UPDATE_CURRENT ensures
-        // updated extras (like peer name) overwrite any existing pending intent.
         val unlockPendingIntent = PendingIntent.getBroadcast(
             context,
             101,
@@ -35,7 +34,7 @@ object UnlockPromptNotifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        // PendingIntent for "Dismiss" action
+        // PendingIntent for "DISMISS" action
         val dismissIntent = Intent(context, UnlockActionReceiver::class.java).apply {
             action = UnlockActionReceiver.ACTION_DISMISS
         }
@@ -46,36 +45,50 @@ object UnlockPromptNotifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+        val contentPendingIntent = PendingIntent.getActivity(
+            context,
+            100,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         val notification = NotificationCompat.Builder(context, TetherNotificationChannels.CHANNEL_UNLOCK_PROMPT)
-            .setContentTitle("Unlock your PC?")
-            .setContentText("Tether is connected to $safePeerName.")
+            .setContentTitle("Unlock $safePeerName")
+            .setContentText("TLS 1.3 session established. Tap to authorize unlock.")
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .setBigContentTitle("Unlock $safePeerName")
+                    .bigText("TLS 1.3 session established with $safePeerName. Tap UNLOCK PC below or open Tether to manage your session.")
+                    .setSummaryText("TETHER • SECURE LINK")
+            )
+            .setSubText("TETHER • SECURE LINK")
             .setSmallIcon(R.drawable.ic_shortcut_unlock)
-            .setColor(BRAND_COLOR)
+            .setColor(LIQUID_CYAN_ACCENT)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setDefaults(Notification.DEFAULT_ALL)
             .setAutoCancel(true)
             .setOngoing(false)
-            // "Unlock" action button
+            .setContentIntent(contentPendingIntent)
             .addAction(
                 R.drawable.ic_shortcut_unlock,
-                "Unlock",
+                "UNLOCK PC",
                 unlockPendingIntent,
             )
-            // "Dismiss" action button
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
-                "Dismiss",
+                "DISMISS",
                 dismissPendingIntent,
             )
-            // Sliding away the notification triggers dismiss action
             .setDeleteIntent(dismissPendingIntent)
             .build()
 
         try {
             NotificationManagerCompat.from(context).notify(UNLOCK_NOTIFICATION_ID, notification)
-        } catch (e: SecurityException) {
+        } catch (_: SecurityException) {
             android.util.Log.w("UnlockPromptNotifier", "Cannot post notification: POST_NOTIFICATIONS permission missing")
         }
     }
