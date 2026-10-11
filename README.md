@@ -2,10 +2,7 @@
 
 > **Adaptive personal trust and security system for Windows and Android.**
 
-[![Platform](https://img.shields.io/badge/platform-Windows_%7C_Android-blue)](https://github.com/tirthsaraiya29/Tether)
-[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/tirthsaraiya29/Tether)
-[![Status](https://img.shields.io/badge/status-Canary_Active-orange)](https://github.com/tirthsaraiya29/Tether)
-[![Transport](https://img.shields.io/badge/transport-LAN_Only-purple)](https://github.com/tirthsaraiya29/Tether)
+**Platform:** Windows | Android &nbsp;•&nbsp; **Status:** Canary (Active Development) &nbsp;•&nbsp; **Transport:** Local Wi-Fi / LAN Only (AES-256-GCM)
 
 ---
 
@@ -271,7 +268,8 @@ Contributions are welcome! Please follow these guidelines:
 
 ## License
 
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details. *(If no LICENSE file is present, standard open-source MIT terms apply).*
+<!-- TODO: Specify project license -->
+No license has been specified for this project yet. All rights reserved.
 
 ---
 
