@@ -26,7 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sensors
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -747,7 +746,7 @@ fun SensitivityBottomSheet(
 
             // Pointer Sensitivity
             Text(
-                text = "Pointer Speed: ${String.format("%.1f", inputEngine.pointerSensitivity)}x",
+                text = "Pointer Speed: ${String.format(java.util.Locale.US, "%.1f", inputEngine.pointerSensitivity)}x",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextPrimary
             )
