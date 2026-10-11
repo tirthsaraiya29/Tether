@@ -35,7 +35,7 @@
     <permission
         android:name="com.tether.phone.permission.VOICE_COMMAND"
         android:label="Tether Voice Command Permission"
-        android:protectionLevel="normal" />
+        android:protectionLevel="signature" />
     <uses-permission android:name="com.tether.phone.permission.VOICE_COMMAND" />
 
     <application
