@@ -57,6 +57,7 @@ import com.tether.phone.ui.theme.TetherTheme
 import com.tether.phone.ui.theme.TextPrimary
 import com.tether.phone.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
+import android.view.WindowManager
 import kotlin.time.Duration.Companion.seconds
 
 class PairingConfirmationActivity : ComponentActivity() {
@@ -66,6 +67,7 @@ class PairingConfirmationActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
 
         requestId = intent.getStringExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID) ?: ""
         val peerName = intent.getStringExtra(TetherLanService.EXTRA_PEER_DEVICE_NAME) ?: "Windows PC"

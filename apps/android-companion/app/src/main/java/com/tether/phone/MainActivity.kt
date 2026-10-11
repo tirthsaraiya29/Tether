@@ -548,12 +548,10 @@ class MainActivity : FragmentActivity() {
 
     private fun applyWindowSecurityFlags() {
         runOnUiThread {
-            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
 
-            if (isHideInRecentsEnabled.value && Build.VERSION.SDK_INT >= 33) {
+            if (Build.VERSION.SDK_INT >= 33) {
                 setRecentsScreenshotEnabled(false)
-            } else if (Build.VERSION.SDK_INT >= 33) {
-                setRecentsScreenshotEnabled(true)
             }
         }
     }
