@@ -74,6 +74,7 @@ class PowerEventActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
 
         setShowWhenLocked(true)
         setTurnScreenOn(true)

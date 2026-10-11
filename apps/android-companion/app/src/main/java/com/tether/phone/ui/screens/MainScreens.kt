@@ -600,7 +600,7 @@ fun SettingsScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = "Biometric Gateway and UI Privacy Mask are active and enforced by system policy.",
+                            text = "Biometric Gateway, No-Screenshot Security Policy, and UI Privacy Mask are active and enforced by system policy.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = IntegrityGreen
                         )
