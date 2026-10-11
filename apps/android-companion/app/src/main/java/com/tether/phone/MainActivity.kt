@@ -106,7 +106,7 @@ class MainActivity : FragmentActivity() {
 
     private fun updateVolumeFromRemote(newVol: Int) {
         if (newVol in 0..100) {
-            val quietWindowPassed = (System.currentTimeMillis() - lastLocalVolumeChangeTimeMs) > 1200L
+            val quietWindowPassed = (System.currentTimeMillis() - lastLocalVolumeChangeTimeMs) > 2000L
             if (quietWindowPassed) {
                 volumeLevel.intValue = newVol
             }
