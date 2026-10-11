@@ -70,6 +70,11 @@ public sealed class Worker : BackgroundService
         _tetherLogger.Info("Tether Communication Service starting (mDNS + UDP Broadcast + TLS 1.3 transport).");
         _logger.LogInformation("Tether Communication Service running at {Time}", DateTimeOffset.Now);
 
+        // Publish the watcher to the static hub before any long-running setup.
+        // ServiceBase callbacks can fire at any time after host.Start() returns,
+        // and HardwareExecutor reads PowerEventHub.Watcher on the hot path.
+        PowerEventHub.Watcher = _powerWatcher;
+
         EnsureFirewallRulesExist();
 
         _pipeServer.Start();
@@ -85,9 +90,8 @@ public sealed class Worker : BackgroundService
 
         _tetherLogger.Info($"Transport up. DeviceId={_identity.DeviceId}");
 
-        PowerEventHub.Watcher = _powerWatcher;
         _powerWatcher.Start();
-        _tetherLogger.Info("PowerEventWatcher: started (WMI + SystemEvents).");
+        _tetherLogger.Info("PowerEventWatcher: started (WMI + SystemEvents corroborators).");
 
         LaptopStateCollector.Initialize(_sessionManager, _tetherLogger);
 
