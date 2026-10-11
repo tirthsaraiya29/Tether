@@ -154,6 +154,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private var rebootTimeoutJob: Job? = null
     private var shutdownTimeoutJob: Job? = null
 
+    @Volatile var connectedPeerName: String = "Windows PC"
+
     @Volatile
     var currentState: TransportState = TransportState.DISCONNECTED
         private set(value) {
@@ -181,9 +183,11 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             remove("last_power_command_at_ms")
             putString("laptop_power_state", LaptopPowerState.CONNECTED_LOCKED.name)
         }
+        UnlockPromptNotifier.showUnlockPrompt(this, connectedPeerName)
     }
 
     private fun onHostDisconnected() {
+        UnlockPromptNotifier.cancelUnlockPrompt(this)
         if (currentPowerState != LaptopPowerState.POWERED_OFF && currentPowerState != LaptopPowerState.RESTARTING) {
             currentPowerState = if (lastPowerCommand == "shutdown") {
                 LaptopPowerState.POWERED_OFF
@@ -315,7 +319,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        createNotificationChannel()
+        TetherNotificationChannels.createAllChannels(this)
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -636,6 +640,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
                             putString("saved_host_ip", hostAddress)
                         }
+                        connectedPeerName = result.peerDeviceId.ifBlank { "Windows PC" }
                         trustState = TrustState.PAIRED
                         currentState = TransportState.AUTHENTICATED
                         capabilityManager.negotiateCapabilities(result.peerCapabilities.ifBlank { "" })
@@ -1019,6 +1024,39 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         NotificationManagerCompat.from(this)
             .notify(PowerEventActionReceiver.POWER_EVENT_NOTIFICATION_ID, notification)
+    }
+
+    suspend fun sendCommand(command: String): Result<Unit> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            if ((currentState != TransportState.READY) && (currentState != TransportState.AUTHENTICATED)) {
+                return@withContext Result.failure(IllegalStateException("TLS session not connected (state=$currentState)"))
+            }
+            val normCmd = when (command.uppercase()) {
+                "PWR_SHUTDOWN", "SHUTDOWN" -> "shutdown"
+                "PWR_REBOOT", "REBOOT" -> "reboot"
+                "PWR_SLEEP", "SLEEP" -> "sleep"
+                "UNLOCK" -> "unlock"
+                else -> command.lowercase()
+            }
+            val reqId = UUID.randomUUID().toString()
+            val cmdJson = JSONObject().apply {
+                put("type", "COMMAND_EXECUTE")
+                put("requestId", reqId)
+                put("command", normCmd)
+                put("timestamp", System.currentTimeMillis())
+            }
+            val transport = activeTransport
+                ?: return@withContext Result.failure(IllegalStateException("Active transport is null"))
+            if (!transport.isConnected()) {
+                return@withContext Result.failure(IllegalStateException("Transport socket is disconnected"))
+            }
+            transport.sendFrame(cmdJson.toString().toByteArray(StandardCharsets.UTF_8))
+            Log.i(TAG, "Dispatched command frame over TLS 1.3: $normCmd (reqId=$reqId)")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed sending command $command: ${e.message}", e)
+            Result.failure(e)
+        }
     }
 
     fun dispatchCommand(actionCommand: String) {
