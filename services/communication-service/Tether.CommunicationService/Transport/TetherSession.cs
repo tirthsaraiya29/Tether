@@ -158,7 +158,8 @@ public sealed class TetherSession : IDisposable
 
             try
             {
-                var initSnap = LaptopStateCollector.GetLaptopSnapshot(_logger);
+                LaptopStateCollector.ResetWallpaperHashCache();
+                var initSnap = LaptopStateCollector.GetLaptopSnapshotForPhone(_logger);
                 await FrameCodec.WriteJsonFrameAsync(_tls!, new LaptopStateFrame
                 {
                     BatteryLevel = initSnap.BatteryLevel,
@@ -228,6 +229,61 @@ public sealed class TetherSession : IDisposable
         }
 
         var knownDevice = _deviceManager.GetByFingerprint(phoneFingerprint);
+
+        // If the phone explicitly says it has no pinned key for us, do a fresh
+        // interactive pairing even if we still have it marked Paired. This
+        // covers the case where the phone's pinned key was lost or the app was
+        // reinstalled while our trust store still had the fingerprint.
+        if (init.IsPairingRequested)
+        {
+            var (pending, respPayload, respBytes) = _pairingManager.CreatePairingResponse(
+                _identity.DeviceId,
+                _identity.DeviceName,
+                _identity.GetPublicKeySpkiBase64(),
+                ServerCaps,
+                init.PublicKey,
+                init.DeviceName,
+                initFrameBytes);
+
+            await FrameCodec.WriteFrameAsync(stream, respBytes, ct);
+            _logger.Info($"TetherSession [{SessionId}]: Sent HANDSHAKE_RESPONSE (PAIRING_PENDING) with requestId '{pending.RequestId}' (init.IsPairingRequested=true). Waiting for PAIRING_CONFIRMED...");
+
+            using var confirmedDoc = await FrameCodec.ReadJsonFrameAsync(stream, ct);
+            if (confirmedDoc == null)
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: No PAIRING_CONFIRMED frame received.");
+                return false;
+            }
+
+            string confirmedType = confirmedDoc.RootElement.GetProperty("type").GetString() ?? "";
+            if (!string.Equals(confirmedType, "PAIRING_CONFIRMED", StringComparison.Ordinal))
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: Expected PAIRING_CONFIRMED but got '{confirmedType}'.");
+                return false;
+            }
+
+            string reqId = confirmedDoc.RootElement.GetProperty("requestId").GetString() ?? "";
+            string proofBase64 = confirmedDoc.RootElement.GetProperty("proof").GetString() ?? "";
+
+            bool verified = _pairingManager.TryVerifyPhoneProof(reqId, proofBase64, out string winProofBase64, out _);
+            if (!verified)
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: PIN proof verification failed for requestId '{reqId}'.");
+                await FrameCodec.WriteJsonFrameAsync(stream, new { type = "PAIRING_COMPLETE", status = "DENIED" }, ct);
+                return false;
+            }
+
+            await FrameCodec.WriteJsonFrameAsync(stream, new
+            {
+                type = "PAIRING_COMPLETE",
+                status = "OK",
+                proof = winProofBase64
+            }, ct);
+
+            Device = _deviceManager.GetByFingerprint(phoneFingerprint);
+            _logger.Info($"TetherSession [{SessionId}]: Pairing complete and device '{phoneFingerprint}' authenticated!");
+            return true;
+        }
 
         if (knownDevice != null && knownDevice.TrustState == DeviceTrustState.Paired)
         {
@@ -319,57 +375,6 @@ public sealed class TetherSession : IDisposable
             return true;
         }
 
-        if (init.IsPairingRequested)
-        {
-            var (pending, respPayload, respBytes) = _pairingManager.CreatePairingResponse(
-                _identity.DeviceId,
-                _identity.DeviceName,
-                _identity.GetPublicKeySpkiBase64(),
-                ServerCaps,
-                init.PublicKey,
-                init.DeviceName,
-                initFrameBytes);
-
-            await FrameCodec.WriteFrameAsync(stream, respBytes, ct);
-            _logger.Info($"TetherSession [{SessionId}]: Sent HANDSHAKE_RESPONSE (PAIRING_PENDING) with requestId '{pending.RequestId}'. Waiting for PAIRING_CONFIRMED...");
-
-            using var confirmedDoc = await FrameCodec.ReadJsonFrameAsync(stream, ct);
-            if (confirmedDoc == null)
-            {
-                _logger.Warning($"TetherSession [{SessionId}]: No PAIRING_CONFIRMED frame received.");
-                return false;
-            }
-
-            string confirmedType = confirmedDoc.RootElement.GetProperty("type").GetString() ?? "";
-            if (!string.Equals(confirmedType, "PAIRING_CONFIRMED", StringComparison.Ordinal))
-            {
-                _logger.Warning($"TetherSession [{SessionId}]: Expected PAIRING_CONFIRMED but got '{confirmedType}'.");
-                return false;
-            }
-
-            string reqId = confirmedDoc.RootElement.GetProperty("requestId").GetString() ?? "";
-            string proofBase64 = confirmedDoc.RootElement.GetProperty("proof").GetString() ?? "";
-
-            bool verified = _pairingManager.TryVerifyPhoneProof(reqId, proofBase64, out string winProofBase64, out _);
-            if (!verified)
-            {
-                _logger.Warning($"TetherSession [{SessionId}]: PIN proof verification failed for requestId '{reqId}'.");
-                await FrameCodec.WriteJsonFrameAsync(stream, new { type = "PAIRING_COMPLETE", status = "DENIED" }, ct);
-                return false;
-            }
-
-            await FrameCodec.WriteJsonFrameAsync(stream, new
-            {
-                type = "PAIRING_COMPLETE",
-                status = "OK",
-                proof = winProofBase64
-            }, ct);
-
-            Device = _deviceManager.GetByFingerprint(phoneFingerprint);
-            _logger.Info($"TetherSession [{SessionId}]: Pairing complete and device '{phoneFingerprint}' authenticated!");
-            return true;
-        }
-
         _logger.Warning($"TetherSession [{SessionId}]: Unknown phone {phoneFingerprint} did not request pairing. Denying.");
         await FrameCodec.WriteJsonFrameAsync(stream, new HandshakeResponse
         {
@@ -427,7 +432,6 @@ public sealed class TetherSession : IDisposable
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                _logger.Debug($"TetherSession [{SessionId}]: 10s idle threshold reached. Sending PING probe...");
                 try
                 {
                     await FrameCodec.WriteJsonFrameAsync(stream, new { type = "PING", timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, ct);
@@ -438,10 +442,15 @@ public sealed class TetherSession : IDisposable
                     break;
                 }
 
-                long elapsedSeconds = (DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastFrameReceivedTicks)) / TimeSpan.TicksPerSecond;
-                if (elapsedSeconds > 45)
+                long elapsedSeconds =
+                    (DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastFrameReceivedTicks)) / TimeSpan.TicksPerSecond;
+
+                // 180s is generous: TCP keepalive on this socket will detect a dead
+                // peer within ~30s anyway. The application heartbeat is a safety net,
+                // not the primary liveness signal.
+                if (elapsedSeconds > 180)
                 {
-                    _logger.Warning($"TetherSession [{SessionId}]: Heartbeat timeout (no PONG received in 45s). Declaring connection dead.");
+                    _logger.Warning($"TetherSession [{SessionId}]: Heartbeat timeout (no frames received in {elapsedSeconds}s). Declaring connection dead.");
                     break;
                 }
             }

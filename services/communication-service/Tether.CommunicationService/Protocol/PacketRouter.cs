@@ -84,7 +84,7 @@ public sealed class PacketRouter
             LaptopSnapshot snap;
             try
             {
-                snap = LaptopStateCollector.GetLaptopSnapshot(_logger);
+                snap = LaptopStateCollector.GetLaptopSnapshotForPhone(_logger);
             }
             catch (Exception ex)
             {

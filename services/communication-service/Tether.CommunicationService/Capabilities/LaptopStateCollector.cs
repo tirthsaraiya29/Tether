@@ -289,4 +289,23 @@ public static class LaptopStateCollector
             WallpaperHash = wallpaperHash
         };
     }
+
+    private static string? _lastWallpaperHashSent;
+
+    public static void ResetWallpaperHashCache()
+    {
+        _lastWallpaperHashSent = null;
+    }
+
+    public static LaptopSnapshot GetLaptopSnapshotForPhone(ITetherLogger logger)
+    {
+        var snap = GetLaptopSnapshot(logger);
+        if (snap.WallpaperHash is not null && snap.WallpaperHash == _lastWallpaperHashSent)
+        {
+            // Suppress wallpaper resend; the phone already has this image.
+            return snap with { WallpaperB64 = null };
+        }
+        _lastWallpaperHashSent = snap.WallpaperHash;
+        return snap;
+    }
 }

@@ -163,6 +163,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private var rebootTimeoutJob: Job? = null
     private var shutdownTimeoutJob: Job? = null
+    private var keepAliveJob: Job? = null
+    private var lastWallpaperHash: String? = null
 
     @Volatile var connectedPeerName: String = "Windows PC"
 
@@ -430,17 +432,40 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
 
         startInputFrameConsumer()
+        startKeepAlive()
 
         scheduleAlarmForHealthCheck()
         startRequestIdCleanup()
         startTelemetryPolling()
     }
 
+    private fun startKeepAlive() {
+        keepAliveJob?.cancel()
+        keepAliveJob = serviceScope.launch {
+            while (isActive) {
+                delay(20.seconds)
+                val transport = activeTransport
+                if (transport != null && transport.isConnected()) {
+                    try {
+                        val ping = JSONObject().apply {
+                            put("type", "PING")
+                            put("timestamp", System.currentTimeMillis())
+                        }
+                        transport.sendFrame(ping.toString().toByteArray(StandardCharsets.UTF_8))
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Keepalive PING failed: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
+
     private fun startTelemetryPolling() {
         serviceScope.launch {
             while (isActive) {
                 delay(3.seconds)
-                if (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED) {
+                val transport = activeTransport
+                if (transport != null && transport.isConnected()) {
                     dispatchCommand("laptop_state_get")
                 }
             }
@@ -825,7 +850,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun listenSocketLoop(transport: TetherTransport) {
         try {
-            while ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) {
+            while (transport.isConnected()) {
                 val frameBytes = transport.readFrame()
                 if (frameBytes == null) {
                     if (!transport.isConnected()) {
@@ -883,16 +908,14 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         when (type) {
             "PING" -> {
                 Log.d(TAG, "Received PING probe from Windows host. Responding with PONG...")
-                serviceScope.launch {
-                    try {
-                        val pongJson = JSONObject().apply {
-                            put("type", "PONG")
-                            put("timestamp", System.currentTimeMillis())
-                        }
-                        transport.sendFrame(pongJson.toString().toByteArray(StandardCharsets.UTF_8))
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed sending PONG frame: ${e.message}")
+                try {
+                    val pongJson = JSONObject().apply {
+                        put("type", "PONG")
+                        put("timestamp", System.currentTimeMillis())
                     }
+                    transport.sendFrame(pongJson.toString().toByteArray(StandardCharsets.UTF_8))
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed sending PONG frame: ${e.message}")
                 }
             }
             "POWER_EVENT" -> {
@@ -1027,7 +1050,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
                 updateUnlockNotificationState()
                 val wpB64 = json.optString("wallpaperB64", json.optString("wallpaper", ""))
-                if (wpB64.isNotEmpty()) {
+                val wpHash = json.optString("wallpaperHash", "")
+                if (wpB64.isNotEmpty() && wpHash != lastWallpaperHash) {
+                    lastWallpaperHash = wpHash
                     saveWallpaperBase64(wpB64)
                 }
 
@@ -1159,6 +1184,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     fun dispatchCommand(actionCommand: String) {
+        Log.i(TAG, "dispatchCommand('$actionCommand') entered; state=$currentState connected=${activeTransport?.isConnected()}")
         serviceScope.launch {
             try {
                 val normCmd = normalizeCommand(actionCommand)
@@ -1425,6 +1451,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     override fun onDestroy() {
         instance = null
+        keepAliveJob?.cancel()
         serviceJob.cancelChildren()
 
         try { unregisterReceiver(powerSaveReceiver) } catch (_: Exception) {}

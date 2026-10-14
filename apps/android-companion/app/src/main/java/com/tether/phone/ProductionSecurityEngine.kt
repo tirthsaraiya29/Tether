@@ -163,18 +163,24 @@ class ProductionSecurityEngine {
         if (encodedStr.isNullOrBlank()) return null
         return try {
             val combined = Base64.decode(encodedStr, Base64.NO_WRAP)
-            if (combined.size <= GCM_IV_LENGTH_BYTES) return null
+            if (combined.size <= GCM_IV_LENGTH_BYTES) {
+                Log.e(TAG, "Pinned key blob is too small (${combined.size} bytes); treating as absent.")
+                return null
+            }
             val iv = combined.copyOfRange(0, GCM_IV_LENGTH_BYTES)
             val ciphertext = combined.copyOfRange(GCM_IV_LENGTH_BYTES, combined.size)
-
             val secretKey = loadStorageKey()
-
             val cipher = newGcmCipher()
             val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
             cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
             cipher.doFinal(ciphertext)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to decrypt string: ${e.message}")
+            // Pinned key exists in prefs but is unreadable — this is a
+            // keystore state problem, not "no pin yet". Log loudly so it does
+            // not silently downgrade a paired phone to "unpaired".
+            Log.e(TAG, "FAILED to decrypt pinned Windows key. " +
+                "Treating phone as unpinned for this session. " +
+                "Root cause: ${e.javaClass.simpleName}: ${e.message}", e)
             null
         }
     }
