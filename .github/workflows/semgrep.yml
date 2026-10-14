@@ -1,3 +1,4 @@
+```yaml
 name: "Semgrep SAST Scan"
 
 on:
@@ -22,24 +23,43 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      security-events: write
       contents: read
-      actions: read
+      security-events: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run Semgrep
-        uses: semgrep/semgrep-action@v1
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          generateSarif: true
-          config: |
-            p/security-audit
-            p/owasp-top-ten
+          python-version: "3.12"
 
-      - name: Upload SARIF to GitHub Security Tab
+      - name: Install Semgrep
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install semgrep
+
+      - name: Run Semgrep
+        id: scan
+        continue-on-error: true
+        run: |
+          semgrep scan \
+            --config p/security-audit \
+            --config p/owasp-top-ten \
+            --sarif \
+            --output semgrep.sarif \
+            --error \
+            .
+
+      - name: Upload SARIF to GitHub Security
+        if: always() && hashFiles('semgrep.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep.sarif
-        if: always()
+          category: semgrep
+
+      - name: Fail if Semgrep failed
+        if: always() && steps.scan.outcome == 'failure'
+        run: exit 1
+```
