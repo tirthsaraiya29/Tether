@@ -1047,15 +1047,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             return
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ActivityCompat.checkSelfPermission(
-                this,
-                android.Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            Log.w(TAG, "POST_NOTIFICATIONS permission not granted; skipping power event notification")
-            return
-        }
+        try {
+            wakeLock?.acquire(5000L)
+        } catch (_: Exception) {}
 
         val activityIntent = Intent(this, PowerEventActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -1065,8 +1059,19 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         try {
             startActivity(activityIntent)
+            Log.i(TAG, "Successfully triggered PowerEventActivity for lock event: $upperType")
         } catch (e: Exception) {
             Log.e(TAG, "Failed launching PowerEventActivity directly: ${e.message}")
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ActivityCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w(TAG, "POST_NOTIFICATIONS permission not granted; notification posting skipped")
+            return
         }
 
         val fullScreenPendingIntent = PendingIntent.getActivity(
