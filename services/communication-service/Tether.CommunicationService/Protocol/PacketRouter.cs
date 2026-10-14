@@ -124,18 +124,6 @@ public sealed class PacketRouter
 
         bool executed = HardwareExecutor.ExecuteCommand(cmd.Command, _logger, out int currentVol);
 
-        _eventBus.Publish(new TetherEvent
-        {
-            EventType = TetherEventType.TRUST_DEGRADED,
-            Source = "PacketRouter",
-            PayloadJson = JsonSerializer.Serialize(new
-            {
-                HardwareAction = cmd.Command,
-                ExecutedBy = device.DisplayName,
-                Success = executed
-            })
-        });
-
         if (currentVol < 0) currentVol = HardwareExecutor.GetSystemVolumeLevel(_logger);
 
         if (cmdLower.StartsWith("volume_") || cmdLower.StartsWith("set_volume:") || cmdLower.StartsWith("vol_"))

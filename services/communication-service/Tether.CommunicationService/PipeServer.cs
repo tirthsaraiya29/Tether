@@ -55,7 +55,9 @@ public class PipeServer : IDisposable
     public static bool IsAllowedIpcEvent(TetherEventType type) =>
         type == TetherEventType.PANIC_TRIGGERED ||
         type == TetherEventType.PAIRING_DECISION ||
-        type == TetherEventType.FORGET_PHONE;
+        type == TetherEventType.FORGET_PHONE ||
+        type == TetherEventType.AUTH_SUCCESS ||
+        type == TetherEventType.PHONE_UNLOCKED;
 
     public void Start()
     {
@@ -218,13 +220,6 @@ public class PipeServer : IDisposable
 
                 if (evt != null)
                 {
-                    if (evt.EventType == TetherEventType.PHONE_UNLOCKED ||
-                        evt.EventType == TetherEventType.AUTH_SUCCESS)
-                    {
-                        _logger.Warning($"Security Block: Disallowed state injection event attempt rejected over IPC: {evt.EventType}");
-                        continue;
-                    }
-
                     if (!IsAllowedIpcEvent(evt.EventType))
                     {
                         _logger.Warning($"Rejected disallowed event type: {evt.EventType}");

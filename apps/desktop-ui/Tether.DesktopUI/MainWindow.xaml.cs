@@ -288,22 +288,6 @@ namespace Tether.DesktopUI
                     }
                     break;
 
-                case TetherEventType.TRUST_DEGRADED:
-                    if (!string.IsNullOrEmpty(evt.PayloadJson))
-                    {
-                        try
-                        {
-                            using var document = JsonDocument.Parse(evt.PayloadJson);
-                            var root = document.RootElement;
-                            if (root.TryGetProperty("HardwareAction", out var actionProp))
-                            {
-                                ExecuteHardwareAction(actionProp.GetString());
-                            }
-                        }
-                        catch { }
-                    }
-                    break;
-
                 case TetherEventType.OVERLAY_DISABLED:
                     if (evt.PayloadJson?.Contains("wake_") == true)
                     {
