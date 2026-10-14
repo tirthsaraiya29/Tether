@@ -544,7 +544,12 @@ namespace Tether.DesktopUI
                 }
                 CloseHandle(token);
 
-                byte[] entropyBytes = Encoding.UTF8.GetBytes("Tether_System_Bound_Vault_v1");
+                byte[] entropyBytes = new byte[32];
+                using (var rng = RandomNumberGenerator.Create())
+                {
+                    rng.GetBytes(entropyBytes);
+                }
+
                 unmanagedEntropy = Marshal.AllocHGlobal(entropyBytes.Length);
                 Marshal.Copy(entropyBytes, 0, unmanagedEntropy, entropyBytes.Length);
 
@@ -556,9 +561,30 @@ namespace Tether.DesktopUI
                 {
                     byte[] protectedPayload = new byte[dataOut.cbData];
                     Marshal.Copy(dataOut.pbData, protectedPayload, 0, dataOut.cbData);
-                    using RegistryKey? regKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
+
+                    var rs = new RegistrySecurity();
+                    rs.AddAccessRule(new RegistryAccessRule(
+                        new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+                        RegistryRights.FullControl,
+                        InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                        PropagationFlags.None,
+                        AccessControlType.Allow));
+                    rs.AddAccessRule(new RegistryAccessRule(
+                        new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                        RegistryRights.FullControl,
+                        InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                        PropagationFlags.None,
+                        AccessControlType.Allow));
+
+                    using RegistryKey? regKey = Registry.LocalMachine.CreateSubKey(
+                        @"SOFTWARE\Tether\CredentialProvider",
+                        RegistryKeyPermissionCheck.ReadWriteSubTree,
+                        rs);
+
                     regKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
-                    LogTerminal("✓ VAULT // Cryptographic alignment sealed with application entropy.");
+                    regKey?.SetValue("Entropy", entropyBytes, RegistryValueKind.Binary);
+
+                    LogTerminal("✓ VAULT // Cryptographic alignment sealed with secure per-install entropy and ACL.");
                     TxtPassword.Clear();
                 }
             }

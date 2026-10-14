@@ -231,8 +231,80 @@ public sealed class TetherSession : IDisposable
 
         if (knownDevice != null && knownDevice.TrustState == DeviceTrustState.Paired)
         {
+            // Challenge-response: Verify possession of the private key corresponding to init.PublicKey
+            byte[] serverNonce = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+            string challengeBase64 = Convert.ToBase64String(serverNonce);
+
+            await FrameCodec.WriteJsonFrameAsync(stream, new
+            {
+                type = "AUTH_CHALLENGE",
+                challenge = challengeBase64
+            }, ct);
+
+            using var authDoc = await FrameCodec.ReadJsonFrameAsync(stream, ct);
+            if (authDoc == null)
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: No AUTH_RESPONSE received for challenge.");
+                return false;
+            }
+
+            var root = authDoc.RootElement;
+            if (!root.TryGetProperty("type", out var typeProp) ||
+                !string.Equals(typeProp.GetString(), "AUTH_RESPONSE", StringComparison.Ordinal))
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: Expected AUTH_RESPONSE frame, received '{typeProp.GetString()}'.");
+                return false;
+            }
+
+            if (!root.TryGetProperty("signature", out var sigProp) || string.IsNullOrWhiteSpace(sigProp.GetString()))
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: AUTH_RESPONSE missing signature property.");
+                return false;
+            }
+
+            byte[] signatureBytes;
+            try
+            {
+                signatureBytes = Convert.FromBase64String(sigProp.GetString()!);
+            }
+            catch (FormatException ex)
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: Malformed base64 signature in AUTH_RESPONSE: {ex.Message}");
+                return false;
+            }
+
+            bool signatureVerified = false;
+            try
+            {
+                byte[] spkiBytes = Convert.FromBase64String(init.PublicKey);
+                using var ecdsa = System.Security.Cryptography.ECDsa.Create();
+                ecdsa.ImportSubjectPublicKeyInfo(spkiBytes, out _);
+
+                signatureVerified =
+                    ecdsa.VerifyData(serverNonce, signatureBytes, System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.DSASignatureFormat.Rfc3279DerSequence) ||
+                    ecdsa.VerifyData(serverNonce, signatureBytes, System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: Cryptographic verification failed with exception: {ex.Message}");
+                return false;
+            }
+
+            if (!signatureVerified)
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: Private key possession verification failed for paired device '{phoneFingerprint}'. Rejecting connection.");
+                await FrameCodec.WriteJsonFrameAsync(stream, new HandshakeResponse
+                {
+                    DeviceId = _identity.DeviceId,
+                    DeviceName = _identity.DeviceName,
+                    PublicKey = _identity.GetPublicKeySpkiBase64(),
+                    Status = HandshakeStatus.PairingDenied
+                }, ct);
+                return false;
+            }
+
             Device = knownDevice;
-            _logger.Info($"TetherSession [{SessionId}]: Recognized paired phone {phoneFingerprint} ({knownDevice.DisplayName}).");
+            _logger.Info($"TetherSession [{SessionId}]: Cryptographically authenticated paired phone {phoneFingerprint} ({knownDevice.DisplayName}).");
 
             var resp = new HandshakeResponse
             {

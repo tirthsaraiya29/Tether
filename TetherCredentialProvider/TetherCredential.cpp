@@ -401,14 +401,17 @@ HRESULT CSampleCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SER
         BYTE encryptedData[2048];
         DWORD dwSize = sizeof(encryptedData);
         DWORD dwType = 0;
-        if (RegQueryValueExW(hKey, L"EncryptedPassword", nullptr, &dwType, encryptedData, &dwSize) == ERROR_SUCCESS)
+
+        BYTE entropyData[128];
+        DWORD dwEntropySize = sizeof(entropyData);
+        DWORD dwEntropyType = 0;
+
+        if (RegQueryValueExW(hKey, L"EncryptedPassword", nullptr, &dwType, encryptedData, &dwSize) == ERROR_SUCCESS &&
+            RegQueryValueExW(hKey, L"Entropy", nullptr, &dwEntropyType, entropyData, &dwEntropySize) == ERROR_SUCCESS)
         {
             DATA_BLOB dataIn = { dwSize, encryptedData };
             DATA_BLOB dataOut = { 0 };
-
-            // Explicitly pass matching application-specific entropy vector
-            BYTE entropyBytes[] = "Tether_System_Bound_Vault_v1";
-            DATA_BLOB entropyBlob = { sizeof(entropyBytes) - 1, entropyBytes }; // -1 drops the automatic null terminator
+            DATA_BLOB entropyBlob = { dwEntropySize, entropyData };
 
             if (CryptUnprotectData(&dataIn, nullptr, &entropyBlob, nullptr, nullptr,
                 CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, &dataOut))
