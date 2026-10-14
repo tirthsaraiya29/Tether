@@ -34,6 +34,8 @@ class ProductionSecurityEngine {
         private const val GCM_IV_LENGTH_BYTES = 12
 
         private const val GCM_TAG_LENGTH_BITS = 128
+
+        private val secureRandom = SecureRandom()
     }
 
     init {
@@ -89,7 +91,7 @@ class ProductionSecurityEngine {
 
     private fun newRandomGcmIv(): ByteArray {
         val iv = ByteArray(GCM_IV_LENGTH_BYTES)
-        SecureRandom().nextBytes(iv)
+        secureRandom.nextBytes(iv)
         return iv
     }
 

@@ -1,6 +1,5 @@
 package com.tether.phone
 
-import android.app.KeyguardManager
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -65,7 +64,6 @@ class PowerEventActivity : FragmentActivity() {
         const val TAG = "PowerEventActivity"
         const val EXTRA_POWER_EVENT_TYPE = "eventType"
         const val EXTRA_POWER_EVENT_TIMESTAMP = "eventTimestamp"
-        const val EXTRA_ACTION = "extra_action"
     }
 
     private var eventType: String = "LOCK"
@@ -78,12 +76,9 @@ class PowerEventActivity : FragmentActivity() {
 
         setShowWhenLocked(true)
         setTurnScreenOn(true)
-        val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-        keyguardManager.requestDismissKeyguard(this, null)
 
         eventType = intent.getStringExtra(EXTRA_POWER_EVENT_TYPE) ?: "LOCK"
         eventTimestamp = intent.getLongExtra(EXTRA_POWER_EVENT_TIMESTAMP, 0L)
-        val initialAction = intent.getStringExtra(EXTRA_ACTION)
 
         setContent {
             TetherTheme {
@@ -94,15 +89,9 @@ class PowerEventActivity : FragmentActivity() {
                 )
             }
         }
-
-        if (initialAction == "ACCEPT") {
-            triggerBiometricUnlock()
-        }
     }
 
     private fun triggerBiometricUnlock() {
-        val securityEngine = ProductionSecurityEngine()
-        val cryptoObject = securityEngine.createCryptoObjectForAuthentication()
         val executor = ContextCompat.getMainExecutor(this)
 
         val biometricPrompt = BiometricPrompt(
@@ -111,18 +100,8 @@ class PowerEventActivity : FragmentActivity() {
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
-                    val cipher = result.cryptoObject?.cipher
-                    if (cipher != null) {
-                        try {
-                            val authPayload = "tether_power_event_unlock_$eventTimestamp".toByteArray(Charsets.UTF_8)
-                            cipher.doFinal(authPayload)
-                            Log.i(TAG, "Hardware CryptoObject operation succeeded for biometric unlock")
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Biometric crypto operation error: ${e.message}")
-                        }
-                    } else {
-                        Log.i(TAG, "Biometric authentication succeeded")
-                    }
+                    Log.i(TAG, "Biometric authentication succeeded")
+
                     val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
                     prefs.edit {
                         putString("last_answered_power_event_type", eventType)
@@ -152,23 +131,13 @@ class PowerEventActivity : FragmentActivity() {
 
         val promptBuilder = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Unlock PC")
-            .setSubtitle("Confirm authentication to unlock your PC")
+            .setSubtitle("Confirm biometric authentication to unlock your PC")
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
 
-        if (cryptoObject != null) {
-            promptBuilder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-            promptBuilder.setNegativeButtonText("Cancel")
-            try {
-                biometricPrompt.authenticate(promptBuilder.build(), cryptoObject)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed launching BiometricPrompt with CryptoObject: ${e.message}")
-            }
-        } else {
-            promptBuilder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
-            try {
-                biometricPrompt.authenticate(promptBuilder.build())
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed launching BiometricPrompt: ${e.message}")
-            }
+        try {
+            biometricPrompt.authenticate(promptBuilder.build())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed launching BiometricPrompt: ${e.message}")
         }
     }
 
