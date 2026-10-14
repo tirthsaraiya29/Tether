@@ -80,6 +80,19 @@ class PowerEventActivity : FragmentActivity() {
             android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         )
 
+        try {
+            val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+            val screenWakeLock = pm.newWakeLock(
+                android.os.PowerManager.FULL_WAKE_LOCK or
+                android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                android.os.PowerManager.ON_AFTER_RELEASE,
+                "Tether:PowerEventPromptWakeLock"
+            )
+            screenWakeLock.acquire(3000L)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed acquiring screen wakeup lock: ${e.message}")
+        }
+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
