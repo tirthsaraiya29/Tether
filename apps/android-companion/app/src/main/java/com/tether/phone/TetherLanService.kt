@@ -1036,7 +1036,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun postPowerEventNotification(eventType: String, timestamp: Long) {
         val upperType = eventType.uppercase()
-        if (upperType !in setOf("LOCK", "SLEEP", "HIBERNATE", "LOCKED", "WORKSTATION_LOCK")) {
+        val allowedTypes = setOf(
+            "LOCK", "SLEEP", "HIBERNATE", "LOCKED", "WORKSTATION_LOCK",
+            "SESSION_LOCK", "WTS_SESSION_LOCK", "LOCK_SCREEN", "DESKTOP_LOCK",
+            "LOCK_NOW", "LOCKED_OUT", "LOCKOUT"
+        )
+        if (upperType !in allowedTypes) {
             val safeEventType = sanitizeLog(eventType)
             Log.i(TAG, "Power event $safeEventType does not allow unlock operation; skipping notification.")
             return
@@ -1053,7 +1058,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
 
         val activityIntent = Intent(this, PowerEventActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             putExtra(PowerEventActionReceiver.EXTRA_POWER_EVENT_TYPE, eventType)
             putExtra(PowerEventActionReceiver.EXTRA_POWER_EVENT_TIMESTAMP, timestamp)
         }
