@@ -49,38 +49,27 @@ public sealed class TetherWindowsService : ServiceBase
     /// </summary>
     private void EnablePreshutdown()
     {
-        try
+        var field = typeof(ServiceBase).GetField(
+                        "_acceptedCommands",
+                        BindingFlags.Instance | BindingFlags.NonPublic)
+                 ?? typeof(ServiceBase).GetField(
+                        "acceptedCommands",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+
+        if (field is null)
         {
-            var field = typeof(ServiceBase).GetField(
-                            "_acceptedCommands",
-                            BindingFlags.Instance | BindingFlags.NonPublic)
-                     ?? typeof(ServiceBase).GetField(
-                            "acceptedCommands",
-                            BindingFlags.Instance | BindingFlags.NonPublic);
-
-            if (field is null)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    "EnablePreshutdown: accepted-commands field not found. " +
-                    "Preshutdown will not be delivered; OnShutdown remains the fallback.");
-                return;
-            }
-
-            int current = (int)field.GetValue(this)!;
-            if ((current & SERVICE_ACCEPT_PRESHUTDOWN) != 0)
-            {
-                return; // already set
-            }
-
-            field.SetValue(this, current | SERVICE_ACCEPT_PRESHUTDOWN);
+            throw new InvalidOperationException(
+                "EnablePreshutdown: accepted-commands field not found. " +
+                "This runtime version is unsupported. Reflection failed.");
         }
-        catch (Exception ex)
+
+        int current = (int)field.GetValue(this)!;
+        if ((current & SERVICE_ACCEPT_PRESHUTDOWN) != 0)
         {
-            // Never let this crash OnStart. The service will still start, just
-            // without the preshutdown control code.
-            System.Diagnostics.Debug.WriteLine(
-                $"EnablePreshutdown failed: {ex.Message}");
+            return; // already set
         }
+
+        field.SetValue(this, current | SERVICE_ACCEPT_PRESHUTDOWN);
     }
 
     protected override void OnStart(string[] args)

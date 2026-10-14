@@ -77,8 +77,7 @@ public sealed class WindowsIdentity : IDisposable
             pfx,
             (string?)null,
             X509KeyStorageFlags.MachineKeySet |
-            X509KeyStorageFlags.PersistKeySet |
-            X509KeyStorageFlags.Exportable);
+            X509KeyStorageFlags.PersistKeySet);
 #pragma warning restore SYSLIB0057
 
         persisted.FriendlyName = FriendlyName;
