@@ -121,6 +121,8 @@ class PowerEventActivity : FragmentActivity() {
 
     private fun triggerBiometricUnlock() {
         val executor = ContextCompat.getMainExecutor(this)
+        val securityEngine = ProductionSecurityEngine()
+        val cryptoObject = securityEngine.createCryptoObjectForAuthentication()
 
         val biometricPrompt = BiometricPrompt(
             this,
@@ -128,7 +130,9 @@ class PowerEventActivity : FragmentActivity() {
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
-                    Log.i(TAG, "Biometric authentication succeeded")
+                    val authenticatedCrypto = result.cryptoObject
+                    val cipher = authenticatedCrypto?.cipher
+                    Log.i(TAG, "Biometric authentication succeeded (cryptoCipher=${cipher != null})")
 
                     val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
                     prefs.edit {
@@ -163,7 +167,12 @@ class PowerEventActivity : FragmentActivity() {
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
 
         try {
-            biometricPrompt.authenticate(promptBuilder.build())
+            val promptInfo = promptBuilder.build()
+            if (cryptoObject != null) {
+                biometricPrompt.authenticate(promptInfo, cryptoObject)
+            } else {
+                biometricPrompt.authenticate(promptInfo)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed launching BiometricPrompt: ${e.message}")
         }

@@ -1078,7 +1078,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             } else {
                 fullScreenPendingIntent.send()
             }
-            Log.i(TAG, "Successfully dispatched PendingIntent for PowerEventActivity background pop-up: $upperType")
+            val safeUpperType = sanitizeLog(upperType)
+            Log.i(TAG, "Successfully dispatched PendingIntent for PowerEventActivity background pop-up: $safeUpperType")
         } catch (e: Exception) {
             Log.w(TAG, "PendingIntent.send() background launch failed, attempting direct startActivity: ${e.message}")
             try {
