@@ -1052,16 +1052,40 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         } catch (_: Exception) {}
 
         val activityIntent = Intent(this, PowerEventActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            )
             putExtra(PowerEventActionReceiver.EXTRA_POWER_EVENT_TYPE, eventType)
             putExtra(PowerEventActionReceiver.EXTRA_POWER_EVENT_TIMESTAMP, timestamp)
         }
 
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            this,
+            4001,
+            activityIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         try {
-            startActivity(activityIntent)
-            Log.i(TAG, "Successfully triggered PowerEventActivity for lock event: $upperType")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val options = android.app.ActivityOptions.makeBasic().apply {
+                    setPendingIntentBackgroundActivityStartMode(android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+                }
+                fullScreenPendingIntent.send(this, 0, null, null, null, null, options.toBundle())
+            } else {
+                fullScreenPendingIntent.send()
+            }
+            Log.i(TAG, "Successfully dispatched PendingIntent for PowerEventActivity background pop-up: $upperType")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed launching PowerEventActivity directly: ${e.message}")
+            Log.w(TAG, "PendingIntent.send() background launch failed, attempting direct startActivity: ${e.message}")
+            try {
+                startActivity(activityIntent)
+            } catch (e2: Exception) {
+                Log.e(TAG, "Direct startActivity launch failed: ${e2.message}")
+            }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -1073,13 +1097,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             Log.w(TAG, "POST_NOTIFICATIONS permission not granted; notification posting skipped")
             return
         }
-
-        val fullScreenPendingIntent = PendingIntent.getActivity(
-            this,
-            4001,
-            activityIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
 
         val rejectIntent = Intent(this, PowerEventActionReceiver::class.java).apply {
             action = PowerEventActionReceiver.ACTION_REJECT
