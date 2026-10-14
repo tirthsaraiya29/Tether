@@ -1007,6 +1007,32 @@ class MainActivity : FragmentActivity() {
             required.add("android.permission.ACCESS_LOCAL_NETWORK")
         }
         ActivityCompat.requestPermissions(this, required.toTypedArray(), requestPermissionsCode)
+        checkSpecialPermissions()
+    }
+
+    private fun checkSpecialPermissions() {
+        if (!Settings.canDrawOverlays(this)) {
+            try {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    android.net.Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+            } catch (_: Exception) {}
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val nm = getSystemService(android.app.NotificationManager::class.java)
+            if (nm != null && !nm.canUseFullScreenIntent()) {
+                try {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                        android.net.Uri.parse("package:$packageName")
+                    )
+                    startActivity(intent)
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     private fun startLanService() {
