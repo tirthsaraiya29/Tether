@@ -84,28 +84,6 @@ public sealed class TetherTcpServer : IDisposable
             return;
         }
 
-        bool IsPrivateAddress(IPAddress address)
-        {
-            if (IPAddress.IsLoopback(address)) return true;
-
-            byte[] bytes = address.GetAddressBytes();
-            if (address.AddressFamily == AddressFamily.InterNetwork)
-            {
-                return bytes[0] == 10 ||
-                      (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) ||
-                      (bytes[0] == 192 && bytes[1] == 168) ||
-                      (bytes[0] == 169 && bytes[1] == 254);
-            }
-            if (address.AddressFamily == AddressFamily.InterNetworkV6)
-            {
-                return address.IsIPv6LinkLocal ||
-                       address.IsIPv6SiteLocal ||
-                       bytes[0] == 0xfc ||
-                       bytes[0] == 0xfd;
-            }
-            return false;
-        }
-
         while (!ct.IsCancellationRequested)
         {
             TcpClient? client = null;
@@ -130,6 +108,51 @@ public sealed class TetherTcpServer : IDisposable
 
             _ = RunSessionAsync(client, ct);
         }
+    }
+
+    /// <summary>
+    /// Determines whether an address is on a private / link-local range that is
+    /// acceptable for Tether LAN traffic.
+    ///
+    /// IMPORTANT: when a dual-mode (IPv6Any + DualMode=true) listener accepts an
+    /// IPv4 client, .NET reports the remote endpoint as an IPv4-mapped IPv6
+    /// address (::ffff:a.b.c.d). That form has AddressFamily == InterNetworkV6
+    /// but the leading bytes are 0x00, so a naive IPv4-only check misfires and
+    /// rejects legitimate LAN clients. We unwrap the mapped form first.
+    /// </summary>
+    private static bool IsPrivateAddress(IPAddress address)
+    {
+        if (address is null) return false;
+
+        if (IPAddress.IsLoopback(address)) return true;
+
+        // Unwrap ::ffff:a.b.c.d -> a.b.c.d before any family-specific checks.
+        if (address.IsIPv4MappedToIPv6)
+        {
+            address = address.MapToIPv4();
+        }
+
+        if (address.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var b = address.GetAddressBytes();
+            // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16
+            return b[0] == 10
+                || (b[0] == 172 && b[1] >= 16 && b[1] <= 31)
+                || (b[0] == 192 && b[1] == 168)
+                || (b[0] == 169 && b[1] == 254);
+        }
+
+        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            // fe80::/10 link-local, fec0::/10 deprecated site-local
+            if (address.IsIPv6LinkLocal || address.IsIPv6SiteLocal) return true;
+
+            // fc00::/7 unique-local addresses
+            var b = address.GetAddressBytes();
+            return (b[0] & 0xFE) == 0xFC;
+        }
+
+        return false;
     }
 
     private async Task RunSessionAsync(TcpClient client, CancellationToken ct)

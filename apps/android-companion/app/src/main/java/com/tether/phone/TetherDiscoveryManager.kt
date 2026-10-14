@@ -40,16 +40,48 @@ fun isPrivateAddress(address: InetAddress): Boolean {
     if (address.isLoopbackAddress || address.isSiteLocalAddress || address.isLinkLocalAddress) {
         return true
     }
-    if (address is Inet4Address) {
-        val bytes = address.address
+
+    // Unwrap IPv4-mapped IPv6 (::ffff:a.b.c.d) to its IPv4 form before
+    // the family-specific checks below. Some Android network stacks and
+    // NsdManager callbacks hand us the mapped form for IPv4 peers.
+    val normalized: InetAddress = if (address is Inet6Address) {
+        val b = address.address
+        val isMapped = b.size == 16 &&
+                b[0].toInt() == 0 && b[1].toInt() == 0 &&
+                b[2].toInt() == 0 && b[3].toInt() == 0 &&
+                b[4].toInt() == 0 && b[5].toInt() == 0 &&
+                b[6].toInt() == 0 && b[7].toInt() == 0 &&
+                b[8].toInt() == 0 && b[9].toInt() == 0 &&
+                (b[10].toInt() and 0xFF) == 0xFF &&
+                (b[11].toInt() and 0xFF) == 0xFF
+        if (isMapped) {
+            try {
+                InetAddress.getByAddress(b.copyOfRange(12, 16))
+            } catch (_: Exception) {
+                address
+            }
+        } else {
+            address
+        }
+    } else {
+        address
+    }
+
+    if (normalized is Inet4Address) {
+        val bytes = normalized.address
         val firstOctet = bytes[0].toInt() and 0xFF
         val secondOctet = bytes[1].toInt() and 0xFF
-        if ((firstOctet == 100) && ((secondOctet and 0xC0) == 0x40)) return true
-    } else if (address is Inet6Address) {
-        val bytes = address.address
+        // 100.64.0.0/10 carrier-grade NAT
+        if (firstOctet == 100 && (secondOctet and 0xC0) == 0x40) return true
+    }
+
+    if (normalized is Inet6Address) {
+        val bytes = normalized.address
         val firstOctet = bytes[0].toInt() and 0xFF
+        // fc00::/7 unique-local addresses
         if ((firstOctet and 0xFE) == 0xFC) return true
     }
+
     return false
 }
 

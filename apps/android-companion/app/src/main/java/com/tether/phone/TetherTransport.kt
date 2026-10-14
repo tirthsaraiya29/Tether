@@ -75,7 +75,13 @@ class TetherTlsTransport(
         sslSock.useClientMode = true
 
         val sslParams = sslSock.sslParameters
-        sslParams.endpointIdentificationAlgorithm = "HTTPS"
+        // Pinning is the trust anchor here. The Windows host presents a
+        // self-signed certificate without an IP SAN, so JSSE's HTTPS-style
+        // endpoint identification cannot succeed. We explicitly disable it
+        // and rely on the pinned public-key fingerprint, which is checked
+        // below in this method and again in the custom X509ExtendedTrustManager
+        // installed by createSslContext().
+        sslParams.endpointIdentificationAlgorithm = null
         sslSock.sslParameters = sslParams
 
         sslSock.enabledProtocols = arrayOf("TLSv1.3")
