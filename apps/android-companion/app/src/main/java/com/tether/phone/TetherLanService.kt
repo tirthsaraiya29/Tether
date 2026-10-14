@@ -210,16 +210,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     fun updateUnlockNotificationState() {
-        val isConnected = (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED)
-        val isLocked = (currentPowerState == LaptopPowerState.CONNECTED_LOCKED)
-
-        if (isConnected && isLocked) {
-            Log.i(TAG, "PC is connected and locked. Displaying unlock prompt push notification.")
-            UnlockPromptNotifier.showUnlockPrompt(this, connectedPeerName)
-        } else {
-            Log.i(TAG, "PC is not locked or not connected (state=$currentPowerState). Dismissing unlock prompt notification.")
-            UnlockPromptNotifier.cancelUnlockPrompt(this)
-        }
+        UnlockPromptNotifier.cancelUnlockPrompt(this)
     }
 
     private fun saveWallpaperBase64(base64Str: String) {
@@ -918,7 +909,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
 
                 when (eventType) {
-                    "LOCK", "SLEEP" -> {
+                    "LOCK", "SLEEP", "HIBERNATE", "LOCKED", "WORKSTATION_LOCK" -> {
                         currentPowerState = LaptopPowerState.CONNECTED_LOCKED
                         postPowerEventNotification(eventType, timestamp)
                     }
@@ -985,8 +976,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val lockState = json.optString("lockState", "")
                 if (lockState.equals("UNLOCKED", ignoreCase = true)) {
                     currentPowerState = LaptopPowerState.CONNECTED_UNLOCKED
-                } else if (lockState.equals("LOCKED", ignoreCase = true)) {
+                } else if (lockState.equals("LOCKED", ignoreCase = true) || lockState.equals("SLEEP", ignoreCase = true)) {
+                    val prev = currentPowerState
                     currentPowerState = LaptopPowerState.CONNECTED_LOCKED
+                    if (prev != LaptopPowerState.CONNECTED_LOCKED) {
+                        postPowerEventNotification("LOCK", System.currentTimeMillis())
+                    }
                 }
                 updateUnlockNotificationState()
                 val wpB64 = json.optString("wallpaperB64", json.optString("wallpaper", ""))
@@ -1001,7 +996,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun postPowerEventNotification(eventType: String, timestamp: Long) {
-        if (!eventType.equals("LOCK", ignoreCase = true) && !eventType.equals("SLEEP", ignoreCase = true)) {
+        val upperType = eventType.uppercase()
+        if (upperType !in setOf("LOCK", "SLEEP", "HIBERNATE", "LOCKED", "WORKSTATION_LOCK")) {
             val safeEventType = sanitizeLog(eventType)
             Log.i(TAG, "Power event $safeEventType does not allow unlock operation; skipping notification.")
             return
@@ -1054,19 +1050,20 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(this, "tether_power_events")
-            .setContentTitle("PC $eventType detected")
-            .setContentText("Tap to unlock your PC.")
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+        val notification = NotificationCompat.Builder(this, TetherNotificationChannels.CHANNEL_POWER_EVENTS)
+            .setContentTitle("PC Lock Event Detected")
+            .setContentText("Workstation locked. Tap to authorize unlock.")
+            .setSmallIcon(R.drawable.ic_shortcut_unlock)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
-            .setOngoing(true)
+            .setOngoing(false)
+            .setDefaults(Notification.DEFAULT_ALL)
             .setContentIntent(fullScreenPendingIntent)
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setDeleteIntent(rejectPendingIntent)
-            .addAction(0, "YES", acceptPendingIntent)
-            .addAction(0, "NO", rejectPendingIntent)
+            .addAction(R.drawable.ic_shortcut_unlock, "UNLOCK PC", acceptPendingIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "DISMISS", rejectPendingIntent)
             .build()
 
         NotificationManagerCompat.from(this)
@@ -1304,8 +1301,11 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private fun createNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
         .setContentTitle(getString(R.string.notification_title))
         .setContentText(getString(R.string.notification_text))
-        .setSmallIcon(android.R.drawable.ic_lock_lock)
-        .setPriority(NotificationCompat.PRIORITY_LOW)
+        .setSmallIcon(R.drawable.ic_shortcut_unlock)
+        .setPriority(NotificationCompat.PRIORITY_MIN)
+        .setCategory(NotificationCompat.CATEGORY_SERVICE)
+        .setOngoing(true)
+        .setSilent(true)
         .build()
 
     inner class LocalBinder : android.os.Binder() {
