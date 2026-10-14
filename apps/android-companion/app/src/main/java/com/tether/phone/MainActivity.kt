@@ -797,13 +797,19 @@ class MainActivity : FragmentActivity() {
                 promptBuilder.setNegativeButtonText(getString(R.string.btn_abort))
             }
 
+            val cryptoObject = if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
+                securityEngine.createCryptoObjectForAuthentication()
+            } else null
+
             val biometricPrompt = BiometricPrompt(
                 this,
                 ContextCompat.getMainExecutor(this),
                 object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                         super.onAuthenticationSucceeded(result)
-                        Log.i("TetherActivity", "Authenticated via biometric prompt.")
+                        val authenticatedCrypto = result.cryptoObject
+                        val cipher = authenticatedCrypto?.cipher
+                        Log.i("TetherActivity", "Authenticated via biometric prompt (cryptoCipher=${cipher != null}).")
                         callback(true)
                     }
 
@@ -815,7 +821,11 @@ class MainActivity : FragmentActivity() {
             )
 
             val promptInfo = promptBuilder.build()
-            biometricPrompt.authenticate(promptInfo)
+            if (cryptoObject != null) {
+                biometricPrompt.authenticate(promptInfo, cryptoObject)
+            } else {
+                biometricPrompt.authenticate(promptInfo)
+            }
         }
     }
 
