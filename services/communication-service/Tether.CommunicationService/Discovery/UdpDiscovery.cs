@@ -76,6 +76,7 @@ public sealed class UdpDiscovery : IDisposable
         });
 
         var broadcastEndpoint = new IPEndPoint(IPAddress.Broadcast, UdpPort);
+        _logger.Info("UDP Discovery: Using limited broadcast (255.255.255.255). This may be blocked on some APs; mDNS will serve as primary discovery.");
 
         // Start background periodic broadcast loop
         _ = Task.Run(async () =>

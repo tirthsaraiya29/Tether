@@ -102,13 +102,16 @@ internal sealed class InputInjector
         }
     }
 
-    private static INPUT[] Buffer()
+    // One reusable INPUT per instance. SendInput copies the data, so reuse is safe.
+    private INPUT[]? _buffer;
+
+    private INPUT[] Buffer()
     {
-        var b = _tlsBuffer;
+        var b = _buffer;
         if (b is null)
         {
             b = new INPUT[1];
-            _tlsBuffer = b;
+            _buffer = b;
         }
         return b;
     }

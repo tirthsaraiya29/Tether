@@ -147,7 +147,7 @@ public sealed class Worker : BackgroundService
             var psiTcp = new ProcessStartInfo
             {
                 FileName = "netsh",
-                Arguments = "advfirewall firewall add rule name=\"Tether TCP 37123\" dir=in action=allow protocol=TCP localport=37123 profile=any",
+                Arguments = "advfirewall firewall add rule name=\"Tether TCP 37123\" dir=in action=allow protocol=TCP localport=37123 profile=private,domain",
                 CreateNoWindow = true,
                 UseShellExecute = false
             };
@@ -157,7 +157,7 @@ public sealed class Worker : BackgroundService
             var psiUdp = new ProcessStartInfo
             {
                 FileName = "netsh",
-                Arguments = "advfirewall firewall add rule name=\"Tether UDP 37124\" dir=in action=allow protocol=UDP localport=37124 profile=any",
+                Arguments = "advfirewall firewall add rule name=\"Tether UDP 37124\" dir=in action=allow protocol=UDP localport=37124 profile=private,domain",
                 CreateNoWindow = true,
                 UseShellExecute = false
             };

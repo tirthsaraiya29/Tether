@@ -84,6 +84,28 @@ public sealed class TetherTcpServer : IDisposable
             return;
         }
 
+        bool IsPrivateAddress(IPAddress address)
+        {
+            if (IPAddress.IsLoopback(address)) return true;
+
+            byte[] bytes = address.GetAddressBytes();
+            if (address.AddressFamily == AddressFamily.InterNetwork)
+            {
+                return bytes[0] == 10 ||
+                      (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) ||
+                      (bytes[0] == 192 && bytes[1] == 168) ||
+                      (bytes[0] == 169 && bytes[1] == 254);
+            }
+            if (address.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                return address.IsIPv6LinkLocal ||
+                       address.IsIPv6SiteLocal ||
+                       bytes[0] == 0xfc ||
+                       bytes[0] == 0xfd;
+            }
+            return false;
+        }
+
         while (!ct.IsCancellationRequested)
         {
             TcpClient? client = null;
@@ -94,6 +116,13 @@ public sealed class TetherTcpServer : IDisposable
                 if (ct.IsCancellationRequested) break;
                 _logger.Warning($"Accept failed: {ex.Message}");
                 try { await Task.Delay(250, ct); } catch { break; }
+                continue;
+            }
+
+            if (client.Client.RemoteEndPoint is IPEndPoint ep && !IsPrivateAddress(ep.Address))
+            {
+                _logger.Warning($"Rejected connection from non-private endpoint: {ep.Address}");
+                client.Close();
                 continue;
             }
 

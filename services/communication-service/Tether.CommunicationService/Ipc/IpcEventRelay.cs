@@ -24,6 +24,17 @@ public sealed class IpcEventRelay
 
     private void OnEvent(TetherEvent evt)
     {
+        // Only forward specific non-sensitive events to the UI
+        if (evt.EventType != TetherEventType.PHONE_CONNECTED &&
+            evt.EventType != TetherEventType.PHONE_DISCONNECTED &&
+            evt.EventType != TetherEventType.PAIRING_REQUESTED &&
+            evt.EventType != TetherEventType.OVERLAY_DISABLED &&
+            evt.EventType != TetherEventType.PROVISION_PHONE &&
+            evt.EventType != TetherEventType.AUTH_SUCCESS)
+        {
+            return;
+        }
+
         _ = Task.Run(async () =>
         {
             try
