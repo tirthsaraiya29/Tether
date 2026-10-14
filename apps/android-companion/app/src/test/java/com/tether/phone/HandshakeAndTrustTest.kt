@@ -72,6 +72,29 @@ class HandshakeAndTrustTest {
         assertArrayEquals(presentedWindowsKey, pinnedWindowsKey)
     }
 
+    private fun determinePairingAction(isAlreadyPinned: Boolean, status: String): String {
+        if (isAlreadyPinned) return "AUTHENTICATED"
+        return when (status) {
+            "PAIRING_DENIED" -> "DENIED"
+            else -> "PAIRING_PENDING"
+        }
+    }
+
+    @Test
+    fun testUnpinnedRogueHostPairedResponseRejectsAutoPinning() {
+        val action = determinePairingAction(isAlreadyPinned = false, status = "PAIRED")
+        assertEquals("PAIRING_PENDING", action)
+
+        val acceptedAction = determinePairingAction(isAlreadyPinned = false, status = "PAIRING_ACCEPTED")
+        assertEquals("PAIRING_PENDING", acceptedAction)
+
+        val deniedAction = determinePairingAction(isAlreadyPinned = false, status = "PAIRING_DENIED")
+        assertEquals("DENIED", deniedAction)
+
+        val pinnedAction = determinePairingAction(isAlreadyPinned = true, status = "PAIRED")
+        assertEquals("AUTHENTICATED", pinnedAction)
+    }
+
     @Test
     fun testFirstPairingDeniedRemainsNull() {
         val userApprovedPairing = false

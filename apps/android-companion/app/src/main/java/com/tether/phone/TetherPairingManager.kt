@@ -189,34 +189,14 @@ class TetherPairingManager(
             }
 
             when (pairingStatus) {
-                "PAIRED", "PAIRING_ACCEPTED" -> {
-                    Log.i(TAG, "First pairing auto-accepted by Windows. Pinning keys...")
-                    securityEngine.storePinnedKeySecurely(context, winPubKeyBytes)
-                    return PairingResult.Authenticated(
-                        peerDeviceId = winDeviceId,
-                        peerFingerprint = winFingerprint,
-                        peerCapabilities = winCapabilities,
-                    )
-                }
-                "PAIRING_PENDING" -> {
-                    val reqId = respJson.optString("requestId", "REQ_UNKNOWN")
-                    val safeReqId = sanitizeLog(reqId)
-                    Log.i(TAG, "Windows host returned PAIRING_PENDING (reqId=$safeReqId). User PIN entry required.")
-                    return PairingResult.PairingPending(
-                        requestId = reqId,
-                        peerDeviceId = winDeviceId,
-                        peerFingerprint = winFingerprint,
-                        peerName = winName,
-                        winEcPubKeyBytes = winPubKeyBytes,
-                        transcriptHash = transcriptHash,
-                    )
-                }
                 "PAIRING_DENIED" -> {
                     Log.w(TAG, "Pairing request rejected by Windows host.")
                     return PairingResult.PairingDenied("Pairing request rejected on Windows PC")
                 }
                 else -> {
                     val reqId = respJson.optString("requestId", "REQ_UNKNOWN")
+                    val safeReqId = sanitizeLog(reqId)
+                    Log.i(TAG, "Unpinned host contact (status=$safeStatus, reqId=$safeReqId). Interactive PIN pairing required.")
                     return PairingResult.PairingPending(
                         requestId = reqId,
                         peerDeviceId = winDeviceId,
