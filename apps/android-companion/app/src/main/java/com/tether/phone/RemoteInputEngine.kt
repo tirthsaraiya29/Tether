@@ -97,23 +97,31 @@ class RemoteInputEngine(
         }
     }
 
+    fun calculatePointerDelta(
+        rawDx: Float,
+        rawDy: Float,
+        sensitivity: Float = pointerSensitivity,
+    ): Pair<Short, Short> {
+        val rawVel = hypot(rawDx, rawDy)
+        if (rawVel < 0.5f) return Pair(0.toShort(), 0.toShort())
+
+        val accelFactor = 1.0f + (rawVel / POINTER_ACCEL_VEL_REF)
+            .coerceIn(0f, POINTER_ACCEL_MAX - 1.0f)
+
+        val scale = POINTER_BASE_SCALE * sensitivity * accelFactor
+
+        val scaledDx = (rawDx * scale).roundToInt().coerceIn(-32768, 32767).toShort()
+        val scaledDy = (rawDy * scale).roundToInt().coerceIn(-32768, 32767).toShort()
+
+        return Pair(scaledDx, scaledDy)
+    }
+
     /**
      * Trackpad pointer drag. Deliberately simple: linear base scale, plus a
      * bounded acceleration term driven by instantaneous speed only.
      */
     fun processPointerDrag(rawDx: Float, rawDy: Float) {
-        val rawVel = hypot(rawDx, rawDy)
-        // Deadzone: sub-pixel jitter from the touch panel.
-        if (rawVel < 0.5f) return
-
-        val accelFactor = 1.0f + (rawVel / POINTER_ACCEL_VEL_REF)
-            .coerceIn(0f, POINTER_ACCEL_MAX - 1.0f)
-
-        val scale = POINTER_BASE_SCALE * pointerSensitivity * accelFactor
-
-        val scaledDx = (rawDx * scale).roundToInt().coerceIn(-32768, 32767).toShort()
-        val scaledDy = (rawDy * scale).roundToInt().coerceIn(-32768, 32767).toShort()
-
+        val (scaledDx, scaledDy) = calculatePointerDelta(rawDx, rawDy)
         if ((scaledDx != 0.toShort()) || (scaledDy != 0.toShort())) {
             dispatchEvent(InputEvent.RelativeMove(scaledDx, scaledDy))
         }

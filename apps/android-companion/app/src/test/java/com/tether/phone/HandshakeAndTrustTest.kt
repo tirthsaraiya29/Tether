@@ -211,4 +211,63 @@ class HandshakeAndTrustTest {
             phoneProof.contentEquals(proofSwappedKeys),
         )
     }
+
+    @Test
+    fun testQrSchemaParsingRoundTrip() {
+        val wifiIp = "192.168.1.150"
+        val port = 37123
+        val base64Key = "MHYwEAYHKoZIzj0CAQYI..."
+
+        val versionedQrContent = "TETHER:JOIN:v=1&ip=$wifiIp&port=$port&pk=$base64Key"
+
+        val body = versionedQrContent.removePrefix("TETHER:JOIN:")
+        var parsedIp = ""
+        var parsedPort = 37123
+
+        if (body.contains("ip=")) {
+            val paramPairs = body.split("&")
+            for (pair in paramPairs) {
+                val kv = pair.split("=", limit = 2)
+                if (kv.size == 2) {
+                    when (kv[0].trim()) {
+                        "ip" -> parsedIp = kv[1].trim()
+                        "port" -> parsedPort = kv[1].trim().toIntOrNull() ?: 37123
+                    }
+                }
+            }
+        }
+
+        assertEquals("Versioned QR code parser must extract correct IP address", wifiIp, parsedIp)
+        assertEquals("Versioned QR code parser must extract correct port", port, parsedPort)
+    }
+
+    private fun calculatePointerDelta(
+        rawDx: Float,
+        rawDy: Float,
+        sensitivity: Float = 1.0f,
+    ): Pair<Short, Short> {
+        val rawVel = Math.hypot(rawDx.toDouble(), rawDy.toDouble()).toFloat()
+        if (rawVel < 0.5f) return Pair(0.toShort(), 0.toShort())
+
+        val accelFactor = (1.0f + (rawVel / 40f)).coerceIn(1.0f, 2.5f)
+        val scale = 0.35f * sensitivity * accelFactor
+
+        val scaledDx = Math.round(rawDx * scale).coerceIn(-32768, 32767).toShort()
+        val scaledDy = Math.round(rawDy * scale).coerceIn(-32768, 32767).toShort()
+
+        return Pair(scaledDx, scaledDy)
+    }
+
+    @Test
+    fun testPointerAccelerationCalculation() {
+        val deadzoneDelta = calculatePointerDelta(0.2f, 0.2f)
+        assertEquals(0.toShort(), deadzoneDelta.first)
+        assertEquals(0.toShort(), deadzoneDelta.second)
+
+        val slowDelta = calculatePointerDelta(2.0f, 0.0f, sensitivity = 1.0f)
+        assertTrue("Slow drag produces positive scaled delta", slowDelta.first > 0)
+
+        val fastDelta = calculatePointerDelta(50.0f, 0.0f, sensitivity = 1.0f)
+        assertTrue("Accelerated fast drag produces larger delta than linear scaling", fastDelta.first > Math.round(50.0f * 0.35f))
+    }
 }

@@ -31,6 +31,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -427,6 +428,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 ContextCompat.RECEIVER_EXPORTED,
             )
         }
+
+        startInputFrameConsumer()
 
         scheduleAlarmForHealthCheck()
         startRequestIdCleanup()
@@ -1375,6 +1378,24 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private var lastNotReadyInputLogMs = 0L
     private var inputFramesSent = 0L
+    private val inputFrameChannel = Channel<ByteArray>(Channel.UNLIMITED)
+
+    private fun startInputFrameConsumer() {
+        serviceScope.launch(Dispatchers.IO) {
+            for (data in inputFrameChannel) {
+                val transport = activeTransport
+                if (transport != null && transport.isConnected() &&
+                    (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED)
+                ) {
+                    try {
+                        transport.sendFrame(data)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed transmitting input frame: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
 
     fun sendInputFrame(data: ByteArray) {
         val transport = activeTransport
@@ -1397,13 +1418,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
         }
 
-        serviceScope.launch(Dispatchers.IO) {
-            try {
-                transport.sendFrame(data)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed transmitting input frame: ${e.message}")
-            }
-        }
+        inputFrameChannel.trySend(data)
     }
 
     fun getDiscoveredDevices(): List<DiscoveredDevice> = discoveryManager.getDiscoveredDevices()

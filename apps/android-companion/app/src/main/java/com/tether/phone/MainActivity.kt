@@ -531,7 +531,6 @@ class MainActivity : FragmentActivity() {
             if (!isEnvironmentRestricted.value && !isAppLocked.value) {
                 val lanCommand = when (command) {
                     "lock_now" -> "lock_now"
-                    "unlock" -> "unlock"
                     "shutdown" -> "shutdown"
                     "sleep" -> "sleep"
                     "reboot" -> "reboot"
@@ -712,7 +711,7 @@ class MainActivity : FragmentActivity() {
             val base64Key = Base64.encodeToString(publicKeyBytes, Base64.NO_WRAP)
             val wifiIp = getWifiIpAddress() ?: "0.0.0.0"
 
-            val qrContent = "TETHER:JOIN:$wifiIp|37123|$base64Key"
+            val qrContent = "TETHER:JOIN:v=1&ip=$wifiIp&port=37123&pk=$base64Key"
             val qrBitmap = QRCodeGenerator.generateQRCode(qrContent)
 
             runOnUiThread {
@@ -827,29 +826,43 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleScannedQr(raw: String) {
-        if (raw.startsWith("TETHER:KEY:")) {
-            val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
-            val savedIp = prefs.getString("saved_host_ip", null)
-            if (!savedIp.isNullOrBlank()) {
-                val intent = Intent(this, TetherLanService::class.java).apply {
-                    action = TetherLanService.ACTION_CONNECT_DIRECT
-                    putExtra("target_ip", savedIp)
-                }
-                startForegroundService(intent)
-            }
-            return
-        }
         if (!raw.startsWith("TETHER:JOIN:")) return
         val body = raw.removePrefix("TETHER:JOIN:")
-        val parts = body.split("|")
-        val ip = if (parts.size >= 3) parts[2] else parts[0]
-        val portStr = if (parts.size >= 4) parts[3] else "37123"
-        val port = portStr.toIntOrNull() ?: 37123
+
+        var parsedIp = ""
+        var parsedPort = 37123
+
+        if (body.contains("ip=")) {
+            val paramPairs = body.split("&")
+            for (pair in paramPairs) {
+                val kv = pair.split("=", limit = 2)
+                if (kv.size == 2) {
+                    when (kv[0].trim()) {
+                        "ip" -> parsedIp = kv[1].trim()
+                        "port" -> parsedPort = kv[1].trim().toIntOrNull() ?: 37123
+                    }
+                }
+            }
+        } else {
+            val parts = body.split("|")
+            if (parts.isNotEmpty()) {
+                parsedIp = parts[0].trim()
+            }
+            if (parts.size >= 2) {
+                parsedPort = parts[1].trim().toIntOrNull() ?: 37123
+            }
+        }
+
+        if (parsedIp.isBlank()) return
+
+        getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
+            putString("saved_host_ip", parsedIp)
+        }
 
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_CONNECT_DIRECT
-            putExtra("target_ip", ip)
-            putExtra("target_port", port)
+            putExtra("target_ip", parsedIp)
+            putExtra("target_port", parsedPort)
         }
         startForegroundService(intent)
     }

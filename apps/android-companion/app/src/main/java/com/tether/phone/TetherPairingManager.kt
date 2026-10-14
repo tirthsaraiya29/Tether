@@ -68,6 +68,13 @@ class TetherPairingManager(
                 .take(256)
         }
 
+        /**
+         * Computes SHA-512 commitment proofs for interactive SAS/PIN pairing.
+         *
+         * Protocol commitment contract:
+         * - Phone Proof: SHA-512(pinBytes || phonePubKeyBytes || winPubKeyBytes || reqIdBytes || transcriptHash)
+         * - Server Proof: SHA-512("SERVER-OK" || pinBytes || winPubKeyBytes || phonePubKeyBytes || reqIdBytes)
+         */
         fun computeSha512(vararg byteArrays: ByteArray): ByteArray {
             val digest = MessageDigest.getInstance("SHA-512")
             for (array in byteArrays) {

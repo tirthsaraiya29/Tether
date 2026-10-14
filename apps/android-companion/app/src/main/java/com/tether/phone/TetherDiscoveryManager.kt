@@ -318,6 +318,11 @@ class TetherDiscoveryManager(
                         if ((type == "TETHER_DISCOVERY_RESPONSE") || (type == "TETHER_DISCOVERY_PROBE")) {
                             val hostAddr = recvPacket.address.hostAddress ?: continue
                             val devId = json.optString("deviceId", hostAddr)
+
+                            if (isLocalDevice(devId)) {
+                                continue
+                            }
+
                             val devName = json.optString("deviceName", "Tether Windows PC")
                             val tcpPort = json.optInt("tcpPort", DEFAULT_PORT)
 
@@ -373,6 +378,12 @@ class TetherDiscoveryManager(
                 val txtAttributes = parseAttributes(resolvedInfo)
                 val deviceId = txtAttributes["id"] ?: resolvedInfo.serviceName
                 val name = txtAttributes["name"] ?: resolvedInfo.serviceName
+
+                if (isLocalDevice(deviceId)) {
+                    Log.d(TAG, "Discarding self-discovered mDNS service: $deviceId")
+                    return@resolveOrEnqueue
+                }
+
                 val version = txtAttributes["v"] ?: "1.0"
                 val caps = txtAttributes["caps"] ?: ""
                 val pqc = txtAttributes["pqc"] == "true"
@@ -511,6 +522,13 @@ class TetherDiscoveryManager(
         } catch (e: Exception) {
             Log.w(TAG, "Failed releasing MulticastLock: ${e.message}")
         }
+    }
+
+    private fun isLocalDevice(deviceId: String): Boolean {
+        if (deviceId.isBlank()) return false
+        val localKey = try { securityEngine.getPublicKeyBytes() } catch (_: Exception) { return false }
+        val localFingerprint = try { securityEngine.computePublicKeyFingerprint(localKey) } catch (_: Exception) { return false }
+        return (deviceId == localFingerprint) || deviceId.equals(localFingerprint, ignoreCase = true)
     }
 
     fun getDiscoveredDevices(): List<DiscoveredDevice> {
