@@ -118,6 +118,15 @@ class HandshakeAndTrustTest {
     }
 
     @Test
+    fun testAuthChallengeResponseSignatureVerification() {
+        val serverNonce = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
+        val signature = signData(serverNonce, phoneKeyPair)
+
+        val isValid = verifySignature(serverNonce, signature, phoneKeyPair.public.encoded)
+        assertTrue("AUTH_RESPONSE signature over raw serverNonce must be verified by Windows host", isValid)
+    }
+
+    @Test
     fun testSubsequentConnectKeyMismatchFailsClosed() {
         val pinnedWindowsKey = windowsKeyPair.public.encoded
         val attackerKey = attackerKeyPair.public.encoded

@@ -114,15 +114,38 @@ class TetherPairingManager(
             Log.i(TAG, "Sending HANDSHAKE_INIT v2.0 over TLS 1.3 (isPairingRequested=${isUserInitiatedPairing || !isAlreadyPinned})...")
             transport.sendFrame(initJsonStr.toByteArray(StandardCharsets.UTF_8))
 
-            val respBytes = transport.readFrame() ?: return PairingResult.Error("No response from Windows host")
-            val respJsonStr = String(respBytes, StandardCharsets.UTF_8)
-            val respJson = JSONObject(respJsonStr)
+            val firstRespBytes = transport.readFrame() ?: return PairingResult.Error("No response from Windows host")
+            var currentRespBytes = firstRespBytes
+            var currentRespJson = JSONObject(String(firstRespBytes, StandardCharsets.UTF_8))
+            var firstFrameType = currentRespJson.optString("type")
 
-            val type = respJson.optString("type")
-            if (type != "HANDSHAKE_RESPONSE") {
-                return PairingResult.Error("Invalid handshake response type: $type")
+            if (firstFrameType == "AUTH_CHALLENGE") {
+                val challengeBase64 = currentRespJson.optString("challenge", "")
+                if (challengeBase64.isBlank()) {
+                    return PairingResult.Error("Empty challenge received in AUTH_CHALLENGE")
+                }
+                val challengeBytes = Base64.decode(challengeBase64, Base64.NO_WRAP)
+                val signatureBytes = securityEngine.signWithIdentityKey(challengeBytes)
+                val signatureBase64 = Base64.encodeToString(signatureBytes, Base64.NO_WRAP)
+
+                val authRespJson = JSONObject().apply {
+                    put("type", "AUTH_RESPONSE")
+                    put("signature", signatureBase64)
+                }
+                Log.i(TAG, "Responding to AUTH_CHALLENGE with signed challenge nonce...")
+                transport.sendFrame(authRespJson.toString().toByteArray(StandardCharsets.UTF_8))
+
+                val secondRespBytes = transport.readFrame() ?: return PairingResult.Error("No response after AUTH_RESPONSE")
+                currentRespBytes = secondRespBytes
+                currentRespJson = JSONObject(String(secondRespBytes, StandardCharsets.UTF_8))
+                firstFrameType = currentRespJson.optString("type")
             }
 
+            if (firstFrameType != "HANDSHAKE_RESPONSE") {
+                return PairingResult.Error("Invalid handshake response type: $firstFrameType")
+            }
+
+            val respJson = currentRespJson
             val winDeviceId = respJson.optString("deviceId", "UNKNOWN_WIN")
             val winName = respJson.optString("deviceName", "Windows PC")
             val winPubKeyBase64 = respJson.optString("publicKey", "")
@@ -144,7 +167,7 @@ class TetherPairingManager(
 
             val transcriptHash = computeSha512(
                 initJsonStr.toByteArray(StandardCharsets.UTF_8),
-                respBytes,
+                currentRespBytes,
             )
 
             if (isAlreadyPinned) {
@@ -154,37 +177,6 @@ class TetherPairingManager(
                         presentedFingerprint = winFingerprint,
                         pinnedFingerprint = pinnedFingerprint,
                     )
-                }
-
-                val proofPayload = transcriptHash + winPubKeyBytes
-                val signature = securityEngine.signWithIdentityKey(proofPayload)
-                val proofBase64 = Base64.encodeToString(signature, Base64.NO_WRAP)
-
-                val proofJson = JSONObject().apply {
-                    put("type", "HANDSHAKE_PROOF")
-                    put("nonce", Base64.encodeToString(clientNonce, Base64.NO_WRAP))
-                    put("proof", proofBase64)
-                }
-                transport.sendFrame(proofJson.toString().toByteArray(StandardCharsets.UTF_8))
-
-                val verifiedBytes = try {
-                    transport.readFrame()
-                } catch (e: Exception) {
-                    Log.w(TAG, "HANDSHAKE_VERIFIED read timed out or failed; fallback to legacy flow: ${e.message}")
-                    null
-                }
-
-                if (verifiedBytes != null) {
-                    try {
-                        val verifiedJson = JSONObject(String(verifiedBytes, StandardCharsets.UTF_8))
-                        val verifiedType = verifiedJson.optString("type")
-                        val verifiedStatus = verifiedJson.optString("status")
-                        if (verifiedType == "HANDSHAKE_VERIFIED" && verifiedStatus != "OK") {
-                            return PairingResult.Error("Windows host rejected handshake proof verification")
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Non-JSON or unexpected HANDSHAKE_VERIFIED response; fallback to legacy flow: ${e.message}")
-                    }
                 }
 
                 Log.i(TAG, "Cryptographic identity verified against pinned Windows public key!")
