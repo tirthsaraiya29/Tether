@@ -331,7 +331,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         super.onCreate()
         instance = this
         val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
-        if (!prefs.getBoolean("has_unlocked_app_once", false)) {
+        val isPaired = try {
+            securityEngine = ProductionSecurityEngine()
+            securityEngine.getPinnedKeyDecrypted(this) != null
+        } catch (_: Exception) { false }
+        val hasUnlockedOnce = prefs.getBoolean("has_unlocked_app_once", false)
+
+        if (!isPaired && !hasUnlockedOnce) {
             Log.w(TAG, "Tether app has not been unlocked/authorized by user yet; refusing to start service.")
             stopSelf()
             return
@@ -453,7 +459,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
-        if (!prefs.getBoolean("has_unlocked_app_once", false)) {
+        val isPaired = try {
+            if (!::securityEngine.isInitialized) {
+                securityEngine = ProductionSecurityEngine()
+            }
+            securityEngine.getPinnedKeyDecrypted(this) != null
+        } catch (_: Exception) { false }
+        val hasUnlockedOnce = prefs.getBoolean("has_unlocked_app_once", false)
+
+        if (!isPaired && !hasUnlockedOnce) {
             Log.w(TAG, "Tether app has not been unlocked/authorized by user yet; refusing to run service.")
             stopSelf()
             return START_NOT_STICKY
@@ -879,29 +893,44 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             }
             "POWER_EVENT" -> {
-                val eventsArray = json.optJSONArray("events") ?: return
+                val eventsArray = json.optJSONArray("events")
                 var newestEvent: JSONObject? = null
                 var newestTimestamp: Long = -1L
 
-                val qualifyingTypes = setOf("SHUTDOWN", "RESTART", "SLEEP", "HIBERNATE", "LOCK")
+                val qualifyingTypes = setOf(
+                    "SHUTDOWN", "RESTART", "SLEEP", "HIBERNATE", "LOCK",
+                    "LOCKED", "WORKSTATION_LOCK", "SESSION_LOCK", "WTS_SESSION_LOCK",
+                    "LOCK_SCREEN", "DESKTOP_LOCK", "LOCK_NOW", "LOCKED_OUT", "LOCKOUT"
+                )
 
-                for (i in 0 until eventsArray.length()) {
-                    val eventObj = eventsArray.optJSONObject(i) ?: continue
-                    val eventType = eventObj.optString("eventType", "").uppercase()
-                    val timestamp = eventObj.optLong("timestamp", 0L)
+                if (eventsArray != null && eventsArray.length() > 0) {
+                    for (i in 0 until eventsArray.length()) {
+                        val eventObj = eventsArray.optJSONObject(i) ?: continue
+                        val eventType = eventObj.optString("eventType", "").uppercase()
+                        val timestamp = eventObj.optLong("timestamp", 0L)
 
-                    if (eventType in qualifyingTypes) {
-                        if (timestamp > newestTimestamp) {
-                            newestTimestamp = timestamp
-                            newestEvent = eventObj
+                        if (eventType in qualifyingTypes) {
+                            if (timestamp >= newestTimestamp) {
+                                newestTimestamp = timestamp
+                                newestEvent = eventObj
+                            }
                         }
+                    }
+                } else if (json.has("eventType")) {
+                    val singleType = json.optString("eventType", "").uppercase()
+                    if (singleType in qualifyingTypes) {
+                        newestEvent = json
+                        newestTimestamp = json.optLong("timestamp", System.currentTimeMillis())
                     }
                 }
 
-                if (newestEvent == null) return
+                if (newestEvent == null) {
+                    Log.d(TAG, "Received POWER_EVENT JSON but no qualifying lock/power event found.")
+                    return
+                }
 
-                val eventType = newestEvent.optString("eventType", "").uppercase()
-                val timestamp = newestTimestamp
+                val eventType = newestEvent.optString("eventType", "LOCK").uppercase()
+                val timestamp = if (newestTimestamp > 0L) newestTimestamp else System.currentTimeMillis()
 
                 lastPowerEventType = eventType
                 lastPowerEventTimestampMs = timestamp
@@ -915,14 +944,14 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val lastAnsweredType = prefs.getString("last_answered_power_event_type", null)
                 val lastAnsweredTs = prefs.getLong("last_answered_power_event_timestamp_ms", 0L)
 
-                if (eventType.equals(lastAnsweredType, ignoreCase = true) && timestamp == lastAnsweredTs) {
+                if (timestamp > 0L && eventType.equals(lastAnsweredType, ignoreCase = true) && timestamp == lastAnsweredTs) {
                     val safeEventType = sanitizeLog(eventType)
                     Log.i(TAG, "Ignoring already answered power event: $safeEventType at $timestamp")
                     return
                 }
 
                 when (eventType) {
-                    "LOCK", "SLEEP", "HIBERNATE", "LOCKED", "WORKSTATION_LOCK" -> {
+                    "LOCK", "SLEEP", "HIBERNATE", "LOCKED", "WORKSTATION_LOCK", "SESSION_LOCK", "WTS_SESSION_LOCK", "LOCK_SCREEN", "DESKTOP_LOCK", "LOCK_NOW", "LOCKED_OUT", "LOCKOUT" -> {
                         currentPowerState = LaptopPowerState.CONNECTED_LOCKED
                         postPowerEventNotification(eventType, timestamp)
                     }
@@ -989,12 +1018,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val lockState = json.optString("lockState", "")
                 if (lockState.equals("UNLOCKED", ignoreCase = true)) {
                     currentPowerState = LaptopPowerState.CONNECTED_UNLOCKED
-                } else if (lockState.equals("LOCKED", ignoreCase = true) || lockState.equals("SLEEP", ignoreCase = true)) {
-                    val prev = currentPowerState
+                } else if (lockState.equals("LOCKED", ignoreCase = true) || lockState.equals("SLEEP", ignoreCase = true) || lockState.equals("HIBERNATE", ignoreCase = true) || lockState.equals("WORKSTATION_LOCK", ignoreCase = true)) {
                     currentPowerState = LaptopPowerState.CONNECTED_LOCKED
-                    if (prev != LaptopPowerState.CONNECTED_LOCKED) {
-                        postPowerEventNotification("LOCK", System.currentTimeMillis())
-                    }
+                    postPowerEventNotification("LOCK", System.currentTimeMillis())
                 }
                 updateUnlockNotificationState()
                 val wpB64 = json.optString("wallpaperB64", json.optString("wallpaper", ""))

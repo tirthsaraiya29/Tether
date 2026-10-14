@@ -8,7 +8,7 @@
 
 > **⚠️ BETA / CANARY DEVELOPMENT STATUS**
 >
-> Tether is currently under active development on the `canary` branch. It should not be relied upon for mission-critical production security environments without independent review. See the [Security Model](#security-model) section for details.
+> Tether is currently under active development on the `main` branch. It should not be relied upon for mission-critical production security environments without independent review. See the [Security Model](#security-model) section for details.
 
 ---
 
