@@ -1011,6 +1011,9 @@ class MainActivity : FragmentActivity() {
 
     private fun startLanService() {
         if (isPanicActive.value || isEnvironmentRestricted.value) return
+        getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
+            putBoolean("has_unlocked_app_once", true)
+        }
         val lanIntent = Intent(this, TetherLanService::class.java).apply {
             action = "ACTION_GET_STATUS"
         }
