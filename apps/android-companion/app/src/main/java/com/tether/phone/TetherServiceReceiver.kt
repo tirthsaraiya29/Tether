@@ -8,6 +8,12 @@ import androidx.core.content.ContextCompat
 
 class TetherServiceReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        val prefs = context.getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("has_unlocked_app_once", false)) {
+            Log.i("TetherReceiver", "App not unlocked by user yet; ignoring receiver action: ${intent.action}")
+            return
+        }
+
         val action = intent.action
         if ((action == ACTION_HEALTH_CHECK) || 
             (action == Intent.ACTION_BOOT_COMPLETED) || 

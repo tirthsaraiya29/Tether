@@ -330,6 +330,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
+        if (!prefs.getBoolean("has_unlocked_app_once", false)) {
+            Log.w(TAG, "Tether app has not been unlocked/authorized by user yet; refusing to start service.")
+            stopSelf()
+            return
+        }
+
         TetherNotificationChannels.createAllChannels(this)
 
         try {
@@ -383,7 +390,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
 
-        val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
         lastPowerCommand = prefs.getString("last_power_command", null)
         lastPowerCommandAtMs = prefs.getLong("last_power_command_at_ms", 0L)
         lastPowerEventType = prefs.getString("last_power_event_type", null)
@@ -446,6 +452,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
+        if (!prefs.getBoolean("has_unlocked_app_once", false)) {
+            Log.w(TAG, "Tether app has not been unlocked/authorized by user yet; refusing to run service.")
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(NOTIFICATION_ID, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
@@ -1019,22 +1032,16 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             putExtra(PowerEventActionReceiver.EXTRA_POWER_EVENT_TIMESTAMP, timestamp)
         }
 
+        try {
+            startActivity(activityIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed launching PowerEventActivity directly: ${e.message}")
+        }
+
         val fullScreenPendingIntent = PendingIntent.getActivity(
             this,
             4001,
             activityIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val acceptIntent = Intent(this, PowerEventActionReceiver::class.java).apply {
-            action = PowerEventActionReceiver.ACTION_ACCEPT
-            putExtra(PowerEventActionReceiver.EXTRA_POWER_EVENT_TYPE, eventType)
-            putExtra(PowerEventActionReceiver.EXTRA_POWER_EVENT_TIMESTAMP, timestamp)
-        }
-        val acceptPendingIntent = PendingIntent.getBroadcast(
-            this,
-            4002,
-            acceptIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -1062,8 +1069,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             .setContentIntent(fullScreenPendingIntent)
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setDeleteIntent(rejectPendingIntent)
-            .addAction(R.drawable.ic_shortcut_unlock, "UNLOCK PC", acceptPendingIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "DISMISS", rejectPendingIntent)
             .build()
 
         NotificationManagerCompat.from(this)

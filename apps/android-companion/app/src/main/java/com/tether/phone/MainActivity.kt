@@ -501,13 +501,10 @@ class MainActivity : FragmentActivity() {
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
 
-        val statusIntent = Intent(this, TetherLanService::class.java).apply {
-            action = "ACTION_GET_STATUS"
-        }
-        try {
-            startForegroundService(statusIntent)
-        } catch (e: Exception) {
-            Log.e("TetherActivity", "Failed pulling background service status", e)
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                securityEngine.getPublicKeyBytes()
+            } catch (_: Exception) {}
         }
     }
 
@@ -625,6 +622,7 @@ class MainActivity : FragmentActivity() {
                     lastBiometricAuthTime = System.currentTimeMillis()
                     isAppLocked.value = false
                     getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
+                        putBoolean("has_unlocked_app_once", true)
                         putLong(appLockBackgroundTimestampKey, 0L)
                     }
                     if (checkPermissions()) {
@@ -798,29 +796,14 @@ class MainActivity : FragmentActivity() {
             if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
                 promptBuilder.setNegativeButtonText(getString(R.string.btn_abort))
             }
-            val cryptoObject = if (
-                (allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0 &&
-                (allowedAuthenticators and BiometricManager.Authenticators.BIOMETRIC_STRONG) != 0
-            ) {
-                securityEngine.createCryptoObjectForAuthentication()
-            } else null
 
             val biometricPrompt = BiometricPrompt(
                 this,
-                executor,
+                ContextCompat.getMainExecutor(this),
                 object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                         super.onAuthenticationSucceeded(result)
-                        val cipher = result.cryptoObject?.cipher
-                        if (cipher != null) {
-                            try {
-                                val dummyPayload = "tether_auth_verify".toByteArray(Charsets.UTF_8)
-                                cipher.doFinal(dummyPayload)
-                            } catch (e: Exception) {
-                                Log.w("TetherActivity", "CryptoObject operation error: ${e.message}")
-                            }
-                            Log.i("TetherActivity", "Hardware CryptoObject authenticated via biometric prompt.")
-                        }
+                        Log.i("TetherActivity", "Authenticated via biometric prompt.")
                         callback(true)
                     }
 
@@ -832,11 +815,7 @@ class MainActivity : FragmentActivity() {
             )
 
             val promptInfo = promptBuilder.build()
-            if (cryptoObject != null) {
-                biometricPrompt.authenticate(promptInfo, cryptoObject)
-            } else {
-                biometricPrompt.authenticate(promptInfo)
-            }
+            biometricPrompt.authenticate(promptInfo)
         }
     }
 

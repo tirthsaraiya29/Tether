@@ -73,29 +73,6 @@ class DeviceIntegrityRegistry(private val context: Context) {
         )
         for (path in commonPaths) if (File(path).exists()) return true
 
-        val whichPaths = arrayOf("/system/bin/which", "/system/xbin/which")
-        for (whichPath in whichPaths) {
-            if (File(whichPath).exists()) {
-                try {
-                    val process = Runtime.getRuntime().exec(arrayOf(whichPath, "su"))
-                    val reader = process.inputStream.bufferedReader()
-                    val line = reader.readLine()
-                    process.destroy()
-                    if (!line.isNullOrBlank()) return true
-                } catch (_: Exception) {}
-            }
-        }
-
-        if (File("/system/bin/sh").exists()) {
-            try {
-                val process = Runtime.getRuntime().exec(arrayOf("/system/bin/sh", "-c", "/system/bin/which su || /system/xbin/which su"))
-                val reader = process.inputStream.bufferedReader()
-                val line = reader.readLine()
-                process.destroy()
-                if (!line.isNullOrBlank()) return true
-            } catch (_: Exception) {}
-        }
-
         return Build.TYPE.contains("userdebug") || Build.TYPE.contains("eng")
     }
 
