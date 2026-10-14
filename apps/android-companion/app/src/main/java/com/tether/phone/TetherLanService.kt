@@ -444,8 +444,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         keepAliveJob = serviceScope.launch {
             while (isActive) {
                 delay(20.seconds)
+                val state = currentState
                 val transport = activeTransport
-                if (transport != null && transport.isConnected()) {
+                // Only ping when the handshake is fully complete. During
+                // PAIRING_REQUIRED, Windows is waiting for PAIRING_CONFIRMED
+                // and any other frame aborts the pairing session.
+                if (transport != null && transport.isConnected() &&
+                    (state == TransportState.READY || state == TransportState.AUTHENTICATED)) {
                     try {
                         val ping = JSONObject().apply {
                             put("type", "PING")
@@ -464,8 +469,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         serviceScope.launch {
             while (isActive) {
                 delay(3.seconds)
+                val state = currentState
                 val transport = activeTransport
-                if (transport != null && transport.isConnected()) {
+                if (transport != null && transport.isConnected() &&
+                    (state == TransportState.READY || state == TransportState.AUTHENTICATED)) {
                     dispatchCommand("laptop_state_get")
                 }
             }
@@ -626,7 +633,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     @Synchronized
     fun startDiscovery() {
-        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING)) {
+        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING) || (currentState == TransportState.PAIRING_REQUIRED)) {
             return
         }
         currentState = TransportState.DISCOVERING
@@ -675,7 +682,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     fun connectToHost(hostAddress: String, port: Int = TetherDiscoveryManager.DEFAULT_PORT) {
-        if ((currentState == TransportState.AUTHENTICATING) || (currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) return
+        if ((currentState == TransportState.AUTHENTICATING) || (currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.PAIRING_REQUIRED)) return
         if ((currentState == TransportState.CONNECTING) && (connectedHostAddress == hostAddress) && (connectedHostPort == port)) {
             Log.d(TAG, "Already connecting to ${sanitizeLog(hostAddress)}:$port. Skipping duplicate.")
             return
@@ -723,8 +730,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     }
                     is PairingResult.PairingPending -> {
                         val safeReqId = sanitizeLog(result.requestId)
-                        Log.i(TAG, "Pairing pending for requestId=$safeReqId. Launching PairingConfirmationActivity...")
+                        val isAlreadyPending = (currentState == TransportState.PAIRING_REQUIRED && pendingRequestId == result.requestId)
+                        Log.i(TAG, "Pairing pending for requestId=$safeReqId (alreadyPending=$isAlreadyPending).")
                         resetReconnectBackoff()
+
                         pendingRequestId = result.requestId
                         pendingWinEcPubKey = result.winEcPubKeyBytes
                         pendingTranscriptHash = result.transcriptHash
@@ -732,15 +741,17 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         trustState = TrustState.PAIRING_REQUESTED
                         currentState = TransportState.PAIRING_REQUIRED
 
-                        val promptIntent = Intent(this@TetherLanService, PairingConfirmationActivity::class.java).apply {
-                            action = ACTION_SHOW_PAIRING_PROMPT
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                            putExtra(EXTRA_PAIRING_REQUEST_ID, result.requestId)
-                            putExtra(EXTRA_PEER_DEVICE_NAME, result.peerName)
-                            putExtra(EXTRA_WINDOWS_FINGERPRINT, result.peerFingerprint)
-                            putExtra(EXTRA_PAIRING_SAS_CODE, result.peerFingerprint.take(6))
+                        if (!isAlreadyPending) {
+                            val promptIntent = Intent(this@TetherLanService, PairingConfirmationActivity::class.java).apply {
+                                action = ACTION_SHOW_PAIRING_PROMPT
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                putExtra(EXTRA_PAIRING_REQUEST_ID, result.requestId)
+                                putExtra(EXTRA_PEER_DEVICE_NAME, result.peerName)
+                                putExtra(EXTRA_WINDOWS_FINGERPRINT, result.peerFingerprint)
+                                putExtra(EXTRA_PAIRING_SAS_CODE, result.peerFingerprint.take(6))
+                            }
+                            startActivity(promptIntent)
                         }
-                        startActivity(promptIntent)
                     }
                     is PairingResult.PairingDenied -> {
                         Log.w(TAG, "Pairing denied by Windows host: ${sanitizeLog(result.reason)}")
@@ -1277,7 +1288,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun scheduleReconnectWithBackoff(reason: String) {
-        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING)) {
+        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING) || (currentState == TransportState.PAIRING_REQUIRED)) {
             return
         }
         reconnectJob?.cancel()

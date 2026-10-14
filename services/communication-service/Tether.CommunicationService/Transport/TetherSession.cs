@@ -27,6 +27,8 @@ public sealed class TetherSession : IDisposable
 
     private const byte PacketTypeInputEvent = 0x05;
 
+    private static readonly TimeSpan PairingConfirmTimeout = TimeSpan.FromSeconds(120);
+
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
     private readonly WindowsIdentity _identity;
@@ -124,7 +126,7 @@ public sealed class TetherSession : IDisposable
             };
 
             using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt);
-            handshakeCts.CancelAfter(TimeSpan.FromSeconds(60));
+            handshakeCts.CancelAfter(TimeSpan.FromSeconds(180));
 
             await _tls.AuthenticateAsServerAsync(sslOptions, handshakeCts.Token);
             _logger.Info($"TetherSession [{SessionId}]: TLS 1.3 established with {remote} ({_tls.NegotiatedCipherSuite}).");
@@ -246,48 +248,126 @@ public sealed class TetherSession : IDisposable
                 initFrameBytes);
 
             await FrameCodec.WriteFrameAsync(stream, respBytes, ct);
-            _logger.Info($"TetherSession [{SessionId}]: Sent HANDSHAKE_RESPONSE (PAIRING_PENDING) with requestId '{pending.RequestId}' (init.IsPairingRequested=true). Waiting for PAIRING_CONFIRMED...");
+            _logger.Info($"TetherSession [{SessionId}]: Sent HANDSHAKE_RESPONSE (PAIRING_PENDING) with requestId '{pending.RequestId}'. Waiting for PAIRING_CONFIRMED...");
 
-            using var confirmedDoc = await FrameCodec.ReadJsonFrameAsync(stream, ct);
+            // Loop reading frames while we wait for the phone's PAIRING_CONFIRMED.
+            // The phone may send PINGs (keepalive, telemetry polls) during the
+            // window before the user enters the PIN; those must not abort the
+            // pairing session. We respond to PING with PONG and keep waiting.
+            // Only PAIRING_CONFIRMED, PAIRING_REJECTED, or a real timeout end
+            // this loop.
+            JsonDocument? confirmedDoc = null;
+            var deadline = DateTime.UtcNow + PairingConfirmTimeout;
+
+            while (DateTime.UtcNow < deadline)
+            {
+                using var readCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                readCts.CancelAfter(TimeSpan.FromSeconds(30));
+
+                JsonDocument? frame;
+                try
+                {
+                    frame = await FrameCodec.ReadJsonFrameAsync(stream, readCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    frame = null;
+                }
+
+                if (frame is null)
+                {
+                    // read timeout or socket closed; keep waiting up to the
+                    // outer deadline so the user still has time to enter the PIN
+                    if (!stream.CanRead) break;
+                    continue;
+                }
+
+                string frameType = frame.RootElement.TryGetProperty("type", out var tp)
+                    ? tp.GetString() ?? ""
+                    : "";
+
+                if (string.Equals(frameType, "PING", StringComparison.Ordinal))
+                {
+                    try
+                    {
+                        await FrameCodec.WriteJsonFrameAsync(stream, new
+                        {
+                            type = "PONG",
+                            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                        }, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"TetherSession [{SessionId}]: Failed sending PONG during pairing wait: {ex.Message}");
+                        frame.Dispose();
+                        break;
+                    }
+                    frame.Dispose();
+                    continue;
+                }
+
+                if (string.Equals(frameType, "PAIRING_REJECTED", StringComparison.Ordinal))
+                {
+                    _logger.Info($"TetherSession [{SessionId}]: Pairing rejected by phone before PIN confirmation.");
+                    frame.Dispose();
+                    return false;
+                }
+
+                // Anything else: this is what we were waiting for. Let the
+                // outer code validate that it is actually PAIRING_CONFIRMED.
+                confirmedDoc = frame;
+                break;
+            }
+
             if (confirmedDoc == null)
             {
                 _logger.Warning($"TetherSession [{SessionId}]: No PAIRING_CONFIRMED frame received.");
                 return false;
             }
 
-            string confirmedType = confirmedDoc.RootElement.GetProperty("type").GetString() ?? "";
-            if (!string.Equals(confirmedType, "PAIRING_CONFIRMED", StringComparison.Ordinal))
+            using (confirmedDoc)
             {
-                _logger.Warning($"TetherSession [{SessionId}]: Expected PAIRING_CONFIRMED but got '{confirmedType}'.");
-                return false;
+                string confirmedType = confirmedDoc.RootElement.TryGetProperty("type", out var t)
+                    ? t.GetString() ?? ""
+                    : "";
+
+                if (!string.Equals(confirmedType, "PAIRING_CONFIRMED", StringComparison.Ordinal))
+                {
+                    _logger.Warning($"TetherSession [{SessionId}]: Expected PAIRING_CONFIRMED but got '{confirmedType}'.");
+                    return false;
+                }
+
+                string reqId = confirmedDoc.RootElement.TryGetProperty("requestId", out var rp)
+                    ? rp.GetString() ?? ""
+                    : "";
+                string proofBase64 = confirmedDoc.RootElement.TryGetProperty("proof", out var pp)
+                    ? pp.GetString() ?? ""
+                    : "";
+
+                bool verified = _pairingManager.TryVerifyPhoneProof(reqId, proofBase64, out string winProofBase64, out _);
+                if (!verified)
+                {
+                    _logger.Warning($"TetherSession [{SessionId}]: PIN proof verification failed for requestId '{reqId}'.");
+                    await FrameCodec.WriteJsonFrameAsync(stream, new { type = "PAIRING_COMPLETE", status = "DENIED" }, ct);
+                    return false;
+                }
+
+                await FrameCodec.WriteJsonFrameAsync(stream, new
+                {
+                    type = "PAIRING_COMPLETE",
+                    status = "OK",
+                    proof = winProofBase64,
+                    capabilities = ServerCaps
+                }, ct);
+
+                Device = _deviceManager.GetByFingerprint(phoneFingerprint);
+                _logger.Info($"TetherSession [{SessionId}]: Pairing complete and device '{phoneFingerprint}' authenticated!");
+                return true;
             }
-
-            string reqId = confirmedDoc.RootElement.GetProperty("requestId").GetString() ?? "";
-            string proofBase64 = confirmedDoc.RootElement.GetProperty("proof").GetString() ?? "";
-
-            bool verified = _pairingManager.TryVerifyPhoneProof(reqId, proofBase64, out string winProofBase64, out _);
-            if (!verified)
-            {
-                _logger.Warning($"TetherSession [{SessionId}]: PIN proof verification failed for requestId '{reqId}'.");
-                await FrameCodec.WriteJsonFrameAsync(stream, new { type = "PAIRING_COMPLETE", status = "DENIED" }, ct);
-                return false;
-            }
-
-            await FrameCodec.WriteJsonFrameAsync(stream, new
-            {
-                type = "PAIRING_COMPLETE",
-                status = "OK",
-                proof = winProofBase64
-            }, ct);
-
-            Device = _deviceManager.GetByFingerprint(phoneFingerprint);
-            _logger.Info($"TetherSession [{SessionId}]: Pairing complete and device '{phoneFingerprint}' authenticated!");
-            return true;
         }
 
         if (knownDevice != null && knownDevice.TrustState == DeviceTrustState.Paired)
         {
-            // Challenge-response: Verify possession of the private key corresponding to init.PublicKey
             byte[] serverNonce = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
             string challengeBase64 = Convert.ToBase64String(serverNonce);
 
@@ -408,15 +488,13 @@ public sealed class TetherSession : IDisposable
 
                 Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
 
-                // Binary input path (hot, 60-120 Hz). Session is only reached here after
-                // the device has been authenticated as Paired, so we forward unconditionally.
+                // Binary input path (hot, 60-120 Hz).
                 if (frameBytes.Length >= 1 && frameBytes[0] == PacketTypeInputEvent)
                 {
                     _inputForwarder.Forward(frameBytes);
                     continue;
                 }
 
-                // JSON control path.
                 JsonDocument doc;
                 try { doc = JsonDocument.Parse(frameBytes); }
                 catch (JsonException ex)
@@ -445,9 +523,6 @@ public sealed class TetherSession : IDisposable
                 long elapsedSeconds =
                     (DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastFrameReceivedTicks)) / TimeSpan.TicksPerSecond;
 
-                // 180s is generous: TCP keepalive on this socket will detect a dead
-                // peer within ~30s anyway. The application heartbeat is a safety net,
-                // not the primary liveness signal.
                 if (elapsedSeconds > 180)
                 {
                     _logger.Warning($"TetherSession [{SessionId}]: Heartbeat timeout (no frames received in {elapsedSeconds}s). Declaring connection dead.");
