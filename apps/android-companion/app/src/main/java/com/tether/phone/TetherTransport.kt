@@ -75,7 +75,7 @@ class TetherTlsTransport(
         sslSock.useClientMode = true
 
         val sslParams = sslSock.sslParameters
-        sslParams.endpointIdentificationAlgorithm = "HTTPS"
+        sslParams.endpointIdentificationAlgorithm = null
         sslSock.sslParameters = sslParams
 
         sslSock.enabledProtocols = arrayOf("TLSv1.3")
@@ -168,19 +168,8 @@ class TetherTlsTransport(
                     if (!MessageDigest.isEqual(pinnedBytes, presentedHash)) {
                         throw CertificateException("Certificate pinning verification failed: public key fingerprint mismatch")
                     }
-                } else if (defaultTrustManager != null) {
-                    when {
-                        (socket != null) && (defaultTrustManager is javax.net.ssl.X509ExtendedTrustManager) -> {
-                            defaultTrustManager.checkServerTrusted(chain, authType, socket)
-                        }
-                        (engine != null) && (defaultTrustManager is javax.net.ssl.X509ExtendedTrustManager) -> {
-                            defaultTrustManager.checkServerTrusted(chain, authType, engine)
-                        }
-                        else -> {
-                            defaultTrustManager.checkServerTrusted(chain, authType)
-                        }
-                    }
                 }
+                // Unpinned / first-time pairing: allow TLS 1.3 handshake to complete so out-of-band 6-digit PIN proof can authenticate identity
             }
         }
 
