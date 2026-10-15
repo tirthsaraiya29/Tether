@@ -2,7 +2,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- ===================================================================== -->
-    <!-- GLASS PANEL CARD STYLES (GlassPanel & FluentPanelCard Alias)          -->
+    <!-- GLASS PANEL CARD STYLES                                               -->
     <!-- ===================================================================== -->
     <Style x:Key="GlassPanel" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource GlassPanelBackgroundBrush}"/>
@@ -45,7 +45,7 @@
     </Style>
 
     <!-- ===================================================================== -->
-    <!-- WINDOW CAPTION / TITLEBAR BUTTONS                                     -->
+    <!-- WINDOW CAPTION BUTTONS                                                -->
     <!-- ===================================================================== -->
     <Style x:Key="TitleBarButton" TargetType="Button">
         <Setter Property="Width" Value="46"/>
@@ -106,7 +106,7 @@
     </Style>
 
     <!-- ===================================================================== -->
-    <!-- BUTTONS (DEFAULT GLASS, ACCENT PRIMARY, DESTRUCTIVE OVERRIDE)         -->
+    <!-- BUTTONS                                                               -->
     <!-- ===================================================================== -->
     <Style TargetType="Button">
         <Setter Property="Background" Value="{StaticResource GlassControlFillBrush}"/>
@@ -236,7 +236,6 @@
                             <ContentPresenter VerticalAlignment="Center"/>
                         </Border>
 
-                        <!-- Active Left Pill Indicator -->
                         <Border x:Name="ActiveIndicator"
                                 Width="3"
                                 Height="16"
@@ -266,33 +265,16 @@
     </Style>
 
     <!-- ===================================================================== -->
-    <!-- SLEEK HARDWARE SLIDER (PILL TRACK + LUMINOUS THUMB)                   -->
+    <!-- HARDWARE SLIDER (FLUID TRACK + THUMB)                                 -->
     <!-- ===================================================================== -->
-    <Style x:Key="SliderRepeatButtonDecreaseStyle" TargetType="RepeatButton">
+    <Style x:Key="SliderRepeatButtonTransparentStyle" TargetType="RepeatButton">
         <Setter Property="OverridesDefaultStyle" Value="True"/>
         <Setter Property="IsTabStop" Value="False"/>
         <Setter Property="Focusable" Value="False"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="RepeatButton">
-                    <Border Height="6"
-                            CornerRadius="3,0,0,3"
-                            Background="{StaticResource AccentGradientBrush}"/>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
-
-    <Style x:Key="SliderRepeatButtonIncreaseStyle" TargetType="RepeatButton">
-        <Setter Property="OverridesDefaultStyle" Value="True"/>
-        <Setter Property="IsTabStop" Value="False"/>
-        <Setter Property="Focusable" Value="False"/>
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="RepeatButton">
-                    <Border Height="6"
-                            CornerRadius="0,3,3,0"
-                            Background="#18FFFFFF"/>
+                    <Rectangle Fill="Transparent"/>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
@@ -310,7 +292,7 @@
                         <Ellipse x:Name="OuterHalo"
                                  Width="18"
                                  Height="18"
-                                 Fill="#FF0F172A"
+                                 Fill="#FF0A0F1A"
                                  Stroke="{StaticResource SystemAccentBrush}"
                                  StrokeThickness="2"
                                  Effect="{StaticResource CardElevationShadow}"/>
@@ -343,26 +325,29 @@
         <Setter Property="Minimum" Value="0"/>
         <Setter Property="Maximum" Value="100"/>
         <Setter Property="IsMoveToPointEnabled" Value="True"/>
-        <Setter Property="Height" Value="24"/>
+        <Setter Property="Height" Value="28"/>
+        <Setter Property="Orientation" Value="Horizontal"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Slider">
                     <Grid VerticalAlignment="Center">
+                        <!-- Background Rail -->
                         <Border Height="6"
                                 CornerRadius="3"
-                                Background="#14FFFFFF"
-                                BorderBrush="#1FFFFFFF"
+                                Background="#1CFFFFFF"
+                                BorderBrush="#24FFFFFF"
                                 BorderThickness="1"
                                 VerticalAlignment="Center"/>
-                        <Track x:Name="PART_Track">
+
+                        <Track x:Name="PART_Track" VerticalAlignment="Center">
                             <Track.DecreaseRepeatButton>
-                                <RepeatButton Style="{StaticResource SliderRepeatButtonDecreaseStyle}"
-                                              Command="Slider.DecreaseLarge"/>
+                                <RepeatButton Style="{StaticResource SliderRepeatButtonTransparentStyle}"
+                                              Command="{x:Static Slider.DecreaseLarge}"/>
                             </Track.DecreaseRepeatButton>
                             <Track.IncreaseRepeatButton>
-                                <RepeatButton Style="{StaticResource SliderRepeatButtonIncreaseStyle}"
-                                              Command="Slider.IncreaseLarge"/>
+                                <RepeatButton Style="{StaticResource SliderRepeatButtonTransparentStyle}"
+                                              Command="{x:Static Slider.IncreaseLarge}"/>
                             </Track.IncreaseRepeatButton>
                             <Track.Thumb>
                                 <Thumb Style="{StaticResource FluentSliderThumbStyle}"/>
@@ -425,7 +410,7 @@
     </Style>
 
     <!-- ===================================================================== -->
-    <!-- MINIMALIST GLASS SCROLLBAR & SCROLLVIEWER                             -->
+    <!-- MINIMALIST GLASS SCROLLBAR                                            -->
     <!-- ===================================================================== -->
     <Style x:Key="GlassScrollBarThumb" TargetType="Thumb">
         <Setter Property="OverridesDefaultStyle" Value="True"/>

@@ -16,7 +16,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Tether.Shared.Events;
 using Tether.Shared.IPC;
-
+// The volume control works but not brightness control. The brightness control is not working because the code is using the wrong method to set the brightness. The code is using the SetMonitorBrightness function, which only works for monitors that support the DDC/CI protocol. Many modern monitors do not support this protocol, so the function fails silently.
 namespace Tether.DesktopUI
 {
     [SupportedOSPlatform("windows")]
@@ -24,6 +24,7 @@ namespace Tether.DesktopUI
     {
         private bool _isListening = true;
         private DispatcherTimer? _syncTimer;
+        private DispatcherTimer? _telemetryDebounceTimer;
         private bool _isInternalSliderChange = false;
         private bool _isClosingAnimated = false;
 
@@ -33,7 +34,7 @@ namespace Tether.DesktopUI
         [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         internal interface IMMDeviceEnumerator
         {
-            [PreserveSig] int Reserved1(); [PreserveSig] int Reserved2(); [PreserveSig] int Reserved3();
+            [PreserveSig] int EnumAudioEndpoints(int dataFlow, int dwStateMask, out IntPtr ppDevices);
             [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppDevice);
         }
 
@@ -74,8 +75,8 @@ namespace Tether.DesktopUI
         private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
         private const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
         private const int DWMWCP_ROUND = 2;
-        private const int DWMSBT_MAINWINDOW = 2;       // Windows 11 Mica
-        private const int DWMSBT_TRANSIENTWINDOW = 3;  // Windows 11 Desktop Acrylic
+        private const int DWMSBT_MAINWINDOW = 2;
+        private const int DWMSBT_TRANSIENTWINDOW = 3;
 
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
@@ -169,13 +170,7 @@ namespace Tether.DesktopUI
                     hwndSource.CompositionTarget.BackgroundColor = Colors.Transparent;
                 }
 
-                MARGINS margins = new MARGINS
-                {
-                    cxLeftWidth = -1,
-                    cxRightWidth = -1,
-                    cyTopHeight = -1,
-                    cyBottomHeight = -1
-                };
+                MARGINS margins = new MARGINS { cxLeftWidth = -1, cxRightWidth = -1, cyTopHeight = -1, cyBottomHeight = -1 };
                 DwmExtendFrameIntoClientArea(hwnd, ref margins);
 
                 int darkMode = 1;
@@ -184,7 +179,6 @@ namespace Tether.DesktopUI
                 int cornerPreference = DWMWCP_ROUND;
                 DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPreference, sizeof(int));
 
-                // Prefer Desktop Acrylic (3) on Windows 11 22H2+ (Build 22621+), fallback to Mica (2)
                 int backdropType = Environment.OSVersion.Version.Build >= 22621
                     ? DWMSBT_TRANSIENTWINDOW
                     : DWMSBT_MAINWINDOW;
@@ -196,10 +190,7 @@ namespace Tether.DesktopUI
                     DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref micaFallback, sizeof(int));
                 }
             }
-            catch
-            {
-                // Graceful fallback to translucent obsidian XAML composition brush on unsupported OS builds
-            }
+            catch { }
         }
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -260,6 +251,7 @@ namespace Tether.DesktopUI
             {
                 _isListening = false;
                 _syncTimer?.Stop();
+                _telemetryDebounceTimer?.Stop();
                 base.OnClosing(e);
             }
         }
@@ -276,9 +268,7 @@ namespace Tether.DesktopUI
             return new SolidColorBrush(fallbackColor);
         }
 
-        private void CheckProvisioningStatus()
-        {
-        }
+        private void CheckProvisioningStatus() { }
 
         private async Task RunTelemetryListenerAsync()
         {
@@ -433,7 +423,7 @@ namespace Tether.DesktopUI
                 case "brightness_down": SetMonitorBrightnessLevel((uint)Math.Max(0, bri - 5)); break;
             }
             PollAndSynchronizeHardwareStates();
-            ForceTelemetrySyncToPhone();
+            DebounceTelemetrySync();
         }
 
         private void WakeSystemDisplayAndInput()
@@ -470,12 +460,52 @@ namespace Tether.DesktopUI
             try
             {
                 var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
-                enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
+                int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
+                if (hr != 0 || device == null) return null;
+
                 Guid iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
                 device.Activate(ref iid, 23, IntPtr.Zero, out object comInterface);
+                Marshal.ReleaseComObject(device);
                 return (IAudioEndpointVolume)comInterface;
             }
             catch { return null; }
+        }
+
+        private uint GetWmiBrightnessLevel()
+        {
+            try
+            {
+                Type? locatorType = Type.GetTypeFromProgID("WbemScripting.SWbemLocator");
+                if (locatorType == null) return 0;
+                dynamic locator = Activator.CreateInstance(locatorType)!;
+                dynamic service = locator.ConnectServer(".", "root\\wmi");
+                dynamic results = service.ExecQuery("SELECT CurrentBrightness FROM WmiMonitorBrightness");
+                foreach (dynamic obj in results)
+                {
+                    return (uint)obj.CurrentBrightness;
+                }
+            }
+            catch { }
+            return 0;
+        }
+
+        private bool SetWmiBrightnessLevel(uint level)
+        {
+            try
+            {
+                Type? locatorType = Type.GetTypeFromProgID("WbemScripting.SWbemLocator");
+                if (locatorType == null) return false;
+                dynamic locator = Activator.CreateInstance(locatorType)!;
+                dynamic service = locator.ConnectServer(".", "root\\wmi");
+                dynamic results = service.ExecQuery("SELECT * FROM WmiMonitorBrightnessMethods");
+                foreach (dynamic obj in results)
+                {
+                    obj.WmiSetBrightness(1, level);
+                    return true;
+                }
+            }
+            catch { }
+            return false;
         }
 
         private uint GetMonitorBrightnessLevel()
@@ -486,28 +516,35 @@ namespace Tether.DesktopUI
                 PHYSICAL_MONITOR[] monitors = new PHYSICAL_MONITOR[1];
                 if (GetPhysicalMonitorsFromHMONITOR(hMonitor, 1, monitors))
                 {
-                    GetMonitorBrightness(monitors[0].hPhysicalMonitor, out _, out uint current, out _);
+                    bool success = GetMonitorBrightness(monitors[0].hPhysicalMonitor, out _, out uint current, out _);
                     DestroyPhysicalMonitor(monitors[0].hPhysicalMonitor);
-                    return current;
+                    if (success) return current;
                 }
             }
             catch { }
-            return 0;
+
+            return GetWmiBrightnessLevel();
         }
 
         private void SetMonitorBrightnessLevel(uint level)
         {
+            bool dxvaSuccess = false;
             try
             {
                 IntPtr hMonitor = MonitorFromWindow(IntPtr.Zero, MONITOR_DEFAULTTOPRIMARY);
                 PHYSICAL_MONITOR[] monitors = new PHYSICAL_MONITOR[1];
                 if (GetPhysicalMonitorsFromHMONITOR(hMonitor, 1, monitors))
                 {
-                    SetMonitorBrightness(monitors[0].hPhysicalMonitor, level);
+                    dxvaSuccess = SetMonitorBrightness(monitors[0].hPhysicalMonitor, level);
                     DestroyPhysicalMonitor(monitors[0].hPhysicalMonitor);
                 }
             }
             catch { }
+
+            if (!dxvaSuccess)
+            {
+                SetWmiBrightnessLevel(level);
+            }
         }
 
         private void SliderVolume_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -515,7 +552,7 @@ namespace Tether.DesktopUI
             if (_isInternalSliderChange || TxtVolumeValue == null) return;
             SetSystemMasterVolume((float)(SliderVolume.Value / 100.0));
             TxtVolumeValue.Text = $"{(int)SliderVolume.Value}%";
-            ForceTelemetrySyncToPhone();
+            DebounceTelemetrySync();
         }
 
         private void SliderBrightness_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -523,13 +560,28 @@ namespace Tether.DesktopUI
             if (_isInternalSliderChange || TxtBrightnessValue == null) return;
             SetMonitorBrightnessLevel((uint)SliderBrightness.Value);
             TxtBrightnessValue.Text = $"{(int)SliderBrightness.Value}%";
-            ForceTelemetrySyncToPhone();
+            DebounceTelemetrySync();
+        }
+
+        private void DebounceTelemetrySync()
+        {
+            if (_telemetryDebounceTimer == null)
+            {
+                _telemetryDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+                _telemetryDebounceTimer.Tick += (s, e) =>
+                {
+                    _telemetryDebounceTimer.Stop();
+                    ForceTelemetrySyncToPhone();
+                };
+            }
+            _telemetryDebounceTimer.Stop();
+            _telemetryDebounceTimer.Start();
         }
 
         private void ForceTelemetrySyncToPhone()
         {
-            int vol = (int)(GetSystemMasterVolume() * 100);
-            int bri = (int)GetMonitorBrightnessLevel();
+            int vol = (int)SliderVolume.Value;
+            int bri = (int)SliderBrightness.Value;
 
             var syncEvent = new TetherEvent
             {
@@ -549,7 +601,7 @@ namespace Tether.DesktopUI
         private async void DispatchServiceBusPipe(TetherEvent evt)
         {
             const int maxAttempts = 3;
-            const int retryDelayMs = 500;
+            const int retryDelayMs = 300;
 
             for (int attempt = 0; attempt < maxAttempts; attempt++)
             {
@@ -558,7 +610,7 @@ namespace Tether.DesktopUI
                     string json = JsonSerializer.Serialize(evt);
                     byte[] bytes = Encoding.UTF8.GetBytes(json);
                     using var client = new NamedPipeClientStream(".", IpcConstants.PipeName, PipeDirection.Out);
-                    await client.ConnectAsync(200);
+                    await client.ConnectAsync(800);
                     await client.WriteAsync(bytes, 0, bytes.Length);
                     await client.FlushAsync();
                     return;
@@ -570,23 +622,28 @@ namespace Tether.DesktopUI
                 }
                 catch (Exception ex)
                 {
-                    LogTerminal($"⚠ PIPE // Failed to send event: {ex.Message}");
+                    LogTerminal($"⚠ PIPE // Dispatch failed: {ex.Message}");
                     break;
                 }
             }
             if (!_isListening) return;
-            LogTerminal("⚠ PIPE // Could not reach Tether service – is it running?");
+            LogTerminal("⚠ PIPE // Could not reach Tether service – verify service process status.");
         }
 
         private void BtnUnlockOverride_Click(object sender, RoutedEventArgs e)
         {
+            WakeSystemDisplayAndInput();
+
+            TxtStatus.Text = "INTERLOCK OVERRIDDEN";
+            IndicatorNode.Fill = GetFluentStatusBrush("StatusHealthyBrush", Color.FromRgb(106, 237, 126));
+
             var evt = new TetherEvent
             {
                 EventType = TetherEventType.PHONE_UNLOCKED,
                 Source = "DesktopUI"
             };
             DispatchServiceBusPipe(evt);
-            LogTerminal("✓ OVERRIDE // Interlock override event dispatched.");
+            LogTerminal("✓ OVERRIDE // Manual interlock bypass dispatched and display input awakened.");
         }
 
         private void BtnLockdownOverride_Click(object sender, RoutedEventArgs e)

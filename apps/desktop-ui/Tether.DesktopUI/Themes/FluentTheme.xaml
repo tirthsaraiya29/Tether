@@ -1,6 +1,5 @@
 ﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- ===================================================================== -->
     <!-- TYPOGRAPHY RESOURCES                                                  -->
@@ -22,16 +21,15 @@
     <Color x:Key="GlassLayerActiveColor">#0DFFFFFF</Color>
     <Color x:Key="TerminalSurfaceColor">#B505070B</Color>
 
-    <!-- Primary Accent Palette (Electric Cyan / Azure) -->
+    <!-- Accent Palette -->
     <Color x:Key="AccentPrimaryColor">#38BDF8</Color>
     <Color x:Key="AccentSecondaryColor">#0284C7</Color>
     <Color x:Key="AccentGlowColor">#6038BDF8</Color>
 
-    <!-- Semantic Telemetry Colors -->
+    <!-- Telemetry Status Colors -->
     <Color x:Key="StatusHealthyColor">#34D399</Color>
     <Color x:Key="StatusDegradedColor">#FBBF24</Color>
     <Color x:Key="StatusCriticalColor">#FB7185</Color>
-    <Color x:Key="StatusCriticalDarkColor">#E11D48</Color>
 
     <!-- ===================================================================== -->
     <!-- SURFACE & BACKDROP BRUSHES                                            -->
@@ -41,17 +39,10 @@
     <SolidColorBrush x:Key="RailBackgroundBrush" Color="{StaticResource ObsidianRailColor}"/>
     <SolidColorBrush x:Key="TerminalBackgroundBrush" Color="{StaticResource TerminalSurfaceColor}"/>
 
-    <!-- Layered Glass Card Fill (Top-Left Luminance Falloff) -->
     <LinearGradientBrush x:Key="GlassPanelBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
         <GradientStop Color="#14FFFFFF" Offset="0.0"/>
         <GradientStop Color="#0AFFFFFF" Offset="0.45"/>
         <GradientStop Color="#06FFFFFF" Offset="1.0"/>
-    </LinearGradientBrush>
-
-    <LinearGradientBrush x:Key="GlassPanelHoverBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Color="#1CFFFFFF" Offset="0.0"/>
-        <GradientStop Color="#0FFFFFFF" Offset="0.5"/>
-        <GradientStop Color="#09FFFFFF" Offset="1.0"/>
     </LinearGradientBrush>
 
     <SolidColorBrush x:Key="GlassSurfaceSubtleBrush" Color="{StaticResource GlassLayerSecondaryColor}"/>
@@ -62,7 +53,6 @@
     <!-- ===================================================================== -->
     <!-- SPECULAR BORDER & DIVIDER BRUSHES                                     -->
     <!-- ===================================================================== -->
-    <!-- 1px Specular Highlight Edge: simulates overhead light catching glass -->
     <LinearGradientBrush x:Key="GlassSpecularBorderBrush" StartPoint="0,0" EndPoint="1,1">
         <GradientStop Color="#2CFFFFFF" Offset="0.0"/>
         <GradientStop Color="#14FFFFFF" Offset="0.35"/>
@@ -80,20 +70,17 @@
     <!-- ===================================================================== -->
     <!-- ACCENT & SEMANTIC STATUS BRUSHES                                      -->
     <!-- ===================================================================== -->
-    <!-- Code-behind lookup keys preserved: StatusHealthyBrush / StatusCriticalBrush -->
     <SolidColorBrush x:Key="SystemAccentBrush" Color="{StaticResource AccentPrimaryColor}"/>
     <SolidColorBrush x:Key="StatusHealthyBrush" Color="{StaticResource StatusHealthyColor}"/>
     <SolidColorBrush x:Key="StatusDegradedBrush" Color="{StaticResource StatusDegradedColor}"/>
     <SolidColorBrush x:Key="StatusCriticalBrush" Color="{StaticResource StatusCriticalColor}"/>
 
-    <!-- Soft Pill Background Brushes -->
     <SolidColorBrush x:Key="AccentPillBackgroundBrush" Color="#1A38BDF8"/>
     <SolidColorBrush x:Key="AccentPillBorderBrush" Color="#4038BDF8"/>
     <SolidColorBrush x:Key="HealthyPillBackgroundBrush" Color="#1834D399"/>
     <SolidColorBrush x:Key="CriticalPillBackgroundBrush" Color="#1DFB7185"/>
     <SolidColorBrush x:Key="CriticalPillBorderBrush" Color="#45FB7185"/>
 
-    <!-- Interactive Gradients -->
     <LinearGradientBrush x:Key="AccentGradientBrush" StartPoint="0,0" EndPoint="1,1">
         <GradientStop Color="#38BDF8" Offset="0.0"/>
         <GradientStop Color="#0EA5E9" Offset="0.55"/>
@@ -112,12 +99,6 @@
         <GradientStop Color="#E11D48" Offset="1.0"/>
     </LinearGradientBrush>
 
-    <LinearGradientBrush x:Key="DestructiveHoverGradientBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Color="#FDA4AF" Offset="0.0"/>
-        <GradientStop Color="#FB7185" Offset="0.5"/>
-        <GradientStop Color="#F43F5E" Offset="1.0"/>
-    </LinearGradientBrush>
-
     <!-- ===================================================================== -->
     <!-- TYPOGRAPHY FOREGROUND BRUSHES                                         -->
     <!-- ===================================================================== -->
@@ -128,7 +109,7 @@
     <SolidColorBrush x:Key="TextOnAccentBrush" Color="#04080E"/>
 
     <!-- ===================================================================== -->
-    <!-- AMBIENT GLOW & ELEVATION EFFECTS                                      -->
+    <!-- AMBIENT GLOW EFFECTS                                                  -->
     <!-- ===================================================================== -->
     <DropShadowEffect x:Key="CardElevationShadow"
                       BlurRadius="24"

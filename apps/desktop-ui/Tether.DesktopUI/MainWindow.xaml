@@ -19,7 +19,6 @@
                       UseAeroCaptionButtons="False"/>
     </WindowChrome.WindowChrome>
 
-    <!-- Outer Specular Window Frame -->
     <Border BorderBrush="{StaticResource GlassSpecularBorderBrush}"
             BorderThickness="1">
         <Grid x:Name="LayoutRoot" RenderTransformOrigin="0.5,0.5">
@@ -102,13 +101,12 @@
                         </Border>
                     </Grid>
 
-                    <!-- Section Eyebrow -->
                     <TextBlock Grid.Row="1"
                                Text="WORKSPACE NODES"
                                Style="{StaticResource SectionEyebrowTextStyle}"
                                Margin="24,12,0,6"/>
 
-                    <!-- Navigation Rail Items -->
+                    <!-- Streamlined Navigation Rail (Proximity Pairing Pruned) -->
                     <ListBox Grid.Row="2"
                              Background="Transparent"
                              BorderThickness="0"
@@ -132,29 +130,13 @@
                         </ListBoxItem>
                         <ListBoxItem>
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE702;"
-                                           FontFamily="{StaticResource IconFontFamily}"
-                                           FontSize="15"
-                                           Width="22"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
-                                           VerticalAlignment="Center"/>
-                                <TextBlock Text="Proximity Pairing"
-                                           FontFamily="{StaticResource FluentFontFamily}"
-                                           FontSize="13"
-                                           FontWeight="Medium"
-                                           Margin="8,0,0,0"
-                                           VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </ListBoxItem>
-                        <ListBoxItem>
-                            <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#xE95A;"
                                            FontFamily="{StaticResource IconFontFamily}"
                                            FontSize="15"
                                            Width="22"
                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
                                            VerticalAlignment="Center"/>
-                                <TextBlock Text="Hardware Primitives"
+                                <TextBlock Text="Hardware Controls"
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="13"
                                            FontWeight="Medium"
@@ -170,7 +152,7 @@
                                            Width="22"
                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
                                            VerticalAlignment="Center"/>
-                                <TextBlock Text="DPAPI Policy Vault"
+                                <TextBlock Text="DPAPI Vault"
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="13"
                                            FontWeight="Medium"
@@ -180,7 +162,7 @@
                         </ListBoxItem>
                     </ListBox>
 
-                    <!-- Bottom Identity Context Card -->
+                    <!-- Security Principal Status -->
                     <Border Grid.Row="3"
                             Margin="12,0,12,12"
                             Padding="14,12"
@@ -230,7 +212,7 @@
             </Border>
 
             <!-- ============================================================= -->
-            <!-- INTEGRATED CAPTION & WINDOW CHROME BAR                        -->
+            <!-- INTEGRATED CAPTION BAR                                        -->
             <!-- ============================================================= -->
             <Grid Grid.Row="0"
                   Grid.Column="1"
@@ -240,7 +222,6 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Breadcrumb Status Strip (Hit-test passthrough for drag) -->
                 <StackPanel Grid.Column="0"
                             Orientation="Horizontal"
                             VerticalAlignment="Center"
@@ -257,7 +238,7 @@
                                FontSize="10.5"
                                Foreground="{StaticResource TextMutedBrush}"
                                VerticalAlignment="Center"/>
-                    <TextBlock Text="LIVE TELEMETRY &amp; CONTROL PLANE"
+                    <TextBlock Text="TELEMETRY CONTROL PLANE"
                                FontFamily="{StaticResource MonoFontFamily}"
                                FontSize="10.5"
                                FontWeight="SemiBold"
@@ -265,7 +246,6 @@
                                VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Minimalist Window Controls -->
                 <StackPanel Grid.Column="1"
                             Orientation="Horizontal"
                             HorizontalAlignment="Right"
@@ -292,7 +272,7 @@
             </Grid>
 
             <!-- ============================================================= -->
-            <!-- MAIN WORKSPACE CANVAS                                         -->
+            <!-- MAIN WORKSPACE                                                -->
             <!-- ============================================================= -->
             <Grid Grid.Row="1"
                   Grid.Column="1"
@@ -303,14 +283,14 @@
                     <ColumnDefinition Width="0.92*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- LEFT COLUMN: TELEMETRY, HARDWARE SLIDERS & DPAPI VAULT -->
+                <!-- LEFT COLUMN -->
                 <ScrollViewer Grid.Column="0"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled"
                               Padding="0,0,4,0">
                     <StackPanel>
 
-                        <!-- 1. CORE SECURITY NETWORK PIPELINE CARD -->
+                        <!-- SECURITY PIPELINE -->
                         <Border Style="{StaticResource GlassPanel}">
                             <Grid>
                                 <Grid.RowDefinitions>
@@ -331,7 +311,6 @@
                                                    Style="{StaticResource CardTitleTextStyle}"/>
                                     </StackPanel>
 
-                                    <!-- Live Status Indicator Capsule -->
                                     <Border Grid.Column="1"
                                             Background="#14FFFFFF"
                                             BorderBrush="{StaticResource GlassSpecularBorderBrush}"
@@ -398,16 +377,16 @@
                             </Grid>
                         </Border>
 
-                        <!-- 2. HARDWARE DEVICE LAYER INTEGRATIONS CARD -->
+                        <!-- HARDWARE INTEGRATIONS -->
                         <Border Style="{StaticResource GlassPanel}">
                             <StackPanel>
-                                <TextBlock Text="DXVA2 &amp; COREAUDIO COM ENDPOINTS"
+                                <TextBlock Text="COREAUDIO COM &amp; DXVA2 / WMI BACKENDS"
                                            Style="{StaticResource SectionEyebrowTextStyle}"/>
                                 <TextBlock Text="Hardware Device Layer Integrations"
                                            Style="{StaticResource CardTitleTextStyle}"
                                            Margin="0,0,0,18"/>
 
-                                <!-- Master Volume Control -->
+                                <!-- Master Volume Slider -->
                                 <Border Padding="14,12"
                                         CornerRadius="8"
                                         Background="#0D000000"
@@ -448,7 +427,7 @@
                                     </StackPanel>
                                 </Border>
 
-                                <!-- Display Brightness Control -->
+                                <!-- Display Brightness Slider -->
                                 <Border Padding="14,12"
                                         CornerRadius="8"
                                         Background="#0D000000"
@@ -490,7 +469,7 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- 3. LOCAL VAULT CRYPTOGRAPHIC SUBSYSTEM CARD -->
+                        <!-- DPAPI VAULT -->
                         <Border Style="{StaticResource GlassPanel}" Margin="0">
                             <StackPanel>
                                 <Grid Margin="0,0,0,6">
@@ -541,14 +520,14 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <!-- RIGHT COLUMN: DEVELOPER CONSOLE & EMERGENCY INTERLOCKS -->
+                <!-- RIGHT COLUMN -->
                 <Grid Grid.Column="2">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <!-- DIAGNOSTIC EVENT STREAM CONSOLE -->
+                    <!-- TERMINAL -->
                     <Border Grid.Row="0"
                             Style="{StaticResource GlassPanel}"
                             Padding="20"
@@ -559,7 +538,6 @@
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
 
-                            <!-- Console Header with Status Chips -->
                             <Grid Grid.Row="0" Margin="0,0,0,14">
                                 <StackPanel>
                                     <TextBlock Text="REALTIME IPC BUS MONITOR"
@@ -588,7 +566,6 @@
                                 </Border>
                             </Grid>
 
-                            <!-- Ultra-Clean Monospace Terminal Viewport -->
                             <Border Grid.Row="1"
                                     Background="{StaticResource TerminalBackgroundBrush}"
                                     BorderBrush="{StaticResource TerminalBorderBrush}"
@@ -625,7 +602,7 @@
                         </Grid>
                     </Border>
 
-                    <!-- EMERGENCY OVERRIDE ACTION BAR -->
+                    <!-- INTERLOCK ACTIONS -->
                     <UniformGrid Grid.Row="1"
                                  Columns="2"
                                  Rows="1"
