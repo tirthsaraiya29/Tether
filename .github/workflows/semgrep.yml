@@ -51,6 +51,25 @@ jobs:
             --error \
             .
 
+      - name: Display Findings in Console
+        if: always() && hashFiles('semgrep.sarif') != ''
+        run: |
+          python3 -c "
+          import json
+          with open('semgrep.sarif') as f:
+              data = json.load(f)
+          results = [r for run in data.get('runs', []) for r in run.get('results', [])]
+          if not results:
+              print('No findings found.')
+          for r in results:
+              loc = r.get('locations', [{}])[0].get('physicalLocation', {})
+              uri = loc.get('artifactLocation', {}).get('uri', 'unknown')
+              line = loc.get('region', {}).get('startLine', 1)
+              rule = r.get('ruleId', 'unknown-rule')
+              msg = r.get('message', {}).get('text', '').replace('\n', ' ')
+              print(f'::error file={uri},line={line},title={rule}::{msg}')
+          "
+
       - name: Upload SARIF to GitHub Security
         if: always() && hashFiles('semgrep.sarif') != ''
         uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
