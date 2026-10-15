@@ -319,21 +319,9 @@ class MainActivity : FragmentActivity() {
 
         requestBatteryOptimizationExemption()
 
-        lifecycleScope.launch(Dispatchers.IO) {
-            val report = DeviceIntegrityRegistry(this@MainActivity).runAttestationPipeline()
-            withContext(Dispatchers.Main) {
-                isLoading.value = false
-                currentIntegrityScore.intValue = report.score
-                if (report.score < 70) {
-                    isEnvironmentRestricted.value = true
-                    stopService(Intent(this@MainActivity, TetherLanService::class.java))
-                } else {
-                    isEnvironmentRestricted.value = false
-                    isAppLocked.value = true
-                    authenticateForAppUnlock()
-                }
-            }
-        }
+        // Show biometric authentication prompt IMMEDIATELY on app launch
+        isLoading.value = false
+        authenticateForAppUnlock()
 
         setContent {
             LaunchedEffect(isPrivacyMaskEnabled.value, isBlockScreenReadingEnabled.value, isHideInRecentsEnabled.value) {
@@ -625,13 +613,26 @@ class MainActivity : FragmentActivity() {
                         putBoolean("has_unlocked_app_once", true)
                         putLong(appLockBackgroundTimestampKey, 0L)
                     }
-                    if (checkPermissions()) {
-                        startLanService()
-                    } else {
-                        requestPermissions()
+
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        val report = DeviceIntegrityRegistry(this@MainActivity).runAttestationPipeline()
+                        withContext(Dispatchers.Main) {
+                            currentIntegrityScore.intValue = report.score
+                            if (report.score < 70) {
+                                isEnvironmentRestricted.value = true
+                                stopService(Intent(this@MainActivity, TetherLanService::class.java))
+                            } else {
+                                isEnvironmentRestricted.value = false
+                                if (checkPermissions()) {
+                                    startLanService()
+                                } else {
+                                    requestPermissions()
+                                }
+                                syncLanState()
+                                handleVoiceIntent(intent)
+                            }
+                        }
                     }
-                    syncLanState()
-                    handleVoiceIntent(intent)
                 }
             } else {
                 runOnUiThread {
