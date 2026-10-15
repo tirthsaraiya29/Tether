@@ -709,7 +709,7 @@ class MainActivity : FragmentActivity() {
 
     private fun showPairingQRCode() {
         try {
-            val publicKeyBytes = ProductionSecurityEngine().getPublicKeyBytes()
+            val publicKeyBytes = securityEngine.getPublicKeyBytes()
             val base64Key = Base64.encodeToString(publicKeyBytes, Base64.NO_WRAP)
             val wifiIp = getWifiIpAddress() ?: "0.0.0.0"
 
@@ -798,19 +798,13 @@ class MainActivity : FragmentActivity() {
                 promptBuilder.setNegativeButtonText(getString(R.string.btn_abort))
             }
 
-            val cryptoObject = if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
-                securityEngine.createCryptoObjectForAuthentication()
-            } else null
-
             val biometricPrompt = BiometricPrompt(
                 this,
                 ContextCompat.getMainExecutor(this),
                 object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                         super.onAuthenticationSucceeded(result)
-                        val authenticatedCrypto = result.cryptoObject
-                        val cipher = authenticatedCrypto?.cipher
-                        Log.i("TetherActivity", "Authenticated via biometric prompt (cryptoCipher=${cipher != null}).")
+                        Log.i("TetherActivity", "Authenticated via biometric prompt.")
                         callback(true)
                     }
 
@@ -822,11 +816,7 @@ class MainActivity : FragmentActivity() {
             )
 
             val promptInfo = promptBuilder.build()
-            if (cryptoObject != null) {
-                biometricPrompt.authenticate(promptInfo, cryptoObject)
-            } else {
-                biometricPrompt.authenticate(promptInfo)
-            }
+            biometricPrompt.authenticate(promptInfo)
         }
     }
 
