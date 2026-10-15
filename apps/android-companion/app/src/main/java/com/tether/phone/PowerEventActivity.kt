@@ -138,6 +138,7 @@ class PowerEventActivity : FragmentActivity() {
                     prefs.edit {
                         putString("last_answered_power_event_type", eventType)
                         putLong("last_answered_power_event_timestamp_ms", eventTimestamp)
+                        putBoolean("is_unlock_prompt_dismissed", false)
                     }
                     val serviceIntent = Intent(this@PowerEventActivity, TetherLanService::class.java).apply {
                         action = "unlock"
@@ -183,6 +184,7 @@ class PowerEventActivity : FragmentActivity() {
         prefs.edit {
             putString("last_answered_power_event_type", eventType)
             putLong("last_answered_power_event_timestamp_ms", eventTimestamp)
+            putBoolean("is_unlock_prompt_dismissed", true)
         }
         val nm = NotificationManagerCompat.from(this)
         nm.cancel(PowerEventActionReceiver.POWER_EVENT_NOTIFICATION_ID)
