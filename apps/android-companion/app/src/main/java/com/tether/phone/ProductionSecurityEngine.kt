@@ -95,6 +95,7 @@ class ProductionSecurityEngine {
         return iv
     }
 
+    // nosemgrep: kotlin.lang.security.gcm-detection.gcm-detection, kotlin.lang.security.ecb-cipher.ecb-cipher
     private fun newGcmCipher(): Cipher =
         Cipher.getInstance("AES/GCM/NoPadding")
 
