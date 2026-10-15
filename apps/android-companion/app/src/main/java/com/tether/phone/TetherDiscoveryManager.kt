@@ -315,9 +315,17 @@ class TetherDiscoveryManager(
                         val json = JSONObject(responseStr)
                         val type = json.optString("type", "")
 
-                        if ((type == "TETHER_DISCOVERY_RESPONSE") || (type == "TETHER_DISCOVERY_PROBE")) {
+                        // ONLY process TETHER_DISCOVERY_RESPONSE packets from actual Windows PCs!
+                        // Ignore TETHER_DISCOVERY_PROBE (which is sent by client phones like ourselves).
+                        if (type == "TETHER_DISCOVERY_RESPONSE") {
                             val hostAddr = recvPacket.address.hostAddress ?: continue
                             val devId = json.optString("deviceId", hostAddr)
+
+                            // Ignore loopback or responses matching our own phone device ID
+                            if (devId == phoneId) {
+                                continue
+                            }
+
                             val devName = json.optString("deviceName", "Tether Windows PC")
                             val tcpPort = json.optInt("tcpPort", DEFAULT_PORT)
 

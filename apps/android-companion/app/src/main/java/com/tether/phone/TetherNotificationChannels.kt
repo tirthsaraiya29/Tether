@@ -9,6 +9,7 @@ object TetherNotificationChannels {
     const val CHANNEL_LAN_SERVICE = "tether_lan_channel"
     const val CHANNEL_UNLOCK_PROMPT = "tether_unlock_prompt"
     const val CHANNEL_POWER_EVENTS = "tether_power_events"
+    const val CHANNEL_PAIRING_PROMPT = "tether_pairing_prompt"
 
     fun createAllChannels(context: Context) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -47,8 +48,21 @@ object TetherNotificationChannels {
             enableVibration(true)
         }
 
+        // 4. Pairing Requests Channel (High importance, heads-up)
+        val pairingChannel = NotificationChannel(
+            CHANNEL_PAIRING_PROMPT,
+            "Tether Pairing Requests",
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = "Heads-up notifications to pair with your Windows PC"
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 200, 100, 200)
+            setShowBadge(true)
+        }
+
         notificationManager.createNotificationChannels(
-            listOf(serviceChannel, unlockPromptChannel, powerChannel)
+            listOf(serviceChannel, unlockPromptChannel, powerChannel, pairingChannel)
         )
     }
 }

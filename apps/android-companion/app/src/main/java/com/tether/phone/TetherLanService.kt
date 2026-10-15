@@ -98,6 +98,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         private const val CHANNEL_ID = "tether_lan_channel"
         private const val NOTIFICATION_ID = 1
+        private const val NOTIFICATION_PAIRING_ID = 1002
         private const val HEALTH_CHECK_INTERVAL_MS = 60000L
         private const val WAKE_LOCK_TAG = "tether:LanWakeLock"
 
@@ -704,6 +705,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         trustState = TrustState.PAIRING_REQUESTED
                         currentState = TransportState.PAIRING_REQUIRED
 
+                        showPairingNotification(result)
+
                         val promptIntent = Intent(this@TetherLanService, PairingConfirmationActivity::class.java).apply {
                             action = ACTION_SHOW_PAIRING_PROMPT
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -712,7 +715,11 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                             putExtra(EXTRA_WINDOWS_FINGERPRINT, result.peerFingerprint)
                             putExtra(EXTRA_PAIRING_SAS_CODE, result.peerFingerprint.take(6))
                         }
-                        startActivity(promptIntent)
+                        try {
+                            startActivity(promptIntent)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Direct startActivity failed (background launch restriction); relying on heads-up notification: ${e.message}")
+                        }
                     }
                     is PairingResult.PairingDenied -> {
                         Log.w(TAG, "Pairing denied by Windows host: ${sanitizeLog(result.reason)}")
@@ -1237,10 +1244,50 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     fun disconnectActiveSession(reason: String) {
         val safeReason = sanitizeLog(reason)
         Log.w(TAG, "Disconnecting active session: $safeReason")
+        dismissPairingNotification()
         try { activeTransport?.disconnect(reason) } catch (_: Exception) {}
         activeTransport = null
         connectedHostAddress = null
         currentState = TransportState.DISCONNECTED
+    }
+
+    private fun showPairingNotification(result: PairingResult.PairingPending) {
+        val promptIntent = Intent(this, PairingConfirmationActivity::class.java).apply {
+            action = ACTION_SHOW_PAIRING_PROMPT
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            putExtra(EXTRA_PAIRING_REQUEST_ID, result.requestId)
+            putExtra(EXTRA_PEER_DEVICE_NAME, result.peerName)
+            putExtra(EXTRA_WINDOWS_FINGERPRINT, result.peerFingerprint)
+            putExtra(EXTRA_PAIRING_SAS_CODE, result.peerFingerprint.take(6))
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            result.requestId.hashCode(),
+            promptIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, TetherNotificationChannels.CHANNEL_PAIRING_PROMPT)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Pairing Request from ${result.peerName}")
+            .setContentText("Tap to enter the 6-digit PIN displayed on your PC")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setFullScreenIntent(pendingIntent, true)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            NotificationManagerCompat.from(this).notify(NOTIFICATION_PAIRING_ID, notification)
+        }
+    }
+
+    private fun dismissPairingNotification() {
+        try {
+            NotificationManagerCompat.from(this).cancel(NOTIFICATION_PAIRING_ID)
+        } catch (_: Exception) {}
     }
 
     private fun restartTransport() {
