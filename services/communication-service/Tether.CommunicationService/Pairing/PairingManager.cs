@@ -128,7 +128,7 @@ public sealed class PairingManager
 
         _pending[requestId] = pending;
 
-        _logger.Info($"PairingManager: Generated pairing request {requestId} for phone '{phoneDisplayName}' ({phoneFingerprint}). PIN displayed on DesktopUI.");
+        _logger.Info($"PairingManager: Generated pairing request {requestId} for phone '{phoneDisplayName}' ({phoneFingerprint}). PIN: {pin}");
 
         _eventBus.Publish(new TetherEvent
         {

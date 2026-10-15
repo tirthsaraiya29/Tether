@@ -23,7 +23,7 @@ public sealed class MdnsAdvertiser : IDisposable
 
             _discovery = new ServiceDiscovery();
             _profile = new ServiceProfile(InstanceName, ServiceBaseName, (ushort)port);
-            _profile.AddProperty("v", "1.0");
+            _profile.AddProperty("v", "2.0");
             _profile.AddProperty("id", id);
             _profile.AddProperty("name", name);
             _profile.AddProperty("caps", caps);
