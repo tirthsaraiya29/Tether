@@ -16,7 +16,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Tether.Shared.Events;
 using Tether.Shared.IPC;
-// The volume control works but not brightness control. The brightness control is not working because the code is using the wrong method to set the brightness. The code is using the SetMonitorBrightness function, which only works for monitors that support the DDC/CI protocol. Many modern monitors do not support this protocol, so the function fails silently.
+
 namespace Tether.DesktopUI
 {
     [SupportedOSPlatform("windows")]
@@ -27,7 +27,11 @@ namespace Tether.DesktopUI
         private DispatcherTimer? _telemetryDebounceTimer;
         private bool _isInternalSliderChange = false;
         private bool _isClosingAnimated = false;
+        private uint _cachedBrightness = 50;
 
+        // =====================================================================
+        // COREAUDIO COM INTEROP
+        // =====================================================================
         [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
         internal class MMDeviceEnumerator { }
 
@@ -56,6 +60,9 @@ namespace Tether.DesktopUI
             [PreserveSig] int GetMasterVolumeLevelScalar(out float pfLevel);
         }
 
+        // =====================================================================
+        // WINDOWS DWM BACKDROP API
+        // =====================================================================
         [DllImport("dwmapi.dll", PreserveSig = true)]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
@@ -78,6 +85,30 @@ namespace Tether.DesktopUI
         private const int DWMSBT_MAINWINDOW = 2;
         private const int DWMSBT_TRANSIENTWINDOW = 3;
 
+        // =====================================================================
+        // WIN32 POWER SETTING API (INTERNAL DISPLAY BACKLIGHT)
+        // =====================================================================
+        [DllImport("powrprof.dll", SetLastError = true)]
+        private static extern uint PowerGetActiveScheme(IntPtr UserRootPowerKey, out IntPtr ActivePolicyGuid);
+
+        [DllImport("powrprof.dll", SetLastError = true)]
+        private static extern uint PowerSetActiveScheme(IntPtr UserRootPowerKey, ref Guid SchemeGuid);
+
+        [DllImport("powrprof.dll", SetLastError = true)]
+        private static extern uint PowerWriteACValueIndex(IntPtr RootPowerKey, ref Guid SchemeGuid, ref Guid SubGroupOfPowerSettingsGuid, ref Guid PowerSettingGuid, uint AcValueIndex);
+
+        [DllImport("powrprof.dll", SetLastError = true)]
+        private static extern uint PowerWriteDCValueIndex(IntPtr RootPowerKey, ref Guid SchemeGuid, ref Guid SubGroupOfPowerSettingsGuid, ref Guid PowerSettingGuid, uint DcValueIndex);
+
+        [DllImport("powrprof.dll", SetLastError = true)]
+        private static extern uint PowerReadACValueIndex(IntPtr RootPowerKey, ref Guid SchemeGuid, ref Guid SubGroupOfPowerSettingsGuid, ref Guid PowerSettingGuid, out uint AcValueIndex);
+
+        private static readonly Guid GUID_VIDEO_SUBGROUP = new Guid("7516b95f-f776-4464-8c53-06167f40cc99");
+        private static readonly Guid GUID_DEVICE_POWER_POLICY_VIDEO_BRIGHTNESS = new Guid("aded5e82-b909-4619-9949-f5d71dac0bcb");
+
+        // =====================================================================
+        // DXVA2 DDC/CI API (EXTERNAL MONITORS)
+        // =====================================================================
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
 
@@ -93,12 +124,6 @@ namespace Tether.DesktopUI
         [DllImport("dxva2.dll", SetLastError = true)]
         private static extern bool SetMonitorBrightness(IntPtr hMonitor, uint dwBrightness);
 
-        [DllImport("user32.dll")]
-        private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-
-        [DllImport("kernel32.dll")]
-        private static extern uint SetThreadExecutionState(uint esFlags);
-
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         private struct PHYSICAL_MONITOR
         {
@@ -106,6 +131,41 @@ namespace Tether.DesktopUI
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
             public string szPhysicalMonitorDescription;
         }
+
+        // =====================================================================
+        // GDI HARDWARE GAMMA RAMP API (UNIVERSAL HARDWARE FALLBACK)
+        // =====================================================================
+        [DllImport("gdi32.dll")]
+        private static extern bool SetDeviceGammaRamp(IntPtr hDC, ref RAMP lpRamp);
+
+        [DllImport("gdi32.dll")]
+        private static extern bool GetDeviceGammaRamp(IntPtr hDC, ref RAMP lpRamp);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetDC(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+        private struct RAMP
+        {
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)]
+            public ushort[] Red;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)]
+            public ushort[] Green;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)]
+            public ushort[] Blue;
+        }
+
+        // =====================================================================
+        // SYSTEM WAKE & INPUT SYNTHESIS
+        // =====================================================================
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint SetThreadExecutionState(uint esFlags);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct INPUT
@@ -123,6 +183,9 @@ namespace Tether.DesktopUI
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
+        // =====================================================================
+        // DPAPI VAULT API
+        // =====================================================================
         [DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern bool CryptProtectData(ref DATA_BLOB pDataIn, string? szDataDescr, ref DATA_BLOB pOptionalEntropy, IntPtr pvReserved, IntPtr pPromptStruct, uint dwFlags, ref DATA_BLOB pDataOut);
 
@@ -437,6 +500,9 @@ namespace Tether.DesktopUI
             SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
         }
 
+        // =====================================================================
+        // AUDIO ENDPOINT IMPLEMENTATION
+        // =====================================================================
         private float GetSystemMasterVolume()
         {
             var volume = GetAudioEndpointVolumeInterface();
@@ -471,45 +537,36 @@ namespace Tether.DesktopUI
             catch { return null; }
         }
 
-        private uint GetWmiBrightnessLevel()
-        {
-            try
-            {
-                Type? locatorType = Type.GetTypeFromProgID("WbemScripting.SWbemLocator");
-                if (locatorType == null) return 0;
-                dynamic locator = Activator.CreateInstance(locatorType)!;
-                dynamic service = locator.ConnectServer(".", "root\\wmi");
-                dynamic results = service.ExecQuery("SELECT CurrentBrightness FROM WmiMonitorBrightness");
-                foreach (dynamic obj in results)
-                {
-                    return (uint)obj.CurrentBrightness;
-                }
-            }
-            catch { }
-            return 0;
-        }
-
-        private bool SetWmiBrightnessLevel(uint level)
-        {
-            try
-            {
-                Type? locatorType = Type.GetTypeFromProgID("WbemScripting.SWbemLocator");
-                if (locatorType == null) return false;
-                dynamic locator = Activator.CreateInstance(locatorType)!;
-                dynamic service = locator.ConnectServer(".", "root\\wmi");
-                dynamic results = service.ExecQuery("SELECT * FROM WmiMonitorBrightnessMethods");
-                foreach (dynamic obj in results)
-                {
-                    obj.WmiSetBrightness(1, level);
-                    return true;
-                }
-            }
-            catch { }
-            return false;
-        }
-
+        // =====================================================================
+        // MULTI-TIERED BRIGHTNESS CONTROLLER
+        // Tier 1: Windows Power Setting API (Internal Displays / Native Slider)
+        // Tier 2: DXVA2 DDC/CI (External Hardware Displays)
+        // Tier 3: GDI Hardware Gamma Ramp (Universal Fallback)
+        // =====================================================================
         private uint GetMonitorBrightnessLevel()
         {
+            // Tier 1: Query Windows Native Power Scheme
+            try
+            {
+                if (PowerGetActiveScheme(IntPtr.Zero, out IntPtr activeGuidPtr) == 0 && activeGuidPtr != IntPtr.Zero)
+                {
+                    Guid activeScheme = Marshal.PtrToStructure<Guid>(activeGuidPtr);
+                    Guid subgroup = GUID_VIDEO_SUBGROUP;
+                    Guid setting = GUID_DEVICE_POWER_POLICY_VIDEO_BRIGHTNESS;
+
+                    if (PowerReadACValueIndex(IntPtr.Zero, ref activeScheme, ref subgroup, ref setting, out uint val) == 0)
+                    {
+                        if (val <= 100)
+                        {
+                            _cachedBrightness = val;
+                            return val;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // Tier 2: DXVA2 DDC/CI
             try
             {
                 IntPtr hMonitor = MonitorFromWindow(IntPtr.Zero, MONITOR_DEFAULTTOPRIMARY);
@@ -518,33 +575,100 @@ namespace Tether.DesktopUI
                 {
                     bool success = GetMonitorBrightness(monitors[0].hPhysicalMonitor, out _, out uint current, out _);
                     DestroyPhysicalMonitor(monitors[0].hPhysicalMonitor);
-                    if (success) return current;
+                    if (success && current <= 100)
+                    {
+                        _cachedBrightness = current;
+                        return current;
+                    }
                 }
             }
             catch { }
 
-            return GetWmiBrightnessLevel();
+            return _cachedBrightness;
         }
 
         private void SetMonitorBrightnessLevel(uint level)
         {
-            bool dxvaSuccess = false;
+            level = Math.Clamp(level, 0, 100);
+            _cachedBrightness = level;
+            bool hardwareControlled = false;
+
+            // Tier 1: Apply to Windows Native Power Scheme (Controls Laptop Backlight + Settings Slider)
+            try
+            {
+                if (PowerGetActiveScheme(IntPtr.Zero, out IntPtr activeGuidPtr) == 0 && activeGuidPtr != IntPtr.Zero)
+                {
+                    Guid activeScheme = Marshal.PtrToStructure<Guid>(activeGuidPtr);
+                    Guid subgroup = GUID_VIDEO_SUBGROUP;
+                    Guid setting = GUID_DEVICE_POWER_POLICY_VIDEO_BRIGHTNESS;
+
+                    uint resAc = PowerWriteACValueIndex(IntPtr.Zero, ref activeScheme, ref subgroup, ref setting, level);
+                    uint resDc = PowerWriteDCValueIndex(IntPtr.Zero, ref activeScheme, ref subgroup, ref setting, level);
+
+                    if (resAc == 0 || resDc == 0)
+                    {
+                        PowerSetActiveScheme(IntPtr.Zero, ref activeScheme);
+                        hardwareControlled = true;
+                    }
+                }
+            }
+            catch { }
+
+            // Tier 2: Apply to External Monitors via DXVA2 DDC/CI
             try
             {
                 IntPtr hMonitor = MonitorFromWindow(IntPtr.Zero, MONITOR_DEFAULTTOPRIMARY);
                 PHYSICAL_MONITOR[] monitors = new PHYSICAL_MONITOR[1];
                 if (GetPhysicalMonitorsFromHMONITOR(hMonitor, 1, monitors))
                 {
-                    dxvaSuccess = SetMonitorBrightness(monitors[0].hPhysicalMonitor, level);
+                    if (SetMonitorBrightness(monitors[0].hPhysicalMonitor, level))
+                    {
+                        hardwareControlled = true;
+                    }
                     DestroyPhysicalMonitor(monitors[0].hPhysicalMonitor);
                 }
             }
             catch { }
 
-            if (!dxvaSuccess)
+            // Tier 3: Universal Hardware Gamma Ramp Fallback
+            // If the monitor lacks DDC/CI or Windows power plan doesn't directly adjust luminescence,
+            // modulating the video LUT ensures the screen visually brightens/dims reliably.
+            if (!hardwareControlled)
             {
-                SetWmiBrightnessLevel(level);
+                ApplyHardwareGammaRamp(level);
             }
+        }
+
+        private void ApplyHardwareGammaRamp(uint level)
+        {
+            try
+            {
+                IntPtr hDC = GetDC(IntPtr.Zero);
+                if (hDC == IntPtr.Zero) return;
+
+                RAMP ramp = new RAMP
+                {
+                    Red = new ushort[256],
+                    Green = new ushort[256],
+                    Blue = new ushort[256]
+                };
+
+                // Map 0-100% brightness to gamma multipliers (minimum 10% luminance to prevent total blackout)
+                double factor = Math.Max(0.10, level / 100.0);
+
+                for (int i = 0; i < 256; i++)
+                {
+                    int value = (int)(i * 256.0 * factor);
+                    ushort clampedValue = (ushort)Math.Clamp(value, 0, 65535);
+                    ramp.Red[i] = clampedValue;
+                    ramp.Green[i] = clampedValue;
+                    ramp.Blue[i] = clampedValue;
+                }
+
+                SetDeviceGammaRamp(hDC, ref ramp);
+                ReleaseDC(IntPtr.Zero, hDC);
+            }
+            catch { }
         }
 
         private void SliderVolume_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
