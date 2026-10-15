@@ -84,10 +84,6 @@
                                        FontSize="14"
                                        FontWeight="Bold"
                                        Foreground="{StaticResource TextPrimaryBrush}"/>
-                            <TextBlock Text="CORE NODE v2.4"
-                                       FontFamily="{StaticResource MonoFontFamily}"
-                                       FontSize="9.5"
-                                       Foreground="{StaticResource TextMutedBrush}"/>
                         </StackPanel>
 
                         <Border Grid.Column="2"
