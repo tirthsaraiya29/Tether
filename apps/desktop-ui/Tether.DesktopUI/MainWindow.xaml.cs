@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
@@ -53,6 +54,28 @@ namespace Tether.DesktopUI
             [PreserveSig] int GetMasterVolumeLevel(out float pfLevelDB);
             [PreserveSig] int GetMasterVolumeLevelScalar(out float pfLevel);
         }
+
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        private static extern int DwmExtendFrameIntoClientArea(IntPtr hWnd, ref MARGINS pMarInset);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MARGINS
+        {
+            public int cxLeftWidth;
+            public int cxRightWidth;
+            public int cyTopHeight;
+            public int cyBottomHeight;
+        }
+
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+        private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+        private const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+        private const int DWMWCP_ROUND = 2;
+        private const int DWMSBT_MAINWINDOW = 2;       // Windows 11 Mica
+        private const int DWMSBT_TRANSIENTWINDOW = 3;  // Windows 11 Desktop Acrylic
 
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
@@ -125,6 +148,58 @@ namespace Tether.DesktopUI
 
             _ = RunTelemetryListenerAsync();
             InitializeHardwarePolling();
+        }
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            ApplyDwmGlassBackdrop();
+        }
+
+        private void ApplyDwmGlassBackdrop()
+        {
+            try
+            {
+                IntPtr hwnd = new WindowInteropHelper(this).Handle;
+                if (hwnd == IntPtr.Zero) return;
+
+                var hwndSource = HwndSource.FromHwnd(hwnd);
+                if (hwndSource?.CompositionTarget != null)
+                {
+                    hwndSource.CompositionTarget.BackgroundColor = Colors.Transparent;
+                }
+
+                MARGINS margins = new MARGINS
+                {
+                    cxLeftWidth = -1,
+                    cxRightWidth = -1,
+                    cyTopHeight = -1,
+                    cyBottomHeight = -1
+                };
+                DwmExtendFrameIntoClientArea(hwnd, ref margins);
+
+                int darkMode = 1;
+                DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int));
+
+                int cornerPreference = DWMWCP_ROUND;
+                DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPreference, sizeof(int));
+
+                // Prefer Desktop Acrylic (3) on Windows 11 22H2+ (Build 22621+), fallback to Mica (2)
+                int backdropType = Environment.OSVersion.Version.Build >= 22621
+                    ? DWMSBT_TRANSIENTWINDOW
+                    : DWMSBT_MAINWINDOW;
+
+                int hr = DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref backdropType, sizeof(int));
+                if (hr != 0)
+                {
+                    int micaFallback = DWMSBT_MAINWINDOW;
+                    DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref micaFallback, sizeof(int));
+                }
+            }
+            catch
+            {
+                // Graceful fallback to translucent obsidian XAML composition brush on unsupported OS builds
+            }
         }
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
