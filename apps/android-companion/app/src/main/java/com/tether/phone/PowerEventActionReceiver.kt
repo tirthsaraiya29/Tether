@@ -42,6 +42,9 @@ class PowerEventActionReceiver : BroadcastReceiver() {
                 nm.cancel(UnlockPromptNotifier.UNLOCK_NOTIFICATION_ID)
             }
             ACTION_REJECT -> {
+                prefs.edit {
+                    putBoolean("is_unlock_prompt_dismissed", true)
+                }
                 val nm = NotificationManagerCompat.from(context)
                 nm.cancel(POWER_EVENT_NOTIFICATION_ID)
                 nm.cancel(UnlockPromptNotifier.UNLOCK_NOTIFICATION_ID)

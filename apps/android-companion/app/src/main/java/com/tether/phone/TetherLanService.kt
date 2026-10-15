@@ -959,10 +959,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
                 when (eventType) {
                     "LOCK", "SLEEP", "HIBERNATE", "LOCKED", "WORKSTATION_LOCK", "SESSION_LOCK", "WTS_SESSION_LOCK", "LOCK_SCREEN", "DESKTOP_LOCK", "LOCK_NOW", "LOCKED_OUT", "LOCKOUT" -> {
+                        val wasUnlocked = (currentPowerState != LaptopPowerState.CONNECTED_LOCKED)
+                        if (wasUnlocked) {
+                            prefs.edit { putBoolean("is_unlock_prompt_dismissed", false) }
+                        }
                         currentPowerState = LaptopPowerState.CONNECTED_LOCKED
                         postPowerEventNotification(eventType, timestamp)
                     }
                     "UNLOCK" -> {
+                        prefs.edit { putBoolean("is_unlock_prompt_dismissed", false) }
                         currentPowerState = LaptopPowerState.CONNECTED_UNLOCKED
                     }
                     "SHUTDOWN", "POWER_OFF" -> {
@@ -987,6 +992,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 Log.i(TAG, "Command response from Windows host: $safeConfirmed (success=$success, reason=$safeReason, vol=$currentVolumeLevel)")
                 if (safeConfirmed.equals("unlock", ignoreCase = true) && success) {
                     currentPowerState = LaptopPowerState.CONNECTED_UNLOCKED
+                    getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit { putBoolean("is_unlock_prompt_dismissed", false) }
                     updateUnlockNotificationState()
                 }
                 mainHandler.post {
@@ -1001,6 +1007,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             }
             "HARDWARE_METRICS", "LAPTOP_STATE" -> {
+                val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
                 val vol = json.optInt("volumeLevel", -1)
                 val bright = json.optInt("brightnessLevel", -1)
                 if ((vol >= 0) && (vol <= 100)) {
@@ -1024,10 +1031,17 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
                 val lockState = json.optString("lockState", "")
                 if (lockState.equals("UNLOCKED", ignoreCase = true)) {
+                    if (currentPowerState != LaptopPowerState.CONNECTED_UNLOCKED) {
+                        prefs.edit { putBoolean("is_unlock_prompt_dismissed", false) }
+                    }
                     currentPowerState = LaptopPowerState.CONNECTED_UNLOCKED
                 } else if (lockState.equals("LOCKED", ignoreCase = true) || lockState.equals("SLEEP", ignoreCase = true) || lockState.equals("HIBERNATE", ignoreCase = true) || lockState.equals("WORKSTATION_LOCK", ignoreCase = true)) {
+                    val wasUnlocked = (currentPowerState != LaptopPowerState.CONNECTED_LOCKED)
                     currentPowerState = LaptopPowerState.CONNECTED_LOCKED
-                    postPowerEventNotification("LOCK", System.currentTimeMillis())
+                    val isPromptDismissed = prefs.getBoolean("is_unlock_prompt_dismissed", false)
+                    if (wasUnlocked && !isPromptDismissed) {
+                        postPowerEventNotification("LOCK", System.currentTimeMillis())
+                    }
                 }
                 updateUnlockNotificationState()
                 val wpB64 = json.optString("wallpaperB64", json.optString("wallpaper", ""))
@@ -1042,6 +1056,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun postPowerEventNotification(eventType: String, timestamp: Long) {
+        val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
+        val isPromptDismissed = prefs.getBoolean("is_unlock_prompt_dismissed", false)
+        if (isPromptDismissed) {
+            val safeEventType = sanitizeLog(eventType)
+            Log.i(TAG, "Unlock prompt for $safeEventType at $timestamp is dismissed for current lock session; skipping notification.")
+            return
+        }
         val upperType = eventType.uppercase()
         val allowedTypes = setOf(
             "LOCK", "SLEEP", "HIBERNATE", "LOCKED", "WORKSTATION_LOCK",
