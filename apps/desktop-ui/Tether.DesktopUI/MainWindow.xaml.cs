@@ -757,22 +757,6 @@ namespace Tether.DesktopUI
             LogTerminal("⚠ PIPE // Could not reach Tether service – verify service process status.");
         }
 
-        private void BtnUnlockOverride_Click(object sender, RoutedEventArgs e)
-        {
-            WakeSystemDisplayAndInput();
-
-            TxtStatus.Text = "INTERLOCK OVERRIDDEN";
-            IndicatorNode.Fill = GetFluentStatusBrush("StatusHealthyBrush", Color.FromRgb(106, 237, 126));
-
-            var evt = new TetherEvent
-            {
-                EventType = TetherEventType.PHONE_UNLOCKED,
-                Source = "DesktopUI"
-            };
-            DispatchServiceBusPipe(evt);
-            LogTerminal("✓ OVERRIDE // Manual interlock bypass dispatched and display input awakened.");
-        }
-
         private void BtnLockdownOverride_Click(object sender, RoutedEventArgs e)
         {
             LockWorkStation();
