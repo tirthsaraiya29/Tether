@@ -75,7 +75,7 @@ class TetherTlsTransport(
         sslSock.useClientMode = true
 
         val sslParams = sslSock.sslParameters
-        sslParams.endpointIdentificationAlgorithm = null
+        sslParams.endpointIdentificationAlgorithm = "HTTPS"
         sslSock.sslParameters = sslParams
 
         sslSock.enabledProtocols = arrayOf("TLSv1.3")
@@ -152,9 +152,9 @@ class TetherTlsTransport(
 
             private fun checkPinning(
                 chain: Array<out X509Certificate>?,
-                authType: String?,
-                socket: java.net.Socket? = null,
-                engine: javax.net.ssl.SSLEngine? = null,
+                @Suppress("UNUSED_PARAMETER") authType: String?,
+                @Suppress("UNUSED_PARAMETER") socket: java.net.Socket? = null,
+                @Suppress("UNUSED_PARAMETER") engine: javax.net.ssl.SSLEngine? = null,
             ) {
                 if (chain.isNullOrEmpty()) {
                     throw CertificateException("Server certificate chain is null or empty")
