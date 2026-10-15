@@ -69,6 +69,9 @@ namespace Tether.DesktopUI
         [DllImport("dwmapi.dll", PreserveSig = true)]
         private static extern int DwmExtendFrameIntoClientArea(IntPtr hWnd, ref MARGINS pMarInset);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool LockWorkStation();
+
         [StructLayout(LayoutKind.Sequential)]
         private struct MARGINS
         {
@@ -772,6 +775,7 @@ namespace Tether.DesktopUI
 
         private void BtnLockdownOverride_Click(object sender, RoutedEventArgs e)
         {
+            LockWorkStation();
             var evt = new TetherEvent
             {
                 EventType = TetherEventType.PANIC_TRIGGERED,
