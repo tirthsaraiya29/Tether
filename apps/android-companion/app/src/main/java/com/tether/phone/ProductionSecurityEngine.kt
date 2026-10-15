@@ -32,19 +32,20 @@ class ProductionSecurityEngine {
         private const val PINNED_WINDOWS_KEY_PREF = "pinned_windows_public_key_enc"
 
         private const val GCM_IV_LENGTH_BYTES = 12
-
         private const val GCM_TAG_LENGTH_BITS = 128
 
         private val secureRandom = SecureRandom()
+
+        @Volatile
+        private var cachedPublicKeyBytes: ByteArray? = null
     }
 
-    init {
-        ensureIdentityKeyPairExists()
-        ensureStorageKeyExists()
+    private val keyStore: KeyStore by lazy {
+        KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
     }
 
+    @Synchronized
     private fun ensureIdentityKeyPairExists() {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         if (!keyStore.containsAlias(EC_IDENTITY_ALIAS)) {
             Log.i(TAG, "Generating new hardware-backed EC identity key pair in AndroidKeyStore...")
             val kpg = KeyPairGenerator.getInstance(
@@ -67,8 +68,8 @@ class ProductionSecurityEngine {
         }
     }
 
+    @Synchronized
     private fun ensureStorageKeyExists() {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         if (!keyStore.containsAlias(STORAGE_KEY_ALIAS)) {
             Log.i(TAG, "Generating hardware AES-256 storage key in AndroidKeyStore...")
             val keyGenerator = KeyGenerator.getInstance(
@@ -101,12 +102,11 @@ class ProductionSecurityEngine {
 
     private fun loadStorageKey(): SecretKey {
         ensureStorageKeyExists()
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         return keyStore.getKey(STORAGE_KEY_ALIAS, null) as SecretKey
     }
 
     fun getIdentityPrivateKey(): PrivateKey {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        ensureIdentityKeyPairExists()
         return keyStore.getKey(EC_IDENTITY_ALIAS, null) as PrivateKey
     }
 
@@ -134,14 +134,17 @@ class ProductionSecurityEngine {
     }
 
     fun getIdentityCertificate(): X509Certificate {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        ensureIdentityKeyPairExists()
         val cert = keyStore.getCertificate(EC_IDENTITY_ALIAS)
         return (cert as? X509Certificate)
             ?: throw IllegalStateException("Failed to load X509Certificate for alias $EC_IDENTITY_ALIAS")
     }
 
     fun getIdentityPublicKeyBytes(): ByteArray {
-        return getIdentityCertificate().publicKey.encoded
+        cachedPublicKeyBytes?.let { return it }
+        val bytes = getIdentityCertificate().publicKey.encoded
+        cachedPublicKeyBytes = bytes
+        return bytes
     }
 
     private fun encryptBytes(data: ByteArray): String {
