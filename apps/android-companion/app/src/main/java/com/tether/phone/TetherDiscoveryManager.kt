@@ -150,10 +150,9 @@ class NsdResolveQueue(
                 nsdManager.registerServiceInfoCallback(item.serviceInfo, executor, callback)
             } else {
                 try {
-                    NsdManager::class.java.getMethod("resolveService", NsdServiceInfo::class.java, NsdManager.ResolveListener::class.java)
-                        .invoke(nsdManager, item.serviceInfo, resolveListener)
+                    nsdManager.resolveService(item.serviceInfo, resolveListener)
                 } catch (e: Exception) {
-                    Log.e("NsdResolveQueue", "Legacy resolveService reflection failed: ${e.message}")
+                    Log.e("NsdResolveQueue", "Legacy resolveService failed: ${e.message}")
                 }
             }
         } catch (e: Exception) {
@@ -280,34 +279,41 @@ class TetherDiscoveryManager(
 
     private fun startUdpBroadcastDiscovery() {
         isSearching = true
+        val phonePublicKey = securityEngine.getPublicKeyBytes()
+        val phoneId = securityEngine.computePublicKeyFingerprint(phonePublicKey)
+        val deviceName = "Tether-Android-${Build.MODEL}"
+
+        val probeJson = JSONObject().apply {
+            put("type", "TETHER_DISCOVERY_PROBE")
+            put("deviceId", phoneId)
+            put("deviceName", deviceName)
+            put("tcpPort", DEFAULT_PORT)
+        }
+        val probeBytes = probeJson.toString().toByteArray(StandardCharsets.UTF_8)
+
         udpWorkerThread = Thread {
             try {
                 val socket = DatagramSocket(UDP_DISCOVERY_PORT).apply {
                     broadcast = true
-                    soTimeout = 2000
+                    soTimeout = 1000
                 }
                 udpSocket = socket
-
-                val phonePublicKey = securityEngine.getPublicKeyBytes()
-                val phoneId = securityEngine.computePublicKeyFingerprint(phonePublicKey)
-                val deviceName = "Tether-Android-${Build.MODEL}"
-
-                val probeJson = JSONObject().apply {
-                    put("type", "TETHER_DISCOVERY_PROBE")
-                    put("deviceId", phoneId)
-                    put("deviceName", deviceName)
-                    put("tcpPort", DEFAULT_PORT)
-                }
-                val probeBytes = probeJson.toString().toByteArray(StandardCharsets.UTF_8)
                 val broadcastAddr = InetAddress.getByName("255.255.255.255")
+
+                val probeThread = Thread {
+                    while (isSearching && !Thread.currentThread().isInterrupted) {
+                        try {
+                            val sendPacket = DatagramPacket(probeBytes, probeBytes.size, broadcastAddr, UDP_DISCOVERY_PORT)
+                            socket.send(sendPacket)
+                        } catch (_: Exception) {}
+                        try { Thread.sleep(3000) } catch (_: InterruptedException) { break }
+                    }
+                }.apply { start() }
 
                 val buffer = ByteArray(2048)
 
                 while (isSearching && !Thread.currentThread().isInterrupted) {
                     try {
-                        val sendPacket = DatagramPacket(probeBytes, probeBytes.size, broadcastAddr, UDP_DISCOVERY_PORT)
-                        socket.send(sendPacket)
-
                         val recvPacket = DatagramPacket(buffer, buffer.size)
                         socket.receive(recvPacket)
 
@@ -315,16 +321,11 @@ class TetherDiscoveryManager(
                         val json = JSONObject(responseStr)
                         val type = json.optString("type", "")
 
-                        // ONLY process TETHER_DISCOVERY_RESPONSE packets from actual Windows PCs!
-                        // Ignore TETHER_DISCOVERY_PROBE (which is sent by client phones like ourselves).
                         if (type == "TETHER_DISCOVERY_RESPONSE") {
                             val hostAddr = recvPacket.address.hostAddress ?: continue
                             val devId = json.optString("deviceId", hostAddr)
 
-                            // Ignore loopback or responses matching our own phone device ID
-                            if (devId == phoneId) {
-                                continue
-                            }
+                            if (devId == phoneId) continue
 
                             val devName = json.optString("deviceName", "Tether Windows PC")
                             val tcpPort = json.optInt("tcpPort", DEFAULT_PORT)
@@ -336,21 +337,19 @@ class TetherDiscoveryManager(
                                 port = tcpPort,
                             )
 
-                            val existing = discoveredDevices[devId]
-                            if ((existing == null) || (existing.hostAddress != hostAddr) || (existing.port != tcpPort)) {
-                                Log.i(TAG, "UDP Broadcast Discovered Tether device: $device")
-                                discoveredDevices[devId] = device
-                                mainHandler.post { externalListener?.onDeviceDiscovered(device) }
-                            }
+                            Log.i(TAG, "UDP Broadcast Discovered Tether device: $device")
+                            discoveredDevices[devId] = device
+                            mainHandler.post { externalListener?.onDeviceDiscovered(device) }
                         }
                     } catch (_: SocketTimeoutException) {
+                        // Normal socket timeout when no response arrives in 1s; loop and continue receiving
                     } catch (e: Exception) {
                         if (!isSearching) break
                         Log.d(TAG, "UDP receive exception: ${e.message}")
                     }
-
-                    try { Thread.sleep(3000) } catch (_: InterruptedException) { break }
                 }
+
+                try { probeThread.interrupt() } catch (_: Exception) {}
             } catch (e: Exception) {
                 Log.w(TAG, "Could not bind UDP discovery socket on $UDP_DISCOVERY_PORT: ${e.message}")
             }
