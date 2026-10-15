@@ -29,9 +29,6 @@ namespace Tether.DesktopUI
         private bool _isClosingAnimated = false;
         private uint _cachedBrightness = 50;
 
-        // =====================================================================
-        // COREAUDIO COM INTEROP
-        // =====================================================================
         [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
         internal class MMDeviceEnumerator { }
 
@@ -60,9 +57,6 @@ namespace Tether.DesktopUI
             [PreserveSig] int GetMasterVolumeLevelScalar(out float pfLevel);
         }
 
-        // =====================================================================
-        // WINDOWS DWM BACKDROP API
-        // =====================================================================
         [DllImport("dwmapi.dll", PreserveSig = true)]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
@@ -88,9 +82,6 @@ namespace Tether.DesktopUI
         private const int DWMSBT_MAINWINDOW = 2;
         private const int DWMSBT_TRANSIENTWINDOW = 3;
 
-        // =====================================================================
-        // WIN32 POWER SETTING API (INTERNAL DISPLAY BACKLIGHT)
-        // =====================================================================
         [DllImport("powrprof.dll", SetLastError = true)]
         private static extern uint PowerGetActiveScheme(IntPtr UserRootPowerKey, out IntPtr ActivePolicyGuid);
 
@@ -109,9 +100,6 @@ namespace Tether.DesktopUI
         private static readonly Guid GUID_VIDEO_SUBGROUP = new Guid("7516b95f-f776-4464-8c53-06167f40cc99");
         private static readonly Guid GUID_DEVICE_POWER_POLICY_VIDEO_BRIGHTNESS = new Guid("aded5e82-b909-4619-9949-f5d71dac0bcb");
 
-        // =====================================================================
-        // DXVA2 DDC/CI API (EXTERNAL MONITORS)
-        // =====================================================================
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
 
@@ -135,9 +123,6 @@ namespace Tether.DesktopUI
             public string szPhysicalMonitorDescription;
         }
 
-        // =====================================================================
-        // GDI HARDWARE GAMMA RAMP API (UNIVERSAL HARDWARE FALLBACK)
-        // =====================================================================
         [DllImport("gdi32.dll")]
         private static extern bool SetDeviceGammaRamp(IntPtr hDC, ref RAMP lpRamp);
 
@@ -161,9 +146,6 @@ namespace Tether.DesktopUI
             public ushort[] Blue;
         }
 
-        // =====================================================================
-        // SYSTEM WAKE & INPUT SYNTHESIS
-        // =====================================================================
         [DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
@@ -186,9 +168,6 @@ namespace Tether.DesktopUI
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
-        // =====================================================================
-        // DPAPI VAULT API
-        // =====================================================================
         [DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern bool CryptProtectData(ref DATA_BLOB pDataIn, string? szDataDescr, ref DATA_BLOB pOptionalEntropy, IntPtr pvReserved, IntPtr pPromptStruct, uint dwFlags, ref DATA_BLOB pDataOut);
 
@@ -261,30 +240,8 @@ namespace Tether.DesktopUI
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            var entranceStoryboard = new Storyboard();
-
-            var scaleXAnim = new DoubleAnimation(0.96, 1.0, new Duration(TimeSpan.FromSeconds(0.35))) { DecelerationRatio = 0.9 };
-            Storyboard.SetTarget(scaleXAnim, WindowScale);
-            Storyboard.SetTargetProperty(scaleXAnim, new PropertyPath(ScaleTransform.ScaleXProperty));
-
-            var scaleYAnim = new DoubleAnimation(0.96, 1.0, new Duration(TimeSpan.FromSeconds(0.35))) { DecelerationRatio = 0.9 };
-            Storyboard.SetTarget(scaleYAnim, WindowScale);
-            Storyboard.SetTargetProperty(scaleYAnim, new PropertyPath(ScaleTransform.ScaleYProperty));
-
-            var translateAnim = new DoubleAnimation(20.0, 0.0, new Duration(TimeSpan.FromSeconds(0.35))) { DecelerationRatio = 0.9 };
-            Storyboard.SetTarget(translateAnim, WindowTranslate);
-            Storyboard.SetTargetProperty(translateAnim, new PropertyPath(TranslateTransform.YProperty));
-
-            var opacityAnim = new DoubleAnimation(0.0, 1.0, new Duration(TimeSpan.FromSeconds(0.25)));
-            Storyboard.SetTarget(opacityAnim, this);
-            Storyboard.SetTargetProperty(opacityAnim, new PropertyPath(Window.OpacityProperty));
-
-            entranceStoryboard.Children.Add(scaleXAnim);
-            entranceStoryboard.Children.Add(scaleYAnim);
-            entranceStoryboard.Children.Add(translateAnim);
-            entranceStoryboard.Children.Add(opacityAnim);
-
-            entranceStoryboard.Begin();
+            var opacityAnim = new DoubleAnimation(0.0, 1.0, new Duration(TimeSpan.FromSeconds(0.2)));
+            BeginAnimation(OpacityProperty, opacityAnim);
         }
 
         private void BtnMinimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
@@ -301,16 +258,8 @@ namespace Tether.DesktopUI
                 e.Cancel = true;
                 _isClosingAnimated = true;
 
-                var fadeOut = new DoubleAnimation(1.0, 0.0, new Duration(TimeSpan.FromSeconds(0.2)));
-                var scaleX = new DoubleAnimation(1.0, 0.96, new Duration(TimeSpan.FromSeconds(0.25)));
-                var scaleY = new DoubleAnimation(1.0, 0.96, new Duration(TimeSpan.FromSeconds(0.25)));
-                var translate = new DoubleAnimation(0.0, 20.0, new Duration(TimeSpan.FromSeconds(0.25)));
-
+                var fadeOut = new DoubleAnimation(1.0, 0.0, new Duration(TimeSpan.FromSeconds(0.15)));
                 fadeOut.Completed += (s, ev) => Close();
-
-                WindowScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleX);
-                WindowScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleY);
-                WindowTranslate.BeginAnimation(TranslateTransform.YProperty, translate);
                 BeginAnimation(OpacityProperty, fadeOut);
             }
             else
@@ -503,9 +452,6 @@ namespace Tether.DesktopUI
             SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
         }
 
-        // =====================================================================
-        // AUDIO ENDPOINT IMPLEMENTATION
-        // =====================================================================
         private float GetSystemMasterVolume()
         {
             var volume = GetAudioEndpointVolumeInterface();
@@ -540,15 +486,8 @@ namespace Tether.DesktopUI
             catch { return null; }
         }
 
-        // =====================================================================
-        // MULTI-TIERED BRIGHTNESS CONTROLLER
-        // Tier 1: Windows Power Setting API (Internal Displays / Native Slider)
-        // Tier 2: DXVA2 DDC/CI (External Hardware Displays)
-        // Tier 3: GDI Hardware Gamma Ramp (Universal Fallback)
-        // =====================================================================
         private uint GetMonitorBrightnessLevel()
         {
-            // Tier 1: Query Windows Native Power Scheme
             try
             {
                 if (PowerGetActiveScheme(IntPtr.Zero, out IntPtr activeGuidPtr) == 0 && activeGuidPtr != IntPtr.Zero)
@@ -569,7 +508,6 @@ namespace Tether.DesktopUI
             }
             catch { }
 
-            // Tier 2: DXVA2 DDC/CI
             try
             {
                 IntPtr hMonitor = MonitorFromWindow(IntPtr.Zero, MONITOR_DEFAULTTOPRIMARY);
@@ -596,7 +534,6 @@ namespace Tether.DesktopUI
             _cachedBrightness = level;
             bool hardwareControlled = false;
 
-            // Tier 1: Apply to Windows Native Power Scheme (Controls Laptop Backlight + Settings Slider)
             try
             {
                 if (PowerGetActiveScheme(IntPtr.Zero, out IntPtr activeGuidPtr) == 0 && activeGuidPtr != IntPtr.Zero)
@@ -617,7 +554,6 @@ namespace Tether.DesktopUI
             }
             catch { }
 
-            // Tier 2: Apply to External Monitors via DXVA2 DDC/CI
             try
             {
                 IntPtr hMonitor = MonitorFromWindow(IntPtr.Zero, MONITOR_DEFAULTTOPRIMARY);
@@ -633,9 +569,6 @@ namespace Tether.DesktopUI
             }
             catch { }
 
-            // Tier 3: Universal Hardware Gamma Ramp Fallback
-            // If the monitor lacks DDC/CI or Windows power plan doesn't directly adjust luminescence,
-            // modulating the video LUT ensures the screen visually brightens/dims reliably.
             if (!hardwareControlled)
             {
                 ApplyHardwareGammaRamp(level);
@@ -656,7 +589,6 @@ namespace Tether.DesktopUI
                     Blue = new ushort[256]
                 };
 
-                // Map 0-100% brightness to gamma multipliers (minimum 10% luminance to prevent total blackout)
                 double factor = Math.Max(0.10, level / 100.0);
 
                 for (int i = 0; i < 256; i++)

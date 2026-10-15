@@ -5,6 +5,7 @@
         Height="820" Width="1160"
         MinHeight="720" MinWidth="1020"
         WindowStyle="None"
+        ResizeMode="CanResize"
         Background="{StaticResource WindowBackgroundBrush}"
         WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
@@ -23,14 +24,7 @@
 
     <Border BorderBrush="{StaticResource GlassSpecularBorderBrush}"
             BorderThickness="1">
-        <Grid x:Name="LayoutRoot" RenderTransformOrigin="0.5,0.5">
-            <Grid.RenderTransform>
-                <TransformGroup>
-                    <ScaleTransform x:Name="WindowScale" ScaleX="0.96" ScaleY="0.96"/>
-                    <TranslateTransform x:Name="WindowTranslate" Y="20"/>
-                </TransformGroup>
-            </Grid.RenderTransform>
-
+        <Grid x:Name="LayoutRoot">
             <Grid.RowDefinitions>
                 <RowDefinition Height="44"/>
                 <RowDefinition Height="*"/>
@@ -42,10 +36,10 @@
             </Grid.ColumnDefinitions>
 
             <!-- ============================================================= -->
-            <!-- TOP FULL-BLEED TITLEBAR AREA (FLUSH TO TOP EDGE)               -->
+            <!-- TOP FLUSH TITLEBAR (ROW 0)                                    -->
             <!-- ============================================================= -->
 
-            <!-- Top-Left Branding Header -->
+            <!-- Left Header: Aligned at Y=0 -->
             <Border Grid.Row="0"
                     Grid.Column="0"
                     Background="{StaticResource RailBackgroundBrush}"
@@ -93,7 +87,7 @@
                 </Grid>
             </Border>
 
-            <!-- Top-Right Drag Region and Flush Caption Buttons -->
+            <!-- Right Header: Drag Area & Window Buttons Flush at Y=0 -->
             <Grid Grid.Row="0"
                   Grid.Column="1"
                   Background="{StaticResource TitleBarBackgroundBrush}">
@@ -102,7 +96,6 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Drag Area -->
                 <StackPanel Grid.Column="0"
                             Orientation="Horizontal"
                             VerticalAlignment="Center"
@@ -127,7 +120,6 @@
                                VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Caption Buttons (Flush with the Top and Right Border) -->
                 <StackPanel Grid.Column="1"
                             Orientation="Horizontal"
                             HorizontalAlignment="Right"
@@ -164,7 +156,7 @@
             </Grid>
 
             <!-- ============================================================= -->
-            <!-- LEFT NAVIGATION RAIL (CONTENT BODY)                           -->
+            <!-- LEFT NAVIGATION RAIL (ROW 1)                                  -->
             <!-- ============================================================= -->
             <Border Grid.Row="1"
                     Grid.Column="0"
@@ -287,11 +279,11 @@
             </Border>
 
             <!-- ============================================================= -->
-            <!-- MAIN WORKSPACE CONTENT CANVAS                                 -->
+            <!-- MAIN CONTENT CANVAS (ROW 1)                                   -->
             <!-- ============================================================= -->
             <Grid Grid.Row="1"
                   Grid.Column="1"
-                  Margin="24,16,24,24">
+                  Margin="24,14,24,24">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="1.08*"/>
                     <ColumnDefinition Width="20"/>
@@ -305,7 +297,7 @@
                               Padding="0,0,4,0">
                     <StackPanel>
 
-                        <!-- Core Security Network Pipeline -->
+                        <!-- Security Pipeline -->
                         <Border Style="{StaticResource GlassPanel}">
                             <Grid>
                                 <Grid.RowDefinitions>
@@ -392,7 +384,7 @@
                             </Grid>
                         </Border>
 
-                        <!-- Hardware Device Layer -->
+                        <!-- Hardware Layer -->
                         <Border Style="{StaticResource GlassPanel}">
                             <StackPanel>
                                 <TextBlock Text="COREAUDIO COM &amp; WIN32 BACKENDS"
@@ -484,7 +476,7 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Local DPAPI Vault -->
+                        <!-- DPAPI Vault -->
                         <Border Style="{StaticResource GlassPanel}" Margin="0">
                             <StackPanel>
                                 <Grid Margin="0,0,0,6">
@@ -535,7 +527,7 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <!-- RIGHT COLUMN: EVENT MONITOR & LOCKDOWN -->
+                <!-- RIGHT COLUMN -->
                 <Grid Grid.Column="2">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
@@ -616,7 +608,6 @@
                         </Grid>
                     </Border>
 
-                    <!-- Dedicated Emergency Lockdown Button -->
                     <Button x:Name="BtnLockdownOverride"
                             Grid.Row="1"
                             Margin="0,16,0,0"
