@@ -178,7 +178,7 @@ Communication across Windows processes uses named pipes configured with strict A
 
 | Platform | Target Version | Architecture | Framework / Runtime |
 | :--- | :--- | :--- | :--- |
-| **Windows** | Windows 10 / 11 | x64 | .NET 8, C++ (Win32 APIs) |
+| **Windows** | Windows 10 / 11 | x64 | .NET 10, C++ (Win32 APIs) |
 | **Android** | Android 12 (API 31) – 14+ | ARM64 / x86_64 | Kotlin, Jetpack Compose, API 37 |
 
 ---
@@ -190,7 +190,7 @@ Communication across Windows processes uses named pipes configured with strict A
   - *Desktop development with C++*
   - *.NET Desktop Development*
 - **Windows SDK** (10.0.22621.0 or later)
-- **.NET 8 SDK**
+- **.NET 10 SDK**
 - **CMake** & **MSBuild**
 
 ### Android Development & Build Environment
@@ -340,5 +340,5 @@ No license has been specified for this project yet. All rights reserved.
 
 ## Acknowledgements
 
-- Built with [.NET 8](https://dotnet.microsoft.com/), [Jetpack Compose](https://developer.android.com/jetpack/compose), and [BouncyCastle](https://www.bouncycastle.org/).
+- Built with [.NET 10](https://dotnet.microsoft.com/), [Jetpack Compose](https://developer.android.com/jetpack/compose), and [BouncyCastle](https://www.bouncycastle.org/).
 - Inspired by modern zero-trust architecture principles and local-first software design.
