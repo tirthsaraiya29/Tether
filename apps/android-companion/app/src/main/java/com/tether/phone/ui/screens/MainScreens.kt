@@ -790,8 +790,7 @@ fun PairingScreen(
     windowsFingerprint: String = "",
     onInitiatePairing: () -> Unit = {},
     onCancelPairing: () -> Unit = {},
-    onForgetTrust: () -> Unit = {},
-    onShowQR: () -> Unit
+    onForgetTrust: () -> Unit = {}
 ) {
     var visible by remember { mutableStateOf(value = false) }
     LaunchedEffect(Unit) { visible = true }
@@ -937,12 +936,6 @@ fun PairingScreen(
                         )
                     }
                 }
-
-                TacticalAction(
-                    label = stringResource(R.string.btn_show_pairing_qr),
-                    accentColor = TextSecondary,
-                    onClick = onShowQR
-                )
             }
         }
     }
@@ -1059,7 +1052,6 @@ fun TetherNavigationShell(
     onSelectLaptop: () -> Unit,
     onTriggerStepVerification: (TrustVerificationStep) -> Unit,
     onLaptopActionClick: (String) -> Unit,
-    onShowQR: () -> Unit,
     onRestartServer: () -> Unit,
     onInitiatePairing: () -> Unit = {},
     onCancelPairing: () -> Unit = {},
@@ -1226,8 +1218,7 @@ fun TetherNavigationShell(
                             windowsFingerprint = windowsFingerprint,
                             onInitiatePairing = onInitiatePairing,
                             onCancelPairing = onCancelPairing,
-                            onForgetTrust = onForgetTrust,
-                            onShowQR = onShowQR
+                            onForgetTrust = onForgetTrust
                         )
                         AppScreen.REMOTE_INPUT -> RemoteInputScreen(
                             transportState = TetherLanService.instance?.currentState ?: TransportState.DISCONNECTED
