@@ -180,6 +180,52 @@ namespace Tether.DesktopUI
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         private struct DATA_BLOB { public int cbData; public IntPtr pbData; }
 
+        // ---------------------------------------------------------------
+        // Windows Service Control Manager (SCM) interop
+        // ---------------------------------------------------------------
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SERVICE_STATUS
+        {
+            public uint dwServiceType;
+            public uint dwCurrentState;
+            public uint dwControlsAccepted;
+            public uint dwWin32ExitCode;
+            public uint dwServiceSpecificExitCode;
+            public uint dwCheckPoint;
+            public uint dwWaitHint;
+        }
+
+        private const uint SC_MANAGER_CONNECT = 0x0001;
+        private const uint SERVICE_QUERY_STATUS = 0x0004;
+        private const uint SERVICE_START = 0x0010;
+        private const uint SERVICE_STOP = 0x0020;
+
+        private const uint SERVICE_CONTROL_STOP = 0x00000001;
+        private const uint SERVICE_STOPPED = 0x00000001;
+        private const uint SERVICE_RUNNING = 0x00000004;
+
+        private const int ERROR_SERVICE_ALREADY_RUNNING = 1056;
+
+        private const string CommServiceName = "TetherCommService";
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern IntPtr OpenSCManager(string? lpMachineName, string? lpDatabaseName, uint dwDesiredAccess);
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern IntPtr OpenService(IntPtr hSCManager, string lpServiceName, uint dwDesiredAccess);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool QueryServiceStatus(IntPtr hService, out SERVICE_STATUS lpServiceStatus);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool ControlService(IntPtr hService, uint dwControl, ref SERVICE_STATUS lpServiceStatus);
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool StartService(IntPtr hService, int dwNumServiceArgs, string[]? lpServiceArgVectors);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool CloseServiceHandle(IntPtr hSCObject);
+
         private const uint MONITOR_DEFAULTTOPRIMARY = 0x00000001;
         private const uint WM_SYSCOMMAND = 0x0112;
         private const uint SC_MONITORPOWER = 0xF170;
@@ -699,6 +745,105 @@ namespace Tether.DesktopUI
             };
             DispatchServiceBusPipe(evt);
             LogTerminal("⚠ OVERRIDE // System lockdown event dispatched.");
+        }
+
+        // ---------------------------------------------------------------
+        // TetherCommService restart (Windows SCM)
+        // ---------------------------------------------------------------
+        private async void BtnRestartService_Click(object sender, RoutedEventArgs e)
+        {
+            BtnRestartService.IsEnabled = false;
+            try
+            {
+                LogTerminal($"⚙ SERVICE // Restart requested for '{CommServiceName}'...");
+                await RestartCommServiceAsync();
+            }
+            finally
+            {
+                BtnRestartService.IsEnabled = true;
+            }
+        }
+
+        private async Task<bool> RestartCommServiceAsync()
+        {
+            IntPtr scmHandle = IntPtr.Zero;
+            IntPtr serviceHandle = IntPtr.Zero;
+
+            try
+            {
+                scmHandle = OpenSCManager(null, null, SC_MANAGER_CONNECT);
+                if (scmHandle == IntPtr.Zero)
+                {
+                    LogTerminal("❌ SERVICE // Cannot open Service Control Manager. Run Tether Desktop as Administrator.");
+                    return false;
+                }
+
+                serviceHandle = OpenService(scmHandle, CommServiceName,
+                    SERVICE_QUERY_STATUS | SERVICE_START | SERVICE_STOP);
+
+                if (serviceHandle == IntPtr.Zero)
+                {
+                    int err = Marshal.GetLastWin32Error();
+                    LogTerminal($"❌ SERVICE // OpenService('{CommServiceName}') failed (Win32 {err}). Is it installed?");
+                    return false;
+                }
+
+                if (!QueryServiceStatus(serviceHandle, out SERVICE_STATUS status))
+                {
+                    LogTerminal("❌ SERVICE // QueryServiceStatus failed.");
+                    return false;
+                }
+
+                if (status.dwCurrentState != SERVICE_STOPPED)
+                {
+                    SERVICE_STATUS stopStatus = default;
+                    if (!ControlService(serviceHandle, SERVICE_CONTROL_STOP, ref stopStatus))
+                    {
+                        int err = Marshal.GetLastWin32Error();
+                        LogTerminal($"❌ SERVICE // Stop request rejected (Win32 {err}).");
+                        return false;
+                    }
+
+                    LogTerminal($"⏳ SERVICE // Stop signal sent to '{CommServiceName}', awaiting STOPPED state...");
+
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    while (sw.ElapsedMilliseconds < 15000)
+                    {
+                        await Task.Delay(400);
+                        if (!QueryServiceStatus(serviceHandle, out status)) break;
+                        if (status.dwCurrentState == SERVICE_STOPPED) break;
+                    }
+
+                    if (status.dwCurrentState != SERVICE_STOPPED)
+                    {
+                        LogTerminal("❌ SERVICE // Service did not reach STOPPED within 15s. Aborting restart.");
+                        return false;
+                    }
+                }
+
+                if (!StartService(serviceHandle, 0, null))
+                {
+                    int err = Marshal.GetLastWin32Error();
+                    if (err != ERROR_SERVICE_ALREADY_RUNNING)
+                    {
+                        LogTerminal($"❌ SERVICE // StartService failed (Win32 {err}).");
+                        return false;
+                    }
+                }
+
+                LogTerminal($"✓ SERVICE // '{CommServiceName}' restart sequence executed successfully.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"❌ SERVICE // Exception while restarting: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                if (serviceHandle != IntPtr.Zero) CloseServiceHandle(serviceHandle);
+                if (scmHandle != IntPtr.Zero) CloseServiceHandle(scmHandle);
+            }
         }
 
         private void BtnCommitVault_Click(object sender, RoutedEventArgs e)
