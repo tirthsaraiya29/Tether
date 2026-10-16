@@ -2,7 +2,7 @@
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
 
-		<TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
+		<TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
 		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
 		<UseWindowsForms>true</UseWindowsForms>
 		<Nullable>enable</Nullable>
@@ -16,7 +16,6 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
 		<PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
-		<PackageReference Include="System.Threading.AccessControl" Version="10.0.8" />
 		<PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
 		<PackageReference Include="System.Management" Version="8.0.0" />
 		<PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
@@ -37,7 +36,7 @@
 		  Properties="Configuration=$(Configuration);Platform=AnyCPU" />
 
 		<ItemGroup>
-			<SessionHelperFiles Include="..\Tether.SessionHelper\bin\$(Configuration)\net8.0-windows\win-x64\publish\Tether.SessionHelper.exe" />
+			<SessionHelperFiles Include="..\Tether.SessionHelper\bin\$(Configuration)\net10.0-windows\win-x64\publish\Tether.SessionHelper.exe" />
 		</ItemGroup>
 
 		<Copy
