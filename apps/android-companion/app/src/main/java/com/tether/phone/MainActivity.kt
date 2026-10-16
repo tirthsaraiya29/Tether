@@ -2,23 +2,18 @@ package com.tether.phone
 
 import android.Manifest
 import android.content.BroadcastReceiver
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.net.ConnectivityManager
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.text.InputType
-import android.util.Base64
 import android.util.Log
 import android.view.WindowManager
 import android.widget.EditText
-import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -415,12 +410,6 @@ class MainActivity : FragmentActivity() {
                                         }
                                     }
                                 },
-                                onShowQR = {
-                                    getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
-                                        putLong("pairing_window_start_time", System.currentTimeMillis())
-                                    }
-                                    showPairingQRCode()
-                                },
                                 onRestartServer = ::restartLanServer,
                                 onInitiatePairing = ::initiatePairing,
                                 onCancelPairing = ::cancelPairing,
@@ -679,76 +668,6 @@ class MainActivity : FragmentActivity() {
         isConnected.value = false
     }
 
-    private fun getWifiIpAddress(): String? {
-        return try {
-            val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as? ConnectivityManager
-            val activeNetwork = connectivityManager?.activeNetwork
-            if (activeNetwork != null) {
-                val linkProperties = connectivityManager.getLinkProperties(activeNetwork)
-                linkProperties?.linkAddresses?.forEach { linkAddress ->
-                    val addr = linkAddress.address
-                    if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
-                        return addr.hostAddress
-                    }
-                }
-            }
-            val interfaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return null
-            for (intf in interfaces) {
-                if (!intf.isUp || intf.isLoopback) continue
-                for (addr in intf.inetAddresses) {
-                    if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
-                        return addr.hostAddress
-                    }
-                }
-            }
-            null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun showPairingQRCode() {
-        try {
-            val publicKeyBytes = securityEngine.getPublicKeyBytes()
-            val base64Key = Base64.encodeToString(publicKeyBytes, Base64.NO_WRAP)
-            val wifiIp = getWifiIpAddress() ?: "0.0.0.0"
-
-            val qrContent = "TETHER:JOIN:$wifiIp|37123|$base64Key"
-            val qrBitmap = QRCodeGenerator.generateQRCode(qrContent)
-
-            runOnUiThread {
-                val imageView = ImageView(this).apply {
-                    setImageBitmap(qrBitmap)
-                    setPadding(40, 40, 40, 40)
-                }
-
-                AlertDialog.Builder(this)
-                    .setTitle(getString(R.string.dialog_pairing_title))
-                    .setMessage(getString(R.string.dialog_pairing_message))
-                    .setView(imageView)
-                    .setPositiveButton(getString(R.string.btn_done)) { _, _ ->
-                        getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
-                            putLong("pairing_window_start_time", 0L)
-                        }
-                    }
-                    .setNegativeButton(getString(R.string.btn_copy_key)) { _, _ ->
-                        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("TetherPublicKey", base64Key))
-                    }
-                    .setOnDismissListener {
-                        getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
-                            putLong("pairing_window_start_time", 0L)
-                        }
-                    }
-                    .show()
-            }
-        } catch (e: Exception) {
-            runOnUiThread {
-                Log.e("TetherActivity", "QR Generation failed", e)
-            }
-        }
-    }
-
     private fun executeVerificationPipeline(nextStep: TrustVerificationStep) {
         currentVerificationStep.value = nextStep
         if (nextStep == TrustVerificationStep.DEVICE_CREDENTIAL) {
@@ -827,34 +746,6 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun handleScannedQr(raw: String) {
-        if (raw.startsWith("TETHER:KEY:")) {
-            val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
-            val savedIp = prefs.getString("saved_host_ip", null)
-            if (!savedIp.isNullOrBlank()) {
-                val intent = Intent(this, TetherLanService::class.java).apply {
-                    action = TetherLanService.ACTION_CONNECT_DIRECT
-                    putExtra("target_ip", savedIp)
-                }
-                startForegroundService(intent)
-            }
-            return
-        }
-        if (!raw.startsWith("TETHER:JOIN:")) return
-        val body = raw.removePrefix("TETHER:JOIN:")
-        val parts = body.split("|")
-        val ip = if (parts.size >= 3) parts[2] else parts[0]
-        val portStr = if (parts.size >= 4) parts[3] else "37123"
-        val port = portStr.toIntOrNull() ?: 37123
-
-        val intent = Intent(this, TetherLanService::class.java).apply {
-            action = TetherLanService.ACTION_CONNECT_DIRECT
-            putExtra("target_ip", ip)
-            putExtra("target_port", port)
-        }
-        startForegroundService(intent)
-    }
-
     private fun showLaptopSelectionDialog() {
         runOnUiThread {
             val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
@@ -873,9 +764,7 @@ class MainActivity : FragmentActivity() {
                 .setView(input)
                 .setPositiveButton("CONNECT") { _, _ ->
                     val enteredText = input.text.toString().trim()
-                    if (enteredText.startsWith("TETHER:JOIN:")) {
-                        handleScannedQr(enteredText)
-                    } else if (enteredText.isNotEmpty()) {
+                    if (enteredText.isNotEmpty()) {
                         prefs.edit { putString("saved_host_ip", enteredText) }
                         val intent = Intent(this, TetherLanService::class.java).apply {
                             action = TetherLanService.ACTION_CONNECT_DIRECT
