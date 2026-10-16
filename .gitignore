@@ -69,3 +69,25 @@ data/logs/
 data/secure-storage/
 *.docx
 "codes copier.py"
+
+# -----------------------------------------------------------------------------
+# Inno Setup — installer build artifacts
+# -----------------------------------------------------------------------------
+# Published payload staged for the installer. Populated by `dotnet publish`
+# into installer/pack — never committed.
+installer/pack/
+
+# Installer output (Tether-Setup-<version>.exe produced by ISCC).
+installer/output/
+
+# Inno Setup compiler logs (produced when SetupLogging=yes is enabled).
+installer/*.log
+installer/*.tmp
+
+# -----------------------------------------------------------------------------
+# Service runtime state (written next to the exe during local dev)
+# -----------------------------------------------------------------------------
+# The CommunicationService writes Serilog logs and the helper may drop
+# state files during development runs. These should never be committed.
+*.jsonl
+logs/
