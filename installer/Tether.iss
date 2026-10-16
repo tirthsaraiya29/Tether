@@ -22,7 +22,8 @@
 #define MyServiceDesc       "Tether background communication service: discovery, TLS transport, session orchestration."
 
 #define MyCredProvDll       "TetherCredentialProvider.dll"
-#define MyCredProvGuid      "{c8c8d282-f4f1-451d-96fc-a8b1f783117b}"
+; Escaped double-brace '{{' prevents Inno from treating the GUID as a variable
+#define MyCredProvGuid      "{{c8c8d282-f4f1-451d-96fc-a8b1f783117b}"
 #define MyCredProvName      "TetherCredentialProvider"
 
 ; Compile-time relative path to published files
@@ -82,9 +83,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 english.InstallServiceTask=Install and configure Tether background service
 english.FirewallTask=Add Windows Firewall rules (TCP 37123, UDP 37124)
 english.DesktopShortcutTask=Create a desktop shortcut for Tether
-english.LaunchUITask=Launch Tether Desktop UI
+english.LaunchUITask=Launch Tether Desktop UI with administrator privileges
 english.VaultUninstallPrompt=Tether stores encrypted credentials in HKLM\SOFTWARE\Tether.%n%nDo you want to permanently erase this stored vault data?%n%nSelect 'No' to preserve your pairing for future installations.
-english.ServiceStarting=Starting {#MyServiceDisplay}...
+english.ServiceStarting=Registering and starting {#MyServiceDisplay}...
 english.ServiceStopping=Stopping {#MyServiceDisplay}...
 english.StoppingExisting=Stopping existing Tether service...
 english.PreparePrereq=Checking and retrieving prerequisites...
@@ -112,8 +113,9 @@ Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyDesktopUIExeName}"; T
 
 [Registry]
 ; ---------------------------------------------------------------------------
-;  Credential Provider Registration (Must be 64-bit hive)
+;  Credential Provider Registration — 1:1 match with register.reg
 ; ---------------------------------------------------------------------------
+; 1. COM CLSID InprocServer32 Entry
 Root: HKLM64; Subkey: "SOFTWARE\Classes\CLSID\{#MyCredProvGuid}"; \
     ValueType: string; ValueName: ""; ValueData: "{#MyCredProvName}"; \
     Flags: uninsdeletekey
@@ -125,14 +127,20 @@ Root: HKLM64; Subkey: "SOFTWARE\Classes\CLSID\{#MyCredProvGuid}\InprocServer32";
 Root: HKLM64; Subkey: "SOFTWARE\Classes\CLSID\{#MyCredProvGuid}\InprocServer32"; \
     ValueType: string; ValueName: "ThreadingModel"; ValueData: "Apartment"
 
+; 2. Windows Logon Credential Provider
 Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{#MyCredProvGuid}"; \
     ValueType: string; ValueName: ""; ValueData: "{#MyCredProvName}"; \
     Flags: uninsdeletekey
 
-; Encrypted configuration and secure pairing store
+; 3. Windows Logon Credential Provider Filter
+Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{#MyCredProvGuid}"; \
+    ValueType: string; ValueName: ""; ValueData: "{#MyCredProvName}"; \
+    Flags: uninsdeletekey
+
+; 4. Encrypted configuration and secure pairing store
 Root: HKLM64; Subkey: "SOFTWARE\{#MyAppName}"; Flags: createvalueifdoesntexist
 
-; Shell App Paths registration
+; 5. Shell App Paths registration
 Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{#MyDesktopUIExeName}"; \
     ValueType: string; ValueName: ""; ValueData: "{app}\{#MyDesktopUIExeName}"; \
     Flags: uninsdeletekey
@@ -151,44 +159,15 @@ Filename: "{sys}\netsh.exe"; \
     Flags: runhidden waituntilterminated; \
     Tasks: firewall
 
-; Service Installation & Recovery Policy
-Filename: "{sys}\sc.exe"; \
-    Parameters: "create {#MyServiceName} binPath= """"{app}\{#MyAppExeName}"""" start= auto DisplayName= ""{#MyServiceDisplay}"""; \
-    Flags: runhidden waituntilterminated; \
-    Tasks: installservice
-
-Filename: "{sys}\sc.exe"; \
-    Parameters: "description {#MyServiceName} ""{#MyServiceDesc}"""; \
-    Flags: runhidden waituntilterminated; \
-    Tasks: installservice
-
-Filename: "{sys}\sc.exe"; \
-    Parameters: "failure {#MyServiceName} reset= 86400 actions= restart/5000/restart/10000/restart/30000"; \
-    Flags: runhidden waituntilterminated; \
-    Tasks: installservice
-
-Filename: "{sys}\sc.exe"; \
-    Parameters: "start {#MyServiceName}"; \
-    Flags: runhidden waituntilterminated; \
-    Tasks: installservice; StatusMsg: "{cm:ServiceStarting}"
-
-; Post-install launch
+; Post-install launch with administrator privileges
 Filename: "{app}\{#MyDesktopUIExeName}"; \
+    Verb: "runas"; \
     Description: "{cm:LaunchUITask}"; \
-    Flags: nowait postinstall skipifsilent; \
+    Flags: shellexec nowait postinstall skipifsilent; \
     Tasks: launchui
 
 [UninstallRun]
-Filename: "{sys}\sc.exe"; \
-    Parameters: "stop {#MyServiceName}"; \
-    Flags: runhidden waituntilterminated; \
-    RunOnceId: "StopTetherService"
-
-Filename: "{sys}\sc.exe"; \
-    Parameters: "delete {#MyServiceName}"; \
-    Flags: runhidden waituntilterminated; \
-    RunOnceId: "DeleteTetherService"
-
+; Clean firewall rules
 Filename: "{sys}\netsh.exe"; \
     Parameters: "advfirewall firewall delete rule name=""Tether Protocol (TCP-In)"""; \
     Flags: runhidden waituntilterminated; \
@@ -210,13 +189,24 @@ Type: filesandordirs; Name: "{commonappdata}\Tether"
 [Code]
 
 const
-  SERVICE_STOPPED       = $00000001;
-  SERVICE_START_PENDING = $00000002;
-  SERVICE_RUNNING       = $00000004;
+  { Service States }
+  SERVICE_STOPPED          = $00000001;
+  SERVICE_START_PENDING    = $00000002;
+  SERVICE_STOP_PENDING     = $00000003;
+  SERVICE_RUNNING          = $00000004;
 
-  SC_MANAGER_CONNECT    = $0001;
-  SERVICE_QUERY_STATUS  = $0004;
-  SERVICE_STOP          = $0020;
+  { Service Access Rights }
+  SC_MANAGER_CONNECT       = $0001;
+  SC_MANAGER_CREATE_SERVICE= $0002;
+  SERVICE_QUERY_STATUS     = $0004;
+  SERVICE_START            = $0010;
+  SERVICE_STOP             = $0020;
+  SERVICE_ALL_ACCESS       = $F01FF;
+
+  { Service Configuration Flags }
+  SERVICE_WIN32_OWN_PROCESS= $00000010;
+  SERVICE_AUTO_START       = $00000002;
+  SERVICE_ERROR_NORMAL     = $00000001;
 
 type
   TServiceStatus = record
@@ -238,6 +228,18 @@ function OpenSCManager(lpMachineName, lpDatabaseName: string; dwDesiredAccess: D
 function OpenService(hSCManager: THandle; lpServiceName: string; dwDesiredAccess: DWORD): THandle;
   external 'OpenServiceW@advapi32.dll stdcall';
 
+function CreateService(
+  hSCManager: THandle;
+  lpServiceName, lpDisplayName: string;
+  dwDesiredAccess, dwServiceType, dwStartType, dwErrorControl: DWORD;
+  lpBinaryPathName, lpLoadOrderGroup: string;
+  lpdwTagId: DWORD;
+  lpDependencies, lpServiceStartName, lpPassword: string): THandle;
+  external 'CreateServiceW@advapi32.dll stdcall';
+
+function StartService(hService: THandle; dwNumServiceArgs: DWORD; lpServiceArgVectors: DWORD): BOOL;
+  external 'StartServiceW@advapi32.dll stdcall';
+
 function QueryServiceStatus(hService: THandle; var lpServiceStatus: TServiceStatus): BOOL;
   external 'QueryServiceStatus@advapi32.dll stdcall';
 
@@ -253,7 +255,7 @@ procedure SHChangeNotify(wEventId: Integer; uFlags: Cardinal; dwItem1, dwItem2: 
 procedure Sleep(dwMilliseconds: DWORD);
   external 'Sleep@kernel32.dll stdcall';
 
-{ --- Service Utilities --- }
+{ --- Service Operations --- }
 
 function ServiceExists(const ServiceName: string): Boolean;
 var
@@ -319,6 +321,62 @@ begin
   Exec(ExpandConstant('{sys}\sc.exe'), 'delete ' + ServiceName, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
+function InstallAndStartTetherService(): Boolean;
+var
+  SCM, Svc: THandle;
+  BinPath: string;
+  ResultCode: Integer;
+begin
+  Result := False;
+  SCM := OpenSCManager('', '', SC_MANAGER_CONNECT or SC_MANAGER_CREATE_SERVICE);
+  if SCM = 0 then Exit;
+
+  try
+    BinPath := '"' + ExpandConstant('{app}\{#MyAppExeName}') + '"';
+    Svc := CreateService(
+      SCM,
+      '{#MyServiceName}',
+      '{#MyServiceDisplay}',
+      SERVICE_ALL_ACCESS,
+      SERVICE_WIN32_OWN_PROCESS,
+      SERVICE_AUTO_START,
+      SERVICE_ERROR_NORMAL,
+      BinPath,
+      '', 0, '', '', ''
+    );
+
+    if Svc = 0 then
+    begin
+      { If creation failed because it already exists, open it }
+      Svc := OpenService(SCM, '{#MyServiceName}', SERVICE_ALL_ACCESS);
+    end;
+
+    if Svc <> 0 then
+    begin
+      try
+        { Configure description and recovery actions }
+        Exec(ExpandConstant('{sys}\sc.exe'),
+             'description {#MyServiceName} "{#MyServiceDesc}"',
+             '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+        Exec(ExpandConstant('{sys}\sc.exe'),
+             'failure {#MyServiceName} reset= 86400 actions= restart/5000/restart/10000/restart/30000',
+             '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+        { Start the service }
+        StartService(Svc, 0, 0);
+        Result := True;
+      finally
+        CloseServiceHandle(Svc);
+      end;
+    end;
+  finally
+    CloseServiceHandle(SCM);
+  end;
+end;
+
+{ --- Process Management --- }
+
 procedure KillProcessByName(const ProcessName: string);
 var
   ResultCode: Integer;
@@ -334,7 +392,7 @@ begin
   Sleep(500);
 end;
 
-{ --- Prerequisite Checking --- }
+{ --- Prerequisite Detection --- }
 
 function IsVCRedistInstalled(const Arch: String): Boolean;
 var
@@ -375,7 +433,7 @@ begin
   Result := Found;
 end;
 
-{ --- Download Page Initialization --- }
+{ --- Inno Setup Event Hooks --- }
 
 procedure InitializeWizard();
 begin
@@ -419,7 +477,6 @@ begin
           Exit;
         end;
 
-        { Silent installations }
         if NeedVcx64 then
         begin
           Vcx64Path := ExpandConstant('{tmp}\vc_redist.x64.exe');
@@ -460,14 +517,34 @@ begin
   StopAllTetherProcesses();
 end;
 
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    { Direct Win32 API installation of the Windows Service }
+    if WizardIsTaskSelected('installservice') then
+    begin
+      WizardForm.StatusLabel.Caption := ExpandConstant('{cm:ServiceStarting}');
+      InstallAndStartTetherService();
+    end;
+
+    SHChangeNotify($08000000, 0, 0, 0); { SHCNE_ASSOCCHANGED }
+  end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   VaultKey: String;
 begin
   if CurUninstallStep = usUninstall then
   begin
+    { Stop and remove background service before files get cleaned }
+    StopServiceIfRunning('{#MyServiceName}');
+    DeleteServiceSilently('{#MyServiceName}');
+
     StopAllTetherProcesses();
 
+    { Optional purge of the encrypted credentials vault }
     VaultKey := 'SOFTWARE\{#MyAppName}';
     if RegKeyExists(HKLM64, VaultKey) then
     begin
@@ -476,13 +553,5 @@ begin
         RegDeleteKeyIncludingSubkeys(HKLM64, VaultKey);
       end;
     end;
-  end;
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  if CurStep = ssPostInstall then
-  begin
-    SHChangeNotify($08000000, 0, 0, 0); { SHCNE_ASSOCCHANGED }
   end;
 end;
