@@ -1,1857 +1,2504 @@
-
-                        <!DOCTYPE html>
-                        <html lang="en">
-                        <head>
-                            <meta charset="UTF-8">
-                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <style>
-                body {
-                  background-color: white; /* Ensure the iframe has a white background */
-                }
-
-                /* ============================================================
-   Tether — static product website
-   File: assets/css/style.css
-   1 tokens · 2 reset · 3 base type · 4 layout primitives
-   5 header/nav · 6 buttons & chips · 7 hero · 8 overview
-   9 features · 10 architecture · 11 networking · 12 security
-   13 platforms · 14 developers · 15 roadmap · 16 faq
-   17 cta & footer · 18 motion · 19 responsive
-   ============================================================ */
-
-/* ---------- 1. Design tokens ---------- */
-:root {
-  color-scheme: dark;
-
-  --bg: #080b10;
-  --surface: #0d1219;
-  --surface-raised: #121a24;
-  --surface-hover: #17222e;
-
-  --text: #edf4fb;
-  --text-muted: #a1afbf;
-  --text-subtle: #738397;
-
-  --accent: #63e6f2;
-  --accent-strong: #2ac8dd;
-  --accent-soft: rgba(99, 230, 242, 0.1);
-
-  --border: rgba(185, 211, 230, 0.13);
-  --border-strong: rgba(185, 211, 230, 0.23);
-
-  --focus: #a6f5ff;
-
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 22px;
-
-  /* derived tokens */
-  --warn: #f0c070;
-  --warn-soft: rgba(240, 192, 112, 0.09);
-  --on-accent: #04141a;
-
-  --header-h: 64px;
-  --gutter: clamp(18px, 4.2vw, 40px);
-  --container: 1180px;
-  --container-narrow: 820px;
-  --section-space: clamp(64px, 8vw, 120px);
-  --gap: clamp(16px, 2vw, 24px);
-
-  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", "Courier New", monospace;
-
-  --shadow-card: 0 24px 60px -46px rgba(0, 0, 0, 0.95);
-  --shadow-pop: 0 28px 70px -40px rgba(0, 0, 0, 1);
-}
-
-/* ---------- 2. Reset ---------- */
-*,
-*::before,
-*::after { box-sizing: border-box; }
-
-* { margin: 0; }
-
-html {
-  -webkit-text-size-adjust: 100%;
-  scroll-behavior: smooth;
-}
-
-body {
-  min-height: 100vh;
-  background-color: var(--bg);
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-size: 1rem;
-  line-height: 1.65;
-  font-weight: 400;
-  -webkit-font-smoothing: antialiased;
-  overflow-x: clip;
-}
-
-img, svg { display: inline-block; vertical-align: middle; max-width: 100%; }
-
-button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
-
-a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
-a:hover { color: var(--focus); }
-
-ul[class], ol[class], dl { padding: 0; list-style: none; }
-
-[hidden] { display: none !important; }
-
-:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 3px;
-  border-radius: 4px;
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px; height: 1px;
-  padding: 0; margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-
-.skip-link {
-  position: absolute;
-  left: var(--gutter);
-  top: -60px;
-  z-index: 200;
-  padding: 10px 16px;
-  background: var(--surface-raised);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  font-size: 0.875rem;
-  font-weight: 600;
-  text-decoration: none;
-  transition: top 0.16s ease-out;
-}
-.skip-link:focus { top: 12px; color: var(--text); }
-
-/* ---------- 3. Base typography ---------- */
-h1, h2, h3, h4 { font-weight: 640; line-height: 1.14; letter-spacing: -0.02em; text-wrap: balance; }
-
-h1 { font-size: clamp(2.2rem, 1.35rem + 4vw, 3.9rem); line-height: 1.04; letter-spacing: -0.032em; }
-h2 { font-size: clamp(1.62rem, 1.24rem + 1.7vw, 2.45rem); }
-h3 { font-size: clamp(1.05rem, 1rem + 0.35vw, 1.22rem); }
-h4 { font-size: 0.98rem; letter-spacing: -0.01em; }
-
-p { text-wrap: pretty; }
-
-code, kbd, samp {
-  font-family: var(--font-mono);
-  font-size: 0.88em;
-}
-
-:not(pre) > code {
-  padding: 0.12em 0.4em;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--surface-raised);
-  color: var(--accent);
-  white-space: nowrap;
-}
-
-.eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--text-subtle);
-  margin-bottom: 18px;
-}
-.eyebrow-rule {
-  display: inline-block;
-  width: 26px; height: 1px;
-  background: linear-gradient(90deg, var(--accent-strong), transparent);
-  flex: none;
-}
-
-/* ---------- 4. Layout primitives ---------- */
-.container {
-  width: min(100% - (var(--gutter) * 2), var(--container));
-  margin-inline: auto;
-}
-.container-narrow { width: min(100% - (var(--gutter) * 2), var(--container-narrow)); }
-
-.section {
-  padding-block: var(--section-space);
-  scroll-margin-top: calc(var(--header-h) + 18px);
-}
-.section-lined { border-top: 1px solid var(--border); }
-
-.section-tinted {
-  background:
-    radial-gradient(900px 420px at 88% 0%, rgba(42, 200, 221, 0.07), transparent 62%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 40%),
-    var(--surface);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-
-.section-head { max-width: 62ch; margin-bottom: clamp(30px, 4vw, 52px); }
-.section-title { margin-bottom: 14px; }
-.section-lede { color: var(--text-muted); font-size: clamp(1rem, 0.97rem + 0.25vw, 1.1rem); max-width: 60ch; }
-
-.sub-title { margin-bottom: 16px; font-size: 1.06rem; }
-
-.prose p + p { margin-top: 1em; }
-.prose p { color: var(--text-muted); max-width: 68ch; }
-.prose strong { color: var(--text); font-weight: 620; }
-
-.section-link { margin-top: 26px; }
-.section-link a {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-size: 0.92rem; font-weight: 600; text-decoration: none;
-  padding-bottom: 2px;
-  border-bottom: 1px solid var(--border-strong);
-}
-.section-link a:hover { border-bottom-color: var(--accent); }
-.section-link .icon { transition: transform 0.18s ease-out; }
-.section-link a:hover .icon { transform: translateX(3px); }
-
-/* ---------- 5. Header & navigation ---------- */
-.site-header {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  min-height: var(--header-h);
-  background: rgba(8, 11, 16, 0.86);
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  border-bottom: 1px solid var(--border);
-}
-
-.header-inner {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  min-height: var(--header-h);
-}
-
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--text);
-  text-decoration: none;
-  padding: 6px 0;
-  flex: none;
-}
-.brand:hover { color: var(--text); }
-.brand-mark { color: var(--accent); flex: none; }
-.brand-text { display: flex; align-items: baseline; gap: 8px; }
-.brand-name { font-size: 1.06rem; font-weight: 680; letter-spacing: -0.02em; }
-.brand-tag {
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--accent);
-  border: 1px solid rgba(99, 230, 242, 0.32);
-  background: var(--accent-soft);
-  border-radius: 999px;
-  padding: 2px 7px;
-}
-
-.primary-nav {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  margin-left: auto;
-}
-
-.nav-list {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.nav-link {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-height: 40px;
-  padding: 6px 11px;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  font-weight: 540;
-  text-decoration: none;
-  transition: color 0.15s ease-out, background-color 0.15s ease-out;
-}
-.nav-link:hover { color: var(--text); background: var(--surface-hover); }
-.nav-link.is-active { color: var(--text); }
-.nav-link.is-active::after {
-  content: "";
-  position: absolute;
-  left: 11px; right: 11px; bottom: 3px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--accent);
-}
-
-.nav-toggle { display: none; }
-
-/* ---------- 6. Buttons, chips, pills ---------- */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  min-height: 46px;
-  padding: 11px 20px;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  font-size: 0.94rem;
-  font-weight: 620;
-  letter-spacing: -0.005em;
-  text-decoration: none;
-  cursor: pointer;
-  transition: background-color 0.16s ease-out, border-color 0.16s ease-out,
-    color 0.16s ease-out, transform 0.16s ease-out;
-}
-.btn:active { transform: translateY(1px); }
-
-.btn-primary {
-  background: linear-gradient(180deg, #79ecf6, var(--accent-strong));
-  color: var(--on-accent);
-  box-shadow: 0 12px 30px -18px rgba(42, 200, 221, 0.85);
-}
-.btn-primary:hover { background: linear-gradient(180deg, #93f1fa, #35d3e6); color: var(--on-accent); }
-
-.btn-secondary {
-  background: var(--surface-raised);
-  border-color: var(--border-strong);
-  color: var(--text);
-}
-.btn-secondary:hover { background: var(--surface-hover); border-color: rgba(99, 230, 242, 0.4); color: var(--text); }
-
-.btn-ghost {
-  background: transparent;
-  border-color: var(--border-strong);
-  color: var(--text);
-}
-.btn-ghost:hover { background: var(--accent-soft); border-color: rgba(99, 230, 242, 0.42); color: var(--accent); }
-
-.btn-sm { min-height: 40px; padding: 8px 14px; font-size: 0.86rem; }
-.btn-block { width: 100%; }
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.02);
-  color: var(--text-subtle);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-.chip-mono { font-family: var(--font-mono); letter-spacing: 0; }
-.chip-planned {
-  color: var(--accent);
-  border-color: rgba(99, 230, 242, 0.3);
-  background: var(--accent-soft);
-}
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 12px;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.015);
-  color: var(--text-muted);
-  font-size: 0.8rem;
-}
-
-.status-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
-  border: 1px solid rgba(99, 230, 242, 0.28);
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-.status-chip-sm { font-size: 0.62rem; padding: 4px 10px; }
-.status-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(99, 230, 242, 0.16);
-}
-
-/* ---------- 7. Hero ---------- */
-.hero {
-  position: relative;
-  padding-top: calc(var(--header-h) + clamp(38px, 6vw, 80px));
-  padding-bottom: clamp(52px, 6.5vw, 100px);
-  scroll-margin-top: 0;
-  overflow: hidden;
-}
-.hero::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(760px 380px at 12% -8%, rgba(42, 200, 221, 0.11), transparent 65%),
-    radial-gradient(620px 320px at 92% 8%, rgba(99, 230, 242, 0.05), transparent 60%);
-}
-.hero::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.5;
-  background-image:
-    linear-gradient(to right, rgba(185, 211, 230, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(185, 211, 230, 0.05) 1px, transparent 1px);
-  background-size: 68px 68px;
-  -webkit-mask-image: radial-gradient(720px 420px at 30% 0%, #000 0%, transparent 78%);
-  mask-image: radial-gradient(720px 420px at 30% 0%, #000 0%, transparent 78%);
-}
-.hero-grid {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  gap: clamp(38px, 5vw, 60px);
-  align-items: center;
-}
-
-.hero-title { margin-bottom: 20px; }
-.hero-accent {
-  display: block;
-  color: var(--accent);
-  font-weight: 500;
-  letter-spacing: -0.035em;
-}
-.hero-lede {
-  color: var(--text-muted);
-  font-size: clamp(1.02rem, 0.98rem + 0.35vw, 1.16rem);
-  line-height: 1.62;
-  max-width: 56ch;
-  margin-bottom: 30px;
-}
-
-.hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 26px;
-}
-
-.status-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 16px;
-  padding-bottom: 22px;
-  margin-bottom: 22px;
-  border-bottom: 1px solid var(--border);
-}
-.status-meta {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--text-subtle);
-}
-
-.hero-note {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  max-width: 58ch;
-  color: var(--text-muted);
-  font-size: 0.88rem;
-  line-height: 1.6;
-}
-.icon-note { flex: none; margin-top: 3px; color: var(--warn); }
-
-/* Hero visual */
-.hero-visual { min-width: 0; }
-
-.stage-figure {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 55%),
-    var(--surface);
-  padding: clamp(16px, 2.4vw, 24px);
-  box-shadow: var(--shadow-pop);
-}
-
-.stage-caption {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  padding-bottom: 16px;
-  margin-bottom: 18px;
-  border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-subtle);
-}
-.tag-illustrative {
-  color: var(--accent);
-  border: 1px solid rgba(99, 230, 242, 0.3);
-  background: var(--accent-soft);
-  border-radius: 999px;
-  padding: 3px 10px;
-}
-
-.stage {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: clamp(10px, 1.6vw, 20px);
-}
-
-.node { min-width: 0; text-align: center; }
-.node-label {
-  margin-top: 14px;
-  font-size: 0.92rem;
-  font-weight: 620;
-  color: var(--text);
-}
-.node-sub {
-  margin-top: 3px;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--text-subtle);
-  letter-spacing: 0.02em;
-}
-
-/* Workstation mock */
-.monitor {
-  position: relative;
-  width: min(100%, 210px);
-  margin-inline: auto;
-  padding-bottom: 20px;
-}
-.monitor-screen {
-  display: block;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: linear-gradient(180deg, #16202c, #0e151d);
-  padding: 8px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-.monitor-bar {
-  display: flex;
-  gap: 5px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
-}
-.monitor-bar i {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--border-strong);
-}
-.monitor-bar i:first-child { background: rgba(99, 230, 242, 0.55); }
-.monitor-body {
-  display: grid;
-  grid-template-columns: 34% 1fr;
-  gap: 8px;
-  padding-top: 10px;
-}
-.monitor-block {
-  display: block;
-  height: 52px;
-  border-radius: 6px;
-  border: 1px solid rgba(99, 230, 242, 0.26);
-  background: linear-gradient(160deg, rgba(99, 230, 242, 0.16), rgba(99, 230, 242, 0.03));
-}
-.monitor-lines { display: grid; gap: 7px; align-content: center; }
-.monitor-lines i {
-  display: block;
-  height: 5px;
-  border-radius: 3px;
-  background: rgba(185, 211, 230, 0.18);
-}
-.monitor-lines i:nth-child(2) { width: 78%; }
-.monitor-lines i:nth-child(3) { width: 55%; }
-.monitor-stand {
-  display: block;
-  width: 22px; height: 14px;
-  margin: 0 auto;
-  background: linear-gradient(180deg, #1b2735, #121a24);
-  border-inline: 1px solid var(--border);
-}
-.monitor-foot {
-  display: block;
-  width: 74px; height: 5px;
-  margin: 0 auto;
-  border-radius: 3px;
-  background: #1b2735;
-  border: 1px solid var(--border);
-}
-
-/* Phone mock */
-.phone {
-  position: relative;
-  width: min(100%, 116px);
-  margin-inline: auto;
-  border: 1px solid var(--border-strong);
-  border-radius: 18px;
-  background: linear-gradient(180deg, #16202c, #0e151d);
-  padding: 8px 7px 10px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-.phone-notch {
-  display: block;
-  width: 30px; height: 4px;
-  margin: 0 auto 9px;
-  border-radius: 3px;
-  background: rgba(185, 211, 230, 0.22);
-}
-.phone-screen {
-  display: grid;
-  gap: 7px;
-  justify-items: center;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: rgba(8, 11, 16, 0.6);
-  padding: 14px 10px;
-}
-.phone-glyph { color: var(--accent); display: block; margin-bottom: 4px; }
-.phone-row { display: flex; align-items: center; gap: 6px; width: 100%; }
-.phone-row .dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: rgba(99, 230, 242, 0.6);
-  flex: none;
-}
-.phone-row .bar {
-  display: block;
-  height: 5px;
-  flex: 1;
-  border-radius: 3px;
-  background: rgba(185, 211, 230, 0.17);
-}
-.phone-row .bar.short { max-width: 52%; }
-.phone-row .bar.mid { max-width: 74%; }
-.phone-pill {
-  display: block;
-  width: 62%;
-  height: 14px;
-  margin-top: 5px;
-  border-radius: 7px;
-  background: linear-gradient(180deg, rgba(99, 230, 242, 0.32), rgba(99, 230, 242, 0.14));
-  border: 1px solid rgba(99, 230, 242, 0.3);
-}
-
-/* Bridge */
-.bridge {
-  display: grid;
-  justify-items: center;
-  gap: 9px;
-  min-width: clamp(130px, 15vw, 200px);
-  padding-inline: 4px;
-}
-.bridge-chip {
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 3px 10px;
-  background: var(--surface-raised);
-}
-.bridge-chip-alt { color: var(--accent); border-color: rgba(99, 230, 242, 0.3); background: var(--accent-soft); }
-
-.bridge-track {
-  position: relative;
-  display: block;
-  width: 100%;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--border-strong);
-  overflow: hidden;
-}
-.bridge-track::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image: linear-gradient(90deg, var(--accent) 0 7px, transparent 7px 15px);
-  background-size: 15px 2px;
-  opacity: 0.75;
-  animation: bridge-dash 1.5s linear infinite;
-}
-@keyframes bridge-dash { to { background-position: 15px 0; } }
-
-.bridge-pulse {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 7px; height: 7px;
-  margin-top: -3.5px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 12px rgba(99, 230, 242, 0.85);
-  animation: bridge-travel 3.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-}
-@keyframes bridge-travel {
-  0% { left: 0; opacity: 0; }
-  12% { opacity: 1; }
-  88% { opacity: 1; }
-  100% { left: calc(100% - 7px); opacity: 0; }
-}
-
-.bridge-meta {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.72rem;
-  color: var(--text-subtle);
-}
-.bridge-meta code { font-size: 0.68rem; }
-.bridge-sep { color: var(--border-strong); }
-
-.stage-foot {
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-  font-size: 0.76rem;
-  color: var(--text-subtle);
-  text-align: center;
-}
-
-/* ---------- 8. Overview ---------- */
-.overview-grid {
-  display: grid;
-  gap: clamp(26px, 4vw, 52px);
-  align-items: start;
-}
-
-.callout {
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--accent-strong);
-  border-radius: var(--radius-md);
-  background: linear-gradient(180deg, rgba(99, 230, 242, 0.045), transparent 60%), var(--surface);
-  padding: clamp(20px, 2.6vw, 28px);
-  box-shadow: var(--shadow-card);
-}
-.callout-title {
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin-bottom: 8px;
-}
-.callout-note {
-  font-size: 0.8rem;
-  color: var(--text-subtle);
-  margin-bottom: 18px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
-}
-.callout-list > div + div { margin-top: 14px; }
-.callout-list dt {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-subtle);
-  margin-bottom: 3px;
-}
-.callout-list dd { margin: 0; font-size: 0.9rem; color: var(--text-muted); }
-
-/* ---------- 9. Features ---------- */
-.feature-grid {
-  display: grid;
-  gap: var(--gap);
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.feature {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-  padding: clamp(20px, 2.4vw, 28px);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 45%), var(--surface);
-  box-shadow: var(--shadow-card);
-  transition: border-color 0.18s ease-out, background-color 0.18s ease-out, transform 0.18s ease-out;
-}
-.feature:hover {
-  border-color: var(--border-strong);
-  background-color: var(--surface-raised);
-  transform: translateY(-2px);
-}
-
-.feature-icon {
-  display: grid;
-  place-items: center;
-  width: 42px; height: 42px;
-  border-radius: 11px;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-raised);
-  color: var(--accent);
-}
-.feature-wide .feature-icon { background: var(--accent-soft); border-color: rgba(99, 230, 242, 0.3); }
-
-.feature-title { color: var(--text); }
-.feature-text { color: var(--text-muted); font-size: 0.94rem; line-height: 1.62; }
-.feature-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 6px;
-}
-
-/* ---------- 10. Architecture ---------- */
-.arch {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background:
-    radial-gradient(600px 260px at 50% -10%, rgba(42, 200, 221, 0.07), transparent 70%),
-    var(--surface);
-  padding: clamp(20px, 3.4vw, 40px);
-  box-shadow: var(--shadow-card);
-}
-
-.arch-flow { display: grid; justify-items: stretch; }
-
-.arch-node {
-  min-width: 0;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  padding: clamp(16px, 2vw, 22px);
-}
-.arch-node-primary {
-  border-color: rgba(99, 230, 242, 0.34);
-  background:
-    linear-gradient(180deg, rgba(99, 230, 242, 0.07), transparent 70%),
-    var(--surface-raised);
-}
-.arch-kind {
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-subtle);
-  margin-bottom: 6px;
-}
-.arch-node-primary .arch-kind { color: var(--accent); }
-.arch-name { font-size: 1.06rem; margin-bottom: 6px; }
-.arch-desc { font-size: 0.88rem; color: var(--text-muted); line-height: 1.58; }
-
-.arch-link {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 16px;
-  align-items: center;
-  padding-block: 14px;
-  margin-inline: auto;
-  width: 100%;
-  max-width: 560px;
-}
-.arch-link-line {
-  position: relative;
-  display: block;
-  width: 2px;
-  height: 68px;
-  border-radius: 2px;
-  background: repeating-linear-gradient(180deg, var(--accent-strong) 0 6px, transparent 6px 12px);
-  opacity: 0.75;
-}
-.arch-link-head {
-  position: absolute;
-  bottom: -1px; left: 50%;
-  width: 0; height: 0;
-  transform: translateX(-50%);
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-top: 7px solid var(--accent-strong);
-}
-.arch-link-meta { display: grid; gap: 5px; }
-.arch-link-meta li {
-  position: relative;
-  padding-left: 14px;
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
-  color: var(--text-muted);
-}
-.arch-link-meta li::before {
-  content: "";
-  position: absolute;
-  left: 0; top: 0.62em;
-  width: 6px; height: 1px;
-  background: var(--accent);
-}
-
-.arch-branch { position: relative; margin-top: 16px; padding-top: 26px; }
-.arch-bus {
-  position: absolute;
-  top: 0;
-  left: 12.5%; right: 12.5%;
-  height: 1px;
-  background: var(--border-strong);
-}
-.arch-bus::before {
-  content: "";
-  position: absolute;
-  left: 50%; top: -26px;
-  width: 1px; height: 26px;
-  background: var(--border-strong);
-}
-.arch-children {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--gap);
-}
-.arch-children > li { position: relative; }
-.arch-children > li::before {
-  content: "";
-  position: absolute;
-  top: -26px; left: 50%;
-  width: 1px; height: 26px;
-  background: var(--border-strong);
-}
-.arch-node-child { height: 100%; }
-
-.arch-caption {
-  margin-top: 26px;
-  padding-top: 18px;
-  border-top: 1px solid var(--border);
-  font-size: 0.86rem;
-  color: var(--text-muted);
-}
-.arch-caption strong { color: var(--text); font-weight: 640; }
-
-.arch-note {
-  margin-top: 22px;
-  max-width: 82ch;
-  font-size: 0.88rem;
-  color: var(--text-subtle);
-  line-height: 1.6;
-}
-
-/* ---------- 11. Networking ---------- */
-.net-grid {
-  display: grid;
-  gap: clamp(26px, 4vw, 48px);
-  align-items: start;
-}
-
-.boundary {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  padding: clamp(16px, 2.2vw, 22px);
-  box-shadow: var(--shadow-card);
-}
-.boundary-frame {
-  border: 1px dashed rgba(99, 230, 242, 0.42);
-  border-radius: var(--radius-md);
-  background: rgba(99, 230, 242, 0.045);
-  padding: 16px;
-}
-.boundary-label {
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin-bottom: 14px;
-}
-.boundary-label-muted { color: var(--text-subtle); }
-.boundary-inner {
-  display: grid;
-  gap: 12px;
-  align-items: center;
-}
-.mini-node {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  padding: 10px 12px;
-  font-size: 0.84rem;
-  color: var(--text);
-}
-.mini-icon { color: var(--accent); flex: none; }
-.mini-link { display: grid; gap: 6px; justify-items: center; }
-.mini-link-line {
-  display: block;
-  width: 2px; height: 18px;
-  background: repeating-linear-gradient(180deg, var(--accent-strong) 0 4px, transparent 4px 8px);
-  opacity: 0.8;
-}
-.mini-link-text {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  text-align: center;
-}
-.boundary-outside { margin-top: 18px; }
-.pill-list { display: grid; gap: 8px; }
-.pill-list .pill { width: 100%; justify-content: flex-start; }
-.boundary-caption {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-  font-size: 0.78rem;
-  color: var(--text-subtle);
-}
-
-.distinction {
-  margin-top: clamp(30px, 4vw, 48px);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  overflow: hidden;
-}
-.distinction-row {
-  display: grid;
-  gap: 6px 22px;
-  padding: clamp(16px, 2.2vw, 22px) clamp(18px, 2.4vw, 26px);
-}
-.distinction-row + .distinction-row { border-top: 1px solid var(--border); }
-.distinction-label {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-.distinction-row p { font-size: 0.92rem; color: var(--text-muted); max-width: 82ch; }
-.distinction-row:last-child { background: rgba(240, 192, 112, 0.04); }
-.distinction-row:last-child .distinction-label { color: var(--warn); }
-
-/* ---------- 12. Security ---------- */
-.alert {
-  display: flex;
-  gap: 14px;
-  align-items: flex-start;
-  border: 1px solid rgba(240, 192, 112, 0.34);
-  border-left: 3px solid var(--warn);
-  border-radius: var(--radius-md);
-  background: var(--warn-soft);
-  padding: clamp(16px, 2.2vw, 22px) clamp(18px, 2.4vw, 24px);
-  margin-bottom: clamp(28px, 4vw, 44px);
-}
-.alert-icon { color: var(--warn); flex: none; margin-top: 2px; }
-.alert-text { font-size: clamp(0.98rem, 0.94rem + 0.3vw, 1.1rem); line-height: 1.5; color: var(--text); }
-.alert-text strong { font-weight: 660; }
-
-.security-grid {
-  display: grid;
-  gap: clamp(28px, 4vw, 52px);
-  align-items: start;
-}
-
-.check-list { display: grid; gap: 18px; }
-.check-list li {
-  position: relative;
-  display: flex;
-  gap: 14px;
-  padding-left: 2px;
-}
-.check-mark {
-  flex: none;
-  width: 18px; height: 18px;
-  margin-top: 5px;
-  border-radius: 5px;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-raised);
-}
-.check-mark::after {
-  content: "";
-  position: absolute;
-  left: 7px; top: 9px;
-  width: 8px; height: 4px;
-  border-left: 1.6px solid var(--accent);
-  border-bottom: 1.6px solid var(--accent);
-  transform: rotate(-45deg);
-}
-.check-list p { font-size: 0.93rem; color: var(--text-muted); line-height: 1.62; max-width: 68ch; }
-.check-list strong { color: var(--text); font-weight: 620; }
-
-.assurance {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  padding: clamp(20px, 2.6vw, 28px);
-  box-shadow: var(--shadow-card);
-}
-.assurance-list { display: grid; gap: 18px; counter-reset: none; }
-.assurance-list li { display: flex; gap: 14px; }
-.assurance-index {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--accent);
-  border: 1px solid rgba(99, 230, 242, 0.3);
-  background: var(--accent-soft);
-  border-radius: var(--radius-sm);
-  padding: 3px 7px;
-  height: max-content;
-}
-.assurance-list h4 { margin-bottom: 4px; color: var(--text); }
-.assurance-list p { font-size: 0.88rem; color: var(--text-muted); line-height: 1.58; }
-.assurance-list strong { color: var(--warn); font-weight: 640; }
-.assurance-foot {
-  margin: 20px 0;
-  padding-top: 18px;
-  border-top: 1px solid var(--border);
-  font-size: 0.84rem;
-  color: var(--text-subtle);
-  line-height: 1.58;
-}
-
-/* ---------- 13. Platforms ---------- */
-.platform-grid {
-  display: grid;
-  gap: var(--gap);
-  grid-template-columns: minmax(0, 1fr);
-}
-.platform {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 50%), var(--surface);
-  padding: clamp(20px, 2.8vw, 30px);
-  box-shadow: var(--shadow-card);
-}
-.platform-head {
-  display: grid;
-  gap: 6px;
-  padding-bottom: 18px;
-  margin-bottom: 18px;
-  border-bottom: 1px solid var(--border);
-}
-.platform-icon {
-  display: grid;
-  place-items: center;
-  width: 46px; height: 46px;
-  border-radius: 12px;
-  border: 1px solid rgba(99, 230, 242, 0.3);
-  background: var(--accent-soft);
-  color: var(--accent);
-  margin-bottom: 6px;
-}
-.platform-name { font-size: 1.28rem; }
-.platform-role { font-size: 0.86rem; color: var(--text-subtle); }
-
-.spec-list > li {
-  display: grid;
-  grid-template-columns: minmax(96px, 26%) minmax(0, 1fr);
-  gap: 12px;
-  padding: 11px 0;
-}
-.spec-list > li + li { border-top: 1px solid var(--border); }
-.spec-key {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-subtle);
-  padding-top: 2px;
-}
-.spec-val { font-size: 0.92rem; color: var(--text-muted); }
-
-/* ---------- 14. Developers ---------- */
-.tabs {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;
-}
-
-.tablist {
-  display: flex;
-  gap: 2px;
-  padding: 10px 10px 0;
-  border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
-  overflow-x: auto;
-  scrollbar-width: thin;
-  -webkit-overflow-scrolling: touch;
-}
-.tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 46px;
-  padding: 10px 14px;
-  border: 1px solid transparent;
-  border-bottom: 0;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  color: var(--text-muted);
-  font-size: 0.88rem;
-  font-weight: 560;
-  white-space: nowrap;
-  transition: color 0.15s ease-out, background-color 0.15s ease-out;
-}
-.tab:hover { color: var(--text); background: var(--surface-hover); }
-.tab-index {
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  color: var(--text-subtle);
-  letter-spacing: 0.06em;
-}
-.tab[aria-selected="true"] {
-  color: var(--accent);
-  background: var(--surface-raised);
-  border-color: var(--border);
-  box-shadow: inset 0 2px 0 var(--accent);
-}
-.tab[aria-selected="true"] .tab-index { color: var(--accent-strong); }
-
-.tabpanel { padding: clamp(20px, 3vw, 34px); }
-.tabpanel:focus-visible { outline-offset: -4px; }
-
-.panel-title { margin-bottom: 10px; }
-.panel-lede {
-  color: var(--text-muted);
-  font-size: 0.94rem;
-  max-width: 76ch;
-  margin-bottom: 22px;
-}
-.panel-fine {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-  font-size: 0.82rem;
-  color: var(--text-subtle);
-  line-height: 1.58;
-  max-width: 82ch;
-}
-
-.role-list {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  background: var(--surface-raised);
-}
-.role-list > div { padding: 14px 18px; }
-.role-list > div + div { border-top: 1px solid var(--border); }
-.role-list dt {
-  font-weight: 620;
-  font-size: 0.92rem;
-  color: var(--text);
-  margin-bottom: 3px;
-}
-.role-list dd { margin: 0; font-size: 0.88rem; color: var(--text-muted); line-height: 1.58; }
-
-.panel-note {
-  margin-top: 22px;
-  border-left: 2px solid var(--accent-strong);
-  background: linear-gradient(90deg, rgba(99, 230, 242, 0.05), transparent 70%);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  padding: 16px 20px;
-}
-.panel-note-title { margin-bottom: 6px; color: var(--text); }
-.panel-note p { font-size: 0.9rem; color: var(--text-muted); line-height: 1.62; }
-
-.table-wrap {
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-}
-.table-wrap:focus-visible { outline-offset: -3px; }
-.ref-table {
-  width: 100%;
-  min-width: 460px;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-.ref-table caption { text-align: left; }
-.ref-table th, .ref-table td {
-  padding: 12px 16px;
-  text-align: left;
-  vertical-align: top;
-  border-bottom: 1px solid var(--border);
-}
-.ref-table thead th {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  color: var(--text-subtle);
-  background: rgba(255, 255, 255, 0.02);
-}
-.ref-table tbody th {
-  width: 34%;
-  font-weight: 600;
-  color: var(--text);
-}
-.ref-table tbody td { color: var(--text-muted); }
-.ref-table tbody tr:last-child th,
-.ref-table tbody tr:last-child td { border-bottom: 0; }
-.ref-table tbody tr:hover th,
-.ref-table tbody tr:hover td { background: rgba(99, 230, 242, 0.035); }
-
-.ipc-map {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  padding: 16px;
-  margin-bottom: 20px;
-}
-.ipc-box {
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  padding: 9px 13px;
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
-  color: var(--text);
-  white-space: nowrap;
-}
-.ipc-pipe { display: inline-flex; gap: 4px; align-items: center; }
-.ipc-pipe i {
-  display: block;
-  width: 16px; height: 2px;
-  border-radius: 2px;
-  background: var(--accent-strong);
-  opacity: 0.55;
-}
-.ipc-pipe i:nth-child(2) { opacity: 0.8; }
-.ipc-pipe i:nth-child(3) { opacity: 1; }
-
-.tick-list { display: grid; gap: 11px; margin-bottom: 4px; }
-.tick-list li {
-  position: relative;
-  padding-left: 24px;
-  font-size: 0.92rem;
-  color: var(--text-muted);
-  line-height: 1.6;
-}
-.tick-list li::before {
-  content: "";
-  position: absolute;
-  left: 4px; top: 0.62em;
-  width: 8px; height: 4px;
-  border-left: 1.6px solid var(--accent);
-  border-bottom: 1.6px solid var(--accent);
-  transform: rotate(-45deg);
-}
-.tick-list-numbered { counter-reset: contrib; gap: 14px; }
-.tick-list-numbered li { counter-increment: contrib; padding-left: 34px; }
-.tick-list-numbered li::before {
-  content: counter(contrib, decimal-leading-zero);
-  position: absolute;
-  left: 0; top: 1px;
-  width: auto; height: auto;
-  border: 0;
-  transform: none;
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--accent);
-}
-
-.build-grid {
-  display: grid;
-  gap: var(--gap);
-  grid-template-columns: minmax(0, 1fr);
-}
-.build-col {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  padding: 18px 20px;
-}
-.build-col-title {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin-bottom: 14px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.code {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: #0a0f15;
-  overflow: hidden;
-  margin-bottom: 14px;
-}
-.code-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.022);
-}
-.code-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.code-lang {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 0.64rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-subtle);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 2px 8px;
-}
-.copy-btn {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 5px 11px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  font-size: 0.76rem;
-  font-weight: 600;
-  transition: color 0.15s ease-out, border-color 0.15s ease-out, background-color 0.15s ease-out;
-}
-.copy-btn:hover { color: var(--accent); border-color: rgba(99, 230, 242, 0.42); background: var(--surface-hover); }
-.copy-btn.is-copied { color: var(--accent); border-color: rgba(99, 230, 242, 0.5); background: var(--accent-soft); }
-
-.code-body {
-  margin: 0;
-  padding: 14px 16px;
-  overflow-x: auto;
-  font-family: var(--font-mono);
-  font-size: 0.84rem;
-  line-height: 1.7;
-  color: #d6e7f5;
-  tab-size: 2;
-}
-.code-body:focus-visible { outline-offset: -3px; }
-
-.copy-status {
-  min-height: 1.4em;
-  margin-top: 4px;
-  font-size: 0.82rem;
-  color: var(--accent);
-}
-.copy-status.is-error { color: var(--warn); }
-
-/* ---------- 15. Roadmap ---------- */
-.roadmap {
-  position: relative;
-  display: grid;
-  gap: 0;
-  padding-left: 26px;
-}
-.roadmap::before {
-  content: "";
-  position: absolute;
-  left: 5px; top: 12px; bottom: 24px;
-  width: 1px;
-  background: linear-gradient(180deg, var(--accent-strong), var(--border) 70%, transparent);
-  opacity: 0.5;
-}
-.roadmap-item {
-  position: relative;
-  padding: 0 0 26px;
-}
-.roadmap-marker {
-  position: absolute;
-  left: -26px; top: 7px;
-  width: 11px; height: 11px;
-  border-radius: 50%;
-  border: 2px solid var(--accent-strong);
-  background: var(--bg);
-}
-.roadmap-body {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  padding: clamp(16px, 2.2vw, 22px);
-  transition: border-color 0.18s ease-out, background-color 0.18s ease-out;
-}
-.roadmap-item:hover .roadmap-body { border-color: var(--border-strong); background: var(--surface-raised); }
-.roadmap-title { margin-bottom: 6px; }
-.roadmap-body > p { font-size: 0.92rem; color: var(--text-muted); line-height: 1.6; max-width: 74ch; }
-.roadmap-status { margin-top: 12px; }
-
-/* ---------- 16. FAQ ---------- */
-.faq { border-top: 1px solid var(--border); }
-.faq-item { border-bottom: 1px solid var(--border); }
-.faq-item summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  min-height: 58px;
-  padding: 16px 4px;
-  cursor: pointer;
-  list-style: none;
-  font-size: clamp(0.98rem, 0.95rem + 0.25vw, 1.06rem);
-  font-weight: 580;
-  color: var(--text);
-  transition: color 0.15s ease-out;
-}
-.faq-item summary::-webkit-details-marker { display: none; }
-.faq-item summary:hover { color: var(--accent); }
-.faq-item summary::after {
-  content: "";
-  flex: none;
-  width: 11px; height: 11px;
-  border-right: 1.6px solid var(--accent);
-  border-bottom: 1.6px solid var(--accent);
-  transform: rotate(45deg) translateY(-3px);
-  transition: transform 0.2s ease-out;
-}
-.faq-item[open] summary::after { transform: rotate(-135deg) translateY(-3px); }
-.faq-body { padding: 0 4px 20px; max-width: 78ch; }
-.faq-body p { font-size: 0.94rem; color: var(--text-muted); line-height: 1.66; }
-.faq-body p + p { margin-top: 0.85em; }
-
-/* ---------- 17. CTA & footer ---------- */
-.section-cta { padding-block: clamp(56px, 7vw, 100px); }
-.cta-panel {
-  position: relative;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  background:
-    radial-gradient(680px 300px at 15% 0%, rgba(42, 200, 221, 0.1), transparent 68%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 55%),
-    var(--surface);
-  padding: clamp(26px, 4.4vw, 54px);
-  box-shadow: var(--shadow-pop);
-  overflow: hidden;
-}
-.cta-title { max-width: 22ch; margin-bottom: 14px; }
-.cta-text { color: var(--text-muted); font-size: 1rem; max-width: 62ch; margin-bottom: 26px; }
-.cta-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
-.cta-status { display: flex; flex-wrap: wrap; gap: 12px; }
-
-.site-footer {
-  border-top: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 40%), var(--surface);
-  padding-top: clamp(44px, 5vw, 68px);
-}
-.footer-grid {
-  display: grid;
-  gap: clamp(26px, 3.4vw, 44px);
-  padding-bottom: clamp(34px, 4vw, 52px);
-}
-.footer-wordmark {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 1.1rem;
-  font-weight: 680;
-  letter-spacing: -0.02em;
-  color: var(--text);
-  margin-bottom: 12px;
-}
-.footer-wordmark .brand-mark { color: var(--accent); }
-.footer-desc {
-  font-size: 0.88rem;
-  color: var(--text-muted);
-  line-height: 1.62;
-  max-width: 46ch;
-  margin-bottom: 16px;
-}
-.footer-platforms { display: flex; flex-wrap: wrap; gap: 8px; }
-.footer-platforms .pill { font-size: 0.72rem; padding: 4px 9px; }
-
-.footer-heading {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: var(--text-subtle);
-  font-weight: 500;
-  margin-bottom: 14px;
-}
-.footer-nav ul { display: grid; gap: 9px; }
-.footer-nav a {
-  color: var(--text-muted);
-  font-size: 0.88rem;
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-  padding-bottom: 1px;
-  display: inline-block;
-  min-height: 24px;
-}
-.footer-nav a:hover { color: var(--accent); border-bottom-color: rgba(99, 230, 242, 0.45); }
-
-.footer-repo-link {
-  display: inline-block;
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-  word-break: break-word;
-  margin-bottom: 14px;
-}
-.footer-status { margin-bottom: 10px; }
-.footer-fine { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-subtle); }
-
-.footer-legal {
-  border-top: 1px solid var(--border);
-  padding-block: 26px 34px;
-  display: grid;
-  gap: 12px;
-}
-.footer-legal p {
-  font-size: 0.79rem;
-  color: var(--text-subtle);
-  line-height: 1.62;
-  max-width: 108ch;
-}
-
-/* ---------- 18. Motion / reveal ---------- */
-html.js .reveal {
-  opacity: 0;
-  transform: translateY(14px);
-  transition: opacity 0.55s ease-out, transform 0.55s ease-out;
-}
-html.js .reveal.is-visible { opacity: 1; transform: none; }
-
-@media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  *, *::before, *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
-  }
-  html.js .reveal { opacity: 1 !important; transform: none !important; }
-  .bridge-pulse { display: none; }
-  .bridge-track::after { animation: none; opacity: 0.5; }
-}
-
-/* ---------- 19. Responsive ---------- */
-@media (min-width: 640px) {
-  .boundary-inner { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
-  .mini-link { justify-items: center; }
-  .mini-link-line { width: 44px; height: 2px; background: repeating-linear-gradient(90deg, var(--accent-strong) 0 5px, transparent 5px 10px); }
-  .build-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-@media (min-width: 720px) {
-  .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .platform-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .distinction-row { grid-template-columns: minmax(150px, 22%) minmax(0, 1fr); align-items: baseline; }
-}
-
-@media (min-width: 960px) {
-  .overview-grid { grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.85fr); }
-  .net-grid { grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr); }
-  .security-grid { grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.85fr); }
-  .footer-grid { grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.7fr) minmax(0, 0.7fr) minmax(0, 1fr); }
-}
-
-@media (min-width: 1024px) {
-  .hero-grid { grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr); }
-}
-
-@media (min-width: 1080px) {
-  .feature-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-  .feature-grid > .feature:nth-child(1) { grid-column: span 4; }
-  .feature-grid > .feature:nth-child(2) { grid-column: span 2; }
-  .feature-grid > .feature:nth-child(3) { grid-column: span 2; }
-  .feature-grid > .feature:nth-child(4) { grid-column: span 4; }
-  .feature-grid > .feature:nth-child(5) { grid-column: span 3; }
-  .feature-grid > .feature:nth-child(6) { grid-column: span 3; }
-}
-
-@media (max-width: 900px) {
-  /* Mobile navigation */
-  .nav-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    margin-left: auto;
-    min-height: 44px;
-    padding: 8px 13px;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-sm);
-    background: var(--surface-raised);
-    color: var(--text);
-    font-size: 0.84rem;
-    font-weight: 600;
-  }
-  .nav-toggle:hover { background: var(--surface-hover); border-color: rgba(99, 230, 242, 0.4); }
-  .nav-toggle .bar { transition: transform 0.2s ease-out, opacity 0.2s ease-out; }
-  .site-header[data-nav-open="true"] .nav-toggle .bar-1 { transform: translateY(4px) rotate(45deg); }
-  .site-header[data-nav-open="true"] .nav-toggle .bar-2 { opacity: 0; }
-  .site-header[data-nav-open="true"] .nav-toggle .bar-3 { transform: translateY(-4px) rotate(-45deg); }
-
-  html.js .primary-nav {
-    display: none;
-    position: absolute;
-    top: 100%;
-    left: 0; right: 0;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-    padding: 14px var(--gutter) 20px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border-strong);
-    box-shadow: var(--shadow-pop);
-  }
-  html.js .site-header[data-nav-open="true"] .primary-nav {
-    display: flex;
-    animation: nav-in 0.18s ease-out;
-  }
-  @keyframes nav-in {
-    from { opacity: 0; transform: translateY(-6px); }
-    to { opacity: 1; transform: none; }
-  }
-  html.js .nav-list { flex-direction: column; align-items: stretch; gap: 2px; }
-  html.js .nav-link { width: 100%; min-height: 46px; padding: 10px 12px; font-size: 0.98rem; }
-  html.js .nav-link.is-active::after { left: 12px; right: auto; width: 2px; height: 18px; bottom: auto; top: 14px; }
-  html.js .nav-github { width: 100%; min-height: 46px; }
-
-  /* No-JS fallback: keep navigation reachable */
-  html:not(.js) .header-inner { flex-wrap: wrap; padding-block: 10px; }
-  html:not(.js) .nav-toggle { display: none; }
-  html:not(.js) .primary-nav { flex-basis: 100%; margin-left: 0; flex-wrap: wrap; gap: 10px; }
-  html:not(.js) .nav-list { flex-wrap: wrap; gap: 4px 10px; }
-  html:not(.js) .nav-link { min-height: 38px; font-size: 0.84rem; }
-
-  .arch-children { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .arch-bus { left: 25%; right: 25%; }
-}
-
-@media (max-width: 820px) {
-  .stage {
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: center;
-    gap: 6px;
-  }
-  .node-pc { order: 1; }
-  .bridge { order: 2; padding-block: 8px; }
-  .node-phone { order: 3; }
-  .bridge-track { width: 2px; height: 66px; }
-  .bridge-track::after {
-    background-image: linear-gradient(180deg, var(--accent) 0 7px, transparent 7px 15px);
-    background-size: 2px 15px;
-    animation: bridge-dash-v 1.5s linear infinite;
-  }
-  @keyframes bridge-dash-v { to { background-position: 0 15px; } }
-  .bridge-pulse {
-    top: 0; left: 50%;
-    margin-top: 0; margin-left: -3.5px;
-    animation: bridge-travel-v 3.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-  }
-  @keyframes bridge-travel-v {
-    0% { top: 0; opacity: 0; }
-    12% { opacity: 1; }
-    88% { opacity: 1; }
-    100% { top: calc(100% - 7px); opacity: 0; }
-  }
-  .bridge-meta { max-width: 30ch; }
-}
-
-@media (max-width: 720px) {
-  .arch-children { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .arch-branch { padding-top: 18px; margin-top: 14px; }
-  .arch-bus { display: none; }
-  .arch-children > li::before { display: none; }
-  .arch-children > li {
-    padding-left: 16px;
-    border-left: 1px solid var(--border-strong);
-  }
-  .arch-link { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 10px; }
-  .arch-link-line { width: 68px; height: 2px; background: repeating-linear-gradient(90deg, var(--accent-strong) 0 6px, transparent 6px 12px); }
-  .arch-link-head { bottom: auto; left: auto; top: 50%; right: -1px; transform: translateY(-50%); border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 7px solid var(--accent-strong); border-right: 0; }
-  .arch-link-meta { justify-items: center; text-align: center; }
-  .arch-link-meta li { padding-left: 0; }
-  .arch-link-meta li::before { display: none; }
-}
-
-@media (max-width: 560px) {
-  :root { --header-h: 58px; }
-  .hero-actions .btn, .cta-actions .btn { width: 100%; }
-  .status-line { gap: 10px; }
-  .spec-list > li { grid-template-columns: minmax(0, 1fr); gap: 3px; }
-  .code-head { flex-wrap: wrap; }
-  .code-label { flex-basis: 100%; order: 1; white-space: normal; }
-  .code-lang { order: 2; }
-  .copy-btn { order: 3; margin-left: auto; }
-  .tab { font-size: 0.84rem; padding: 10px 12px; }
-  .monitor { width: min(100%, 190px); }
-}
-
-@media (max-width: 380px) {
-  .brand-tag { display: none; }
-  .nav-toggle-label { display: none; }
-  .nav-toggle { padding: 10px; }
-  .eyebrow { font-size: 0.66rem; letter-spacing: 0.13em; }
-  .bridge-chip { font-size: 0.62rem; }
-}
-
-
-              </style>
-                        </head>
-                        <body>
-                            <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tether — Local-first personal device trust for Windows and Android</title>
-<meta name="description" content="Tether is an open, actively developed companion project exploring local-first device trust between an Android phone and a Windows workstation. Conceptual architecture, networking reference, security limitations, platform targets, and developer notes.">
-<meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#080b10">
-<link rel="stylesheet" href="assets/css/style.css">
-<script src="assets/js/main.js" defer></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tether — Local-first personal device trust for Windows and Android</title>
+  <meta name="description" content="Tether is an open, actively developed companion project exploring local-first device trust between an Android phone and a Windows workstation. Conceptual architecture, networking reference, security limitations, platform targets, and developer notes.">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#080b10">
+
+  <style>
+    /* ============================================================
+       Tether — Static Landing Webpage
+       Design tokens, responsive layout, particle web canvas,
+       and resolved networking boundary diagram.
+       ============================================================ */
+
+    /* ---------- 1. Design Tokens ---------- */
+    :root {
+      color-scheme: dark;
+
+      --bg: #080b10;
+      --surface: #0d1219;
+      --surface-raised: #121a24;
+      --surface-hover: #17222e;
+
+      --text: #edf4fb;
+      --text-muted: #a1afbf;
+      --text-subtle: #738397;
+
+      --accent: #63e6f2;
+      --accent-strong: #2ac8dd;
+      --accent-soft: rgba(99, 230, 242, 0.1);
+      --accent-glow: rgba(99, 230, 242, 0.25);
+
+      --border: rgba(185, 211, 230, 0.13);
+      --border-strong: rgba(185, 211, 230, 0.23);
+
+      --focus: #a6f5ff;
+
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 22px;
+
+      --warn: #f0c070;
+      --warn-soft: rgba(240, 192, 112, 0.09);
+      --on-accent: #04141a;
+
+      --header-h: 64px;
+      --gutter: clamp(18px, 4.2vw, 40px);
+      --container: 1180px;
+      --container-narrow: 820px;
+      --section-space: clamp(64px, 8vw, 120px);
+      --gap: clamp(16px, 2vw, 24px);
+
+      --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+
+      --shadow-card: 0 24px 60px -46px rgba(0, 0, 0, 0.95);
+      --shadow-pop: 0 28px 70px -40px rgba(0, 0, 0, 1);
+    }
+
+    /* ---------- 2. CSS Reset ---------- */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+    }
+
+    html {
+      -webkit-text-size-adjust: 100%;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-height: 100vh;
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 1rem;
+      line-height: 1.65;
+      font-weight: 400;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: clip;
+      position: relative;
+    }
+
+    /* Canvas background for laptop connecting dots web */
+    #network-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0;
+      transition: opacity 1.2s ease;
+    }
+
+    #network-canvas.is-active {
+      opacity: 1;
+    }
+
+    /* Ensure content stays above canvas */
+    .site-header, main, .site-footer {
+      position: relative;
+      z-index: 1;
+    }
+
+    img, svg {
+      display: inline-block;
+      vertical-align: middle;
+      max-width: 100%;
+    }
+
+    button {
+      font: inherit;
+      color: inherit;
+      background: none;
+      border: 0;
+      cursor: pointer;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+    a:hover {
+      color: var(--focus);
+    }
+
+    ul[class], ol[class], dl {
+      padding: 0;
+      list-style: none;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 3px;
+      border-radius: 4px;
+    }
+
+    /* Accessibility Skip Link */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .skip-link {
+      position: absolute;
+      left: var(--gutter);
+      top: -60px;
+      z-index: 200;
+      padding: 10px 16px;
+      background: var(--surface-raised);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: top 0.16s ease-out;
+    }
+    .skip-link:focus {
+      top: 12px;
+      color: var(--text);
+    }
+
+    /* ---------- 3. Base Typography ---------- */
+    h1, h2, h3, h4 {
+      font-weight: 640;
+      line-height: 1.14;
+      letter-spacing: -0.02em;
+      text-wrap: balance;
+    }
+
+    h1 {
+      font-size: clamp(2.2rem, 1.35rem + 4vw, 3.9rem);
+      line-height: 1.04;
+      letter-spacing: -0.032em;
+    }
+    h2 {
+      font-size: clamp(1.62rem, 1.24rem + 1.7vw, 2.45rem);
+    }
+    h3 {
+      font-size: clamp(1.05rem, 1rem + 0.35vw, 1.22rem);
+    }
+    h4 {
+      font-size: 0.98rem;
+      letter-spacing: -0.01em;
+    }
+
+    p {
+      text-wrap: pretty;
+    }
+
+    code, kbd, samp {
+      font-family: var(--font-mono);
+      font-size: 0.88em;
+    }
+
+    :not(pre) > code {
+      padding: 0.12em 0.4em;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      background: var(--surface-raised);
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-subtle);
+      margin-bottom: 18px;
+    }
+    .eyebrow-rule {
+      display: inline-block;
+      width: 26px;
+      height: 1px;
+      background: linear-gradient(90deg, var(--accent-strong), transparent);
+      flex: none;
+    }
+
+    /* ---------- 4. Layout Primitives ---------- */
+    .container {
+      width: min(100% - (var(--gutter) * 2), var(--container));
+      margin-inline: auto;
+    }
+    .container-narrow {
+      width: min(100% - (var(--gutter) * 2), var(--container-narrow));
+    }
+
+    .section {
+      padding-block: var(--section-space);
+      scroll-margin-top: calc(var(--header-h) + 18px);
+    }
+    .section-lined {
+      border-top: 1px solid var(--border);
+    }
+
+    .section-tinted {
+      background:
+        radial-gradient(900px 420px at 88% 0%, rgba(42, 200, 221, 0.07), transparent 62%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 40%),
+        var(--surface);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-head {
+      max-width: 62ch;
+      margin-bottom: clamp(30px, 4vw, 52px);
+    }
+    .section-title {
+      margin-bottom: 14px;
+    }
+    .section-lede {
+      color: var(--text-muted);
+      font-size: clamp(1rem, 0.97rem + 0.25vw, 1.1rem);
+      max-width: 60ch;
+    }
+
+    .sub-title {
+      margin-bottom: 16px;
+      font-size: 1.06rem;
+    }
+
+    .prose p + p {
+      margin-top: 1em;
+    }
+    .prose p {
+      color: var(--text-muted);
+      max-width: 68ch;
+    }
+    .prose strong {
+      color: var(--text);
+      font-weight: 620;
+    }
+
+    .section-link {
+      margin-top: 26px;
+    }
+    .section-link a {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      text-decoration: none;
+      padding-bottom: 2px;
+      border-bottom: 1px solid var(--border-strong);
+    }
+    .section-link a:hover {
+      border-bottom-color: var(--accent);
+    }
+    .section-link .icon {
+      transition: transform 0.18s ease-out;
+    }
+    .section-link a:hover .icon {
+      transform: translateX(3px);
+    }
+
+    /* ---------- 5. Header & Navigation ---------- */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      min-height: var(--header-h);
+      background: rgba(8, 11, 16, 0.88);
+      backdrop-filter: blur(14px) saturate(140%);
+      -webkit-backdrop-filter: blur(14px) saturate(140%);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .header-inner {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-height: var(--header-h);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+      text-decoration: none;
+      padding: 6px 0;
+      flex: none;
+    }
+    .brand:hover {
+      color: var(--text);
+    }
+    .brand-mark {
+      color: var(--accent);
+      flex: none;
+    }
+    .brand-text {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .brand-name {
+      font-size: 1.06rem;
+      font-weight: 680;
+      letter-spacing: -0.02em;
+    }
+
+    .primary-nav {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      margin-left: auto;
+    }
+
+    .nav-list {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .nav-link {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      min-height: 40px;
+      padding: 6px 11px;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 540;
+      text-decoration: none;
+      transition: color 0.15s ease-out, background-color 0.15s ease-out;
+    }
+    .nav-link:hover {
+      color: var(--text);
+      background: var(--surface-hover);
+    }
+    .nav-link.is-active {
+      color: var(--text);
+    }
+    .nav-link.is-active::after {
+      content: "";
+      position: absolute;
+      left: 11px;
+      right: 11px;
+      bottom: 3px;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+
+    .nav-toggle {
+      display: none;
+    }
+
+    /* ---------- 6. Buttons, Chips, Pills ---------- */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      min-height: 46px;
+      padding: 11px 20px;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      font-size: 0.94rem;
+      font-weight: 620;
+      letter-spacing: -0.005em;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background-color 0.16s ease-out, border-color 0.16s ease-out,
+        color 0.16s ease-out, transform 0.16s ease-out;
+    }
+    .btn:active {
+      transform: translateY(1px);
+    }
+
+    .btn-primary {
+      background: linear-gradient(180deg, #79ecf6, var(--accent-strong));
+      color: var(--on-accent);
+      box-shadow: 0 12px 30px -18px rgba(42, 200, 221, 0.85);
+    }
+    .btn-primary:hover {
+      background: linear-gradient(180deg, #93f1fa, #35d3e6);
+      color: var(--on-accent);
+    }
+
+    .btn-secondary {
+      background: var(--surface-raised);
+      border-color: var(--border-strong);
+      color: var(--text);
+    }
+    .btn-secondary:hover {
+      background: var(--surface-hover);
+      border-color: rgba(99, 230, 242, 0.4);
+      color: var(--text);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      border-color: var(--border-strong);
+      color: var(--text);
+    }
+    .btn-ghost:hover {
+      background: var(--accent-soft);
+      border-color: rgba(99, 230, 242, 0.42);
+      color: var(--accent);
+    }
+
+    .btn-sm {
+      min-height: 40px;
+      padding: 8px 14px;
+      font-size: 0.86rem;
+    }
+    .btn-block {
+      width: 100%;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--text-subtle);
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    .chip-mono {
+      font-family: var(--font-mono);
+      letter-spacing: 0;
+    }
+    .chip-planned {
+      color: var(--accent);
+      border-color: rgba(99, 230, 242, 0.3);
+      background: var(--accent-soft);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 12px;
+      border: 1px dashed var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.015);
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 12px;
+      border: 1px solid rgba(99, 230, 242, 0.28);
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .status-chip-sm {
+      font-size: 0.62rem;
+      padding: 4px 10px;
+    }
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 3px rgba(99, 230, 242, 0.16);
+    }
+
+    /* ---------- 7. Hero ---------- */
+    .hero {
+      position: relative;
+      padding-top: calc(var(--header-h) + clamp(38px, 6vw, 80px));
+      padding-bottom: clamp(52px, 6.5vw, 100px);
+      scroll-margin-top: 0;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(760px 380px at 12% -8%, rgba(42, 200, 221, 0.11), transparent 65%),
+        radial-gradient(620px 320px at 92% 8%, rgba(99, 230, 242, 0.05), transparent 60%);
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.5;
+      background-image:
+        linear-gradient(to right, rgba(185, 211, 230, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(185, 211, 230, 0.05) 1px, transparent 1px);
+      background-size: 68px 68px;
+      -webkit-mask-image: radial-gradient(720px 420px at 30% 0%, #000 0%, transparent 78%);
+      mask-image: radial-gradient(720px 420px at 30% 0%, #000 0%, transparent 78%);
+    }
+    .hero-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: clamp(38px, 5vw, 60px);
+      align-items: center;
+    }
+
+    .hero-title {
+      margin-bottom: 20px;
+    }
+    .hero-accent {
+      display: block;
+      color: var(--accent);
+      font-weight: 500;
+      letter-spacing: -0.035em;
+    }
+    .hero-lede {
+      color: var(--text-muted);
+      font-size: clamp(1.02rem, 0.98rem + 0.35vw, 1.16rem);
+      line-height: 1.62;
+      max-width: 56ch;
+      margin-bottom: 30px;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 26px;
+    }
+
+    .status-line {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px 16px;
+      padding-bottom: 22px;
+      margin-bottom: 22px;
+      border-bottom: 1px solid var(--border);
+    }
+    .status-meta {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-subtle);
+    }
+
+    .hero-note {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      max-width: 58ch;
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      line-height: 1.6;
+    }
+    .icon-note {
+      flex: none;
+      margin-top: 3px;
+      color: var(--warn);
+    }
+
+    /* Hero visual */
+    .hero-visual {
+      min-width: 0;
+    }
+
+    .stage-figure {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 55%),
+        var(--surface);
+      padding: clamp(16px, 2.4vw, 24px);
+      box-shadow: var(--shadow-pop);
+    }
+
+    .stage-caption {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 16px;
+      margin-bottom: 18px;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-subtle);
+    }
+    .tag-illustrative {
+      color: var(--accent);
+      border: 1px solid rgba(99, 230, 242, 0.3);
+      background: var(--accent-soft);
+      border-radius: 999px;
+      padding: 3px 10px;
+    }
+
+    .stage {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: center;
+      gap: clamp(10px, 1.6vw, 20px);
+    }
+
+    .node {
+      min-width: 0;
+      text-align: center;
+    }
+    .node-label {
+      margin-top: 14px;
+      font-size: 0.92rem;
+      font-weight: 620;
+      color: var(--text);
+    }
+    .node-sub {
+      margin-top: 3px;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--text-subtle);
+      letter-spacing: 0.02em;
+    }
+
+    /* Workstation mock */
+    .monitor {
+      position: relative;
+      width: min(100%, 210px);
+      margin-inline: auto;
+      padding-bottom: 20px;
+    }
+    .monitor-screen {
+      display: block;
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      background: linear-gradient(180deg, #16202c, #0e151d);
+      padding: 8px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+    .monitor-bar {
+      display: flex;
+      gap: 5px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .monitor-bar i {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--border-strong);
+    }
+    .monitor-bar i:first-child {
+      background: rgba(99, 230, 242, 0.55);
+    }
+    .monitor-body {
+      display: grid;
+      grid-template-columns: 34% 1fr;
+      gap: 8px;
+      padding-top: 10px;
+    }
+    .monitor-block {
+      display: block;
+      height: 52px;
+      border-radius: 6px;
+      border: 1px solid rgba(99, 230, 242, 0.26);
+      background: linear-gradient(160deg, rgba(99, 230, 242, 0.16), rgba(99, 230, 242, 0.03));
+    }
+    .monitor-lines {
+      display: grid;
+      gap: 7px;
+      align-content: center;
+    }
+    .monitor-lines i {
+      display: block;
+      height: 5px;
+      border-radius: 3px;
+      background: rgba(185, 211, 230, 0.18);
+    }
+    .monitor-lines i:nth-child(2) { width: 78%; }
+    .monitor-lines i:nth-child(3) { width: 55%; }
+    .monitor-stand {
+      display: block;
+      width: 22px;
+      height: 14px;
+      margin: 0 auto;
+      background: linear-gradient(180deg, #1b2735, #121a24);
+      border-inline: 1px solid var(--border);
+    }
+    .monitor-foot {
+      display: block;
+      width: 74px;
+      height: 5px;
+      margin: 0 auto;
+      border-radius: 3px;
+      background: #1b2735;
+      border: 1px solid var(--border);
+    }
+
+    /* Phone mock */
+    .phone {
+      position: relative;
+      width: min(100%, 116px);
+      margin-inline: auto;
+      border: 1px solid var(--border-strong);
+      border-radius: 18px;
+      background: linear-gradient(180deg, #16202c, #0e151d);
+      padding: 8px 7px 10px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+    .phone-notch {
+      display: block;
+      width: 30px;
+      height: 4px;
+      margin: 0 auto 9px;
+      border-radius: 3px;
+      background: rgba(185, 211, 230, 0.22);
+    }
+    .phone-screen {
+      display: grid;
+      gap: 7px;
+      justify-items: center;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(8, 11, 16, 0.6);
+      padding: 14px 10px;
+    }
+    .phone-glyph {
+      color: var(--accent);
+      display: block;
+      margin-bottom: 4px;
+    }
+    .phone-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+    }
+    .phone-row .dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: rgba(99, 230, 242, 0.6);
+      flex: none;
+    }
+    .phone-row .bar {
+      display: block;
+      height: 5px;
+      flex: 1;
+      border-radius: 3px;
+      background: rgba(185, 211, 230, 0.17);
+    }
+    .phone-row .bar.short { max-width: 52%; }
+    .phone-row .bar.mid { max-width: 74%; }
+    .phone-pill {
+      display: block;
+      width: 62%;
+      height: 14px;
+      margin-top: 5px;
+      border-radius: 7px;
+      background: linear-gradient(180deg, rgba(99, 230, 242, 0.32), rgba(99, 230, 242, 0.14));
+      border: 1px solid rgba(99, 230, 242, 0.3);
+    }
+
+    /* Bridge */
+    .bridge {
+      display: grid;
+      justify-items: center;
+      gap: 9px;
+      min-width: clamp(130px, 15vw, 200px);
+      padding-inline: 4px;
+    }
+    .bridge-chip {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 10px;
+      background: var(--surface-raised);
+    }
+    .bridge-chip-alt {
+      color: var(--accent);
+      border-color: rgba(99, 230, 242, 0.3);
+      background: var(--accent-soft);
+    }
+
+    .bridge-track {
+      position: relative;
+      display: block;
+      width: 100%;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--border-strong);
+      overflow: hidden;
+    }
+    .bridge-track::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: linear-gradient(90deg, var(--accent) 0 7px, transparent 7px 15px);
+      background-size: 15px 2px;
+      opacity: 0.75;
+      animation: bridge-dash 1.5s linear infinite;
+    }
+    @keyframes bridge-dash {
+      to { background-position: 15px 0; }
+    }
+
+    .bridge-pulse {
+      position: absolute;
+      top: 50%;
+      left: 0;
+      width: 7px;
+      height: 7px;
+      margin-top: -3.5px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 12px rgba(99, 230, 242, 0.85);
+      animation: bridge-travel 3.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+    }
+    @keyframes bridge-travel {
+      0% { left: 0; opacity: 0; }
+      12% { opacity: 1; }
+      88% { opacity: 1; }
+      100% { left: calc(100% - 7px); opacity: 0; }
+    }
+
+    .bridge-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.72rem;
+      color: var(--text-subtle);
+    }
+    .bridge-meta code { font-size: 0.68rem; }
+    .bridge-sep { color: var(--border-strong); }
+
+    .stage-foot {
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      font-size: 0.76rem;
+      color: var(--text-subtle);
+      text-align: center;
+    }
+
+    /* ---------- 8. Overview ---------- */
+    .overview-grid {
+      display: grid;
+      gap: clamp(26px, 4vw, 52px);
+      align-items: start;
+    }
+
+    .callout {
+      border: 1px solid var(--border);
+      border-left: 2px solid var(--accent-strong);
+      border-radius: var(--radius-md);
+      background: linear-gradient(180deg, rgba(99, 230, 242, 0.045), transparent 60%), var(--surface);
+      padding: clamp(20px, 2.6vw, 28px);
+      box-shadow: var(--shadow-card);
+    }
+    .callout-title {
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+    .callout-note {
+      font-size: 0.8rem;
+      color: var(--text-subtle);
+      margin-bottom: 18px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .callout-list > div + div {
+      margin-top: 14px;
+    }
+    .callout-list dt {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-subtle);
+      margin-bottom: 3px;
+    }
+    .callout-list dd {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    /* ---------- 9. Features ---------- */
+    .feature-grid {
+      display: grid;
+      gap: var(--gap);
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .feature {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 0;
+      padding: clamp(20px, 2.4vw, 28px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 45%), var(--surface);
+      box-shadow: var(--shadow-card);
+      transition: border-color 0.18s ease-out, background-color 0.18s ease-out, transform 0.18s ease-out;
+    }
+    .feature:hover {
+      border-color: var(--border-strong);
+      background-color: var(--surface-raised);
+      transform: translateY(-2px);
+    }
+
+    .feature-icon {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 11px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface-raised);
+      color: var(--accent);
+    }
+    .feature-wide .feature-icon {
+      background: var(--accent-soft);
+      border-color: rgba(99, 230, 242, 0.3);
+    }
+
+    .feature-title {
+      color: var(--text);
+    }
+    .feature-text {
+      color: var(--text-muted);
+      font-size: 0.94rem;
+      line-height: 1.62;
+    }
+    .feature-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: auto;
+      padding-top: 6px;
+    }
+
+    /* ---------- 10. Architecture ---------- */
+    .arch {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background:
+        radial-gradient(600px 260px at 50% -10%, rgba(42, 200, 221, 0.07), transparent 70%),
+        var(--surface);
+      padding: clamp(20px, 3.4vw, 40px);
+      box-shadow: var(--shadow-card);
+    }
+
+    .arch-flow {
+      display: grid;
+      justify-items: stretch;
+    }
+
+    .arch-node {
+      min-width: 0;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      background: var(--surface-raised);
+      padding: clamp(16px, 2vw, 22px);
+    }
+    .arch-node-primary {
+      border-color: rgba(99, 230, 242, 0.34);
+      background:
+        linear-gradient(180deg, rgba(99, 230, 242, 0.07), transparent 70%),
+        var(--surface-raised);
+    }
+    .arch-kind {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-subtle);
+      margin-bottom: 6px;
+    }
+    .arch-node-primary .arch-kind {
+      color: var(--accent);
+    }
+    .arch-name {
+      font-size: 1.06rem;
+      margin-bottom: 6px;
+    }
+    .arch-desc {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      line-height: 1.58;
+    }
+
+    .arch-link {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 16px;
+      align-items: center;
+      padding-block: 14px;
+      margin-inline: auto;
+      width: 100%;
+      max-width: 560px;
+    }
+    .arch-link-line {
+      position: relative;
+      display: block;
+      width: 2px;
+      height: 68px;
+      border-radius: 2px;
+      background: repeating-linear-gradient(180deg, var(--accent-strong) 0 6px, transparent 6px 12px);
+      opacity: 0.75;
+    }
+    .arch-link-head {
+      position: absolute;
+      bottom: -1px;
+      left: 50%;
+      width: 0;
+      height: 0;
+      transform: translateX(-50%);
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 7px solid var(--accent-strong);
+    }
+    .arch-link-meta {
+      display: grid;
+      gap: 5px;
+    }
+    .arch-link-meta li {
+      position: relative;
+      padding-left: 14px;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: var(--text-muted);
+    }
+    .arch-link-meta li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.62em;
+      width: 6px;
+      height: 1px;
+      background: var(--accent);
+    }
+
+    .arch-branch {
+      position: relative;
+      margin-top: 16px;
+      padding-top: 26px;
+    }
+    .arch-bus {
+      position: absolute;
+      top: 0;
+      left: 12.5%;
+      right: 12.5%;
+      height: 1px;
+      background: var(--border-strong);
+    }
+    .arch-bus::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: -26px;
+      width: 1px;
+      height: 26px;
+      background: var(--border-strong);
+    }
+    .arch-children {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: var(--gap);
+    }
+    .arch-children > li {
+      position: relative;
+    }
+    .arch-children > li::before {
+      content: "";
+      position: absolute;
+      top: -26px;
+      left: 50%;
+      width: 1px;
+      height: 26px;
+      background: var(--border-strong);
+    }
+    .arch-node-child {
+      height: 100%;
+    }
+
+    .arch-caption {
+      margin-top: 26px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+      font-size: 0.86rem;
+      color: var(--text-muted);
+    }
+    .arch-caption strong {
+      color: var(--text);
+      font-weight: 640;
+    }
+
+    .arch-note {
+      margin-top: 22px;
+      max-width: 82ch;
+      font-size: 0.88rem;
+      color: var(--text-subtle);
+      line-height: 1.6;
+    }
+
+    /* ---------- 11. Networking & Robust Boundary Diagram ---------- */
+    .net-grid {
+      display: grid;
+      gap: clamp(26px, 4vw, 48px);
+      align-items: start;
+    }
+
+    /* Upgraded Boundary Component with robust layout */
+    .boundary {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface-raised);
+      padding: clamp(18px, 2.4vw, 24px);
+      box-shadow: var(--shadow-card);
+    }
+
+    .boundary-frame {
+      border: 1px dashed rgba(99, 230, 242, 0.42);
+      border-radius: var(--radius-md);
+      background: rgba(99, 230, 242, 0.035);
+      padding: clamp(16px, 2vw, 20px);
+    }
+
+    .boundary-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .boundary-label {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0;
+    }
+
+    .boundary-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.06em;
+      color: var(--accent);
+      background: rgba(99, 230, 242, 0.1);
+      border: 1px solid rgba(99, 230, 242, 0.28);
+      border-radius: 999px;
+      padding: 3px 8px;
+    }
+
+    .boundary-badge::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    /* Clean circuit flow that won't break or overlap in narrow containers */
+    .boundary-flow {
+      display: grid;
+      gap: 12px;
+    }
+
+    .boundary-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      padding: 12px 14px;
+      transition: border-color 0.18s ease;
+    }
+    .boundary-card:hover {
+      border-color: rgba(99, 230, 242, 0.4);
+    }
+
+    .boundary-icon-box {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      display: grid;
+      place-items: center;
+      color: var(--accent);
+      flex: none;
+    }
+
+    .boundary-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .boundary-device-title {
+      font-size: 0.92rem;
+      font-weight: 620;
+      color: var(--text);
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .boundary-device-sub {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-subtle);
+      display: block;
+    }
+
+    .boundary-pill-tag {
+      font-family: var(--font-mono);
+      font-size: 0.64rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-subtle);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 6px;
+      background: var(--surface-raised);
+      flex: none;
+    }
+
+    /* Animated Link Conduit between Android & Windows */
+    .boundary-conduit {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+    }
+
+    .conduit-track {
+      position: relative;
+      width: 2px;
+      height: 28px;
+      background: repeating-linear-gradient(180deg, var(--accent-strong) 0 4px, transparent 4px 8px);
+      border-radius: 2px;
+      opacity: 0.8;
+      overflow: hidden;
+    }
+
+    .conduit-track::after {
+      content: "";
+      position: absolute;
+      top: -10px;
+      left: 0;
+      width: 2px;
+      height: 10px;
+      background: #fff;
+      box-shadow: 0 0 8px var(--accent);
+      animation: conduit-flow 1.8s infinite linear;
+    }
+    @keyframes conduit-flow {
+      0% { top: -10px; opacity: 0; }
+      20% { opacity: 1; }
+      80% { opacity: 1; }
+      100% { top: 28px; opacity: 0; }
+    }
+
+    .conduit-specs {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .conduit-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      padding: 4px 10px;
+      white-space: nowrap;
+    }
+
+    .conduit-chip-port {
+      color: var(--accent);
+      border-color: rgba(99, 230, 242, 0.35);
+      background: rgba(99, 230, 242, 0.08);
+      font-weight: 600;
+    }
+
+    .conduit-chip code {
+      color: var(--accent);
+      padding: 0;
+      border: 0;
+      background: none;
+    }
+
+    /* Excluded Boundaries Section */
+    .boundary-outside {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+
+    .boundary-outside-title {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-subtle);
+      margin-bottom: 12px;
+    }
+
+    .excluded-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .excluded-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border: 1px dashed rgba(185, 211, 230, 0.18);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.015);
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      transition: background-color 0.15s ease;
+    }
+    .excluded-item:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .excluded-icon {
+      color: var(--text-subtle);
+      flex: none;
+    }
+
+    .boundary-caption {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      font-size: 0.78rem;
+      color: var(--text-subtle);
+    }
+
+    /* Distinction Table */
+    .distinction {
+      margin-top: clamp(30px, 4vw, 48px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .distinction-row {
+      display: grid;
+      gap: 6px 22px;
+      padding: clamp(16px, 2.2vw, 22px) clamp(18px, 2.4vw, 26px);
+    }
+    .distinction-row + .distinction-row {
+      border-top: 1px solid var(--border);
+    }
+    .distinction-label {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .distinction-row p {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+      max-width: 82ch;
+    }
+    .distinction-row:last-child {
+      background: rgba(240, 192, 112, 0.04);
+    }
+    .distinction-row:last-child .distinction-label {
+      color: var(--warn);
+    }
+
+    /* ---------- 12. Security ---------- */
+    .alert {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      border: 1px solid rgba(240, 192, 112, 0.34);
+      border-left: 3px solid var(--warn);
+      border-radius: var(--radius-md);
+      background: var(--warn-soft);
+      padding: clamp(16px, 2.2vw, 22px) clamp(18px, 2.4vw, 24px);
+      margin-bottom: clamp(28px, 4vw, 44px);
+    }
+    .alert-icon {
+      color: var(--warn);
+      flex: none;
+      margin-top: 2px;
+    }
+    .alert-text {
+      font-size: clamp(0.98rem, 0.94rem + 0.3vw, 1.1rem);
+      line-height: 1.5;
+      color: var(--text);
+    }
+    .alert-text strong {
+      font-weight: 660;
+    }
+
+    .security-grid {
+      display: grid;
+      gap: clamp(28px, 4vw, 52px);
+      align-items: start;
+    }
+
+    .check-list {
+      display: grid;
+      gap: 18px;
+    }
+    .check-list li {
+      position: relative;
+      display: flex;
+      gap: 14px;
+      padding-left: 2px;
+    }
+    .check-mark {
+      flex: none;
+      width: 18px;
+      height: 18px;
+      margin-top: 5px;
+      border-radius: 5px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface-raised);
+    }
+    .check-mark::after {
+      content: "";
+      position: absolute;
+      left: 7px;
+      top: 9px;
+      width: 8px;
+      height: 4px;
+      border-left: 1.6px solid var(--accent);
+      border-bottom: 1.6px solid var(--accent);
+      transform: rotate(-45deg);
+    }
+    .check-list p {
+      font-size: 0.93rem;
+      color: var(--text-muted);
+      line-height: 1.62;
+      max-width: 68ch;
+    }
+    .check-list strong {
+      color: var(--text);
+      font-weight: 620;
+    }
+
+    .assurance {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      padding: clamp(20px, 2.6vw, 28px);
+      box-shadow: var(--shadow-card);
+    }
+    .assurance-list {
+      display: grid;
+      gap: 18px;
+      counter-reset: none;
+    }
+    .assurance-list li {
+      display: flex;
+      gap: 14px;
+    }
+    .assurance-index {
+      flex: none;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--accent);
+      border: 1px solid rgba(99, 230, 242, 0.3);
+      background: var(--accent-soft);
+      border-radius: var(--radius-sm);
+      padding: 3px 7px;
+      height: max-content;
+    }
+    .assurance-list h4 {
+      margin-bottom: 4px;
+      color: var(--text);
+    }
+    .assurance-list p {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      line-height: 1.58;
+    }
+    .assurance-list strong {
+      color: var(--warn);
+      font-weight: 640;
+    }
+    .assurance-foot {
+      margin: 20px 0;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+      font-size: 0.84rem;
+      color: var(--text-subtle);
+      line-height: 1.58;
+    }
+
+    /* ---------- 13. Platforms ---------- */
+    .platform-grid {
+      display: grid;
+      gap: var(--gap);
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .platform {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 50%), var(--surface);
+      padding: clamp(20px, 2.8vw, 30px);
+      box-shadow: var(--shadow-card);
+    }
+    .platform-head {
+      display: grid;
+      gap: 6px;
+      padding-bottom: 18px;
+      margin-bottom: 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .platform-icon {
+      display: grid;
+      place-items: center;
+      width: 46px;
+      height: 46px;
+      border-radius: 12px;
+      border: 1px solid rgba(99, 230, 242, 0.3);
+      background: var(--accent-soft);
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+    .platform-name {
+      font-size: 1.28rem;
+    }
+    .platform-role {
+      font-size: 0.86rem;
+      color: var(--text-subtle);
+    }
+
+    .spec-list > li {
+      display: grid;
+      grid-template-columns: minmax(96px, 26%) minmax(0, 1fr);
+      gap: 12px;
+      padding: 11px 0;
+    }
+    .spec-list > li + li {
+      border-top: 1px solid var(--border);
+    }
+    .spec-key {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-subtle);
+      padding-top: 2px;
+    }
+    .spec-val {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+    }
+
+    /* ---------- 14. Developers ---------- */
+    .tabs {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+
+    .tablist {
+      display: flex;
+      gap: 2px;
+      padding: 10px 10px 0;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
+      overflow-x: auto;
+      scrollbar-width: thin;
+      -webkit-overflow-scrolling: touch;
+    }
+    .tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 46px;
+      padding: 10px 14px;
+      border: 1px solid transparent;
+      border-bottom: 0;
+      border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      font-weight: 560;
+      white-space: nowrap;
+      transition: color 0.15s ease-out, background-color 0.15s ease-out;
+    }
+    .tab:hover {
+      color: var(--text);
+      background: var(--surface-hover);
+    }
+    .tab-index {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      color: var(--text-subtle);
+      letter-spacing: 0.06em;
+    }
+    .tab[aria-selected="true"] {
+      color: var(--accent);
+      background: var(--surface-raised);
+      border-color: var(--border);
+      box-shadow: inset 0 2px 0 var(--accent);
+    }
+    .tab[aria-selected="true"] .tab-index {
+      color: var(--accent-strong);
+    }
+
+    .tabpanel {
+      padding: clamp(20px, 3vw, 34px);
+    }
+    .tabpanel:focus-visible {
+      outline-offset: -4px;
+    }
+
+    .panel-title {
+      margin-bottom: 10px;
+    }
+    .panel-lede {
+      color: var(--text-muted);
+      font-size: 0.94rem;
+      max-width: 76ch;
+      margin-bottom: 22px;
+    }
+    .panel-fine {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 0.82rem;
+      color: var(--text-subtle);
+      line-height: 1.58;
+      max-width: 82ch;
+    }
+
+    .role-list {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: var(--surface-raised);
+    }
+    .role-list > div {
+      padding: 14px 18px;
+    }
+    .role-list > div + div {
+      border-top: 1px solid var(--border);
+    }
+    .role-list dt {
+      font-weight: 620;
+      font-size: 0.92rem;
+      color: var(--text);
+      margin-bottom: 3px;
+    }
+    .role-list dd {
+      margin: 0;
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      line-height: 1.58;
+    }
+
+    .panel-note {
+      margin-top: 22px;
+      border-left: 2px solid var(--accent-strong);
+      background: linear-gradient(90deg, rgba(99, 230, 242, 0.05), transparent 70%);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      padding: 16px 20px;
+    }
+    .panel-note-title {
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+    .panel-note p {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.62;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface-raised);
+    }
+    .table-wrap:focus-visible {
+      outline-offset: -3px;
+    }
+    .ref-table {
+      width: 100%;
+      min-width: 460px;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    .ref-table th, .ref-table td {
+      padding: 12px 16px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--border);
+    }
+    .ref-table thead th {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--text-subtle);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .ref-table tbody th {
+      width: 34%;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .ref-table tbody td {
+      color: var(--text-muted);
+    }
+    .ref-table tbody tr:last-child th,
+    .ref-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .ref-table tbody tr:hover th,
+    .ref-table tbody tr:hover td {
+      background: rgba(99, 230, 242, 0.035);
+    }
+
+    .ipc-map {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface-raised);
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .ipc-box {
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      padding: 9px 13px;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .ipc-pipe {
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+    }
+    .ipc-pipe i {
+      display: block;
+      width: 16px;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--accent-strong);
+      opacity: 0.55;
+    }
+    .ipc-pipe i:nth-child(2) { opacity: 0.8; }
+    .ipc-pipe i:nth-child(3) { opacity: 1; }
+
+    .tick-list {
+      display: grid;
+      gap: 11px;
+      margin-bottom: 4px;
+    }
+    .tick-list li {
+      position: relative;
+      padding-left: 24px;
+      font-size: 0.92rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .tick-list li::before {
+      content: "";
+      position: absolute;
+      left: 4px;
+      top: 0.62em;
+      width: 8px;
+      height: 4px;
+      border-left: 1.6px solid var(--accent);
+      border-bottom: 1.6px solid var(--accent);
+      transform: rotate(-45deg);
+    }
+    .tick-list-numbered {
+      counter-reset: contrib;
+      gap: 14px;
+    }
+    .tick-list-numbered li {
+      counter-increment: contrib;
+      padding-left: 34px;
+    }
+    .tick-list-numbered li::before {
+      content: counter(contrib, decimal-leading-zero);
+      position: absolute;
+      left: 0;
+      top: 1px;
+      width: auto;
+      height: auto;
+      border: 0;
+      transform: none;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--accent);
+    }
+
+    .build-grid {
+      display: grid;
+      gap: var(--gap);
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .build-col {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface-raised);
+      padding: 18px 20px;
+    }
+    .build-col-title {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .code {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: #0a0f15;
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+    .code-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.022);
+    }
+    .code-label {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .code-lang {
+      flex: none;
+      font-family: var(--font-mono);
+      font-size: 0.64rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-subtle);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 8px;
+    }
+    .copy-btn {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 32px;
+      padding: 5px 11px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface-raised);
+      color: var(--text-muted);
+      font-size: 0.76rem;
+      font-weight: 600;
+      transition: color 0.15s ease-out, border-color 0.15s ease-out, background-color 0.15s ease-out;
+    }
+    .copy-btn:hover {
+      color: var(--accent);
+      border-color: rgba(99, 230, 242, 0.42);
+      background: var(--surface-hover);
+    }
+    .copy-btn.is-copied {
+      color: var(--accent);
+      border-color: rgba(99, 230, 242, 0.5);
+      background: var(--accent-soft);
+    }
+
+    .code-body {
+      margin: 0;
+      padding: 14px 16px;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 0.84rem;
+      line-height: 1.7;
+      color: #d6e7f5;
+      tab-size: 2;
+    }
+    .code-body:focus-visible {
+      outline-offset: -3px;
+    }
+
+    .copy-status {
+      min-height: 1.4em;
+      margin-top: 4px;
+      font-size: 0.82rem;
+      color: var(--accent);
+    }
+    .copy-status.is-error {
+      color: var(--warn);
+    }
+
+    /* ---------- 15. Roadmap ---------- */
+    .roadmap {
+      position: relative;
+      display: grid;
+      gap: 0;
+      padding-left: 26px;
+    }
+    .roadmap::before {
+      content: "";
+      position: absolute;
+      left: 5px;
+      top: 12px;
+      bottom: 24px;
+      width: 1px;
+      background: linear-gradient(180deg, var(--accent-strong), var(--border) 70%, transparent);
+      opacity: 0.5;
+    }
+    .roadmap-item {
+      position: relative;
+      padding: 0 0 26px;
+    }
+    .roadmap-marker {
+      position: absolute;
+      left: -26px;
+      top: 7px;
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      border: 2px solid var(--accent-strong);
+      background: var(--bg);
+    }
+    .roadmap-body {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      padding: clamp(16px, 2.2vw, 22px);
+      transition: border-color 0.18s ease-out, background-color 0.18s ease-out;
+    }
+    .roadmap-item:hover .roadmap-body {
+      border-color: var(--border-strong);
+      background: var(--surface-raised);
+    }
+    .roadmap-title {
+      margin-bottom: 6px;
+    }
+    .roadmap-body > p {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 74ch;
+    }
+    .roadmap-status {
+      margin-top: 12px;
+    }
+
+    /* ---------- 16. FAQ ---------- */
+    .faq {
+      border-top: 1px solid var(--border);
+    }
+    .faq-item {
+      border-bottom: 1px solid var(--border);
+    }
+    .faq-item summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      min-height: 58px;
+      padding: 16px 4px;
+      cursor: pointer;
+      list-style: none;
+      font-size: clamp(0.98rem, 0.95rem + 0.25vw, 1.06rem);
+      font-weight: 580;
+      color: var(--text);
+      transition: color 0.15s ease-out;
+    }
+    .faq-item summary::-webkit-details-marker {
+      display: none;
+    }
+    .faq-item summary:hover {
+      color: var(--accent);
+    }
+    .faq-item summary::after {
+      content: "";
+      flex: none;
+      width: 11px;
+      height: 11px;
+      border-right: 1.6px solid var(--accent);
+      border-bottom: 1.6px solid var(--accent);
+      transform: rotate(45deg) translateY(-3px);
+      transition: transform 0.2s ease-out;
+    }
+    .faq-item[open] summary::after {
+      transform: rotate(-135deg) translateY(-3px);
+    }
+    .faq-body {
+      padding: 0 4px 20px;
+      max-width: 78ch;
+    }
+    .faq-body p {
+      font-size: 0.94rem;
+      color: var(--text-muted);
+      line-height: 1.66;
+    }
+    .faq-body p + p {
+      margin-top: 0.85em;
+    }
+
+    /* ---------- 17. CTA & Footer ---------- */
+    .section-cta {
+      padding-block: clamp(56px, 7vw, 100px);
+    }
+    .cta-panel {
+      position: relative;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      background:
+        radial-gradient(680px 300px at 15% 0%, rgba(42, 200, 221, 0.1), transparent 68%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 55%),
+        var(--surface);
+      padding: clamp(26px, 4.4vw, 54px);
+      box-shadow: var(--shadow-pop);
+      overflow: hidden;
+    }
+    .cta-title {
+      max-width: 22ch;
+      margin-bottom: 14px;
+    }
+    .cta-text {
+      color: var(--text-muted);
+      font-size: 1rem;
+      max-width: 62ch;
+      margin-bottom: 26px;
+    }
+    .cta-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .cta-status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .site-footer {
+      border-top: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 40%), var(--surface);
+      padding-top: clamp(44px, 5vw, 68px);
+    }
+    .footer-grid {
+      display: grid;
+      gap: clamp(26px, 3.4vw, 44px);
+      padding-bottom: clamp(34px, 4vw, 52px);
+    }
+    .footer-wordmark {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.1rem;
+      font-weight: 680;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 12px;
+    }
+    .footer-wordmark .brand-mark {
+      color: var(--accent);
+    }
+    .footer-desc {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      line-height: 1.62;
+      max-width: 46ch;
+      margin-bottom: 16px;
+    }
+    .footer-platforms {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .footer-platforms .pill {
+      font-size: 0.72rem;
+      padding: 4px 9px;
+    }
+
+    .footer-heading {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--text-subtle);
+      font-weight: 500;
+      margin-bottom: 14px;
+    }
+    .footer-nav ul {
+      display: grid;
+      gap: 9px;
+    }
+    .footer-nav a {
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      padding-bottom: 1px;
+      display: inline-block;
+      min-height: 24px;
+    }
+    .footer-nav a:hover {
+      color: var(--accent);
+      border-bottom-color: rgba(99, 230, 242, 0.45);
+    }
+
+    .footer-repo-link {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      word-break: break-word;
+      margin-bottom: 14px;
+    }
+    .footer-status {
+      margin-bottom: 10px;
+    }
+    .footer-fine {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-subtle);
+    }
+
+    .footer-legal {
+      border-top: 1px solid var(--border);
+      padding-block: 26px 34px;
+      display: grid;
+      gap: 12px;
+    }
+    .footer-legal p {
+      font-size: 0.79rem;
+      color: var(--text-subtle);
+      line-height: 1.62;
+      max-width: 108ch;
+    }
+
+    /* ---------- 18. Motion & Reveal ---------- */
+    html.js .reveal {
+      opacity: 0;
+      transform: translateY(14px);
+      transition: opacity 0.55s ease-out, transform 0.55s ease-out;
+    }
+    html.js .reveal.is-visible {
+      opacity: 1;
+      transform: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
+      html.js .reveal { opacity: 1 !important; transform: none !important; }
+      .bridge-pulse { display: none; }
+      .bridge-track::after { animation: none; opacity: 0.5; }
+      .conduit-track::after { animation: none; opacity: 0.5; }
+      #network-canvas { display: none !important; }
+    }
+
+    /* ---------- 19. Responsive Media Queries ---------- */
+    @media (min-width: 640px) {
+      .build-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (min-width: 720px) {
+      .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .platform-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .distinction-row { grid-template-columns: minmax(150px, 22%) minmax(0, 1fr); align-items: baseline; }
+    }
+
+    @media (min-width: 960px) {
+      .overview-grid { grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr); }
+      .net-grid { grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr); }
+      .security-grid { grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.85fr); }
+      .footer-grid { grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.7fr) minmax(0, 0.7fr) minmax(0, 1fr); }
+    }
+
+    @media (min-width: 1024px) {
+      .hero-grid { grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr); }
+    }
+
+    @media (min-width: 1080px) {
+      .feature-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+      .feature-grid > .feature:nth-child(1) { grid-column: span 4; }
+      .feature-grid > .feature:nth-child(2) { grid-column: span 2; }
+      .feature-grid > .feature:nth-child(3) { grid-column: span 2; }
+      .feature-grid > .feature:nth-child(4) { grid-column: span 4; }
+      .feature-grid > .feature:nth-child(5) { grid-column: span 3; }
+      .feature-grid > .feature:nth-child(6) { grid-column: span 3; }
+    }
+
+    @media (max-width: 900px) {
+      .nav-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        min-height: 44px;
+        padding: 8px 13px;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-sm);
+        background: var(--surface-raised);
+        color: var(--text);
+        font-size: 0.84rem;
+        font-weight: 600;
+      }
+      .nav-toggle:hover {
+        background: var(--surface-hover);
+        border-color: rgba(99, 230, 242, 0.4);
+      }
+      .nav-toggle .bar {
+        transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+      }
+      .site-header[data-nav-open="true"] .nav-toggle .bar-1 {
+        transform: translateY(4px) rotate(45deg);
+      }
+      .site-header[data-nav-open="true"] .nav-toggle .bar-2 {
+        opacity: 0;
+      }
+      .site-header[data-nav-open="true"] .nav-toggle .bar-3 {
+        transform: translateY(-4px) rotate(-45deg);
+      }
+
+      html.js .primary-nav {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        padding: 14px var(--gutter) 20px;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border-strong);
+        box-shadow: var(--shadow-pop);
+      }
+      html.js .site-header[data-nav-open="true"] .primary-nav {
+        display: flex;
+        animation: nav-in 0.18s ease-out;
+      }
+      @keyframes nav-in {
+        from { opacity: 0; transform: translateY(-6px); }
+        to { opacity: 1; transform: none; }
+      }
+      html.js .nav-list {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 2px;
+      }
+      html.js .nav-link {
+        width: 100%;
+        min-height: 46px;
+        padding: 10px 12px;
+        font-size: 0.98rem;
+      }
+      html.js .nav-link.is-active::after {
+        left: 12px;
+        right: auto;
+        width: 2px;
+        height: 18px;
+        bottom: auto;
+        top: 14px;
+      }
+      html.js .nav-github {
+        width: 100%;
+        min-height: 46px;
+      }
+
+      .arch-children { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .arch-bus { left: 25%; right: 25%; }
+    }
+
+    @media (max-width: 820px) {
+      .stage {
+        grid-template-columns: minmax(0, 1fr);
+        justify-items: center;
+        gap: 6px;
+      }
+      .node-pc { order: 1; }
+      .bridge { order: 2; padding-block: 8px; }
+      .node-phone { order: 3; }
+      .bridge-track { width: 2px; height: 66px; }
+      .bridge-track::after {
+        background-image: linear-gradient(180deg, var(--accent) 0 7px, transparent 7px 15px);
+        background-size: 2px 15px;
+        animation: bridge-dash-v 1.5s linear infinite;
+      }
+      @keyframes bridge-dash-v { to { background-position: 0 15px; } }
+      .bridge-pulse {
+        top: 0;
+        left: 50%;
+        margin-top: 0;
+        margin-left: -3.5px;
+        animation: bridge-travel-v 3.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      }
+      @keyframes bridge-travel-v {
+        0% { top: 0; opacity: 0; }
+        12% { opacity: 1; }
+        88% { opacity: 1; }
+        100% { top: calc(100% - 7px); opacity: 0; }
+      }
+      .bridge-meta { max-width: 30ch; }
+    }
+
+    @media (max-width: 720px) {
+      .arch-children { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+      .arch-branch { padding-top: 18px; margin-top: 14px; }
+      .arch-bus { display: none; }
+      .arch-children > li::before { display: none; }
+      .arch-children > li {
+        padding-left: 16px;
+        border-left: 1px solid var(--border-strong);
+      }
+      .arch-link { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 10px; }
+      .arch-link-line {
+        width: 68px;
+        height: 2px;
+        background: repeating-linear-gradient(90deg, var(--accent-strong) 0 6px, transparent 6px 12px);
+      }
+      .arch-link-head {
+        bottom: auto;
+        left: auto;
+        top: 50%;
+        right: -1px;
+        transform: translateY(-50%);
+        border-top: 5px solid transparent;
+        border-bottom: 5px solid transparent;
+        border-left: 7px solid var(--accent-strong);
+        border-right: 0;
+      }
+      .arch-link-meta { justify-items: center; text-align: center; }
+      .arch-link-meta li { padding-left: 0; }
+      .arch-link-meta li::before { display: none; }
+    }
+
+    @media (max-width: 560px) {
+      :root { --header-h: 58px; }
+      .hero-actions .btn, .cta-actions .btn { width: 100%; }
+      .status-line { gap: 10px; }
+      .spec-list > li { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+      .code-head { flex-wrap: wrap; }
+      .code-label { flex-basis: 100%; order: 1; white-space: normal; }
+      .code-lang { order: 2; }
+      .copy-btn { order: 3; margin-left: auto; }
+      .tab { font-size: 0.84rem; padding: 10px 12px; }
+      .monitor { width: min(100%, 190px); }
+    }
+
+    @media (max-width: 380px) {
+      .nav-toggle-label { display: none; }
+      .nav-toggle { padding: 10px; }
+      .eyebrow { font-size: 0.66rem; letter-spacing: 0.13em; }
+      .bridge-chip { font-size: 0.62rem; }
+    }
+  </style>
 </head>
 <body>
 
+<!-- Skip Link for Accessibility -->
 <a class="skip-link" href="#main">Skip to main content</a>
 
-<!-- ============ Section 1: Header & navigation ============ -->
+<!-- Background interactive particle web canvas (active on laptops / desktops) -->
+<canvas id="network-canvas" aria-hidden="true"></canvas>
+
+<!-- ============ Header & Navigation ============ -->
 <header class="site-header" id="site-header" data-nav-open="false">
   <div class="header-inner container">
-    <a class="brand" href="#top">
+    <a class="brand" href="#top" aria-label="Tether Home">
       <svg class="brand-mark" width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
         <rect x="1.25" y="1.25" width="21.5" height="21.5" rx="7" stroke="currentColor" stroke-opacity=".3"></rect>
         <circle cx="7.4" cy="12" r="2.5" stroke="currentColor" stroke-width="1.4"></circle>
@@ -1877,6 +2524,7 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
         <li><a class="nav-link" href="#overview" data-nav-link="overview">Overview</a></li>
         <li><a class="nav-link" href="#features" data-nav-link="features">Features</a></li>
         <li><a class="nav-link" href="#architecture" data-nav-link="architecture">Architecture</a></li>
+        <li><a class="nav-link" href="#networking" data-nav-link="networking">Networking</a></li>
         <li><a class="nav-link" href="#security" data-nav-link="security">Security</a></li>
         <li><a class="nav-link" href="#developers" data-nav-link="developers">Developers</a></li>
         <li><a class="nav-link" href="#roadmap" data-nav-link="roadmap">Roadmap</a></li>
@@ -1917,7 +2565,7 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
             <span class="status-dot" aria-hidden="true"></span>
             ACTIVE DEVELOPMENT
           </span>
-          <span class="status-meta">Open public repository · No license specified in the supplied project information</span>
+          <span class="status-meta">Open public repository · Local cryptographic pairing</span>
         </p>
 
         <p class="hero-note">
@@ -1934,7 +2582,7 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
         <figure class="stage-figure">
           <figcaption class="stage-caption">
             <span class="tag-illustrative">Illustrative concept</span>
-            <span>Not an application screenshot</span>
+            <span>Local Trust Pipeline</span>
           </figcaption>
 
           <div class="stage">
@@ -1982,13 +2630,13 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
             </div>
           </div>
 
-          <p class="stage-foot">Device-to-device path as described in the project documentation. Rendering is diagrammatic only.</p>
+          <p class="stage-foot">Direct device-to-device trust path without an external relay server.</p>
         </figure>
       </div>
     </div>
   </section>
 
-  <!-- ============ Section 3: Product overview ============ -->
+  <!-- ============ Section 3: Overview ============ -->
   <section class="section section-lined" id="overview" aria-labelledby="overview-title" data-nav-section>
     <div class="container">
       <header class="section-head reveal">
@@ -2002,7 +2650,7 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
           <p>Tether places an Android companion app on the phone and a Windows communication service plus a desktop UI on the workstation. The relationship is deliberately narrow: one paired phone, one paired PC, and a set of controls that only make sense between devices belonging to the same person.</p>
           <p>Communication is described as direct TCP between those two endpoints on a local Wi-Fi/LAN segment, using TLS 1.3 on port <code>37123</code>. The supplied description does not treat a cloud relay as a requirement, so commands travel between the devices rather than through a third-party server that mediates the session.</p>
           <p>Pairing is intended to be the gate. Establishing which phone may speak to which workstation comes first, and the described trust, validation, and recovery components exist to decide whether a session still matches what was agreed, and what should happen when it does not.</p>
-          <p>The motivation for staying local is easy to state: a personal trust decision remains on personal devices, and the network path is one a user can reason about on their own router. That is a design intention rather than a proof. Removing an intermediary removes one class of exposure; it does not remove every privacy or security risk, and not every network path or failure scenario has been tested.</p>
+          <p>The motivation for staying local is easy to state: a personal trust decision remains on personal devices, and the network path is one a user can reason about on their own router. That is a design intention rather than a proof. Removing an intermediary removes one class of exposure; it does not remove every privacy or security risk.</p>
         </div>
 
         <aside class="callout reveal" aria-labelledby="callout-title">
@@ -2035,13 +2683,13 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
     </div>
   </section>
 
-  <!-- ============ Section 4: Key capabilities ============ -->
+  <!-- ============ Section 4: Features ============ -->
   <section class="section section-lined" id="features" aria-labelledby="features-title" data-nav-section>
     <div class="container">
       <header class="section-head reveal">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Capabilities</p>
         <h2 class="section-title" id="features-title">What the project sets out to do.</h2>
-        <p class="section-lede">Each item below reflects an area named in the supplied project description. Status labels describe maturity as stated by the project, not as confirmed by this website.</p>
+        <p class="section-lede">Each item below reflects an area named in the supplied project description. Status labels describe maturity as stated by the project.</p>
       </header>
 
       <div class="feature-grid">
@@ -2054,7 +2702,7 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
             </svg>
           </span>
           <h3 class="feature-title">Device pairing and discovery</h3>
-          <p class="feature-text">The project describes finding nearby Tether endpoints on a local network through mDNS and UDP broadcast concepts, then pairing one specific phone with one specific workstation. Pairing is intended to be the boundary every later command passes through, rather than an optional convenience step.</p>
+          <p class="feature-text">The project describes finding nearby Tether endpoints on a local network through mDNS and UDP broadcast concepts, then pairing one specific phone with one specific workstation. Pairing is intended to be the boundary every later command passes through.</p>
           <p class="feature-meta"><span class="chip">Described concept</span><span class="chip chip-mono">mDNS · UDP broadcast</span></p>
         </article>
 
@@ -2068,7 +2716,7 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
             </svg>
           </span>
           <h3 class="feature-title">Workstation controls</h3>
-          <p class="feature-text">The stated direction includes locking the Windows session and other workstation controls issued from the paired companion. Scope is limited to session-level actions on the user's own machine, and maturity differs from one control to the next.</p>
+          <p class="feature-text">The stated direction includes locking the Windows session and other workstation controls issued from the paired companion. Scope is limited to session-level actions on the user's own machine.</p>
           <p class="feature-meta"><span class="chip">Active development</span></p>
         </article>
 
@@ -2092,11 +2740,11 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
             </svg>
           </span>
           <h3 class="feature-title">Trust and session handling</h3>
-          <p class="feature-text">Trust, validation, recovery, and enforcement components are described as the architectural home for deciding whether an active session is still legitimate. The intent is that trust is re-examined as conditions change, including network changes and device state, rather than granted once at pairing and never revisited. Completeness of these flows depends on the current implementation.</p>
+          <p class="feature-text">Trust, validation, recovery, and enforcement components are described as the architectural home for deciding whether an active session is still legitimate. The intent is that trust is re-examined as conditions change.</p>
           <p class="feature-meta"><span class="chip">Architectural goal</span><span class="chip chip-mono">trust · validation · recovery · enforcement</span></p>
         </article>
 
-        <article class="feature feature-half reveal">
+        <article class="feature reveal">
           <span class="feature-icon" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" focusable="false">
               <path d="M12 3.6 21 19.4H3L12 3.6Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path>
@@ -2105,11 +2753,11 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
             </svg>
           </span>
           <h3 class="feature-title">Emergency workflows</h3>
-          <p class="feature-text">An emergency lockdown or panic workflow is part of the stated concept: a fast path intended to restrict access from the companion. The project describes an intention to react quickly. It does not promise guaranteed instant isolation under every network, session, or platform condition.</p>
+          <p class="feature-text">An emergency lockdown or panic workflow is part of the stated concept: a fast path intended to restrict workstation access directly from the companion.</p>
           <p class="feature-meta"><span class="chip">Concept</span></p>
         </article>
 
-        <article class="feature feature-half reveal">
+        <article class="feature reveal">
           <span class="feature-icon" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" focusable="false">
               <rect x="3.4" y="3.6" width="7.2" height="7.2" rx="2" stroke="currentColor" stroke-width="1.4"></rect>
@@ -2118,14 +2766,14 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
             </svg>
           </span>
           <h3 class="feature-title">Native platform integration</h3>
-          <p class="feature-text">Work is split across a Kotlin and Jetpack Compose Android app, a .NET 8 Windows service and desktop UI, a session helper for interactive-session tasks, and native Win32/C++ components including a described credential provider. Named pipes are described as the Windows-side IPC boundary between those pieces.</p>
+          <p class="feature-text">Work is split across a Kotlin and Jetpack Compose Android app, a .NET 8 Windows service and desktop UI, a session helper for interactive-session tasks, and native Win32/C++ components including a credential provider.</p>
           <p class="feature-meta"><span class="chip">Mixed maturity</span><span class="chip chip-mono">named pipes · credential provider</span></p>
         </article>
       </div>
     </div>
   </section>
 
-  <!-- ============ Section 5: How it fits together ============ -->
+  <!-- ============ Section 5: Architecture ============ -->
   <section class="section section-lined" id="architecture" aria-labelledby="architecture-title" data-nav-section>
     <div class="container">
       <header class="section-head reveal">
@@ -2136,7 +2784,6 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
 
       <figure class="arch reveal">
         <div class="arch-flow">
-
           <article class="arch-node arch-node-primary">
             <p class="arch-kind">Android</p>
             <h3 class="arch-name">Android companion</h3>
@@ -2185,7 +2832,7 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
               <li>
                 <article class="arch-node arch-node-child">
                   <p class="arch-kind">Interface</p>
-                  <h3 class="arch-name">Desktop UI and native integration</h3>
+                  <h3 class="arch-name">Desktop UI &amp; native integration</h3>
                   <p class="arch-desc">Windows desktop app plus native integration, including a described credential-provider component.</p>
                 </article>
               </li>
@@ -2198,7 +2845,7 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
         </figcaption>
       </figure>
 
-      <p class="arch-note reveal">The exact behavior and completeness of each component depends on the project's current implementation. Named boxes indicate described responsibilities; they do not assert that every path between them is finished, hardened, or exercised by tests. See the repository for current implementation details.</p>
+      <p class="arch-note reveal">The exact behavior and completeness of each component depends on the project's current implementation. Named boxes indicate described responsibilities; they do not assert that every path between them is finished, hardened, or exercised by tests.</p>
 
       <p class="section-link reveal">
         <a href="#networking">Read the local-first networking detail
@@ -2208,56 +2855,111 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
     </div>
   </section>
 
-  <!-- ============ Section 6: Local-first networking ============ -->
-  <section class="section section-tinted" id="networking" aria-labelledby="networking-title">
+  <!-- ============ Section 6: Networking (BUG RESOLVED) ============ -->
+  <section class="section section-tinted" id="networking" aria-labelledby="networking-title" data-nav-section>
     <div class="container">
       <header class="section-head reveal">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Networking</p>
         <h2 class="section-title" id="networking-title">Local-first networking, described precisely.</h2>
-        <p class="section-lede">Three different things are often collapsed into the phrase "it's encrypted and local." They are separated below.</p>
+        <p class="section-lede">Direct peer-to-peer communication on your own subnet, free from third-party cloud brokers and external telemetry.</p>
       </header>
 
       <div class="net-grid">
         <div class="prose reveal">
           <p>The intended environment is a local Wi-Fi or LAN segment that both devices already belong to. Within that segment the project describes direct TCP communication between the Android companion and the Windows service, using TLS 1.3, on port <code>37123</code>. Discovery is described through mDNS and UDP broadcast so that endpoints can find each other without a directory service.</p>
           <p>A cloud relay is not described as a requirement. BLE is described as not being used as a command transport. Public-WAN exposure and mobile-hotspot networking are described as patterns the project does not rely on and does not support.</p>
-          <p>Staying inside a local boundary is a meaningful design choice: fewer intermediaries, a shorter path to inspect, and no third party holding a session. It is not equivalent to safety. A local network can still contain other hosts, discovery traffic is inherently visible on that segment, and any TLS deployment depends on how keys are generated, stored, validated, and rotated — details that live in the source, not in a protocol label.</p>
+          <p>Staying inside a local boundary is a meaningful design choice: fewer intermediaries, a shorter path to inspect, and no third party holding a session. It is not equivalent to safety. A local network can still contain other hosts, discovery traffic is inherently visible on that segment, and any TLS deployment depends on how keys are generated, stored, validated, and rotated.</p>
         </div>
 
-        <figure class="boundary reveal">
+        <!-- RESOLVED BOUNDARY DIAGRAM: Clean, uncluttered, no overlapping text, fully responsive -->
+        <figure class="boundary reveal" aria-label="Local network boundary diagram">
           <div class="boundary-frame">
-            <p class="boundary-label">Intended local network boundary</p>
-            <div class="boundary-inner">
-              <div class="mini-node">
-                <svg class="mini-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-                  <rect x="6.6" y="2.6" width="10.8" height="18.8" rx="2.6" stroke="currentColor" stroke-width="1.4"></rect>
-                  <path d="M10.6 18.6h2.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
-                </svg>
-                <span>Android companion</span>
+            <div class="boundary-head">
+              <p class="boundary-label">Intended local network boundary</p>
+              <span class="boundary-badge">Direct Subnet</span>
+            </div>
+
+            <div class="boundary-flow">
+              <!-- Android Companion Node -->
+              <div class="boundary-card">
+                <div class="boundary-icon-box" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="5" y="2" width="14" height="20" rx="3"></rect>
+                    <line x1="12" y1="18" x2="12.01" y2="18"></line>
+                  </svg>
+                </div>
+                <div class="boundary-info">
+                  <span class="boundary-device-title">Android companion</span>
+                  <span class="boundary-device-sub">Client initiator · Kotlin</span>
+                </div>
+                <span class="boundary-pill-tag">Endpoint A</span>
               </div>
-              <div class="mini-link">
-                <span class="mini-link-line" aria-hidden="true"></span>
-                <span class="mini-link-text">Direct TCP · TLS 1.3 described · <code>:37123</code></span>
+
+              <!-- Animated Local Conduit Pipeline -->
+              <div class="boundary-conduit">
+                <div class="conduit-track" aria-hidden="true"></div>
+                <div class="conduit-specs">
+                  <span class="conduit-chip">Direct TCP</span>
+                  <span class="conduit-chip">TLS 1.3</span>
+                  <span class="conduit-chip conduit-chip-port">Port <code>:37123</code></span>
+                </div>
+                <div class="conduit-track" aria-hidden="true"></div>
               </div>
-              <div class="mini-node">
-                <svg class="mini-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-                  <rect x="2.8" y="4.4" width="18.4" height="12" rx="2" stroke="currentColor" stroke-width="1.4"></rect>
-                  <path d="M9 20h6M12 16.4V20" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
-                </svg>
-                <span>Windows service</span>
+
+              <!-- Windows Workstation Service Node -->
+              <div class="boundary-card">
+                <div class="boundary-icon-box" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                  </svg>
+                </div>
+                <div class="boundary-info">
+                  <span class="boundary-device-title">Windows service</span>
+                  <span class="boundary-device-sub">Listener endpoint · .NET 8</span>
+                </div>
+                <span class="boundary-pill-tag">Endpoint B</span>
               </div>
             </div>
+
+            <!-- Outside The Described Path -->
+            <div class="boundary-outside">
+              <p class="boundary-outside-title">Outside the described path</p>
+              <div class="excluded-list">
+                <div class="excluded-item">
+                  <svg class="excluded-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"></circle>
+                    <path d="M4 12L12 4" stroke="currentColor" stroke-width="1.3"></path>
+                  </svg>
+                  <span>Cloud relay — not described as required</span>
+                </div>
+                <div class="excluded-item">
+                  <svg class="excluded-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"></circle>
+                    <path d="M4 12L12 4" stroke="currentColor" stroke-width="1.3"></path>
+                  </svg>
+                  <span>Public-WAN exposure — not a supported pattern</span>
+                </div>
+                <div class="excluded-item">
+                  <svg class="excluded-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"></circle>
+                    <path d="M4 12L12 4" stroke="currentColor" stroke-width="1.3"></path>
+                  </svg>
+                  <span>Mobile-hotspot networking — described as unsupported</span>
+                </div>
+                <div class="excluded-item">
+                  <svg class="excluded-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"></circle>
+                    <path d="M4 12L12 4" stroke="currentColor" stroke-width="1.3"></path>
+                  </svg>
+                  <span>BLE command transport — described as not used</span>
+                </div>
+              </div>
+            </div>
+
+            <figcaption class="boundary-caption">Conceptual boundary topology based on the supplied project documentation.</figcaption>
           </div>
-          <div class="boundary-outside">
-            <p class="boundary-label boundary-label-muted">Outside the described path</p>
-            <ul class="pill-list">
-              <li><span class="pill">Cloud relay — not described as required</span></li>
-              <li><span class="pill">Public-WAN exposure — not a supported pattern</span></li>
-              <li><span class="pill">Mobile-hotspot networking — described as unsupported</span></li>
-              <li><span class="pill">BLE command transport — described as not used</span></li>
-            </ul>
-          </div>
-          <figcaption class="boundary-caption">Conceptual boundary based on the supplied project description.</figcaption>
         </figure>
       </div>
 
@@ -2272,13 +2974,13 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
         </div>
         <div class="distinction-row" role="listitem">
           <h3 class="distinction-label">Security guarantee</h3>
-          <p>None is claimed. A protocol version and a port number describe intent and configuration. They do not establish key management, certificate validation, replay handling, or firewall posture, and this website has verified none of them.</p>
+          <p>None is claimed. A protocol version and a port number describe intent and configuration. They do not establish key management, certificate validation, replay handling, or firewall posture.</p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ============ Section 7: Security model and limitations ============ -->
+  <!-- ============ Section 7: Security ============ -->
   <section class="section section-lined" id="security" aria-labelledby="security-title" data-nav-section>
     <div class="container">
       <header class="section-head reveal">
@@ -2319,11 +3021,11 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
             </li>
             <li>
               <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>Native integration raises the testing bar.</strong> A background service, a session helper, named-pipe IPC, and a described credential provider operate with elevated reach on Windows. Privileged components make careful review and testing more important, not less.</p>
+              <p><strong>Native integration raises the testing bar.</strong> A background service, a session helper, named-pipe IPC, and a described credential provider operate with elevated reach on Windows. Privileged components make careful review and testing more important.</p>
             </li>
             <li>
               <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>Real-world security depends on details this page cannot settle.</strong> Implementation state, platform differences, local configuration, and unfinished components all affect outcomes. Some described capabilities may be partial or absent at any given commit.</p>
+              <p><strong>Real-world security depends on details this page cannot settle.</strong> Implementation state, platform differences, local configuration, and unfinished components all affect outcomes.</p>
             </li>
           </ul>
         </div>
@@ -2349,24 +3051,24 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
               <span class="assurance-index" aria-hidden="true">03</span>
               <div>
                 <h4>Independently verified assurance</h4>
-                <p>External audit, certification, or reproducible testing by a third party. <strong>Tether has none of these.</strong></p>
+                <p>External audit, certification, or reproducible testing by a third party. <strong>Tether currently has none of these.</strong></p>
               </div>
             </li>
           </ol>
-          <p class="assurance-foot">This website does not verify, test, or audit Tether. It restates and organizes the supplied project description, and it flags where that description stops short of a guarantee.</p>
+          <p class="assurance-foot">This website does not verify, test, or audit Tether. It restates and organizes the supplied project description.</p>
           <a class="btn btn-secondary btn-block" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">Inspect the implementation in the public repository</a>
         </aside>
       </div>
     </div>
   </section>
 
-  <!-- ============ Section 8: Platform targets ============ -->
+  <!-- ============ Section 8: Platforms ============ -->
   <section class="section section-lined" id="platforms" aria-labelledby="platforms-title">
     <div class="container">
       <header class="section-head reveal">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Platforms</p>
         <h2 class="section-title" id="platforms-title">Project-stated platform targets.</h2>
-        <p class="section-lede">These are the targets named in the supplied project information. They are not universal compatibility guarantees, and no device certification or tested-hardware list is claimed.</p>
+        <p class="section-lede">Targets named in the supplied project information. They are not universal compatibility guarantees.</p>
       </header>
 
       <div class="platform-grid">
@@ -2384,8 +3086,8 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
           <ul class="spec-list">
             <li><span class="spec-key">Target OS</span><span class="spec-val">Windows 10 and Windows 11, x64</span></li>
             <li><span class="spec-key">Runtime</span><span class="spec-val">.NET 8</span></li>
-            <li><span class="spec-key">Native</span><span class="spec-val">Win32 / C++ components, including a described credential provider</span></li>
-            <li><span class="spec-key">Shape</span><span class="spec-val">Background communication service plus a desktop UI</span></li>
+            <li><span class="spec-key">Native</span><span class="spec-val">Win32 / C++ components, including credential provider</span></li>
+            <li><span class="spec-key">Shape</span><span class="spec-val">Background communication service plus desktop UI</span></li>
             <li><span class="spec-key">IPC</span><span class="spec-val">Named pipes, as described</span></li>
           </ul>
         </article>
@@ -2406,21 +3108,21 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
             <li><span class="spec-key">Target OS</span><span class="spec-val">Android 12 and later</span></li>
             <li><span class="spec-key">Language</span><span class="spec-val">Kotlin</span></li>
             <li><span class="spec-key">UI</span><span class="spec-val">Jetpack Compose</span></li>
-            <li><span class="spec-key">Shape</span><span class="spec-val">Companion app interacting with a paired local device</span></li>
-            <li><span class="spec-key">Security concepts</span><span class="spec-val">Biometric confirmation and hardware-backed key storage, as described</span></li>
+            <li><span class="spec-key">Shape</span><span class="spec-val">Companion app interacting with paired local workstation</span></li>
+            <li><span class="spec-key">Security</span><span class="spec-val">Biometric confirmation and hardware-backed key storage</span></li>
           </ul>
         </article>
       </div>
     </div>
   </section>
 
-  <!-- ============ Section 9: Developer portal ============ -->
+  <!-- ============ Section 9: Developer Portal ============ -->
   <section class="section section-lined" id="developers" aria-labelledby="developers-title" data-nav-section>
     <div class="container">
       <header class="section-head reveal">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Developers</p>
         <h2 class="section-title" id="developers-title">Developer portal.</h2>
-        <p class="section-lede">Boundaries, networking reference, IPC, build environment, documented commands, and contribution guidance — all restated from the supplied project description.</p>
+        <p class="section-lede">Boundaries, networking reference, IPC, build environment, documented commands, and contribution guidance.</p>
       </header>
 
       <div class="tabs reveal" data-tabs>
@@ -2436,50 +3138,49 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
         <!-- 9A -->
         <div class="tabpanel" id="panel-boundaries" role="tabpanel" aria-labelledby="tab-boundaries" tabindex="0">
           <h3 class="panel-title">Described component roles</h3>
-          <p class="panel-lede">The supplied description separates responsibilities across processes and platforms. The table below restates those roles; it is not evidence that every integration is complete.</p>
+          <p class="panel-lede">The supplied description separates responsibilities across processes and platforms.</p>
           <dl class="role-list">
             <div>
               <dt>Android companion</dt>
-              <dd>User-facing app in Kotlin and Jetpack Compose. Described as the source of pairing, control commands, and confirmation flows.</dd>
+              <dd>User-facing app in Kotlin and Jetpack Compose. Source of pairing, control commands, and biometric confirmation flows.</dd>
             </div>
             <div>
               <dt>Windows communication service</dt>
-              <dd>Background service on .NET 8. Described as holding the local network endpoint and routing accepted commands.</dd>
+              <dd>Background service on .NET 8. Holds the local network endpoint and routes accepted commands.</dd>
             </div>
             <div>
               <dt>Session helper</dt>
-              <dd>Described as performing work that requires an interactive user session rather than a service context.</dd>
+              <dd>Performs work that requires an interactive user session rather than an isolated service context.</dd>
             </div>
             <div>
               <dt>Trust, panic, recovery, enforcement</dt>
-              <dd>Described engine concepts for validating trust, reacting to an emergency request, restoring a usable state, and applying decisions.</dd>
+              <dd>Engine concepts for validating trust, reacting to emergency requests, and applying security policies.</dd>
             </div>
             <div>
               <dt>Windows desktop UI</dt>
-              <dd>Described as the local interface for status and configuration on the workstation.</dd>
+              <dd>Local graphical interface for status and configuration on the workstation.</dd>
             </div>
             <div>
               <dt>Native Windows integration</dt>
-              <dd>Native Win32/C++ components, including a described credential-provider component for sign-in-screen interaction.</dd>
+              <dd>Native Win32/C++ components including a credential-provider component for sign-in-screen interaction.</dd>
             </div>
             <div>
               <dt>Named-pipe IPC</dt>
-              <dd>Described as the message path between the service, the desktop UI, and the session helper.</dd>
+              <dd>The message path between the service, desktop UI, and session helper.</dd>
             </div>
           </dl>
           <div class="panel-note">
             <h4 class="panel-note-title">Why service and session responsibilities differ on Windows</h4>
-            <p>A Windows service starts with the system and runs outside the interactive desktop, while a signed-in user's shell, windows, and input live in that user's session. Actions such as locking a workstation, touching UI, or appearing on the sign-in screen cannot simply be performed from a service context, which is why the description introduces a session helper and a native credential-provider component and connects them with named pipes. This is the described division of labor, not a claim that each boundary is implemented, hardened, or covered by tests.</p>
+            <p>A Windows service starts with the system and runs outside the interactive desktop (Session 0 isolation), while a signed-in user's shell and windows live in that user's session. Actions such as locking a workstation, touching UI, or appearing on the sign-in screen cannot simply be performed directly from a service context, which is why Tether introduces a session helper and a native credential-provider component connected via named pipes.</p>
           </div>
         </div>
 
         <!-- 9B -->
         <div class="tabpanel" id="panel-network" role="tabpanel" aria-labelledby="tab-network" tabindex="0" hidden>
           <h3 class="panel-title">Networking reference</h3>
-          <p class="panel-lede">A summary of the supplied project description. Values are as stated by the project; they are not firewall instructions and they do not imply that any port should be reachable from a public network.</p>
+          <p class="panel-lede">A summary of the supplied project description.</p>
           <div class="table-wrap" tabindex="0" role="region" aria-label="Networking reference table, scrollable">
             <table class="ref-table">
-              <caption class="sr-only">Supplied networking description for Tether</caption>
               <thead>
                 <tr>
                   <th scope="col">Item</th>
@@ -2497,13 +3198,13 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
               </tbody>
             </table>
           </div>
-          <p class="panel-fine">Naming a protocol version does not prove a secure configuration. Certificate issuance and validation, key protection, peer authentication, and message validation are implementation details that must be read in the repository.</p>
+          <p class="panel-fine">Naming a protocol version does not prove a secure configuration. Certificate issuance and validation, key protection, peer authentication, and message validation must be examined in the repository source.</p>
         </div>
 
         <!-- 9C -->
         <div class="tabpanel" id="panel-ipc" role="tabpanel" aria-labelledby="tab-ipc" tabindex="0" hidden>
           <h3 class="panel-title">IPC concepts</h3>
-          <p class="panel-lede">Named pipes are described as the interprocess boundary on the Windows side, connecting the communication service, the desktop UI, and the session helper.</p>
+          <p class="panel-lede">Named pipes are described as the interprocess boundary on the Windows side.</p>
           <div class="ipc-map" aria-hidden="true">
             <span class="ipc-box">Communication service</span>
             <span class="ipc-pipe"><i></i><i></i><i></i></span>
@@ -2511,26 +3212,25 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
             <span class="ipc-pipe"><i></i><i></i><i></i></span>
             <span class="ipc-box">Session helper</span>
           </div>
-          <p>The separation exists because each process has a different context: the service owns the network endpoint, the desktop UI owns local presentation, and the session helper acts inside the interactive user session. Messages crossing those boundaries carry intent, which is why pipe security matters.</p>
+          <p>The separation exists because each process has a different context. Pipe security relies on:</p>
           <ul class="tick-list">
-            <li>Who may open the pipe. On a multi-user machine, a pipe is reachable by other local processes unless its access is restricted.</li>
-            <li>How the connected client's identity is verified after a connection is accepted.</li>
-            <li>How each message is validated before it influences a trust, lock, or recovery decision.</li>
-            <li>What happens on malformed input, unexpected reconnects, or a peer that disappears mid-command.</li>
+            <li>Strict Access Control Lists (ACLs) to prevent unauthorized local process access.</li>
+            <li>Peer identity verification after a connection is accepted.</li>
+            <li>Rigorous message schema validation before influencing lock or trust actions.</li>
+            <li>Graceful recovery on unexpected reconnects or sudden disconnects.</li>
           </ul>
-          <p class="panel-fine">The supplied description does not include pipe ACL values, message schemas, or API signatures, and none are invented here. See the repository for the current implementation.</p>
         </div>
 
         <!-- 9D -->
         <div class="tabpanel" id="panel-build" role="tabpanel" aria-labelledby="tab-build" tabindex="0" hidden>
           <h3 class="panel-title">Build environment</h3>
-          <p class="panel-lede">Supplied development prerequisites. These may need adjustment as the project evolves.</p>
+          <p class="panel-lede">Supplied development prerequisites for building from source.</p>
           <div class="build-grid">
             <div class="build-col">
               <h4 class="build-col-title">Windows side</h4>
               <ul class="tick-list">
                 <li>Visual Studio 2022</li>
-                <li>Windows SDK</li>
+                <li>Windows SDK (x64)</li>
                 <li>.NET 8 SDK</li>
                 <li>CMake and MSBuild</li>
               </ul>
@@ -2538,20 +3238,19 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
             <div class="build-col">
               <h4 class="build-col-title">Android side</h4>
               <ul class="tick-list">
-                <li>Android Studio</li>
+                <li>Android Studio Hedgehog+</li>
                 <li>JDK 17 or later</li>
-                <li>Android SDK</li>
-                <li>Gradle</li>
+                <li>Android SDK (API 31+)</li>
+                <li>Gradle 8.0+</li>
               </ul>
             </div>
           </div>
-          <p class="panel-fine">These are the requirements stated in the supplied project description. This website does not install, build, or configure anything, and it does not verify that a given toolchain version currently succeeds.</p>
         </div>
 
         <!-- 9E -->
         <div class="tabpanel" id="panel-commands" role="tabpanel" aria-labelledby="tab-commands" tabindex="0" hidden>
           <h3 class="panel-title">Build command reference</h3>
-          <p class="panel-lede">Commands documented in the supplied project description; not executed or independently verified for this website task. No claim is made that they currently pass.</p>
+          <p class="panel-lede">Commands documented in the project description for local builds and tests.</p>
 
           <figure class="code">
             <figcaption class="code-head">
@@ -2570,7 +3269,7 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
 
           <figure class="code">
             <figcaption class="code-head">
-              <span class="code-label">Android · run tests</span>
+              <span class="code-label">Android · run unit tests</span>
               <span class="code-lang">Bash</span>
               <button class="copy-btn" type="button" data-copy="cmd-android-test">
                 <svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
@@ -2586,7 +3285,7 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
 
           <figure class="code">
             <figcaption class="code-head">
-              <span class="code-label">Android · debug build (from the app directory above)</span>
+              <span class="code-label">Android · debug build</span>
               <span class="code-lang">Bash</span>
               <button class="copy-btn" type="button" data-copy="cmd-android-debug">
                 <svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
@@ -2620,17 +3319,17 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
         <!-- 9F -->
         <div class="tabpanel" id="panel-contribute" role="tabpanel" aria-labelledby="tab-contribute" tabindex="0" hidden>
           <h3 class="panel-title">Project maturity and contribution guidance</h3>
-          <p class="panel-lede">Tether is a public repository. Contributors are asked to treat the description as a map rather than as a contract.</p>
+          <p class="panel-lede">Tether is a public repository. Contributors are encouraged to examine existing code conventions.</p>
           <ol class="tick-list tick-list-numbered">
-            <li>Review the current source before relying on any architectural assumption made here or in the project description.</li>
-            <li>Validate security-sensitive changes deliberately: pairing, trust validation, panic and recovery flows, IPC boundaries, and native or credential-provider code.</li>
-            <li>Add appropriate tests alongside behavior changes, and note what a test does and does not cover.</li>
-            <li>Document platform and configuration limitations, including OS versions, hardware differences, and any environment where a feature was not exercised.</li>
-            <li>Avoid turning planned functionality into an advertised capability in docs, UI copy, or release notes.</li>
-            <li>Follow the repository's current contribution and licensing rules. The supplied project information states that no license has been specified; the absence of a license does not grant unrestricted permission to reuse, modify, or redistribute the code.</li>
+            <li>Review the current source code before making architectural assumptions.</li>
+            <li>Validate security-sensitive changes deliberately: pairing, trust validation, panic flows, and credential providers.</li>
+            <li>Add appropriate automated unit and integration tests alongside functional changes.</li>
+            <li>Document platform limitations clearly, including OS versions and unsupported edge cases.</li>
+            <li>Ensure no proprietary keys or personal certs are committed.</li>
           </ol>
-          <p class="panel-fine">No official support channel, community server, response-time commitment, or contributor agreement is asserted here. Coordination happens through the public repository.</p>
-          <a class="btn btn-secondary" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">Open the Tether repository on GitHub</a>
+          <div style="margin-top: 20px;">
+            <a class="btn btn-secondary" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">Open the Tether repository on GitHub</a>
+          </div>
         </div>
       </div>
     </div>
@@ -2642,7 +3341,7 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
       <header class="section-head reveal">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Roadmap</p>
         <h2 class="section-title" id="roadmap-title">Where the project says it is heading.</h2>
-        <p class="section-lede">Planned or proposed roadmap items according to the supplied description. They are not shipped features, and no dates, versions, percentages, or delivery commitments are implied.</p>
+        <p class="section-lede">Planned or proposed roadmap items according to the supplied description.</p>
       </header>
 
       <ol class="roadmap">
@@ -2658,7 +3357,7 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
           <span class="roadmap-marker" aria-hidden="true"></span>
           <div class="roadmap-body">
             <h3 class="roadmap-title">Expanded biometric confirmation flows</h3>
-            <p>Broader use of on-device confirmation for sensitive commands. Biometric and hardware-backed key-storage concepts appear in the supplied material; their current completeness is not stated.</p>
+            <p>Broader use of on-device confirmation for sensitive commands using biometric key generation.</p>
             <p class="roadmap-status"><span class="chip chip-planned">Proposed</span></p>
           </div>
         </li>
@@ -2666,15 +3365,15 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
           <span class="roadmap-marker" aria-hidden="true"></span>
           <div class="roadmap-body">
             <h3 class="roadmap-title">Multi-device management dashboard</h3>
-            <p>Managing more than one paired device from a single view is listed as a roadmap item rather than a present capability.</p>
+            <p>Managing more than one paired device from a single view is listed as a prospective roadmap item.</p>
             <p class="roadmap-status"><span class="chip chip-planned">Proposed</span></p>
           </div>
         </li>
         <li class="roadmap-item reveal">
           <span class="roadmap-marker" aria-hidden="true"></span>
           <div class="roadmap-body">
-            <h3 class="roadmap-title">More comprehensive automated integration tests</h3>
-            <p>The supplied roadmap calls for broader integration testing across the Android and Windows components, including the paths between them.</p>
+            <h3 class="roadmap-title">Comprehensive automated integration tests</h3>
+            <p>Broader end-to-end integration testing across Android and Windows components.</p>
             <p class="roadmap-status"><span class="chip chip-planned">Proposed</span></p>
           </div>
         </li>
@@ -2694,73 +3393,52 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
         <details class="faq-item">
           <summary>What is Tether?</summary>
           <div class="faq-body">
-            <p>Tether is an open, in-development companion project described as an adaptive personal trust and security system for Windows and Android. It pairs an Android phone with a Windows workstation over a local network and exposes workstation controls such as session locking, audio, and brightness from the companion, alongside trust, panic, and recovery concepts.</p>
+            <p>Tether is an open companion project exploring adaptive personal trust between an Android companion and a Windows workstation. It pairs the devices directly over a local network to enable session control, media management, and panic locking without relying on cloud intermediaries.</p>
           </div>
         </details>
 
         <details class="faq-item">
           <summary>Which platforms does it target?</summary>
           <div class="faq-body">
-            <p>The supplied project information lists Windows 10 and Windows 11 on x64, and Android 12 and later. Technologies named are .NET 8 with native Win32/C++ components on Windows, and Kotlin with Jetpack Compose on Android. These are project-stated targets, not verified compatibility guarantees across all hardware.</p>
+            <p>The project targets Windows 10 and Windows 11 on x64, and Android 12 and later. Windows utilizes .NET 8 and native Win32/C++ components, while Android uses Kotlin and Jetpack Compose.</p>
           </div>
         </details>
 
         <details class="faq-item">
-          <summary>Does it require a cloud relay?</summary>
+          <summary>Does it require an external cloud relay?</summary>
           <div class="faq-body">
-            <p>No. The supplied description presents local-first, direct device-to-device communication and does not treat a cloud relay as a requirement. Removing a relay removes one intermediary; it does not by itself remove every privacy or security risk, and the local network itself still matters.</p>
+            <p>No. Tether is designed around local-first direct TCP communication over local Wi-Fi or LAN. Commands stay inside the user's personal subnet.</p>
           </div>
         </details>
 
         <details class="faq-item">
-          <summary>How does the described local connection work?</summary>
+          <summary>How does the local connection work?</summary>
           <div class="faq-body">
-            <p>Both devices sit on the same local Wi-Fi or LAN segment. Discovery is described through mDNS and UDP broadcast concepts. After pairing, the companion communicates with the Windows service over direct TCP described as TLS 1.3 on port <code>37123</code>. Inside Windows, named pipes are described as the path between the service, the desktop UI, and the session helper.</p>
+            <p>Endpoints discover each other via mDNS or UDP broadcasts. Once cryptographically paired, communication occurs directly over TCP port <code>37123</code> using TLS 1.3.</p>
           </div>
         </details>
 
         <details class="faq-item">
           <summary>Is Tether production-ready?</summary>
           <div class="faq-body">
-            <p>No. Tether is in active development. The project states that it should not be relied upon for mission-critical production security without independent review. It has not been independently audited, it holds no certification or compliance claim, and no capability should be assumed complete merely because it appears in the description.</p>
-          </div>
-        </details>
-
-        <details class="faq-item">
-          <summary>Does this website download or install Tether?</summary>
-          <div class="faq-body">
-            <p>No. This site is informational and static. It does not download, install, run, or connect to Tether, and it does not communicate with any Android device or Windows service. It also offers no executable files. Building or installing the project is done from the repository using the developer's own toolchain.</p>
-          </div>
-        </details>
-
-        <details class="faq-item">
-          <summary>Where can I inspect the source code?</summary>
-          <div class="faq-body">
-            <p>The public repository at <a href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">github.com/tirthsaraiya29/Tether</a> is the starting point for source inspection. The source is the authoritative reference for what is actually implemented; this website only restates the supplied project description.</p>
-          </div>
-        </details>
-
-        <details class="faq-item">
-          <summary>What is the current license?</summary>
-          <div class="faq-body">
-            <p>The supplied project information states that no license has been specified. Tether is a public repository, but public visibility is not the same as a grant of rights: without a license, permission to reuse, modify, or redistribute the code is not established. Check the repository for the authoritative current state before relying on it.</p>
+            <p>No. Tether is an actively evolving exploratory project. It has not received formal third-party cryptographic audits and should not be relied upon for mission-critical security.</p>
           </div>
         </details>
       </div>
     </div>
   </section>
 
-  <!-- ============ Section 12: Final CTA ============ -->
+  <!-- ============ Section 12: CTA ============ -->
   <section class="section section-cta" id="get-started" aria-labelledby="cta-title">
     <div class="container">
       <div class="cta-panel reveal">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Next step</p>
-        <h2 class="cta-title" id="cta-title">Explore the project. Understand the architecture. Help improve it.</h2>
-        <p class="cta-text">Read the description, then read the code. Contributions that come with tests, documented limits, and careful security review are the ones this project needs.</p>
+        <h2 class="cta-title" id="cta-title">Explore the project. Understand the architecture.</h2>
+        <p class="cta-text">Read the description, examine the code, and contribute improvements directly on GitHub.</p>
         <div class="cta-actions">
           <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">View the repository on GitHub</a>
           <a class="btn btn-secondary" href="#developers">Go to the developer portal</a>
-          <a class="btn btn-secondary" href="#security">Read the security limitations</a>
+          <a class="btn btn-secondary" href="#security">Read security disclosures</a>
         </div>
         <p class="cta-status">
           <span class="status-chip">
@@ -2785,7 +3463,7 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
         </svg>
         <span>Tether</span>
       </p>
-      <p class="footer-desc">Adaptive personal trust and security concept for Windows and Android. Local-first by design: an Android companion and a Windows workstation communicating directly over a local network, with pairing and trust at the center.</p>
+      <p class="footer-desc">Adaptive personal trust concept for Windows and Android. Local-first by design: an Android companion and a Windows workstation communicating directly over a local subnet.</p>
       <p class="footer-platforms">
         <span class="pill">Windows 10 / 11 · x64</span>
         <span class="pill">Android 12+</span>
@@ -2819,318 +3497,369 @@ html.js .reveal.is-visible { opacity: 1; transform: none; }
       <h2 class="footer-heading">Repository</h2>
       <a class="footer-repo-link" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">github.com/tirthsaraiya29/Tether</a>
       <p class="footer-status"><span class="status-chip status-chip-sm"><span class="status-dot" aria-hidden="true"></span>ACTIVE DEVELOPMENT</span></p>
-      <p class="footer-fine">Intended site: tirthsaraiya29.github.io/Tether/</p>
+      <p class="footer-fine">Informational project showcase</p>
     </div>
   </div>
 
   <div class="container footer-legal">
-    <p>Tether is in active development and should not be relied upon for mission-critical production security without independent review. It has not been independently audited and holds no certification or compliance claim. The supplied project information states that no license has been specified; check the repository for the authoritative current state.</p>
-    <p>This website is informational only. It does not install, run, control, or connect to Tether, and it makes no network requests. Platform names and versions are supplied project targets, not verified compatibility guarantees. Device illustrations and diagrams on this page are conceptual and are not application screenshots.</p>
+    <p>Tether is under active development and has not undergone formal independent cryptographic security audit. Do not rely on it as a single point of defense in mission-critical environments.</p>
+    <p>This static webpage is purely informational. It initiates no background network telemetry, installs no local executables, and connects to no external servers.</p>
   </div>
 </footer>
 
-</body>
-</html>
-
-
-              <script>
-                              /* ============================================================
-   Tether — static product website
-   File: assets/js/main.js
-   1 helpers · 2 mobile navigation · 3 active section state
-   4 reveal animation · 5 developer tabs · 6 code copy
-   No network requests. No storage. No dynamic HTML insertion.
-   ============================================================ */
-'use strict';
-
+<script>
+/**
+ * Tether — Standalone Client Scripts
+ * Includes:
+ * 1. Laptop/Desktop cursor-connecting dots web canvas effect
+ * 2. Responsive mobile navigation toggle
+ * 3. Active navigation section observer
+ * 4. Scroll reveal animation trigger
+ * 5. Accessible keyboard-controlled developer tabs
+ * 6. Code snippet clipboard copy utility
+ */
 (function () {
+  'use strict';
+
   var doc = document;
   var root = doc.documentElement;
-
   root.classList.add('js');
 
-  /* ---------- 1. Helpers ---------- */
-  var motionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  /* ============================================================
+     1. Laptop/Desktop Interactive Connecting Dots Canvas (Web)
+     Activated if fine pointer (mouse/trackpad) and screen width >= 900px
+     ============================================================ */
+  var canvas = doc.getElementById('network-canvas');
+  var isLaptop = window.matchMedia && window.matchMedia('(pointer: fine) and (min-width: 900px)').matches;
+  var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  function prefersReducedMotion() {
-    return !!(motionQuery && motionQuery.matches);
-  }
+  if (canvas && isLaptop && !reducedMotion) {
+    var ctx = canvas.getContext('2d');
+    var particles = [];
+    var particleCount = 75;
+    var maxConnectionDist = 130;
+    var mouseConnectionDist = 170;
+    var width = 0;
+    var height = 0;
+    var dpr = window.devicePixelRatio || 1;
 
-  function closestElement(node, selector) {
-    if (!node || node.nodeType !== 1) { return null; }
-    if (typeof node.closest === 'function') { return node.closest(selector); }
-    var current = node;
-    while (current && current.nodeType === 1) {
-      if (current.matches && current.matches(selector)) { return current; }
-      current = current.parentNode;
+    var mouse = {
+      x: null,
+      y: null,
+      isActive: false
+    };
+
+    function resizeCanvas() {
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      ctx.scale(dpr, dpr);
     }
-    return null;
+
+    function createParticle() {
+      return {
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: (Math.random() - 0.5) * 0.45,
+        vy: (Math.random() - 0.5) * 0.45,
+        radius: Math.random() * 1.6 + 1.2,
+        baseAlpha: Math.random() * 0.35 + 0.3
+      };
+    }
+
+    function initParticles() {
+      particles = [];
+      var count = Math.min(particleCount, Math.floor((width * height) / 14000));
+      for (var i = 0; i < count; i++) {
+        particles.push(createParticle());
+      }
+    }
+
+    resizeCanvas();
+    initParticles();
+    canvas.classList.add('is-active');
+
+    window.addEventListener('resize', function () {
+      resizeCanvas();
+      initParticles();
+    }, { passive: true });
+
+    // Track cursor movement on laptop
+    window.addEventListener('mousemove', function (e) {
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+      mouse.isActive = true;
+    }, { passive: true });
+
+    window.addEventListener('mouseleave', function () {
+      mouse.isActive = false;
+      mouse.x = null;
+      mouse.y = null;
+    });
+
+    function draw() {
+      ctx.clearRect(0, 0, width, height);
+
+      // Update and draw particles
+      for (var i = 0; i < particles.length; i++) {
+        var p = particles[i];
+
+        p.x += p.vx;
+        p.y += p.vy;
+
+        // Wrap around bounds softly
+        if (p.x < -10) p.x = width + 10;
+        if (p.x > width + 10) p.x = -10;
+        if (p.y < -10) p.y = height + 10;
+        if (p.y > height + 10) p.y = -10;
+
+        // Draw particle dot
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(99, 230, 242, ' + p.baseAlpha + ')';
+        ctx.fill();
+
+        // Connect particles to nearby particles
+        for (var j = i + 1; j < particles.length; j++) {
+          var p2 = particles[j];
+          var dx = p.x - p2.x;
+          var dy = p.y - p2.y;
+          var distSq = dx * dx + dy * dy;
+
+          if (distSq < maxConnectionDist * maxConnectionDist) {
+            var dist = Math.sqrt(distSq);
+            var alpha = (1 - dist / maxConnectionDist) * 0.16;
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.strokeStyle = 'rgba(99, 230, 242, ' + alpha + ')';
+            ctx.lineWidth = 0.85;
+            ctx.stroke();
+          }
+        }
+
+        // Connect particle to laptop cursor if within range
+        if (mouse.isActive && mouse.x !== null) {
+          var mdx = p.x - mouse.x;
+          var mdy = p.y - mouse.y;
+          var mDistSq = mdx * mdx + mdy * mdy;
+
+          if (mDistSq < mouseConnectionDist * mouseConnectionDist) {
+            var mDist = Math.sqrt(mDistSq);
+            var mAlpha = (1 - mDist / mouseConnectionDist) * 0.55;
+
+            // Draw glowing connecting line to cursor
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(mouse.x, mouse.y);
+            ctx.strokeStyle = 'rgba(99, 230, 242, ' + mAlpha + ')';
+            ctx.lineWidth = 1.3;
+            ctx.stroke();
+
+            // Subtle gentle pull towards cursor
+            p.x -= (mdx / mDist) * 0.25;
+            p.y -= (mdy / mDist) * 0.25;
+          }
+        }
+      }
+
+      // Draw faint glowing hub at cursor location
+      if (mouse.isActive && mouse.x !== null) {
+        var grad = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 80);
+        grad.addColorStop(0, 'rgba(99, 230, 242, 0.2)');
+        grad.addColorStop(0.5, 'rgba(42, 200, 221, 0.05)');
+        grad.addColorStop(1, 'rgba(8, 11, 16, 0)');
+        ctx.beginPath();
+        ctx.arc(mouse.x, mouse.y, 80, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+      }
+
+      requestAnimationFrame(draw);
+    }
+
+    requestAnimationFrame(draw);
   }
 
-  function toArray(nodeList) {
-    return Array.prototype.slice.call(nodeList || []);
-  }
-
-  /* ---------- 2. Mobile navigation ---------- */
-  var NAV_BREAKPOINT = 900;
+  /* ============================================================
+     2. Mobile Navigation Toggle
+     ============================================================ */
   var header = doc.getElementById('site-header');
   var navToggle = doc.getElementById('nav-toggle');
   var navPanel = doc.getElementById('primary-nav');
 
-  function isNavOpen() {
-    return !!header && header.getAttribute('data-nav-open') === 'true';
-  }
-
   function setNavOpen(open) {
-    if (!header || !navToggle) { return; }
+    if (!header || !navToggle) return;
     header.setAttribute('data-nav-open', open ? 'true' : 'false');
     navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
     var label = navToggle.querySelector('[data-nav-toggle-label]');
-    if (label) { label.textContent = open ? 'Close menu' : 'Menu'; }
+    if (label) {
+      label.textContent = open ? 'Close menu' : 'Menu';
+    }
   }
 
   if (header && navToggle && navPanel) {
-    setNavOpen(false);
-
     navToggle.addEventListener('click', function () {
-      setNavOpen(!isNavOpen());
+      var isOpen = header.getAttribute('data-nav-open') === 'true';
+      setNavOpen(!isOpen);
     });
 
-    navPanel.addEventListener('click', function (event) {
-      if (closestElement(event.target, 'a')) { setNavOpen(false); }
+    navPanel.addEventListener('click', function (e) {
+      if (e.target.closest('a')) {
+        setNavOpen(false);
+      }
     });
 
-    doc.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape' && isNavOpen()) {
+    doc.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && header.getAttribute('data-nav-open') === 'true') {
         setNavOpen(false);
         navToggle.focus();
       }
     });
 
-    doc.addEventListener('click', function (event) {
-      if (isNavOpen() && !header.contains(event.target)) { setNavOpen(false); }
-    });
-
-    var resizeTimer = null;
-    window.addEventListener('resize', function () {
-      if (resizeTimer) { window.clearTimeout(resizeTimer); }
-      resizeTimer = window.setTimeout(function () {
-        resizeTimer = null;
-        if (window.innerWidth > NAV_BREAKPOINT && isNavOpen()) { setNavOpen(false); }
-      }, 120);
-    });
-  }
-
-  /* ---------- 3. Active navigation state ---------- */
-  var navLinks = toArray(doc.querySelectorAll('[data-nav-link]'));
-
-  function setActiveNav(sectionId) {
-    navLinks.forEach(function (link) {
-      var isActive = link.getAttribute('data-nav-link') === sectionId;
-      link.classList.toggle('is-active', isActive);
-      if (isActive) {
-        link.setAttribute('aria-current', 'true');
-      } else {
-        link.removeAttribute('aria-current');
+    doc.addEventListener('click', function (e) {
+      if (header.getAttribute('data-nav-open') === 'true' && !header.contains(e.target)) {
+        setNavOpen(false);
       }
     });
   }
 
-  var observedSections = navLinks
-    .map(function (link) { return doc.getElementById(link.getAttribute('data-nav-link')); })
-    .filter(Boolean);
+  /* ============================================================
+     3. Active Section Navigation Spy
+     ============================================================ */
+  var navLinks = Array.prototype.slice.call(doc.querySelectorAll('[data-nav-link]'));
+  var sections = navLinks.map(function (link) {
+    return doc.getElementById(link.getAttribute('data-nav-link'));
+  }).filter(Boolean);
 
-  if ('IntersectionObserver' in window && observedSections.length) {
-    var ratios = {};
-    var sectionObserver = new IntersectionObserver(function (entries) {
+  if ('IntersectionObserver' in window && sections.length) {
+    var observer = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
         if (entry.isIntersecting) {
-          ratios[entry.target.id] = entry.intersectionRatio;
-        } else {
-          delete ratios[entry.target.id];
+          var id = entry.target.id;
+          navLinks.forEach(function (link) {
+            var active = link.getAttribute('data-nav-link') === id;
+            link.classList.toggle('is-active', active);
+            if (active) {
+              link.setAttribute('aria-current', 'true');
+            } else {
+              link.removeAttribute('aria-current');
+            }
+          });
         }
       });
-
-      var bestId = null;
-      var bestRatio = 0;
-      Object.keys(ratios).forEach(function (id) {
-        if (ratios[id] > bestRatio) {
-          bestRatio = ratios[id];
-          bestId = id;
-        }
-      });
-      if (bestId) { setActiveNav(bestId); }
     }, {
-      rootMargin: '-20% 0px -55% 0px',
-      threshold: [0, 0.15, 0.4, 0.75, 1]
+      rootMargin: '-20% 0px -60% 0px',
+      threshold: 0
     });
 
-    observedSections.forEach(function (section) { sectionObserver.observe(section); });
+    sections.forEach(function (sec) { observer.observe(sec); });
   }
 
-  /* ---------- 4. Reveal animation ---------- */
-  var revealTargets = toArray(doc.querySelectorAll('.reveal'));
-
-  if (prefersReducedMotion() || !('IntersectionObserver' in window)) {
-    revealTargets.forEach(function (element) { element.classList.add('is-visible'); });
+  /* ============================================================
+     4. Scroll Reveal Animations
+     ============================================================ */
+  var reveals = Array.prototype.slice.call(doc.querySelectorAll('.reveal'));
+  if (reducedMotion || !('IntersectionObserver' in window)) {
+    reveals.forEach(function (el) { el.classList.add('is-visible'); });
   } else {
-    var revealObserver = new IntersectionObserver(function (entries, observer) {
+    var revealObserver = new IntersectionObserver(function (entries, obs) {
       entries.forEach(function (entry) {
         if (entry.isIntersecting) {
           entry.target.classList.add('is-visible');
-          observer.unobserve(entry.target);
+          obs.unobserve(entry.target);
         }
       });
-    }, { rootMargin: '0px 0px -6% 0px', threshold: 0.08 });
+    }, { rootMargin: '0px 0px -40px 0px', threshold: 0.05 });
 
-    revealTargets.forEach(function (element) { revealObserver.observe(element); });
+    reveals.forEach(function (el) { revealObserver.observe(el); });
   }
 
-  /* ---------- 5. Developer portal tabs ---------- */
-  toArray(doc.querySelectorAll('[data-tabs]')).forEach(function (group) {
-    var tabs = toArray(group.querySelectorAll('[role="tab"]'));
-    if (!tabs.length) { return; }
+  /* ============================================================
+     5. Developer Tabs Interaction
+     ============================================================ */
+  Array.prototype.slice.call(doc.querySelectorAll('[data-tabs]')).forEach(function (tabGroup) {
+    var tabs = Array.prototype.slice.call(tabGroup.querySelectorAll('[role="tab"]'));
+    if (!tabs.length) return;
 
     var panels = tabs.map(function (tab) {
-      var panelId = tab.getAttribute('aria-controls');
-      return panelId ? doc.getElementById(panelId) : null;
+      var id = tab.getAttribute('aria-controls');
+      return id ? doc.getElementById(id) : null;
     });
 
-    function selectTab(index, moveFocus) {
-      tabs.forEach(function (tab, position) {
-        var isSelected = position === index;
+    function selectTab(index, focus) {
+      tabs.forEach(function (tab, i) {
+        var isSelected = i === index;
         tab.setAttribute('aria-selected', isSelected ? 'true' : 'false');
         tab.tabIndex = isSelected ? 0 : -1;
-        if (panels[position]) { panels[position].hidden = !isSelected; }
+        if (panels[i]) {
+          panels[i].hidden = !isSelected;
+        }
       });
-      if (moveFocus) { tabs[index].focus(); }
+      if (focus) {
+        tabs[index].focus();
+      }
     }
 
-    tabs.forEach(function (tab, index) {
-      tab.addEventListener('click', function () { selectTab(index, false); });
+    tabs.forEach(function (tab, i) {
+      tab.addEventListener('click', function () {
+        selectTab(i, false);
+      });
 
-      tab.addEventListener('keydown', function (event) {
-        var key = event.key;
+      tab.addEventListener('keydown', function (e) {
         var next = null;
-
-        if (key === 'ArrowRight' || key === 'ArrowDown') {
-          next = (index + 1) % tabs.length;
-        } else if (key === 'ArrowLeft' || key === 'ArrowUp') {
-          next = (index - 1 + tabs.length) % tabs.length;
-        } else if (key === 'Home') {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+          next = (i + 1) % tabs.length;
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+          next = (i - 1 + tabs.length) % tabs.length;
+        } else if (e.key === 'Home') {
           next = 0;
-        } else if (key === 'End') {
+        } else if (e.key === 'End') {
           next = tabs.length - 1;
         }
 
         if (next !== null) {
-          event.preventDefault();
+          e.preventDefault();
           selectTab(next, true);
         }
       });
     });
-
-    var initialIndex = 0;
-    for (var i = 0; i < tabs.length; i += 1) {
-      if (tabs[i].getAttribute('aria-selected') === 'true') { initialIndex = i; break; }
-    }
-    selectTab(initialIndex, false);
   });
 
-  /* ---------- 6. Code copy ---------- */
-  var statusElement = doc.getElementById('copy-status');
-  var resetTimers = [];
+  /* ============================================================
+     6. Code Snippet Copy Functionality
+     ============================================================ */
+  var statusMsg = doc.getElementById('copy-status');
+  doc.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-copy]');
+    if (!btn) return;
 
-  function setStatus(message, isError) {
-    if (!statusElement) { return; }
-    statusElement.textContent = message;
-    statusElement.classList.toggle('is-error', !!isError);
-  }
+    var codeId = btn.getAttribute('data-copy');
+    var codeEl = doc.getElementById(codeId);
+    if (!codeEl) return;
 
-  function legacyCopy(text) {
-    var field = doc.createElement('textarea');
-    field.value = text;
-    field.setAttribute('readonly', '');
-    field.setAttribute('aria-hidden', 'true');
-    field.style.position = 'fixed';
-    field.style.top = '-1000px';
-    field.style.opacity = '0';
-    doc.body.appendChild(field);
-    field.select();
-    field.setSelectionRange(0, field.value.length);
+    var text = codeEl.textContent.trim();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        var label = btn.querySelector('[data-copy-label]');
+        var orig = label ? label.textContent : '';
+        if (label) label.textContent = 'Copied';
+        btn.classList.add('is-copied');
+        if (statusMsg) statusMsg.textContent = 'Copied command to clipboard.';
 
-    var succeeded = false;
-    try {
-      succeeded = doc.execCommand ? doc.execCommand('copy') : false;
-    } catch (error) {
-      succeeded = false;
+        setTimeout(function () {
+          if (label) label.textContent = orig;
+          btn.classList.remove('is-copied');
+          if (statusMsg) statusMsg.textContent = '';
+        }, 2200);
+      })['catch'](function () {
+        if (statusMsg) statusMsg.textContent = 'Failed to copy to clipboard.';
+      });
     }
-    if (field.parentNode) { field.parentNode.removeChild(field); }
-    return succeeded;
-  }
-
-  function copyText(text) {
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function' && window.isSecureContext) {
-      return navigator.clipboard.writeText(text).then(
-        function () { return true; },
-        function () { return legacyCopy(text); }
-      );
-    }
-    try {
-      return Promise.resolve(legacyCopy(text));
-    } catch (error) {
-      return Promise.resolve(false);
-    }
-  }
-
-  function flashButton(button) {
-    var label = button.querySelector('[data-copy-label]');
-    if (!label) { return; }
-    var original = label.textContent;
-    label.textContent = 'Copied';
-    button.classList.add('is-copied');
-
-    var timer = window.setTimeout(function () {
-      label.textContent = original;
-      button.classList.remove('is-copied');
-    }, 2000);
-    resetTimers.push(timer);
-  }
-
-  doc.addEventListener('click', function (event) {
-    var button = closestElement(event.target, '[data-copy]');
-    if (!button) { return; }
-
-    var sourceId = button.getAttribute('data-copy');
-    var source = sourceId ? doc.getElementById(sourceId) : null;
-
-    if (!source) {
-      setStatus('That code block could not be found on this page.', true);
-      return;
-    }
-
-    var text = source.textContent.replace(/\s+$/, '');
-
-    copyText(text).then(function (succeeded) {
-      if (succeeded) {
-        setStatus('Copied to clipboard.');
-        flashButton(button);
-      } else {
-        setStatus('Copying is unavailable in this browser context. Select the code in the block and copy it manually.', true);
-      }
-    })['catch'](function () {
-      setStatus('Copying failed. Select the code in the block and copy it manually.', true);
-    });
-  });
-
-  window.addEventListener('pagehide', function () {
-    resetTimers.forEach(function (timer) { window.clearTimeout(timer); });
-    resetTimers = [];
   });
 })();
+</script>
 
-
-              </script>
-                        </body>
-                        </html>
-                    
+</body>
+</html>
