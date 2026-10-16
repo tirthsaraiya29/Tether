@@ -50,7 +50,6 @@ Unlike cloud-dependent companion apps, Tether operates **exclusively over local 
 
 ## Use Cases & Value Proposition
 
-- **🔒 Walk-Away Auto-Lock**: Instantly lock your workstation when walking away or leaving your desk via phone notification or manual trigger.
 - **👆 Biometric Windows Unlock**: Unlock your locked Windows PC securely using your phone's fingerprint sensor without typing passwords.
 - **🚨 Emergency Panic Button**: Revoke trust, invalidate active sessions, and isolate your PC instantly in case of physical security risks.
 - **🎛️ Deskless Remote Control**: Adjust PC volume, screen brightness, or launch Task Manager/Browser remotely during presentations or media playback.
