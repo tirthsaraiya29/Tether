@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tether — Local-first personal device trust for Windows and Android</title>
-  <meta name="description" content="Tether is an open, actively developed companion project exploring local-first device trust between an Android phone and a Windows workstation. Conceptual architecture, networking reference, security limitations, platform targets, and developer notes.">
+  <title>Tether — Connect your Android phone to your Windows PC, locally</title>
+  <meta name="description" content="Tether is an open project that links an Android phone to a Windows PC over your own Wi-Fi. Lock your PC, control volume and brightness, and keep everything on your own network.">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#080b10">
 
@@ -12,7 +12,7 @@
     /* ============================================================
        Tether — Static Landing Webpage
        Design tokens, responsive layout, particle web canvas,
-       and resolved networking boundary diagram.
+       and local network boundary diagram.
        ============================================================ */
 
     /* ---------- 1. Design Tokens ---------- */
@@ -1191,14 +1191,13 @@
       line-height: 1.6;
     }
 
-    /* ---------- 11. Networking & Robust Boundary Diagram ---------- */
+    /* ---------- 11. Networking & Boundary Diagram ---------- */
     .net-grid {
       display: grid;
       gap: clamp(26px, 4vw, 48px);
       align-items: start;
     }
 
-    /* Upgraded Boundary Component with robust layout */
     .boundary {
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
@@ -1254,7 +1253,6 @@
       background: var(--accent);
     }
 
-    /* Clean circuit flow that won't break or overlap in narrow containers */
     .boundary-flow {
       display: grid;
       gap: 12px;
@@ -1321,7 +1319,7 @@
       flex: none;
     }
 
-    /* Animated Link Conduit between Android & Windows */
+    /* Animated link between phone and PC */
     .boundary-conduit {
       position: relative;
       display: flex;
@@ -1396,7 +1394,7 @@
       background: none;
     }
 
-    /* Excluded Boundaries Section */
+    /* Things that stay outside */
     .boundary-outside {
       margin-top: 20px;
       padding-top: 16px;
@@ -1446,7 +1444,7 @@
       color: var(--text-subtle);
     }
 
-    /* Distinction Table */
+    /* Three-level distinction table */
     .distinction {
       margin-top: clamp(30px, 4vw, 48px);
       border: 1px solid var(--border);
@@ -1564,7 +1562,6 @@
     .assurance-list {
       display: grid;
       gap: 18px;
-      counter-reset: none;
     }
     .assurance-list li {
       display: flex;
@@ -2492,7 +2489,7 @@
 <!-- Skip Link for Accessibility -->
 <a class="skip-link" href="#main">Skip to main content</a>
 
-<!-- Background interactive particle web canvas (active on laptops / desktops) -->
+<!-- Background connecting-dots canvas (desktop / laptop only) -->
 <canvas id="network-canvas" aria-hidden="true"></canvas>
 
 <!-- ============ Header & Navigation ============ -->
@@ -2542,17 +2539,17 @@
 
 <main id="main">
 
-  <!-- ============ Section 2: Hero ============ -->
+  <!-- ============ Hero ============ -->
   <section class="hero" id="top" aria-labelledby="hero-title">
     <div class="container hero-grid">
       <div class="hero-copy">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>PERSONAL DEVICE TRUST · WINDOWS + ANDROID</p>
-        <h1 class="hero-title" id="hero-title">Your devices. <span class="hero-accent">Your trust boundary.</span></h1>
-        <p class="hero-lede">Tether explores a local-first way to connect an Android companion with a Windows workstation, bringing device pairing and workstation controls into one privacy-conscious workflow.</p>
+        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>PHONE + PC · YOUR OWN WI-FI</p>
+        <h1 class="hero-title" id="hero-title">Your phone and your PC. <span class="hero-accent">Talking directly.</span></h1>
+        <p class="hero-lede">Tether is an open project that connects an Android phone to a Windows PC over your home Wi-Fi. Lock your PC from your phone, adjust volume and brightness, and keep every command on your own network — no cloud account, no third-party server in the middle.</p>
 
         <div class="hero-actions">
           <a class="btn btn-primary" href="#architecture">
-            Explore the architecture
+            See how it works
             <svg class="icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
               <path d="M2.5 8h10.5M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
             </svg>
@@ -2563,9 +2560,9 @@
         <p class="status-line">
           <span class="status-chip">
             <span class="status-dot" aria-hidden="true"></span>
-            ACTIVE DEVELOPMENT
+            STILL BEING BUILT
           </span>
-          <span class="status-meta">Open public repository · Local cryptographic pairing</span>
+          <span class="status-meta">Open source · Pairing happens on your devices</span>
         </p>
 
         <p class="hero-note">
@@ -2574,15 +2571,15 @@
             <path d="M8 7.2v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
             <circle cx="8" cy="4.9" r=".85" fill="currentColor"></circle>
           </svg>
-          Tether is an evolving project. Its security-sensitive capabilities are still under development and require careful, independent evaluation before any real-world reliance.
+          Tether is an early project and hasn't been security audited. It's fun to explore, but don't trust it with anything important yet.
         </p>
       </div>
 
       <div class="hero-visual">
         <figure class="stage-figure">
           <figcaption class="stage-caption">
-            <span class="tag-illustrative">Illustrative concept</span>
-            <span>Local Trust Pipeline</span>
+            <span class="tag-illustrative">Simple picture</span>
+            <span>How the two devices connect</span>
           </figcaption>
 
           <div class="stage">
@@ -2598,15 +2595,15 @@
                 <span class="monitor-stand"></span>
                 <span class="monitor-foot"></span>
               </div>
-              <p class="node-label">Windows workstation</p>
-              <p class="node-sub">Communication service · desktop UI</p>
+              <p class="node-label">Your Windows PC</p>
+              <p class="node-sub">Runs the Tether service</p>
             </div>
 
             <div class="bridge">
-              <span class="bridge-chip">Pairing</span>
+              <span class="bridge-chip">Pair once</span>
               <span class="bridge-track" aria-hidden="true"><span class="bridge-pulse"></span></span>
-              <span class="bridge-chip bridge-chip-alt">Trust</span>
-              <p class="bridge-meta"><code>Local Wi-Fi / LAN</code><span class="bridge-sep" aria-hidden="true">·</span><code>TLS 1.3</code><span class="bridge-sep" aria-hidden="true">·</span><code>TCP 37123</code></p>
+              <span class="bridge-chip bridge-chip-alt">Then trusted</span>
+              <p class="bridge-meta"><code>Home Wi-Fi</code><span class="bridge-sep" aria-hidden="true">·</span><code>Encrypted</code><span class="bridge-sep" aria-hidden="true">·</span><code>Port 37123</code></p>
             </div>
 
             <div class="node node-phone">
@@ -2625,57 +2622,57 @@
                   <span class="phone-pill"></span>
                 </span>
               </div>
-              <p class="node-label">Android companion</p>
-              <p class="node-sub">Kotlin · Jetpack Compose</p>
+              <p class="node-label">Your Android phone</p>
+              <p class="node-sub">The app you tap</p>
             </div>
           </div>
 
-          <p class="stage-foot">Direct device-to-device trust path without an external relay server.</p>
+          <p class="stage-foot">The two devices talk straight to each other. Nothing sits in between.</p>
         </figure>
       </div>
     </div>
   </section>
 
-  <!-- ============ Section 3: Overview ============ -->
+  <!-- ============ Overview ============ -->
   <section class="section section-lined" id="overview" aria-labelledby="overview-title" data-nav-section>
     <div class="container">
       <header class="section-head reveal">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Overview</p>
-        <h2 class="section-title" id="overview-title">A local-first approach to personal device trust.</h2>
-        <p class="section-lede">Two devices a person already owns, one described network path between them, and a pairing step that decides which commands are allowed to cross.</p>
+        <h2 class="section-title" id="overview-title">Two devices you already own, connected on your own network.</h2>
+        <p class="section-lede">No accounts, no subscriptions, no server in the middle. Just a phone and a PC that you've told to trust each other.</p>
       </header>
 
       <div class="overview-grid">
         <div class="prose reveal">
-          <p>Tether places an Android companion app on the phone and a Windows communication service plus a desktop UI on the workstation. The relationship is deliberately narrow: one paired phone, one paired PC, and a set of controls that only make sense between devices belonging to the same person.</p>
-          <p>Communication is described as direct TCP between those two endpoints on a local Wi-Fi/LAN segment, using TLS 1.3 on port <code>37123</code>. The supplied description does not treat a cloud relay as a requirement, so commands travel between the devices rather than through a third-party server that mediates the session.</p>
-          <p>Pairing is intended to be the gate. Establishing which phone may speak to which workstation comes first, and the described trust, validation, and recovery components exist to decide whether a session still matches what was agreed, and what should happen when it does not.</p>
-          <p>The motivation for staying local is easy to state: a personal trust decision remains on personal devices, and the network path is one a user can reason about on their own router. That is a design intention rather than a proof. Removing an intermediary removes one class of exposure; it does not remove every privacy or security risk.</p>
+          <p>You install an app on your Android phone and a small service on your Windows PC. You pair them once, on your own Wi-Fi. After that, the phone can send a short list of commands to that PC — and only that PC.</p>
+          <p>The commands are simple, everyday things: lock the screen, change the volume, adjust brightness, or trigger a quick lockdown if something feels wrong.</p>
+          <p>Everything travels over your home network. There's no cloud service holding your session, and no company sitting between your phone and your computer.</p>
+          <p>Keeping it local means fewer people involved and a path you can actually picture. It doesn't make it automatically safe — that still depends on how well the code is written and tested.</p>
         </div>
 
         <aside class="callout reveal" aria-labelledby="callout-title">
-          <h3 class="callout-title" id="callout-title">Supplied technical summary</h3>
-          <p class="callout-note">Restated from the project description. Not independently verified for this website.</p>
+          <h3 class="callout-title" id="callout-title">The short version</h3>
+          <p class="callout-note">A quick summary of what Tether is and what it runs on.</p>
           <dl class="callout-list">
             <div>
-              <dt>Companion</dt>
-              <dd>Android app, described as Kotlin with Jetpack Compose.</dd>
+              <dt>Phone app</dt>
+              <dd>Android app written in Kotlin. This is what you tap.</dd>
             </div>
             <div>
-              <dt>Counterpart</dt>
-              <dd>Windows communication service, desktop UI, session helper, and native components.</dd>
+              <dt>PC side</dt>
+              <dd>A Windows background service plus a small desktop window.</dd>
             </div>
             <div>
-              <dt>Transport</dt>
-              <dd>Direct TCP over local Wi-Fi/LAN, described as TLS 1.3 on port <code>37123</code>.</dd>
+              <dt>Connection</dt>
+              <dd>Direct, encrypted over your home Wi-Fi on port <code>37123</code>.</dd>
             </div>
             <div>
-              <dt>Discovery</dt>
-              <dd>mDNS and UDP broadcast concepts are described for finding endpoints on the local network.</dd>
+              <dt>Finding each other</dt>
+              <dd>The two devices announce themselves on your network — no server needed.</dd>
             </div>
             <div>
-              <dt>Relay</dt>
-              <dd>No mandatory cloud relay is described as part of the required path.</dd>
+              <dt>The cloud</dt>
+              <dd>Not required. Not part of the design.</dd>
             </div>
           </dl>
         </aside>
@@ -2683,13 +2680,13 @@
     </div>
   </section>
 
-  <!-- ============ Section 4: Features ============ -->
+  <!-- ============ Features ============ -->
   <section class="section section-lined" id="features" aria-labelledby="features-title" data-nav-section>
     <div class="container">
       <header class="section-head reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Capabilities</p>
-        <h2 class="section-title" id="features-title">What the project sets out to do.</h2>
-        <p class="section-lede">Each item below reflects an area named in the supplied project description. Status labels describe maturity as stated by the project.</p>
+        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>What it does</p>
+        <h2 class="section-title" id="features-title">Six things Tether is built to do.</h2>
+        <p class="section-lede">Some of these work today. Others are still plans. Each card says which is which.</p>
       </header>
 
       <div class="feature-grid">
@@ -2701,9 +2698,9 @@
               <path d="M4.9 19.1a10 10 0 0 1 0-14.2M19.1 4.9a10 10 0 0 1 0 14.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-opacity=".45"></path>
             </svg>
           </span>
-          <h3 class="feature-title">Device pairing and discovery</h3>
-          <p class="feature-text">The project describes finding nearby Tether endpoints on a local network through mDNS and UDP broadcast concepts, then pairing one specific phone with one specific workstation. Pairing is intended to be the boundary every later command passes through.</p>
-          <p class="feature-meta"><span class="chip">Described concept</span><span class="chip chip-mono">mDNS · UDP broadcast</span></p>
+          <h3 class="feature-title">Find your PC and pair with it</h3>
+          <p class="feature-text">Your phone looks for Tether devices on the same Wi-Fi. You pick your PC and pair the two. Pairing is the one-time step that decides which phone is allowed to talk to which computer — everything afterwards depends on it.</p>
+          <p class="feature-meta"><span class="chip">Being built</span><span class="chip chip-mono">Works on your local network</span></p>
         </article>
 
         <article class="feature reveal">
@@ -2715,9 +2712,9 @@
               <path d="M10.7 8.6V7.8a1.3 1.3 0 0 1 2.6 0v.8" stroke="currentColor" stroke-width="1.2"></path>
             </svg>
           </span>
-          <h3 class="feature-title">Workstation controls</h3>
-          <p class="feature-text">The stated direction includes locking the Windows session and other workstation controls issued from the paired companion. Scope is limited to session-level actions on the user's own machine.</p>
-          <p class="feature-meta"><span class="chip">Active development</span></p>
+          <h3 class="feature-title">Lock your PC from your phone</h3>
+          <p class="feature-text">Walk away and lock your computer with a tap, instead of walking back to the keyboard. Only works on the PC you paired with.</p>
+          <p class="feature-meta"><span class="chip">Being built</span></p>
         </article>
 
         <article class="feature reveal">
@@ -2727,9 +2724,9 @@
               <path d="M15 9.2a4 4 0 0 1 0 5.6M17.6 6.8a7.4 7.4 0 0 1 0 10.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
             </svg>
           </span>
-          <h3 class="feature-title">Remote media controls</h3>
-          <p class="feature-text">Audio volume and screen brightness adjustments are described as companion-side controls carried over the same local channel as every other command.</p>
-          <p class="feature-meta"><span class="chip">Described</span></p>
+          <h3 class="feature-title">Volume and brightness</h3>
+          <p class="feature-text">Adjust your PC's volume and screen brightness from your phone, over the same private connection as everything else.</p>
+          <p class="feature-meta"><span class="chip">Planned</span></p>
         </article>
 
         <article class="feature feature-wide reveal">
@@ -2739,9 +2736,9 @@
               <path d="m9.2 12 2 2 3.6-3.9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
             </svg>
           </span>
-          <h3 class="feature-title">Trust and session handling</h3>
-          <p class="feature-text">Trust, validation, recovery, and enforcement components are described as the architectural home for deciding whether an active session is still legitimate. The intent is that trust is re-examined as conditions change.</p>
-          <p class="feature-meta"><span class="chip">Architectural goal</span><span class="chip chip-mono">trust · validation · recovery · enforcement</span></p>
+          <h3 class="feature-title">Keep checking that the connection is real</h3>
+          <p class="feature-text">A connection shouldn't be trusted forever just because it started out fine. Tether is designed to re-check the pairing as things change — for example when your phone rejoins the Wi-Fi or the PC restarts.</p>
+          <p class="feature-meta"><span class="chip">Design goal</span></p>
         </article>
 
         <article class="feature reveal">
@@ -2752,9 +2749,9 @@
               <circle cx="12" cy="16.2" r=".95" fill="currentColor"></circle>
             </svg>
           </span>
-          <h3 class="feature-title">Emergency workflows</h3>
-          <p class="feature-text">An emergency lockdown or panic workflow is part of the stated concept: a fast path intended to restrict workstation access directly from the companion.</p>
-          <p class="feature-meta"><span class="chip">Concept</span></p>
+          <h3 class="feature-title">Emergency lockdown</h3>
+          <p class="feature-text">A quick panic button in the phone app that immediately restricts access to your PC. Meant for the moment something feels wrong.</p>
+          <p class="feature-meta"><span class="chip">Planned</span></p>
         </article>
 
         <article class="feature reveal">
@@ -2765,44 +2762,44 @@
               <path d="M13.8 7.2h3.4a3 3 0 0 1 3 3v2.8M10.2 16.8H6.8a3 3 0 0 1-3-3V11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
             </svg>
           </span>
-          <h3 class="feature-title">Native platform integration</h3>
-          <p class="feature-text">Work is split across a Kotlin and Jetpack Compose Android app, a .NET 10 Windows service and desktop UI, a session helper for interactive-session tasks, and native Win32/C++ components including a credential provider.</p>
-          <p class="feature-meta"><span class="chip">Mixed maturity</span><span class="chip chip-mono">named pipes · credential provider</span></p>
+          <h3 class="feature-title">Built properly for each platform</h3>
+          <p class="feature-text">The phone side is a native Android app. The PC side uses Windows' own building blocks — a background service, a small helper that runs inside your login session, and native Windows code. Some of these pieces are further along than others.</p>
+          <p class="feature-meta"><span class="chip">Mixed progress</span></p>
         </article>
       </div>
     </div>
   </section>
 
-  <!-- ============ Section 5: Architecture ============ -->
+  <!-- ============ Architecture ============ -->
   <section class="section section-lined" id="architecture" aria-labelledby="architecture-title" data-nav-section>
     <div class="container">
       <header class="section-head reveal">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Architecture</p>
-        <h2 class="section-title" id="architecture-title">How it fits together.</h2>
-        <p class="section-lede">A single companion, a single service endpoint, and the component groups the project describes around it.</p>
+        <h2 class="section-title" id="architecture-title">How the pieces fit together.</h2>
+        <p class="section-lede">One phone app, one service on the PC, and a few helper parts around it.</p>
       </header>
 
       <figure class="arch reveal">
         <div class="arch-flow">
           <article class="arch-node arch-node-primary">
-            <p class="arch-kind">Android</p>
-            <h3 class="arch-name">Android companion</h3>
-            <p class="arch-desc">Kotlin and Jetpack Compose app. Described as the origin of pairing requests, control commands, and confirmation flows. Biometric and hardware-backed key-storage concepts are described on this side.</p>
+            <p class="arch-kind">On your phone</p>
+            <h3 class="arch-name">Android app</h3>
+            <p class="arch-desc">Where you tap. This is what starts pairing, sends commands, and asks for your fingerprint or face before something sensitive happens.</p>
           </article>
 
           <div class="arch-link">
             <span class="arch-link-line" aria-hidden="true"><span class="arch-link-head" aria-hidden="true"></span></span>
             <ul class="arch-link-meta">
-              <li>Local Wi-Fi / LAN</li>
-              <li>Direct TCP, described as TLS 1.3</li>
-              <li>Port <code>37123</code> (as specified)</li>
+              <li>Over your home Wi-Fi</li>
+              <li>Encrypted connection</li>
+              <li>Port <code>37123</code></li>
             </ul>
           </div>
 
           <article class="arch-node arch-node-primary">
-            <p class="arch-kind">Windows service</p>
-            <h3 class="arch-name">Windows communication service</h3>
-            <p class="arch-desc">Described as the listening endpoint and dispatcher on the workstation, built on .NET 10 with native Win32/C++ components alongside it.</p>
+            <p class="arch-kind">On your PC</p>
+            <h3 class="arch-name">Windows service</h3>
+            <p class="arch-desc">Runs quietly in the background. It listens for your phone, checks the command is allowed, and passes it on.</p>
           </article>
 
           <div class="arch-branch">
@@ -2810,30 +2807,30 @@
             <ul class="arch-children">
               <li>
                 <article class="arch-node arch-node-child">
-                  <p class="arch-kind">Trust</p>
-                  <h3 class="arch-name">Trust-related components</h3>
-                  <p class="arch-desc">Described as validating whether a paired device and its current session should still be believed.</p>
+                  <p class="arch-kind">Checking</p>
+                  <h3 class="arch-name">Trust checks</h3>
+                  <p class="arch-desc">Decides whether this phone and this connection should still be believed.</p>
                 </article>
               </li>
               <li>
                 <article class="arch-node arch-node-child">
-                  <p class="arch-kind">Response</p>
-                  <h3 class="arch-name">Panic, recovery, enforcement</h3>
-                  <p class="arch-desc">Described as the emergency, restore, and policy-application side of the trust decision.</p>
+                  <p class="arch-kind">Reacting</p>
+                  <h3 class="arch-name">Lockdown &amp; recovery</h3>
+                  <p class="arch-desc">Handles the panic button, and gets things back to normal afterwards.</p>
                 </article>
               </li>
               <li>
                 <article class="arch-node arch-node-child">
-                  <p class="arch-kind">Session</p>
+                  <p class="arch-kind">Helper</p>
                   <h3 class="arch-name">Session helper</h3>
-                  <p class="arch-desc">Described as the component that performs work requiring an interactive user session.</p>
+                  <p class="arch-desc">Some actions only work while you're logged in. This is the part that does them.</p>
                 </article>
               </li>
               <li>
                 <article class="arch-node arch-node-child">
-                  <p class="arch-kind">Interface</p>
-                  <h3 class="arch-name">Desktop UI &amp; native integration</h3>
-                  <p class="arch-desc">Windows desktop app plus native integration, including a described credential-provider component.</p>
+                  <p class="arch-kind">Windows</p>
+                  <h3 class="arch-name">Desktop window</h3>
+                  <p class="arch-desc">A small app on the PC to see status and change settings.</p>
                 </article>
               </li>
             </ul>
@@ -2841,46 +2838,46 @@
         </div>
 
         <figcaption class="arch-caption">
-          <strong>Conceptual architecture</strong> — reflects the supplied project description, not a verified deployment topology.
+          <strong>A simple map</strong> — this shows what each part is meant to do, not a finished product.
         </figcaption>
       </figure>
 
-      <p class="arch-note reveal">The exact behavior and completeness of each component depends on the project's current implementation. Named boxes indicate described responsibilities; they do not assert that every path between them is finished, hardened, or exercised by tests.</p>
+      <p class="arch-note reveal">Not every box here is finished, and not every arrow between them has been tested. Treat this as a plan, not a promise.</p>
 
       <p class="section-link reveal">
-        <a href="#networking">Read the local-first networking detail
+        <a href="#networking">See how the connection actually works
           <svg class="icon" width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
         </a>
       </p>
     </div>
   </section>
 
-  <!-- ============ Section 6: Networking (BUG RESOLVED) ============ -->
+  <!-- ============ Networking ============ -->
   <section class="section section-tinted" id="networking" aria-labelledby="networking-title" data-nav-section>
     <div class="container">
       <header class="section-head reveal">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Networking</p>
-        <h2 class="section-title" id="networking-title">Local-first networking, described precisely.</h2>
-        <p class="section-lede">Direct peer-to-peer communication on your own subnet, free from third-party cloud brokers and external telemetry.</p>
+        <h2 class="section-title" id="networking-title">Everything stays on your own Wi-Fi.</h2>
+        <p class="section-lede">Your phone and PC talk straight to each other. No server in the middle, no data leaving your home network.</p>
       </header>
 
       <div class="net-grid">
         <div class="prose reveal">
-          <p>The intended environment is a local Wi-Fi or LAN segment that both devices already belong to. Within that segment the project describes direct TCP communication between the Android companion and the Windows service, using TLS 1.3, on port <code>37123</code>. Discovery is described through mDNS and UDP broadcast so that endpoints can find each other without a directory service.</p>
-          <p>A cloud relay is not described as a requirement. BLE is described as not being used as a command transport. Public-WAN exposure and mobile-hotspot networking are described as patterns the project does not rely on and does not support.</p>
-          <p>Staying inside a local boundary is a meaningful design choice: fewer intermediaries, a shorter path to inspect, and no third party holding a session. It is not equivalent to safety. A local network can still contain other hosts, discovery traffic is inherently visible on that segment, and any TLS deployment depends on how keys are generated, stored, validated, and rotated.</p>
+          <p>Both devices need to be on the same Wi-Fi or local network. Your phone finds your PC by announcing itself on that network — the same way printers and smart TVs show up. Then the two connect directly to each other.</p>
+          <p>The connection is encrypted, and it uses one specific port (<code>37123</code>) so your router knows what to allow.</p>
+          <p>What Tether deliberately leaves out: there's no cloud relay, no Bluetooth command channel, no opening your PC to the open internet, and no phone-hotspot mode. The whole idea is that it works at home and nowhere else.</p>
+          <p>That's a real benefit — fewer companies involved, and a shorter path you can understand. But staying local isn't the same as being safe. Other devices on your Wi-Fi can still see traffic, and how well the encryption is set up matters a lot.</p>
         </div>
 
-        <!-- RESOLVED BOUNDARY DIAGRAM: Clean, uncluttered, no overlapping text, fully responsive -->
         <figure class="boundary reveal" aria-label="Local network boundary diagram">
           <div class="boundary-frame">
             <div class="boundary-head">
-              <p class="boundary-label">Intended local network boundary</p>
-              <span class="boundary-badge">Direct Subnet</span>
+              <p class="boundary-label">What stays inside your network</p>
+              <span class="boundary-badge">Your Wi-Fi only</span>
             </div>
 
             <div class="boundary-flow">
-              <!-- Android Companion Node -->
+              <!-- Phone -->
               <div class="boundary-card">
                 <div class="boundary-icon-box" aria-hidden="true">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -2889,24 +2886,24 @@
                   </svg>
                 </div>
                 <div class="boundary-info">
-                  <span class="boundary-device-title">Android companion</span>
-                  <span class="boundary-device-sub">Client initiator · Kotlin</span>
+                  <span class="boundary-device-title">Android phone</span>
+                  <span class="boundary-device-sub">Starts the connection</span>
                 </div>
-                <span class="boundary-pill-tag">Endpoint A</span>
+                <span class="boundary-pill-tag">You</span>
               </div>
 
-              <!-- Animated Local Conduit Pipeline -->
+              <!-- Connection -->
               <div class="boundary-conduit">
                 <div class="conduit-track" aria-hidden="true"></div>
                 <div class="conduit-specs">
-                  <span class="conduit-chip">Direct TCP</span>
-                  <span class="conduit-chip">TLS 1.3</span>
+                  <span class="conduit-chip">Direct</span>
+                  <span class="conduit-chip">Encrypted</span>
                   <span class="conduit-chip conduit-chip-port">Port <code>:37123</code></span>
                 </div>
                 <div class="conduit-track" aria-hidden="true"></div>
               </div>
 
-              <!-- Windows Workstation Service Node -->
+              <!-- PC -->
               <div class="boundary-card">
                 <div class="boundary-icon-box" aria-hidden="true">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -2916,76 +2913,76 @@
                   </svg>
                 </div>
                 <div class="boundary-info">
-                  <span class="boundary-device-title">Windows service</span>
-                  <span class="boundary-device-sub">Listener endpoint · .NET 10</span>
+                  <span class="boundary-device-title">Windows PC</span>
+                  <span class="boundary-device-sub">Listens for your phone</span>
                 </div>
-                <span class="boundary-pill-tag">Endpoint B</span>
+                <span class="boundary-pill-tag">You</span>
               </div>
             </div>
 
-            <!-- Outside The Described Path -->
+            <!-- What's excluded -->
             <div class="boundary-outside">
-              <p class="boundary-outside-title">Outside the described path</p>
+              <p class="boundary-outside-title">What Tether leaves out</p>
               <div class="excluded-list">
                 <div class="excluded-item">
                   <svg class="excluded-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                     <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"></circle>
                     <path d="M4 12L12 4" stroke="currentColor" stroke-width="1.3"></path>
                   </svg>
-                  <span>Cloud relay — not described as required</span>
+                  <span>No cloud server in the middle</span>
                 </div>
                 <div class="excluded-item">
                   <svg class="excluded-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                     <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"></circle>
                     <path d="M4 12L12 4" stroke="currentColor" stroke-width="1.3"></path>
                   </svg>
-                  <span>Public-WAN exposure — not a supported pattern</span>
+                  <span>Nothing exposed to the public internet</span>
                 </div>
                 <div class="excluded-item">
                   <svg class="excluded-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                     <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"></circle>
                     <path d="M4 12L12 4" stroke="currentColor" stroke-width="1.3"></path>
                   </svg>
-                  <span>Mobile-hotspot networking — described as unsupported</span>
+                  <span>No phone hotspot mode</span>
                 </div>
                 <div class="excluded-item">
                   <svg class="excluded-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                     <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"></circle>
                     <path d="M4 12L12 4" stroke="currentColor" stroke-width="1.3"></path>
                   </svg>
-                  <span>BLE command transport — described as not used</span>
+                  <span>No Bluetooth command channel</span>
                 </div>
               </div>
             </div>
 
-            <figcaption class="boundary-caption">Conceptual boundary topology based on the supplied project documentation.</figcaption>
+            <figcaption class="boundary-caption">A simple picture of what's inside the boundary and what isn't.</figcaption>
           </div>
         </figure>
       </div>
 
-      <div class="distinction reveal" role="list" aria-label="Distinguishing design goal, documented configuration, and security guarantee">
+      <div class="distinction reveal" role="list" aria-label="Design goal, what is documented, and what is proven">
         <div class="distinction-row" role="listitem">
-          <h3 class="distinction-label">Design goal</h3>
-          <p>Direct device-to-device communication on a network the user controls, with no mandatory cloud relay in the path.</p>
+          <h3 class="distinction-label">What we're aiming for</h3>
+          <p>Your phone and PC talk directly to each other on a network you control. No cloud service required.</p>
         </div>
         <div class="distinction-row" role="listitem">
-          <h3 class="distinction-label">Documented configuration</h3>
-          <p>TLS 1.3 named as the transport, TCP port <code>37123</code> specified, mDNS and UDP broadcast described for discovery on the local segment.</p>
+          <h3 class="distinction-label">What's written down</h3>
+          <p>An encrypted connection, port <code>37123</code>, and automatic discovery on your local network.</p>
         </div>
         <div class="distinction-row" role="listitem">
-          <h3 class="distinction-label">Security guarantee</h3>
-          <p>None is claimed. A protocol version and a port number describe intent and configuration. They do not establish key management, certificate validation, replay handling, or firewall posture.</p>
+          <h3 class="distinction-label">What's actually proven</h3>
+          <p>Nothing yet. Nobody outside the project has audited it. A port number and an encryption standard describe a plan — not a guarantee.</p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ============ Section 7: Security ============ -->
+  <!-- ============ Security ============ -->
   <section class="section section-lined" id="security" aria-labelledby="security-title" data-nav-section>
     <div class="container">
       <header class="section-head reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Security model</p>
-        <h2 class="section-title" id="security-title">Security is a design constraint, not a marketing promise.</h2>
+        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Security</p>
+        <h2 class="section-title" id="security-title">Be honest about what security means here.</h2>
       </header>
 
       <div class="alert reveal">
@@ -2996,79 +2993,79 @@
             <circle cx="12" cy="16.5" r=".95" fill="currentColor"></circle>
           </svg>
         </span>
-        <p class="alert-text"><strong>Tether is in active development. Do not rely on it for mission-critical production security without independent review.</strong></p>
+        <p class="alert-text"><strong>Tether is still being built and nobody has audited it. Don't use it for anything that matters.</strong></p>
       </div>
 
       <div class="security-grid">
         <div class="reveal">
-          <h3 class="sub-title">What the project describes, and how far that goes</h3>
+          <h3 class="sub-title">What's in place, and what isn't</h3>
           <ul class="check-list">
             <li>
               <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>Encrypted local communication is part of the described design.</strong> TLS 1.3 over direct local TCP is the stated transport. The strength of any TLS deployment depends on certificate handling, key storage, and validation logic that must be read in the source.</p>
+              <p><strong>The connection is meant to be encrypted.</strong> That's the plan and it's how the code is written. Whether the encryption is set up correctly is something only a careful code review can answer.</p>
             </li>
             <li>
               <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>Pairing and trust are central to the intended model.</strong> Which device may issue commands is meant to be settled at pairing time and re-examined afterwards. The project describes validation and recovery components for cases where a session no longer matches expectations.</p>
+              <p><strong>Pairing is the front door.</strong> Your phone and PC agree to trust each other once, and that decision is meant to be re-checked later rather than assumed forever.</p>
             </li>
             <li>
               <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>Android secure key-storage capabilities are described, not guaranteed everywhere.</strong> The supplied material refers to biometric and hardware-backed key-storage concepts. Hardware availability varies by device, and the project does not state that all keys are hardware-backed in every configuration.</p>
+              <p><strong>Your phone's fingerprint or face unlock is part of it.</strong> Sensitive actions are meant to require it. Not every phone has the same secure hardware, so this varies by device.</p>
             </li>
             <li>
               <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>Network change and session handling matter to trust.</strong> A local-network system sees roams, reconnects, sleep, and interface changes. The project treats these as relevant to trust management; how completely each case is handled is an implementation question.</p>
+              <p><strong>Wi-Fi changes are handled carefully.</strong> Phones drop off networks, PCs go to sleep, and connections come back. Each of those moments is a chance for something to go wrong, so Tether treats them as worth re-checking.</p>
             </li>
             <li>
               <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>Native integration raises the testing bar.</strong> A background service, a session helper, named-pipe IPC, and a described credential provider operate with elevated reach on Windows. Privileged components make careful review and testing more important.</p>
+              <p><strong>Some parts of this run with high privileges on Windows.</strong> Background services and login-screen components can do a lot. That makes careful review more important, not less.</p>
             </li>
             <li>
               <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>Real-world security depends on details this page cannot settle.</strong> Implementation state, platform differences, local configuration, and unfinished components all affect outcomes.</p>
+              <p><strong>How safe it is in practice depends on things this page can't tell you.</strong> How finished the code is, how your devices are configured, and what's still missing.</p>
             </li>
           </ul>
         </div>
 
         <aside class="assurance reveal" aria-labelledby="assurance-title">
-          <h3 class="sub-title" id="assurance-title">Three different levels of claim</h3>
+          <h3 class="sub-title" id="assurance-title">Three things to keep separate</h3>
           <ol class="assurance-list">
             <li>
               <span class="assurance-index" aria-hidden="true">01</span>
               <div>
-                <h4>Design intention</h4>
-                <p>What the project sets out to do, as written in its description. Most of this website sits at this level.</p>
+                <h4>What they're trying to build</h4>
+                <p>The idea behind the project. Most of this page is that.</p>
               </div>
             </li>
             <li>
               <span class="assurance-index" aria-hidden="true">02</span>
               <div>
-                <h4>Documented behavior</h4>
-                <p>What the repository states is configured or implemented, such as the specified port and the described transport.</p>
+                <h4>What the code actually does</h4>
+                <p>Things written down and implemented, like the port number and the encrypted connection.</p>
               </div>
             </li>
             <li>
               <span class="assurance-index" aria-hidden="true">03</span>
               <div>
-                <h4>Independently verified assurance</h4>
-                <p>External audit, certification, or reproducible testing by a third party. <strong>Tether currently has none of these.</strong></p>
+                <h4>What an outside expert has confirmed</h4>
+                <p>An independent audit or formal certification. <strong>Tether has none of these yet.</strong></p>
               </div>
             </li>
           </ol>
-          <p class="assurance-foot">This website does not verify, test, or audit Tether. It restates and organizes the supplied project description.</p>
-          <a class="btn btn-secondary btn-block" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">Inspect the implementation in the public repository</a>
+          <p class="assurance-foot">This page doesn't test or audit anything. It just explains the project in plain words.</p>
+          <a class="btn btn-secondary btn-block" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">Look at the code on GitHub</a>
         </aside>
       </div>
     </div>
   </section>
 
-  <!-- ============ Section 8: Platforms ============ -->
+  <!-- ============ Platforms ============ -->
   <section class="section section-lined" id="platforms" aria-labelledby="platforms-title">
     <div class="container">
       <header class="section-head reveal">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Platforms</p>
-        <h2 class="section-title" id="platforms-title">Project-stated platform targets.</h2>
-        <p class="section-lede">Targets named in the supplied project information. They are not universal compatibility guarantees.</p>
+        <h2 class="section-title" id="platforms-title">What it runs on.</h2>
+        <p class="section-lede">These are the versions the project is built for — not a promise that it works on everything.</p>
       </header>
 
       <div class="platform-grid">
@@ -3081,14 +3078,14 @@
               </svg>
             </span>
             <h3 class="platform-name">Windows</h3>
-            <p class="platform-role">Workstation side: service, desktop UI, native integration</p>
+            <p class="platform-role">The PC side — runs in the background and shows a small window</p>
           </header>
           <ul class="spec-list">
-            <li><span class="spec-key">Target OS</span><span class="spec-val">Windows 10 and Windows 11, x64</span></li>
-            <li><span class="spec-key">Runtime</span><span class="spec-val">.NET 10</span></li>
-            <li><span class="spec-key">Native</span><span class="spec-val">Win32 / C++ components, including credential provider</span></li>
-            <li><span class="spec-key">Shape</span><span class="spec-val">Background communication service plus desktop UI</span></li>
-            <li><span class="spec-key">IPC</span><span class="spec-val">Named pipes, as described</span></li>
+            <li><span class="spec-key">Works on</span><span class="spec-val">Windows 10 and Windows 11, 64-bit</span></li>
+            <li><span class="spec-key">Built with</span><span class="spec-val">.NET 10</span></li>
+            <li><span class="spec-key">Native parts</span><span class="spec-val">Some Windows-specific code for deeper system access</span></li>
+            <li><span class="spec-key">Shape</span><span class="spec-val">Background service plus a small desktop app</span></li>
+            <li><span class="spec-key">Internal messaging</span><span class="spec-val">The parts talk to each other using Windows named pipes</span></li>
           </ul>
         </article>
 
@@ -3102,144 +3099,144 @@
               </svg>
             </span>
             <h3 class="platform-name">Android</h3>
-            <p class="platform-role">Companion side: pairing, confirmation, remote controls</p>
+            <p class="platform-role">The phone side — where you pair and tap</p>
           </header>
           <ul class="spec-list">
-            <li><span class="spec-key">Target OS</span><span class="spec-val">Android 12 and later</span></li>
+            <li><span class="spec-key">Works on</span><span class="spec-val">Android 12 and newer</span></li>
             <li><span class="spec-key">Language</span><span class="spec-val">Kotlin</span></li>
-            <li><span class="spec-key">UI</span><span class="spec-val">Jetpack Compose</span></li>
-            <li><span class="spec-key">Shape</span><span class="spec-val">Companion app interacting with paired local workstation</span></li>
-            <li><span class="spec-key">Security</span><span class="spec-val">Biometric confirmation and hardware-backed key storage</span></li>
+            <li><span class="spec-key">Interface</span><span class="spec-val">Jetpack Compose</span></li>
+            <li><span class="spec-key">Shape</span><span class="spec-val">A normal app that talks to your paired PC</span></li>
+            <li><span class="spec-key">Security</span><span class="spec-val">Fingerprint or face confirmation, with keys stored in the phone's secure hardware</span></li>
           </ul>
         </article>
       </div>
     </div>
   </section>
 
-  <!-- ============ Section 9: Developer Portal ============ -->
+  <!-- ============ Developers ============ -->
   <section class="section section-lined" id="developers" aria-labelledby="developers-title" data-nav-section>
     <div class="container">
       <header class="section-head reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Developers</p>
-        <h2 class="section-title" id="developers-title">Developer portal.</h2>
-        <p class="section-lede">Boundaries, networking reference, IPC, build environment, documented commands, and contribution guidance.</p>
+        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>For developers</p>
+        <h2 class="section-title" id="developers-title">Want to dig into the code?</h2>
+        <p class="section-lede">What each part does, how the pieces talk, what you need installed, and how to build it.</p>
       </header>
 
       <div class="tabs reveal" data-tabs>
         <div class="tablist" role="tablist" aria-label="Developer topics">
-          <button class="tab" id="tab-boundaries" type="button" role="tab" aria-selected="true" aria-controls="panel-boundaries"><span class="tab-index" aria-hidden="true">01</span>Architecture boundaries</button>
-          <button class="tab" id="tab-network" type="button" role="tab" aria-selected="false" aria-controls="panel-network" tabindex="-1"><span class="tab-index" aria-hidden="true">02</span>Networking reference</button>
-          <button class="tab" id="tab-ipc" type="button" role="tab" aria-selected="false" aria-controls="panel-ipc" tabindex="-1"><span class="tab-index" aria-hidden="true">03</span>IPC concepts</button>
-          <button class="tab" id="tab-build" type="button" role="tab" aria-selected="false" aria-controls="panel-build" tabindex="-1"><span class="tab-index" aria-hidden="true">04</span>Build environment</button>
+          <button class="tab" id="tab-boundaries" type="button" role="tab" aria-selected="true" aria-controls="panel-boundaries"><span class="tab-index" aria-hidden="true">01</span>What each part does</button>
+          <button class="tab" id="tab-network" type="button" role="tab" aria-selected="false" aria-controls="panel-network" tabindex="-1"><span class="tab-index" aria-hidden="true">02</span>Network settings</button>
+          <button class="tab" id="tab-ipc" type="button" role="tab" aria-selected="false" aria-controls="panel-ipc" tabindex="-1"><span class="tab-index" aria-hidden="true">03</span>How parts talk</button>
+          <button class="tab" id="tab-build" type="button" role="tab" aria-selected="false" aria-controls="panel-build" tabindex="-1"><span class="tab-index" aria-hidden="true">04</span>What to install</button>
           <button class="tab" id="tab-commands" type="button" role="tab" aria-selected="false" aria-controls="panel-commands" tabindex="-1"><span class="tab-index" aria-hidden="true">05</span>Build commands</button>
-          <button class="tab" id="tab-contribute" type="button" role="tab" aria-selected="false" aria-controls="panel-contribute" tabindex="-1"><span class="tab-index" aria-hidden="true">06</span>Maturity &amp; contributing</button>
+          <button class="tab" id="tab-contribute" type="button" role="tab" aria-selected="false" aria-controls="panel-contribute" tabindex="-1"><span class="tab-index" aria-hidden="true">06</span>Contributing</button>
         </div>
 
-        <!-- 9A -->
+        <!-- 01 -->
         <div class="tabpanel" id="panel-boundaries" role="tabpanel" aria-labelledby="tab-boundaries" tabindex="0">
-          <h3 class="panel-title">Described component roles</h3>
-          <p class="panel-lede">The supplied description separates responsibilities across processes and platforms.</p>
+          <h3 class="panel-title">The parts of Tether</h3>
+          <p class="panel-lede">Work is split across a few separate programs, each with its own job.</p>
           <dl class="role-list">
             <div>
-              <dt>Android companion</dt>
-              <dd>User-facing app in Kotlin and Jetpack Compose. Source of pairing, control commands, and biometric confirmation flows.</dd>
+              <dt>Android app</dt>
+              <dd>The app you open. Starts pairing, sends commands, and asks for your fingerprint when needed.</dd>
             </div>
             <div>
-              <dt>Windows communication service</dt>
-              <dd>Background service on .NET 10. Holds the local network endpoint and routes accepted commands.</dd>
+              <dt>Windows service</dt>
+              <dd>Runs in the background. Holds the network connection and decides what to do with incoming commands.</dd>
             </div>
             <div>
               <dt>Session helper</dt>
-              <dd>Performs work that requires an interactive user session rather than an isolated service context.</dd>
+              <dd>Some things can only be done while you're logged in. This is the part that does them.</dd>
             </div>
             <div>
-              <dt>Trust, panic, recovery, enforcement</dt>
-              <dd>Engine concepts for validating trust, reacting to emergency requests, and applying security policies.</dd>
+              <dt>Trust, lockdown, recovery</dt>
+              <dd>The logic that decides whether a connection is still trustworthy, what to do in an emergency, and how to get back to normal.</dd>
             </div>
             <div>
-              <dt>Windows desktop UI</dt>
-              <dd>Local graphical interface for status and configuration on the workstation.</dd>
+              <dt>Desktop window</dt>
+              <dd>The small app on the PC for checking status and changing settings.</dd>
             </div>
             <div>
-              <dt>Native Windows integration</dt>
-              <dd>Native Win32/C++ components including a credential-provider component for sign-in-screen interaction.</dd>
+              <dt>Native Windows parts</dt>
+              <dd>Windows-specific code, including a component that can interact with the login screen.</dd>
             </div>
             <div>
-              <dt>Named-pipe IPC</dt>
-              <dd>The message path between the service, desktop UI, and session helper.</dd>
+              <dt>Named-pipe messaging</dt>
+              <dd>How the service, the desktop window, and the session helper pass messages to each other.</dd>
             </div>
           </dl>
           <div class="panel-note">
-            <h4 class="panel-note-title">Why service and session responsibilities differ on Windows</h4>
-            <p>A Windows service starts with the system and runs outside the interactive desktop (Session 0 isolation), while a signed-in user's shell and windows live in that user's session. Actions such as locking a workstation, touching UI, or appearing on the sign-in screen cannot simply be performed directly from a service context, which is why Tether introduces a session helper and a native credential-provider component connected via named pipes.</p>
+            <h4 class="panel-note-title">Why there are so many pieces on Windows</h4>
+            <p>Windows background services start with the computer and run separately from your desktop. That means a service can't directly show a window or lock your screen for you — it isn't in your session. So Tether adds a helper that runs inside your login session and talks to the service through named pipes.</p>
           </div>
         </div>
 
-        <!-- 9B -->
+        <!-- 02 -->
         <div class="tabpanel" id="panel-network" role="tabpanel" aria-labelledby="tab-network" tabindex="0" hidden>
-          <h3 class="panel-title">Networking reference</h3>
-          <p class="panel-lede">A summary of the supplied project description.</p>
-          <div class="table-wrap" tabindex="0" role="region" aria-label="Networking reference table, scrollable">
+          <h3 class="panel-title">Network settings at a glance</h3>
+          <p class="panel-lede">The values the project uses.</p>
+          <div class="table-wrap" tabindex="0" role="region" aria-label="Network settings table, scrollable">
             <table class="ref-table">
               <thead>
                 <tr>
-                  <th scope="col">Item</th>
-                  <th scope="col">Supplied description</th>
+                  <th scope="col">Setting</th>
+                  <th scope="col">Value</th>
                 </tr>
               </thead>
               <tbody>
-                <tr><th scope="row">Intended transport</th><td>Local Wi-Fi / LAN</td></tr>
-                <tr><th scope="row">Communication</th><td>Direct TCP</td></tr>
-                <tr><th scope="row">TLS version described</th><td>TLS 1.3</td></tr>
-                <tr><th scope="row">Port described</th><td><code>TCP 37123</code></td></tr>
-                <tr><th scope="row">Discovery concepts</th><td>mDNS and UDP broadcast</td></tr>
-                <tr><th scope="row">Cloud relay</th><td>Not intended as a requirement</td></tr>
-                <tr><th scope="row">BLE command transport</th><td>Described as not used</td></tr>
+                <tr><th scope="row">Network</th><td>Your local Wi-Fi or LAN</td></tr>
+                <tr><th scope="row">Connection type</th><td>Direct, device to device</td></tr>
+                <tr><th scope="row">Encryption</th><td>TLS 1.3</td></tr>
+                <tr><th scope="row">Port</th><td><code>TCP 37123</code></td></tr>
+                <tr><th scope="row">Finding each other</th><td>mDNS and UDP broadcast</td></tr>
+                <tr><th scope="row">Cloud relay</th><td>Not used</td></tr>
+                <tr><th scope="row">Bluetooth</th><td>Not used for commands</td></tr>
               </tbody>
             </table>
           </div>
-          <p class="panel-fine">Naming a protocol version does not prove a secure configuration. Certificate issuance and validation, key protection, peer authentication, and message validation must be examined in the repository source.</p>
+          <p class="panel-fine">Using TLS 1.3 on paper doesn't mean it's configured correctly. Certificates, key storage, and how the other device is verified all matter — and those live in the source code.</p>
         </div>
 
-        <!-- 9C -->
+        <!-- 03 -->
         <div class="tabpanel" id="panel-ipc" role="tabpanel" aria-labelledby="tab-ipc" tabindex="0" hidden>
-          <h3 class="panel-title">IPC concepts</h3>
-          <p class="panel-lede">Named pipes are described as the interprocess boundary on the Windows side.</p>
+          <h3 class="panel-title">How the Windows parts talk to each other</h3>
+          <p class="panel-lede">Named pipes are the internal messaging channel on the PC side.</p>
           <div class="ipc-map" aria-hidden="true">
-            <span class="ipc-box">Communication service</span>
+            <span class="ipc-box">Windows service</span>
             <span class="ipc-pipe"><i></i><i></i><i></i></span>
-            <span class="ipc-box">Desktop UI</span>
+            <span class="ipc-box">Desktop window</span>
             <span class="ipc-pipe"><i></i><i></i><i></i></span>
             <span class="ipc-box">Session helper</span>
           </div>
-          <p>The separation exists because each process has a different context. Pipe security relies on:</p>
+          <p>Each of these runs in a different context, so the messaging between them needs care:</p>
           <ul class="tick-list">
-            <li>Strict Access Control Lists (ACLs) to prevent unauthorized local process access.</li>
-            <li>Peer identity verification after a connection is accepted.</li>
-            <li>Rigorous message schema validation before influencing lock or trust actions.</li>
-            <li>Graceful recovery on unexpected reconnects or sudden disconnects.</li>
+            <li>Only approved programs should be able to connect to the pipe.</li>
+            <li>The program on the other end should prove who it is.</li>
+            <li>Messages should be checked before they trigger anything real.</li>
+            <li>Things should recover cleanly if a connection drops.</li>
           </ul>
         </div>
 
-        <!-- 9D -->
+        <!-- 04 -->
         <div class="tabpanel" id="panel-build" role="tabpanel" aria-labelledby="tab-build" tabindex="0" hidden>
-          <h3 class="panel-title">Build environment</h3>
-          <p class="panel-lede">Supplied development prerequisites for building from source.</p>
+          <h3 class="panel-title">What you need installed</h3>
+          <p class="panel-lede">Tools required to build Tether from source.</p>
           <div class="build-grid">
             <div class="build-col">
-              <h4 class="build-col-title">Windows side</h4>
+              <h4 class="build-col-title">For the Windows side</h4>
               <ul class="tick-list">
                 <li>Visual Studio 2022</li>
-                <li>Windows SDK (x64)</li>
+                <li>Windows SDK (64-bit)</li>
                 <li>.NET 10 SDK</li>
                 <li>CMake and MSBuild</li>
               </ul>
             </div>
             <div class="build-col">
-              <h4 class="build-col-title">Android side</h4>
+              <h4 class="build-col-title">For the Android side</h4>
               <ul class="tick-list">
-                <li>Android Studio Hedgehog+</li>
-                <li>JDK 17 or later</li>
+                <li>Android Studio Hedgehog or newer</li>
+                <li>JDK 17 or newer</li>
                 <li>Android SDK (API 31+)</li>
                 <li>Gradle 8.0+</li>
               </ul>
@@ -3247,14 +3244,14 @@
           </div>
         </div>
 
-        <!-- 9E -->
+        <!-- 05 -->
         <div class="tabpanel" id="panel-commands" role="tabpanel" aria-labelledby="tab-commands" tabindex="0" hidden>
-          <h3 class="panel-title">Build command reference</h3>
-          <p class="panel-lede">Commands documented in the project description for local builds and tests.</p>
+          <h3 class="panel-title">Build commands</h3>
+          <p class="panel-lede">The commands you'll need for local builds and tests.</p>
 
           <figure class="code">
             <figcaption class="code-head">
-              <span class="code-label">Windows · build the solution</span>
+              <span class="code-label">Windows · build everything</span>
               <span class="code-lang">PowerShell</span>
               <button class="copy-btn" type="button" data-copy="cmd-win-build">
                 <svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
@@ -3269,7 +3266,7 @@
 
           <figure class="code">
             <figcaption class="code-head">
-              <span class="code-label">Android · run unit tests</span>
+              <span class="code-label">Android · run the tests</span>
               <span class="code-lang">Bash</span>
               <button class="copy-btn" type="button" data-copy="cmd-android-test">
                 <svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
@@ -3285,7 +3282,7 @@
 
           <figure class="code">
             <figcaption class="code-head">
-              <span class="code-label">Android · debug build</span>
+              <span class="code-label">Android · build a debug version</span>
               <span class="code-lang">Bash</span>
               <button class="copy-btn" type="button" data-copy="cmd-android-debug">
                 <svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
@@ -3300,7 +3297,7 @@
 
           <figure class="code">
             <figcaption class="code-head">
-              <span class="code-label">Windows · IPC test utility</span>
+              <span class="code-label">Windows · test the internal messaging</span>
               <span class="code-lang">PowerShell</span>
               <button class="copy-btn" type="button" data-copy="cmd-ipc-test">
                 <svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
@@ -3316,134 +3313,141 @@
           <p class="copy-status" id="copy-status" role="status" aria-live="polite"></p>
         </div>
 
-        <!-- 9F -->
+        <!-- 06 -->
         <div class="tabpanel" id="panel-contribute" role="tabpanel" aria-labelledby="tab-contribute" tabindex="0" hidden>
-          <h3 class="panel-title">Project maturity and contribution guidance</h3>
-          <p class="panel-lede">Tether is a public repository. Contributors are encouraged to examine existing code conventions.</p>
+          <h3 class="panel-title">Contributing</h3>
+          <p class="panel-lede">Tether is a public project and contributions are welcome. A few things worth doing first:</p>
           <ol class="tick-list tick-list-numbered">
-            <li>Review the current source code before making architectural assumptions.</li>
-            <li>Validate security-sensitive changes deliberately: pairing, trust validation, panic flows, and credential providers.</li>
-            <li>Add appropriate automated unit and integration tests alongside functional changes.</li>
-            <li>Document platform limitations clearly, including OS versions and unsupported edge cases.</li>
-            <li>Ensure no proprietary keys or personal certs are committed.</li>
+            <li>Read the existing code before assuming how it works.</li>
+            <li>Be extra careful with anything touching security — pairing, trust checks, the panic button.</li>
+            <li>Add tests alongside your changes.</li>
+            <li>Write down any platform limitations you hit.</li>
+            <li>Never commit real keys or personal certificates.</li>
           </ol>
           <div style="margin-top: 20px;">
-            <a class="btn btn-secondary" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">Open the Tether repository on GitHub</a>
+            <a class="btn btn-secondary" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">Open Tether on GitHub</a>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ============ Section 10: Roadmap ============ -->
+  <!-- ============ Roadmap ============ -->
   <section class="section section-lined" id="roadmap" aria-labelledby="roadmap-title" data-nav-section>
     <div class="container">
       <header class="section-head reveal">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Roadmap</p>
-        <h2 class="section-title" id="roadmap-title">Where the project says it is heading.</h2>
-        <p class="section-lede">Planned or proposed roadmap items according to the supplied description.</p>
+        <h2 class="section-title" id="roadmap-title">What's planned next.</h2>
+        <p class="section-lede">Ideas the project wants to build. None of these exist yet.</p>
       </header>
 
       <ol class="roadmap">
         <li class="roadmap-item reveal">
           <span class="roadmap-marker" aria-hidden="true"></span>
           <div class="roadmap-body">
-            <h3 class="roadmap-title">Hardware security key support</h3>
-            <p>Described as planned support for FIDO2/WebAuthn-style hardware security keys as an additional authentication factor alongside the phone.</p>
-            <p class="roadmap-status"><span class="chip chip-planned">Proposed</span></p>
+            <h3 class="roadmap-title">Support for hardware security keys</h3>
+            <p>Plug in a physical security key as an extra step when confirming something sensitive, on top of your phone.</p>
+            <p class="roadmap-status"><span class="chip chip-planned">Planned</span></p>
           </div>
         </li>
         <li class="roadmap-item reveal">
           <span class="roadmap-marker" aria-hidden="true"></span>
           <div class="roadmap-body">
-            <h3 class="roadmap-title">Expanded biometric confirmation flows</h3>
-            <p>Broader use of on-device confirmation for sensitive commands using biometric key generation.</p>
-            <p class="roadmap-status"><span class="chip chip-planned">Proposed</span></p>
+            <h3 class="roadmap-title">More fingerprint and face confirmation</h3>
+            <p>Use your phone's biometric unlock in more places, especially before important commands.</p>
+            <p class="roadmap-status"><span class="chip chip-planned">Planned</span></p>
           </div>
         </li>
         <li class="roadmap-item reveal">
           <span class="roadmap-marker" aria-hidden="true"></span>
           <div class="roadmap-body">
-            <h3 class="roadmap-title">Multi-device management dashboard</h3>
-            <p>Managing more than one paired device from a single view is listed as a prospective roadmap item.</p>
-            <p class="roadmap-status"><span class="chip chip-planned">Proposed</span></p>
+            <h3 class="roadmap-title">Manage more than one device</h3>
+            <p>A single screen to see and manage several paired computers.</p>
+            <p class="roadmap-status"><span class="chip chip-planned">Planned</span></p>
           </div>
         </li>
         <li class="roadmap-item reveal">
           <span class="roadmap-marker" aria-hidden="true"></span>
           <div class="roadmap-body">
-            <h3 class="roadmap-title">Comprehensive automated integration tests</h3>
-            <p>Broader end-to-end integration testing across Android and Windows components.</p>
-            <p class="roadmap-status"><span class="chip chip-planned">Proposed</span></p>
+            <h3 class="roadmap-title">Proper automated testing</h3>
+            <p>Tests that run the whole flow end to end, from phone to PC and back.</p>
+            <p class="roadmap-status"><span class="chip chip-planned">Planned</span></p>
           </div>
         </li>
       </ol>
     </div>
   </section>
 
-  <!-- ============ Section 11: FAQ ============ -->
+  <!-- ============ FAQ ============ -->
   <section class="section section-lined" id="faq" aria-labelledby="faq-title">
     <div class="container container-narrow">
       <header class="section-head reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>FAQ</p>
-        <h2 class="section-title" id="faq-title">Practical questions.</h2>
+        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Questions</p>
+        <h2 class="section-title" id="faq-title">The things people usually ask.</h2>
       </header>
 
       <div class="faq reveal">
         <details class="faq-item">
-          <summary>What is Tether?</summary>
+          <summary>What is Tether, in one sentence?</summary>
           <div class="faq-body">
-            <p>Tether is an open companion project exploring adaptive personal trust between an Android companion and a Windows workstation. It pairs the devices directly over a local network to enable session control, media management, and panic locking without relying on cloud intermediaries.</p>
+            <p>An open project that lets your Android phone control a few things on your Windows PC over your home Wi-Fi, without going through any company's servers.</p>
           </div>
         </details>
 
         <details class="faq-item">
-          <summary>Which platforms does it target?</summary>
+          <summary>What can it actually do right now?</summary>
           <div class="faq-body">
-            <p>The project targets Windows 10 and Windows 11 on x64, and Android 12 and later. Windows utilizes .NET 10 and native Win32/C++ components, while Android uses Kotlin and Jetpack Compose.</p>
+            <p>The project is being built in stages. Right now, pairing your phone with your PC and sending basic commands such as locking the screen are the core focus. Volume, brightness, and the emergency lockdown are still being worked on.</p>
           </div>
         </details>
 
         <details class="faq-item">
-          <summary>Does it require an external cloud relay?</summary>
+          <summary>Which devices does it work with?</summary>
           <div class="faq-body">
-            <p>No. Tether is designed around local-first direct TCP communication over local Wi-Fi or LAN. Commands stay inside the user's personal subnet.</p>
+            <p>Windows 10 or 11 on a 64-bit PC, and an Android phone running Android 12 or newer.</p>
           </div>
         </details>
 
         <details class="faq-item">
-          <summary>How does the local connection work?</summary>
+          <summary>Does my data go anywhere?</summary>
           <div class="faq-body">
-            <p>Endpoints discover each other via mDNS or UDP broadcasts. Once cryptographically paired, communication occurs directly over TCP port <code>37123</code> using TLS 1.3.</p>
+            <p>No. Your phone and PC talk directly to each other over your own Wi-Fi. There's no cloud account and no relay server holding your traffic.</p>
           </div>
         </details>
 
         <details class="faq-item">
-          <summary>Is Tether production-ready?</summary>
+          <summary>Do I need to be on the same Wi-Fi?</summary>
           <div class="faq-body">
-            <p>No. Tether is an actively evolving exploratory project. It has not received formal third-party cryptographic audits and should not be relied upon for mission-critical security.</p>
+            <p>Yes. Both devices need to be on the same local network. Tether is deliberately not designed to work over the internet or a phone hotspot.</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>Is it safe to use?</summary>
+          <div class="faq-body">
+            <p>Not yet. Tether is an early project and no outside expert has reviewed it. It's interesting to explore, but don't rely on it to protect anything important.</p>
           </div>
         </details>
       </div>
     </div>
   </section>
 
-  <!-- ============ Section 12: CTA ============ -->
+  <!-- ============ CTA ============ -->
   <section class="section section-cta" id="get-started" aria-labelledby="cta-title">
     <div class="container">
       <div class="cta-panel reveal">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Next step</p>
-        <h2 class="cta-title" id="cta-title">Explore the project. Understand the architecture.</h2>
-        <p class="cta-text">Read the description, examine the code, and contribute improvements directly on GitHub.</p>
+        <h2 class="cta-title" id="cta-title">Have a look at the project.</h2>
+        <p class="cta-text">Read the code, follow along, or help improve it. Everything lives on GitHub.</p>
         <div class="cta-actions">
-          <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">View the repository on GitHub</a>
-          <a class="btn btn-secondary" href="#developers">Go to the developer portal</a>
-          <a class="btn btn-secondary" href="#security">Read security disclosures</a>
+          <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">View Tether on GitHub</a>
+          <a class="btn btn-secondary" href="#developers">Read the developer notes</a>
+          <a class="btn btn-secondary" href="#security">Read about security</a>
         </div>
         <p class="cta-status">
           <span class="status-chip">
             <span class="status-dot" aria-hidden="true"></span>
-            ACTIVE DEVELOPMENT
+            STILL BEING BUILT
           </span>
         </p>
       </div>
@@ -3463,47 +3467,46 @@
         </svg>
         <span>Tether</span>
       </p>
-      <p class="footer-desc">Adaptive personal trust concept for Windows and Android. Local-first by design: an Android companion and a Windows workstation communicating directly over a local subnet.</p>
+      <p class="footer-desc">Connecting an Android phone to a Windows PC over your own Wi-Fi. No cloud, no accounts — just two devices you own talking to each other.</p>
       <p class="footer-platforms">
-        <span class="pill">Windows 10 / 11 · x64</span>
+        <span class="pill">Windows 10 / 11</span>
         <span class="pill">Android 12+</span>
-        <span class="pill">.NET 10 · Win32/C++</span>
-        <span class="pill">Kotlin · Compose</span>
+        <span class="pill">Built with .NET and Kotlin</span>
       </p>
     </div>
 
     <nav class="footer-nav" aria-label="Footer">
-      <h2 class="footer-heading">Sections</h2>
+      <h2 class="footer-heading">Learn more</h2>
       <ul>
         <li><a href="#overview">Overview</a></li>
-        <li><a href="#features">Capabilities</a></li>
+        <li><a href="#features">Features</a></li>
         <li><a href="#architecture">Architecture</a></li>
         <li><a href="#networking">Networking</a></li>
       </ul>
     </nav>
 
     <nav class="footer-nav" aria-label="Project resources">
-      <h2 class="footer-heading">Project</h2>
+      <h2 class="footer-heading">The project</h2>
       <ul>
-        <li><a href="#security">Security model</a></li>
-        <li><a href="#platforms">Platform targets</a></li>
-        <li><a href="#developers">Developer portal</a></li>
+        <li><a href="#security">Security</a></li>
+        <li><a href="#platforms">Platforms</a></li>
+        <li><a href="#developers">For developers</a></li>
         <li><a href="#roadmap">Roadmap</a></li>
-        <li><a href="#faq">FAQ</a></li>
+        <li><a href="#faq">Questions</a></li>
       </ul>
     </nav>
 
     <div class="footer-repo">
-      <h2 class="footer-heading">Repository</h2>
+      <h2 class="footer-heading">Source code</h2>
       <a class="footer-repo-link" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">github.com/tirthsaraiya29/Tether</a>
-      <p class="footer-status"><span class="status-chip status-chip-sm"><span class="status-dot" aria-hidden="true"></span>ACTIVE DEVELOPMENT</span></p>
-      <p class="footer-fine">Informational project showcase</p>
+      <p class="footer-status"><span class="status-chip status-chip-sm"><span class="status-dot" aria-hidden="true"></span>STILL BEING BUILT</span></p>
+      <p class="footer-fine">An informational project page</p>
     </div>
   </div>
 
   <div class="container footer-legal">
-    <p>Tether is under active development and has not undergone formal independent cryptographic security audit. Do not rely on it as a single point of defense in mission-critical environments.</p>
-    <p>This static webpage is purely informational. It initiates no background network telemetry, installs no local executables, and connects to no external servers.</p>
+    <p>Tether is early-stage software and hasn't been independently security audited. Don't rely on it as your only line of defence for anything that matters.</p>
+    <p>This page is just information. It sends nothing, installs nothing, and connects to no external servers.</p>
   </div>
 </footer>
 
@@ -3511,7 +3514,7 @@
 /**
  * Tether — Standalone Client Scripts
  * Includes:
- * 1. Laptop/Desktop cursor-connecting dots web canvas effect
+ * 1. Desktop cursor-connecting dots canvas effect
  * 2. Responsive mobile navigation toggle
  * 3. Active navigation section observer
  * 4. Scroll reveal animation trigger
@@ -3526,8 +3529,7 @@
   root.classList.add('js');
 
   /* ============================================================
-     1. Laptop/Desktop Interactive Connecting Dots Canvas (Web)
-     Activated if fine pointer (mouse/trackpad) and screen width >= 900px
+     1. Desktop Interactive Connecting Dots Canvas
      ============================================================ */
   var canvas = doc.getElementById('network-canvas');
   var isLaptop = window.matchMedia && window.matchMedia('(pointer: fine) and (min-width: 900px)').matches;
@@ -3585,7 +3587,6 @@
       initParticles();
     }, { passive: true });
 
-    // Track cursor movement on laptop
     window.addEventListener('mousemove', function (e) {
       mouse.x = e.clientX;
       mouse.y = e.clientY;
@@ -3601,26 +3602,22 @@
     function draw() {
       ctx.clearRect(0, 0, width, height);
 
-      // Update and draw particles
       for (var i = 0; i < particles.length; i++) {
         var p = particles[i];
 
         p.x += p.vx;
         p.y += p.vy;
 
-        // Wrap around bounds softly
         if (p.x < -10) p.x = width + 10;
         if (p.x > width + 10) p.x = -10;
         if (p.y < -10) p.y = height + 10;
         if (p.y > height + 10) p.y = -10;
 
-        // Draw particle dot
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(99, 230, 242, ' + p.baseAlpha + ')';
         ctx.fill();
 
-        // Connect particles to nearby particles
         for (var j = i + 1; j < particles.length; j++) {
           var p2 = particles[j];
           var dx = p.x - p2.x;
@@ -3639,7 +3636,6 @@
           }
         }
 
-        // Connect particle to laptop cursor if within range
         if (mouse.isActive && mouse.x !== null) {
           var mdx = p.x - mouse.x;
           var mdy = p.y - mouse.y;
@@ -3649,7 +3645,6 @@
             var mDist = Math.sqrt(mDistSq);
             var mAlpha = (1 - mDist / mouseConnectionDist) * 0.55;
 
-            // Draw glowing connecting line to cursor
             ctx.beginPath();
             ctx.moveTo(p.x, p.y);
             ctx.lineTo(mouse.x, mouse.y);
@@ -3657,14 +3652,12 @@
             ctx.lineWidth = 1.3;
             ctx.stroke();
 
-            // Subtle gentle pull towards cursor
             p.x -= (mdx / mDist) * 0.25;
             p.y -= (mdy / mDist) * 0.25;
           }
         }
       }
 
-      // Draw faint glowing hub at cursor location
       if (mouse.isActive && mouse.x !== null) {
         var grad = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 80);
         grad.addColorStop(0, 'rgba(99, 230, 242, 0.2)');
