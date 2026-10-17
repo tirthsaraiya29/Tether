@@ -2,16 +2,16 @@
 
 **Adaptive personal trust and security system for Windows and Android.**
 
-**Platform:** Windows | Android  
-**Status:** Canary — Active Development  
-**Transport:** Local Wi-Fi / LAN Only (TLS 1.3 Direct TCP)
+- **Platform:** Windows | Android
+- **Status:** Canary — Active Development
+- **Transport:** Local Wi-Fi / LAN only (TLS 1.3 over direct TCP)
 
 ---
 
 > [!WARNING]
 > **BETA DEVELOPMENT STATUS**
 >
-> Tether is under active development. It should not be relied upon for mission-critical production security environments without independent security review. Review the [Security Model](#security-model) and the release notes before use.
+> Tether is under active development. It should not be relied upon for mission-critical production security environments without an independent security review. Review the [Security Model](#security-model) and the release notes before use.
 
 ---
 
@@ -42,9 +42,9 @@
 
 **Tether** is an open-source personal trust and authentication platform designed to connect an Android device with a Windows workstation. It aims to transform a smartphone into a cryptographically secured **trust anchor**, enabling proximity-aware authentication, continuous trust validation, workstation locking, emergency lockdown workflows, hardware-backed credential integration, and remote input control.
 
-Unlike cloud-dependent companion applications, Tether is designed to operate exclusively over local Wi-Fi/LAN infrastructure, without cloud relays or third-party telemetry as part of its intended communication architecture.
+Unlike cloud-dependent companion applications, Tether is designed to operate over local Wi-Fi/LAN infrastructure without requiring cloud relays or third-party telemetry as part of its intended communication architecture.
 
-### Who is Tether for?
+### Who Is Tether For?
 
 - **Privacy Enthusiasts:** Users who prefer local-only communication and minimal reliance on cloud infrastructure.
 - **Security-Conscious Professionals:** Users interested in device-based trust validation, hardware-backed key storage, and emergency workstation locking.
@@ -59,7 +59,7 @@ Unlike cloud-dependent companion applications, Tether is designed to operate exc
 - **Biometric-Assisted Windows Unlock:** Use an Android device's biometric authentication as part of a device-based Windows authentication workflow, where supported by the installed release.
 - **Emergency Panic Button:** Trigger workstation locking and trust revocation from the mobile companion app.
 - **Remote Desktop Controls:** Adjust supported PC settings, such as audio volume and screen brightness, or invoke supported desktop actions.
-- **Remote Trackpad & Input:** Control cursor movement, scrolling, and text input from the Android device.
+- **Remote Trackpad & Input:** Control cursor movement, scrolling, and supported input actions from the Android device.
 - **Local-First Connectivity:** Communicate directly over a supported local network without requiring a cloud relay.
 
 Feature availability depends on the installed release and the capabilities of the Windows workstation and Android device.
@@ -71,13 +71,13 @@ Feature availability depends on the installed release and the capabilities of th
 ### Android Trust Anchor & Pairing
 
 - **Hardware-Backed Cryptography:** Uses Android Keystore and, where available and supported, StrongBox for RSA-2048 key generation and signing with the `TetherAsymmetricKey_v3` alias.
-- **Local Device Discovery:** Supports mDNS discovery using `_tether._tcp.` and UDP broadcast discovery on port `37123`.
+- **Local Device Discovery:** Supports mDNS discovery using `_tether._tcp.` and UDP broadcast discovery on port `37123`, where implemented and supported by the network.
 - **Hotspot Rejection:** Designed to reject unsupported mobile hotspot or tethering configurations.
 - **Device Integrity Checks:** Evaluates selected device integrity signals, root status, developer settings, and biometric availability before authorizing supported operations.
 
 ### Panic Mode & Emergency Lockdown
 
-- **Workstation Locking:** Requests immediate workstation locking through the configured command path.
+- **Workstation Locking:** Requests workstation locking through the configured command path.
 - **Trust Revocation:** Designed to revoke active trust relationships and invalidate associated session state.
 - **Emergency Command Dispatch:** Provides a dedicated workflow for dispatching security-related commands.
 
@@ -89,6 +89,8 @@ The exact scope and effectiveness of session invalidation depend on the implemen
 - **Session Cleanup:** Designed to invalidate active session state when network connectivity is lost or changes.
 - **Stale Session Protection:** Uses request identifiers, timestamps, and nonces as part of command validation.
 
+These mechanisms depend on correct implementation and enforcement by the receiving Windows components.
+
 ### Windows Integration
 
 - **Custom Credential Provider:** Native C++ Win32 Credential Provider integration through `TetherCredentialProvider`.
@@ -96,17 +98,107 @@ The exact scope and effectiveness of session invalidation depend on the implemen
 - **Session Helper:** `Tether.SessionHelper.exe` operates in an interactive user session to access supported user-session resources.
 - **Desktop Configuration UI:** `Tether.DesktopUI` provides a desktop interface for configuration and device management.
 
+### Remote Control & Execution
+
+- **Audio Control:** Adjust supported Windows audio levels from the Android companion app.
+- **Display Brightness:** Control display brightness through the interactive session helper where supported.
+- **Remote Input:** Emulate supported mouse movement, clicks, scrolling, and modifier key events.
+- **Application Launching:** Request the launch of supported Windows utilities in the target interactive session.
+
 ---
 
 ## Visual Highlights & UI Screenshots
 
-Screenshots can be added as the interface stabilizes.
+The following screenshots showcase Tether's Windows management interface, Android companion application, remote-control functionality, and device trust workflows.
 
-- **Android Companion App:** Main dashboard and trust indicator.
-- **Remote Trackpad:** Touch input and gesture interface.
-- **Windows Desktop UI:** Configuration and device management.
+**Screenshot directory:** `docs/assets/screenshots/`
 
-<!-- Add screenshots to the repository and replace these placeholders with their paths. -->
+### Workstation Control Plane
+
+The Windows desktop manager provides IPC diagnostics, system volume and display brightness controls, and DPAPI-backed local vault integration.
+
+<p align="center">
+  <img src="docs/assets/screenshots/desktop-telemetry-control-plane.png" alt="Tether Windows Desktop Telemetry Control Plane" width="100%" />
+</p>
+
+<p align="center">
+  <em><strong>Desktop Telemetry Control Plane</strong> — Real-time IPC diagnostic event stream, CoreAudio and display brightness integrations, and DPAPI-backed local vault subsystem.</em>
+</p>
+
+---
+
+### Mobile Command & Input Experience
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-command-center.jpg" alt="Tether Mobile Trust Command Center" width="85%" />
+      <br /><br />
+      <strong>Mobile Trust Command Center</strong>
+      <p>Workstation connection telemetry, one-tap lock and unlock controls, emergency panic lockdown, and real-time audio gain sliders.</p>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-remote-trackpad.jpg" alt="Tether Remote Trackpad and Modifier Keys" width="85%" />
+      <br /><br />
+      <strong>Low-Latency Precision Trackpad</strong>
+      <p>Responsive cursor control, dedicated scrolling, and Windows modifier key emulation for Ctrl, Alt, Shift, Win, and Esc.</p>
+    </td>
+  </tr>
+</table>
+
+---
+
+### Remote Execution & Handshake Security
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-system-apps-launcher.jpg" alt="Tether System Applications Launcher" width="85%" />
+      <br /><br />
+      <strong>Privileged Application Launcher</strong>
+      <p>Session-aware dispatch for Terminal, Task Manager, File Explorer, and Windows Settings in the target interactive session.</p>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-handshake-verified.jpg" alt="Tether Cryptographic Handshake Verification" width="85%" />
+      <br /><br />
+      <strong>Cryptographic Handshake Verification</strong>
+      <p>TLS 1.3 connection verification and authorization-state checks before sensitive IPC command dispatch.</p>
+    </td>
+  </tr>
+</table>
+
+---
+
+### Identity Pinning & Device Integrity Core
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-device-pairing.jpg" alt="Tether Cryptographic Device Pairing" width="85%" />
+      <br /><br />
+      <strong>Cryptographic Device Pinning</strong>
+      <p>Public-key fingerprint verification and persistent identity binding between the Android device and Windows workstation.</p>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-system-config-integrity.jpg" alt="Tether Device Integrity and Security Policy Configuration" width="85%" />
+      <br /><br />
+      <strong>Device Integrity Core & Policy Matrix</strong>
+      <p>Device integrity checks covering bootloader, root, and ADB states, alongside runtime security policies and socket daemon controls.</p>
+    </td>
+  </tr>
+</table>
+
+---
+
+### Local Network Connectivity
+
+<p align="center">
+  <img src="docs/assets/screenshots/local-lan-connectivity.jpg" alt="Tether Local LAN Connectivity" width="45%" />
+</p>
+
+<p align="center">
+  <em><strong>Zero-Cloud Local Subnet Boundary</strong> — Designed for direct communication between paired devices on a supported local Wi-Fi/LAN network.</em>
+</p>
 
 ---
 
@@ -117,7 +209,7 @@ Tether consists of an Android companion application communicating with a modular
 ```mermaid
 graph TD
     subgraph AndroidDevice["Android Companion App"]
-        A1["TetherApp UI"] --> A2["TetherLanService"]
+        A1["TetherApp UI (Jetpack Compose)"] --> A2["TetherLanService"]
         A2 --> A3["DeviceIntegrityRegistry"]
         A2 --> A4["Android Keystore / StrongBox"]
         A2 -->|TLS 1.3 TCP:37123| B1
@@ -126,6 +218,7 @@ graph TD
     subgraph WindowsHost["Windows Workstation"]
         B1["Tether.CommunicationService (Session 0)"] --> B2["Trust & Panic Engines"]
         B1 --> B3["Tether.SessionHelper (Session 1+)"]
+        B1 --> B4["Tether.DesktopUI"]
         B1 --> B5["TetherCredentialProvider (Logon UI)"]
     end
 ```
@@ -133,7 +226,7 @@ graph TD
 ### ASCII Architecture Overview
 
 ```text
-Android Tether App (Kotlin / Compose)
+Android Tether App (Kotlin / Jetpack Compose)
 │
 │ Local Wi-Fi / LAN
 │ TLS 1.3 Direct TCP Socket on Port 37123
@@ -147,6 +240,7 @@ Tether Windows Communication Service
 └── Session Helper (Tether.SessionHelper - Session 1+)
     ├── Audio & Brightness Controller
     ├── Lock State Detector
+    ├── Input Injection Pipeline (Mouse / Modifiers)
     └── TetherCredentialProvider (Win32 Logon UI)
 ```
 
@@ -158,6 +252,8 @@ Tether Windows Communication Service
 - **Mobile Hotspot:** Unsupported.
 - **Local TCP Port:** `37123`.
 - **Service Discovery:** mDNS and UDP broadcast, where supported.
+
+Local-only operation reduces dependence on external infrastructure but does not, by itself, guarantee protection against malicious devices on the same network.
 
 ---
 
@@ -172,9 +268,9 @@ Windows services run in Session 0, which is isolated from interactive desktop us
 To interact with resources in an active user session, the communication service is designed to:
 
 1. Query the active console session using `WTSGetActiveConsoleSessionId()`.
-2. Obtain the appropriate user token through `WTSQueryUserToken`.
-3. Duplicate the token using `DuplicateTokenEx`, subject to Windows security requirements.
-4. Launch `Tether.SessionHelper.exe` in the target interactive session using `CreateProcessAsUser`.
+2. Obtain the appropriate user token through `WTSQueryUserToken()`.
+3. Duplicate the token using `DuplicateTokenEx()`, subject to Windows security requirements.
+4. Launch `Tether.SessionHelper.exe` in the target interactive session using `CreateProcessAsUser()`.
 
 These operations require appropriate privileges and careful handling of Windows access tokens. Token duplication must be restricted to the intended session and security context.
 
@@ -182,15 +278,17 @@ These operations require appropriate privileges and careful handling of Windows 
 
 Communication between Windows processes uses named pipes with access controls intended to restrict unauthorized access.
 
-- **`TetherPipe`:** Service-to-desktop-UI event bus, associated with `Tether.Shared.IPC.IpcConstants.PipeName`.
-- **`TetherUiPipe`:** Service-to-desktop-UI display relay, associated with `IpcConstants.UiPipeName`.
+- **`TetherPipe`:** Service-to-desktop-UI control and event channel, associated with `Tether.Shared.IPC.IpcConstants.PipeName`.
+- **`TetherUiPipe`:** Service-to-desktop-UI diagnostics relay, associated with `IpcConstants.UiPipeName`.
 - **`Tether.InputPipe`:** Communication service-to-session-helper stream for supported remote input events.
 
 Named-pipe ACLs, client identity validation, message validation, and privilege boundaries should be reviewed as part of the security assessment.
 
 ### Testing
 
-Tether includes Android unit tests, Windows solution tests, and an IPC pipe test utility where implemented. These are intended for contributors working on the source code and are not part of the normal installation process.
+Tether includes Android unit tests, Windows solution tests, and an IPC pipe test utility where implemented.
+
+These are intended for contributors working on the source code and are not part of the normal installation process.
 
 ---
 
@@ -203,7 +301,7 @@ The following table describes the intended platform targets. Consult the notes a
 | Windows | Windows 10 / 11 | x64 | .NET 10, C++ / Win32 APIs |
 | Android | Android 12 (API 31) and later | ARM64 / x86_64, as packaged | Kotlin, Jetpack Compose |
 
-**Note:** The Windows version must support the APIs and runtimes required by the published application. Android compatibility also depends on the APK's minimum SDK and the device's available hardware features.
+**Note:** Windows compatibility depends on the APIs and runtimes required by the published application. Android compatibility depends on the APK's minimum SDK and the device's available hardware features.
 
 ---
 
@@ -216,7 +314,7 @@ You need:
 - A supported Windows 10 or Windows 11 x64 workstation.
 - A compatible Android device running a supported Android version.
 - A supported local Wi-Fi network accessible to both devices.
-- The Windows installer and Android APK from the same Tether release.
+- The Windows installer and Android APK from the same Tether release, if both are published.
 - Windows administrator access when required by the installer.
 - A tested alternative method of signing in to Windows.
 
@@ -248,13 +346,13 @@ Before installing or configuring authentication:
 
 1. Confirm that you can sign in to Windows using your existing supported authentication method.
 2. Keep your Windows recovery options available.
-3. If the installed Tether release requires a local Windows account, follow the applicable account setup instructions provided with that release.
+3. Follow the account setup instructions provided with your specific Tether release.
 4. Make sure you know how to recover access if the Tether authentication workflow fails.
 
 > [!WARNING]
 > Do not disable existing sign-in methods or make Tether your only means of accessing Windows. Maintain a separate administrator account or another tested recovery path.
 
-The Windows Hello-only sign-in setting applies to Microsoft accounts and should not be assumed to disable password sign-in for local accounts.
+Windows Hello settings vary by account type and Windows configuration. Do not assume that enabling a particular sign-in option disables password sign-in for every account.
 
 Entering a Windows password into an application does not, by itself, establish that Windows will authenticate through its Credential Provider or that the session can be unlocked safely.
 
@@ -329,6 +427,19 @@ For the quickest supported setup:
 
 If discovery fails, check the Windows firewall and local network configuration before changing any system security settings.
 
+### Common Actions
+
+| Action | Mobile Workflow | Expected Result |
+|---|---|---|
+| **Unlock PC** | Follow the supported unlock workflow and complete biometric verification if prompted. | Initiates the configured Windows authentication workflow, where supported. |
+| **Lock PC** | Tap `LOCK`, if available in your release. | Requests that the interactive Windows session lock. |
+| **Panic** | Tap `PANIC`, if available in your release. | Initiates emergency workstation locking and trust revocation. |
+| **Trackpad** | Swipe on the trackpad surface. | Sends cursor movement commands to the desktop. |
+| **Launch App** | Select a supported utility, such as Terminal or Task Manager. | Requests that the selected utility open in the target user session. |
+| **Audio Control** | Adjust the audio slider. | Updates the supported Windows audio level. |
+
+Exact behavior depends on the installed build, Windows session state, granted permissions, and implemented functionality.
+
 ---
 
 ## Security Model
@@ -346,7 +457,7 @@ TLS encryption alone does not guarantee that the correct device has been authent
 
 ### 2. Local Infrastructure Boundary & Threat Isolation
 
-- **Local Network Constraint:** Both devices are intended to communicate as clients on the same supported Wi-Fi/LAN infrastructure.
+- **Local Network Constraint:** Both devices are intended to communicate on the same supported Wi-Fi/LAN infrastructure.
 - **No Cloud Relay:** The intended architecture does not require a cloud relay.
 - **Hotspot Rejection:** The Android application is designed to reject unsupported hotspot/tethering configurations.
 - **Firewall Controls:** Network access should be limited to the required local communication paths.
@@ -396,10 +507,10 @@ The following structure describes the main source-code components. The contents 
 ```text
 Tether/
 ├── Tether.slnx
-├── TetherCredentialProvider/
+├── TetherCredentialProvider/       # Native C++ Win32 Credential Provider
 ├── apps/
-│   ├── android-companion/
-│   └── desktop-ui/
+│   ├── android-companion/           # Kotlin / Jetpack Compose Android client
+│   └── desktop-ui/                  # Windows desktop management UI
 ├── services/
 │   ├── communication-service/
 │   │   ├── Tether.CommunicationService/
@@ -426,7 +537,7 @@ Tether/
 | `Tether.PanicEngine` | Emergency lockdown workflows |
 | `Tether.RecoveryEngine` | Recovery-related workflows |
 | `Tether.EnforcementEngine` | Enforcement and policy handling |
-| `Tether.Shared` | Shared data structures, IPC constants, and logging |
+| `Tether.Shared` | Shared data structures, IPC constants, and utilities |
 | Android companion | Device pairing and mobile-side controls |
 | Desktop UI | Windows configuration and device management |
 
@@ -457,7 +568,7 @@ Do not expose the communication port to the public internet or configure router 
 |---|---|---|
 | `HOTSPOT_UNSUPPORTED` | The phone is operating in an unsupported hotspot/tethering configuration. | Connect the PC and phone as clients to the same supported Wi-Fi router. |
 | `DISCOVERY_FAILED` | mDNS or UDP broadcast is blocked, unsupported, or unavailable on the network. | Check that both devices share the same LAN and that local discovery traffic is permitted by the firewall. |
-| Connection timeout | The Windows service is stopped, the devices are on different networks, or the port is blocked. | Verify the Windows service status, Wi-Fi connectivity, and local firewall configuration. |
+| Connection timeout | The Windows service is stopped, the devices are on different networks, or the port is blocked. | Verify Windows service status, Wi-Fi connectivity, and local firewall configuration. |
 | TLS handshake failure | Protocol, certificate, key, or peer-validation mismatch. | Confirm that both applications come from compatible releases and repeat pairing using the documented workflow. |
 | `HELPER_NOT_FOUND` | The session helper is missing or was not installed correctly. | Repair or reinstall Tether using the official Windows installer for the matching release. |
 | `BIOMETRIC_FAILED` | Biometric hardware is unavailable, not configured, or the requested operation is unsupported. | Configure a supported device lock and biometric method, then retry. |
@@ -508,19 +619,19 @@ Security vulnerabilities should be reported privately to the maintainers when a 
 
 ## License
 
-Tether's original code is licensed under the **GNU General Public License v3.0 only (GPL-3.0-only)**. See [`LICENSE`](LICENSE) in the repository root for the complete license text.
+Tether's original code is intended to be distributed under the **GNU General Public License v3.0 only (GPL-3.0-only)**.
+
+See the repository's [`LICENSE`](LICENSE) file for the applicable license terms. Verify the license file in the repository before publishing or distributing a release.
 
 This licensing statement applies to original Tether code for which the project has the necessary rights to grant this license. Third-party dependencies, libraries, tools, and incorporated components remain subject to their respective licenses and notices.
 
-Third-party license information and required notices will be documented in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) as the dependency audit is completed.
-
-For details of the GPL version 3 terms, see the [GNU GPL version 3](https://www.gnu.org/licenses/gpl-3.0.html).
+For the GPL version 3 terms, see the [GNU GPL version 3](https://www.gnu.org/licenses/gpl-3.0.html).
 
 ---
 
 ## Acknowledgements
 
-Tether is built around technologies and concepts including:
+Tether builds on technologies and concepts including:
 
 - [.NET](https://dotnet.microsoft.com/)
 - [C++ and Win32 APIs](https://learn.microsoft.com/en-us/windows/win32/)
@@ -533,6 +644,8 @@ The project is inspired by zero-trust security principles, device-based authenti
 
 ---
 
-**Project:** [Tether on GitHub](https://github.com/tirthsaraiya29/Tether)  
-**Downloads:** [GitHub Releases](https://github.com/tirthsaraiya29/Tether/releases)  
+**Repository:** [github.com/tirthsaraiya29/Tether](https://github.com/tirthsaraiya29/Tether)
+
+**Releases:** [Tether Releases & Changelog](https://github.com/tirthsaraiya29/Tether/releases)
+
 **Issues & Contributions:** [GitHub Repository](https://github.com/tirthsaraiya29/Tether)
