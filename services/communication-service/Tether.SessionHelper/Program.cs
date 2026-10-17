@@ -60,6 +60,16 @@ internal static class Program
                 case "brightness-down":
                     return Task.FromResult(AdjustBrightness(args.Length >= 2 ? "-" + args[1] : "-10"));
 
+                case "get-brightness":
+                    return Task.FromResult(GetBrightness());
+
+                case "set-brightness":
+                    if (args.Length >= 2 && int.TryParse(args[1], out int setBri))
+                    {
+                        return Task.FromResult(SetBrightness(setBri));
+                    }
+                    return Task.FromResult(-1);
+
                 case "dump-laptop-state":
                     if (args.Length >= 2)
                     {
@@ -119,6 +129,60 @@ internal static class Program
                 }
             }
 
+            return 0;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    private static int GetBrightness()
+    {
+        try
+        {
+            using (var getSearcher = new ManagementObjectSearcher(
+                       new ManagementScope(@"root\WMI"),
+                       new ObjectQuery("SELECT * FROM WmiMonitorBrightness")))
+            using (var results = getSearcher.Get())
+            {
+                foreach (ManagementObject obj in results)
+                {
+                    using (obj)
+                    {
+                        object? val = obj["CurrentBrightness"];
+                        if (val != null) return Convert.ToInt32(val);
+                    }
+                    break;
+                }
+            }
+            return -1;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    private static int SetBrightness(int targetLevel)
+    {
+        int target = Math.Clamp(targetLevel, 0, 100);
+        try
+        {
+            using (var setSearcher = new ManagementObjectSearcher(
+                       new ManagementScope(@"root\WMI"),
+                       new ObjectQuery("SELECT * FROM WmiMonitorBrightnessMethods")))
+            using (var results = setSearcher.Get())
+            {
+                foreach (ManagementObject m in results)
+                {
+                    using (m)
+                    {
+                        m.InvokeMethod("WmiSetBrightness", new object[] { 0u, (uint)target });
+                    }
+                    break;
+                }
+            }
             return 0;
         }
         catch
