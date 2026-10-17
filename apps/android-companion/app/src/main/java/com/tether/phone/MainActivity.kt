@@ -306,8 +306,6 @@ class MainActivity : FragmentActivity() {
         isBlockScreenReadingEnabled.value = false
         isHideInRecentsEnabled.value = false
 
-        applyWindowSecurityFlags()
-
         if (isPanicActive.value) {
             setPanicUiState()
         }
@@ -320,7 +318,6 @@ class MainActivity : FragmentActivity() {
 
         setContent {
             LaunchedEffect(isPrivacyMaskEnabled.value, isBlockScreenReadingEnabled.value, isHideInRecentsEnabled.value) {
-                applyWindowSecurityFlags()
             }
             TetherTheme {
                 Surface(
@@ -520,16 +517,6 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun applyWindowSecurityFlags() {
-        runOnUiThread {
-            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-
-            if (Build.VERSION.SDK_INT >= 33) {
-                setRecentsScreenshotEnabled(false)
-            }
-        }
-    }
-
     override fun onStart() {
         super.onStart()
         if (isEnvironmentRestricted.value) return
@@ -556,8 +543,6 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
-
-        applyWindowSecurityFlags()
     }
 
     override fun onResume() {
@@ -571,7 +556,6 @@ class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
-        applyWindowSecurityFlags()
         if (isBiometricSettingEnabled.value) {
             getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
                 putLong(appLockBackgroundTimestampKey, System.currentTimeMillis())
