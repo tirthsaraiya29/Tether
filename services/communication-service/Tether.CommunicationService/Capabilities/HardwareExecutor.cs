@@ -169,6 +169,12 @@ public static class HardwareExecutor
         return ok ? vol : -1;
     }
 
+    public static int GetSystemBrightnessLevelInUserSession(ITetherLogger logger)
+    {
+        bool ok = RunHelperAsUser(new[] { "get-brightness" }, logger, out int bri);
+        return ok ? bri : -1;
+    }
+
     public static bool LaunchHelperDaemonInUserSession(ITetherLogger logger)
     {
         if (!File.Exists(SessionHelperPath))
@@ -208,6 +214,18 @@ public static class HardwareExecutor
                     bool ok = RunHelperAsUser(new[] { "set-volume", clamped.ToString() }, logger, out _);
                     if (ok) currentVol = clamped;
                     logger.Info($"HardwareExecutor: set-volume({clamped}) -> {ok}");
+                    return ok;
+                }
+            }
+
+            if (cmd.StartsWith("brightness_set:") || cmd.StartsWith("set_brightness:") || cmd.StartsWith("bright_set:"))
+            {
+                var parts = cmd.Split(':');
+                if (parts.Length > 1 && int.TryParse(parts[1], out int targetLevel))
+                {
+                    int clamped = Math.Clamp(targetLevel, 0, 100);
+                    bool ok = RunHelperAsUser(new[] { "set-brightness", clamped.ToString() }, logger, out _);
+                    logger.Info($"HardwareExecutor: set-brightness({clamped}) -> {ok}");
                     return ok;
                 }
             }
@@ -287,6 +305,13 @@ public static class HardwareExecutor
                     if (muteOk) RunHelperAsUser(new[] { "get-volume" }, logger, out currentVol);
                     logger.Info($"HardwareExecutor: toggle-mute -> {muteOk}");
                     return muteOk;
+
+                case "bright_get":
+                case "brightness_get":
+                case "get_brightness":
+                    bool brightOk = RunHelperAsUser(new[] { "get-brightness" }, logger, out _);
+                    logger.Info($"HardwareExecutor: get-brightness -> {brightOk}");
+                    return brightOk;
 
                 case "bright_up":
                 case "brightness_up":
@@ -375,11 +400,12 @@ public static class HardwareExecutor
             return false;
         }
 
-        bool isGetVolume =
+        bool isGetVolumeOrBrightness =
             helperArgs.Length > 0 &&
-            string.Equals(helperArgs[0], "get-volume", StringComparison.OrdinalIgnoreCase);
+            (string.Equals(helperArgs[0], "get-volume", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(helperArgs[0], "get-brightness", StringComparison.OrdinalIgnoreCase));
 
-        if (isGetVolume)
+        if (isGetVolumeOrBrightness)
         {
             if (exitCode >= 0 && exitCode <= 100)
             {

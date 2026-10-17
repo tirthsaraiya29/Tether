@@ -79,6 +79,8 @@ class MainActivity : FragmentActivity() {
 
     private var volumeLevel = mutableIntStateOf(50)
     private var lastLocalVolumeChangeTimeMs = 0L
+    private var brightnessLevel = mutableIntStateOf(50)
+    private var lastLocalBrightnessChangeTimeMs = 0L
     private var isMuted = mutableStateOf(value = false)
     private var grantedCapabilities = mutableStateOf(setOf<String>())
     private var connectedHostAddress = mutableStateOf("")
@@ -108,6 +110,15 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private fun updateBrightnessFromRemote(newBri: Int) {
+        if (newBri in 0..100) {
+            val quietWindowPassed = (System.currentTimeMillis() - lastLocalBrightnessChangeTimeMs) > 2000L
+            if (quietWindowPassed) {
+                brightnessLevel.intValue = newBri
+            }
+        }
+    }
+
     private val batteryOptimizationLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
@@ -127,6 +138,7 @@ class MainActivity : FragmentActivity() {
                 val winFp = intent.getStringExtra(TetherLanService.EXTRA_WINDOWS_FINGERPRINT) ?: ""
                 val capsStr = intent.getStringExtra("extra_granted_capabilities") ?: ""
                 val vol = intent.getIntExtra("extra_volume_level", -1)
+                val bri = intent.getIntExtra("extra_brightness_level", -1)
                 val hostAddr = intent.getStringExtra("extra_host_address") ?: ""
 
                 val laptopPowerStateStr = intent.getStringExtra(TetherLanService.EXTRA_LAPTOP_POWER_STATE)
@@ -163,6 +175,9 @@ class MainActivity : FragmentActivity() {
 
                     if (vol in 0..100) {
                         updateVolumeFromRemote(vol)
+                    }
+                    if (bri in 0..100) {
+                        updateBrightnessFromRemote(bri)
                     }
 
                     val caps = if (capsStr.isBlank()) emptySet() else capsStr.split(",").map { it.trim().uppercase() }.toSet()
@@ -225,16 +240,21 @@ class MainActivity : FragmentActivity() {
                 val success = intent.getBooleanExtra("success", true)
                 val reason = intent.getStringExtra("reason") ?: "OK"
                 val vol = intent.getIntExtra("volume_level", -1)
+                val bri = intent.getIntExtra("brightness_level", -1)
 
                 runOnUiThread {
                     if (vol in 0..100) {
                         updateVolumeFromRemote(vol)
                     }
+                    if (bri in 0..100) {
+                        updateBrightnessFromRemote(bri)
+                    }
                     val isTelemetryCmd = confirmedCmd.equals("laptop_state_get", ignoreCase = true) ||
                             confirmedCmd.equals("get_laptop_state", ignoreCase = true) ||
                             confirmedCmd.equals("laptop_state", ignoreCase = true)
-                    val isVolumeCmd = confirmedCmd.startsWith("volume_") || confirmedCmd.startsWith("set_volume:") || confirmedCmd.startsWith("vol_")
-                    if (!isVolumeCmd && !isTelemetryCmd) {
+                    val isVolumeOrBrightnessCmd = confirmedCmd.startsWith("volume_") || confirmedCmd.startsWith("set_volume:") || confirmedCmd.startsWith("vol_") ||
+                            confirmedCmd.startsWith("brightness_") || confirmedCmd.startsWith("set_brightness:") || confirmedCmd.startsWith("bright_")
+                    if (!isVolumeOrBrightnessCmd && !isTelemetryCmd) {
                         lastCommandSuccess.value = success
                         lastCommandReason.value = reason
                         isCommandConfirmed.value = true
@@ -257,9 +277,13 @@ class MainActivity : FragmentActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == "com.tether.phone.ACTION_SYNC_HARDWARE_METRICS") {
                 val vol = intent.getIntExtra("VOLUME_LEVEL", -1)
+                val bri = intent.getIntExtra("BRIGHTNESS_LEVEL", -1)
                 runOnUiThread {
                     if (vol in 0..100) {
                         updateVolumeFromRemote(vol)
+                    }
+                    if (bri in 0..100) {
+                        updateBrightnessFromRemote(bri)
                     }
                 }
             }
@@ -352,6 +376,7 @@ class MainActivity : FragmentActivity() {
                                 phoneFingerprint = phoneFingerprint.value,
                                 windowsFingerprint = windowsFingerprint.value,
                                 volumeLevel = volumeLevel.intValue,
+                                brightnessLevel = brightnessLevel.intValue,
                                 isMuted = isMuted.value,
                                 grantedCapabilities = grantedCapabilities.value,
                                 onUnlockClick = {
@@ -823,10 +848,37 @@ class MainActivity : FragmentActivity() {
                     volumeLevel.intValue = it.coerceIn(0, 100)
                 }
             }
+            actionLower == "brightness_up" || actionLower == "bright_up" -> {
+                lastLocalBrightnessChangeTimeMs = System.currentTimeMillis()
+                brightnessLevel.intValue = (brightnessLevel.intValue + 5).coerceIn(0, 100)
+            }
+            actionLower == "brightness_down" || actionLower == "bright_down" -> {
+                lastLocalBrightnessChangeTimeMs = System.currentTimeMillis()
+                brightnessLevel.intValue = (brightnessLevel.intValue - 5).coerceIn(0, 100)
+            }
+            actionLower.startsWith("brightness_set:") -> {
+                action.substringAfter("brightness_set:").toIntOrNull()?.let {
+                    lastLocalBrightnessChangeTimeMs = System.currentTimeMillis()
+                    brightnessLevel.intValue = it.coerceIn(0, 100)
+                }
+            }
+            actionLower.startsWith("set_brightness:") -> {
+                action.substringAfter("set_brightness:").toIntOrNull()?.let {
+                    lastLocalBrightnessChangeTimeMs = System.currentTimeMillis()
+                    brightnessLevel.intValue = it.coerceIn(0, 100)
+                }
+            }
+            actionLower.startsWith("bright_set:") -> {
+                action.substringAfter("bright_set:").toIntOrNull()?.let {
+                    lastLocalBrightnessChangeTimeMs = System.currentTimeMillis()
+                    brightnessLevel.intValue = it.coerceIn(0, 100)
+                }
+            }
         }
 
-        val isVolumeCmd = action.startsWith("volume_") || action.startsWith("set_volume:") || action.startsWith("vol_")
-        if (!isVolumeCmd) {
+        val isVolumeOrBrightnessCmd = actionLower.startsWith("volume_") || actionLower.startsWith("set_volume:") || actionLower.startsWith("vol_") ||
+                actionLower.startsWith("brightness_") || actionLower.startsWith("set_brightness:") || actionLower.startsWith("bright_")
+        if (!isVolumeOrBrightnessCmd) {
             activePendingCommand.value = action
             isCommandConfirmed.value = false
         }

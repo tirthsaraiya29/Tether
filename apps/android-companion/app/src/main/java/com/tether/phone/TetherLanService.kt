@@ -285,6 +285,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private var currentVolumeLevel: Int = 50
 
     @Volatile
+    private var currentBrightnessLevel: Int = 50
+
+    @Volatile
     private var connectedHostPort: Int = TetherDiscoveryManager.DEFAULT_PORT
 
     @Volatile
@@ -688,6 +691,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                             {
                                 currentState = TransportState.READY
                                 dispatchCommand("volume_get")
+                                dispatchCommand("brightness_get")
                             },
                             200,
                         )
@@ -984,12 +988,16 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val success = json.optBoolean("success", true)
                 val errorReason = json.optString("reason", "")
                 val vol = json.optInt("volumeLevel", -1)
+                val bright = json.optInt("brightnessLevel", -1)
                 if ((vol >= 0) && (vol <= 100)) {
                     currentVolumeLevel = vol
                 }
+                if ((bright >= 0) && (bright <= 100)) {
+                    currentBrightnessLevel = bright
+                }
                 val safeConfirmed = sanitizeLog(confirmedCmd)
                 val safeReason = sanitizeLog(errorReason)
-                Log.i(TAG, "Command response from Windows host: $safeConfirmed (success=$success, reason=$safeReason, vol=$currentVolumeLevel)")
+                Log.i(TAG, "Command response from Windows host: $safeConfirmed (success=$success, reason=$safeReason, vol=$currentVolumeLevel, bright=$currentBrightnessLevel)")
                 if (safeConfirmed.equals("unlock", ignoreCase = true) && success) {
                     currentPowerState = LaptopPowerState.CONNECTED_UNLOCKED
                     getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit { putBoolean("is_unlock_prompt_dismissed", false) }
@@ -1001,6 +1009,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         putExtra("success", success)
                         putExtra("reason", errorReason)
                         putExtra("volume_level", currentVolumeLevel)
+                        putExtra("brightness_level", currentBrightnessLevel)
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
@@ -1012,6 +1021,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val bright = json.optInt("brightnessLevel", -1)
                 if ((vol >= 0) && (vol <= 100)) {
                     currentVolumeLevel = vol
+                }
+                if ((bright >= 0) && (bright <= 100)) {
+                    currentBrightnessLevel = bright
                 }
                 if ((vol >= 0) || (bright >= 0)) {
                     val intent = Intent("com.tether.phone.ACTION_SYNC_HARDWARE_METRICS").apply {
@@ -1388,6 +1400,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             putExtra("extra_host_address", sanitizeLog(connectedHostAddress))
             putExtra("extra_granted_capabilities", capabilityManager.getNegotiatedCapabilitiesString())
             putExtra("extra_volume_level", currentVolumeLevel)
+            putExtra("extra_brightness_level", currentBrightnessLevel)
 
             putExtra(EXTRA_LAPTOP_POWER_STATE, effectivePowerState.name)
             putExtra(EXTRA_LAPTOP_BATTERY_PERCENT, batteryPercent)

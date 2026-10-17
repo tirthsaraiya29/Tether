@@ -18,7 +18,8 @@ public sealed class CapabilityManager
     public static string? MapCommandToCapability(string command)
     {
         string cmd = command.Trim().ToLowerInvariant();
-        if (cmd.StartsWith("volume_") || cmd.StartsWith("set_volume") || cmd.StartsWith("vol_"))
+        if (cmd.StartsWith("volume_") || cmd.StartsWith("set_volume") || cmd.StartsWith("vol_") ||
+            cmd.StartsWith("brightness_") || cmd.StartsWith("set_brightness") || cmd.StartsWith("bright_"))
             return "MEDIA";
 
         return cmd switch

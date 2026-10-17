@@ -57,6 +57,7 @@ fun TetherAppScreen(
     isPanicActive: Boolean,
     verificationStep: TrustVerificationStep,
     volumeLevel: Int = 50,
+    brightnessLevel: Int = 50,
     isMuted: Boolean = false,
     grantedCapabilities: Set<String> = emptySet(),
     onUnlockClick: () -> Unit,
@@ -183,6 +184,14 @@ fun TetherAppScreen(
                     onVolumeUp = { onLanActionRequested("VOL_UP") },
                     onVolumeDown = { onLanActionRequested("VOL_DOWN") },
                     onToggleMute = { onLanActionRequested("volume_mute") },
+                    enabled = isConnected,
+                )
+
+                LiquidGlassBrightnessControl(
+                    brightnessLevel = brightnessLevel,
+                    onBrightnessChange = { level -> onLanActionRequested("brightness_set:$level") },
+                    onBrightnessUp = { onLanActionRequested("BRIGHT_UP") },
+                    onBrightnessDown = { onLanActionRequested("BRIGHT_DOWN") },
                     enabled = isConnected,
                 )
 
@@ -945,6 +954,7 @@ fun PairingScreen(
 fun LaptopControlScreen(
     isConnected: Boolean,
     volumeLevel: Int = 50,
+    brightnessLevel: Int = 50,
     isMuted: Boolean = false,
     onLanActionRequested: (String) -> Unit
 ) {
@@ -975,15 +985,25 @@ fun LaptopControlScreen(
             visible = visible,
             enter = fadeIn(animationSpec = tween(600, delayMillis = 100)) + slideInVertically(animationSpec = tween(600, delayMillis = 100)) { it / 3 }
         ) {
-            LiquidGlassVolumeControl(
-                volumeLevel = volumeLevel,
-                isMuted = isMuted,
-                onVolumeChange = { level -> onLanActionRequested("volume_set:$level") },
-                onVolumeUp = { onLanActionRequested("VOL_UP") },
-                onVolumeDown = { onLanActionRequested("VOL_DOWN") },
-                onToggleMute = { onLanActionRequested("volume_mute") },
-                enabled = isConnected
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                LiquidGlassVolumeControl(
+                    volumeLevel = volumeLevel,
+                    isMuted = isMuted,
+                    onVolumeChange = { level -> onLanActionRequested("volume_set:$level") },
+                    onVolumeUp = { onLanActionRequested("VOL_UP") },
+                    onVolumeDown = { onLanActionRequested("VOL_DOWN") },
+                    onToggleMute = { onLanActionRequested("volume_mute") },
+                    enabled = isConnected
+                )
+
+                LiquidGlassBrightnessControl(
+                    brightnessLevel = brightnessLevel,
+                    onBrightnessChange = { level -> onLanActionRequested("brightness_set:$level") },
+                    onBrightnessUp = { onLanActionRequested("BRIGHT_UP") },
+                    onBrightnessDown = { onLanActionRequested("BRIGHT_DOWN") },
+                    enabled = isConnected
+                )
+            }
         }
     }
 }
@@ -1043,6 +1063,7 @@ fun TetherNavigationShell(
     phoneFingerprint: String = "",
     windowsFingerprint: String = "",
     volumeLevel: Int = 50,
+    brightnessLevel: Int = 50,
     isMuted: Boolean = false,
     grantedCapabilities: Set<String> = emptySet(),
     onUnlockClick: () -> Unit,
@@ -1103,7 +1124,6 @@ fun TetherNavigationShell(
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
                             Triple("REMOTE INPUT", Icons.Default.TouchApp, AppScreen.REMOTE_INPUT),
-                            Triple(stringResource(R.string.nav_hardware), Icons.Default.Menu, AppScreen.LAPTOP_CONTROL),
                             Triple(stringResource(R.string.nav_apps), Icons.Default.Refresh, AppScreen.SYSTEM_APPS),
                             Triple(stringResource(R.string.nav_security), Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
                             Triple(stringResource(R.string.nav_pair), Icons.Default.QrCode, AppScreen.PAIRING),
@@ -1185,6 +1205,7 @@ fun TetherNavigationShell(
                             isPanicActive = isPanicActive,
                             verificationStep = verificationStep,
                             volumeLevel = volumeLevel,
+                            brightnessLevel = brightnessLevel,
                             isMuted = isMuted,
                             grantedCapabilities = grantedCapabilities,
                             onUnlockClick = onUnlockClick,
@@ -1205,6 +1226,7 @@ fun TetherNavigationShell(
                         AppScreen.LAPTOP_CONTROL -> LaptopControlScreen(
                             isConnected = isConnected,
                             volumeLevel = volumeLevel,
+                            brightnessLevel = brightnessLevel,
                             isMuted = isMuted,
                             onLanActionRequested = onLaptopActionClick
                         )

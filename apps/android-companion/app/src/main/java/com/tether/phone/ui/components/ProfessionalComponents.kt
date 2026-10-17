@@ -354,6 +354,123 @@ fun LiquidGlassVolumeControl(
 }
 
 @Composable
+fun LiquidGlassBrightnessControl(
+    brightnessLevel: Int,
+    onBrightnessChange: (Int) -> Unit = {},
+    onBrightnessUp: () -> Unit,
+    onBrightnessDown: () -> Unit,
+    enabled: Boolean = true,
+) {
+    var isDragging by remember { mutableStateOf(false) }
+    var localBrightness by remember(brightnessLevel) { mutableIntStateOf(brightnessLevel) }
+
+    LaunchedEffect(brightnessLevel) {
+        if (!isDragging) {
+            localBrightness = brightnessLevel
+        }
+    }
+
+    ProfessionalGlassSurface(
+        tint = LiquidCyan,
+        alpha = 0.15f,
+        blur = 40f,
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text(
+                        text = stringResource(R.string.label_brightness),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LiquidCyan,
+                        letterSpacing = 2.sp,
+                    )
+                    Text(
+                        text = "$localBrightness%",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(LiquidCyan.copy(alpha = 0.15f))
+                        .border(
+                            width = 0.5.dp,
+                            color = LiquidCyan,
+                            shape = RoundedCornerShape(16.dp),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "☀️",
+                        fontSize = 20.sp,
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Slider(
+                value = localBrightness.toFloat(),
+                onValueChange = { newValue ->
+                    isDragging = true
+                    localBrightness = newValue.toInt()
+                },
+                onValueChangeFinished = {
+                    isDragging = false
+                    onBrightnessChange(localBrightness)
+                },
+                valueRange = 0f..100f,
+                enabled = enabled,
+                colors = SliderDefaults.colors(
+                    thumbColor = LiquidCyan,
+                    activeTrackColor = LiquidCyan,
+                    inactiveTrackColor = LiquidCyan.copy(alpha = 0.2f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                TacticalAction(
+                    label = "BRI -",
+                    accentColor = TextSecondary,
+                    onClick = {
+                        val newBri = (localBrightness - 5).coerceIn(0, 100)
+                        localBrightness = newBri
+                        onBrightnessDown()
+                    },
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f),
+                )
+                TacticalAction(
+                    label = "BRI +",
+                    accentColor = LiquidCyan,
+                    onClick = {
+                        val newBri = (localBrightness + 5).coerceIn(0, 100)
+                        localBrightness = newBri
+                        onBrightnessUp()
+                    },
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun LiquidGlassAppLauncher(
     onLaunchApp: (String) -> Unit,
     enabled: Boolean = true,

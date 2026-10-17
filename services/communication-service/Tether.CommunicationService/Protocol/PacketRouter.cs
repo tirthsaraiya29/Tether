@@ -137,14 +137,17 @@ public sealed class PacketRouter
         });
 
         if (currentVol < 0) currentVol = HardwareExecutor.GetSystemVolumeLevel(_logger);
+        int currentBri = HardwareExecutor.GetSystemBrightnessLevelInUserSession(_logger);
 
-        if (cmdLower.StartsWith("volume_") || cmdLower.StartsWith("set_volume:") || cmdLower.StartsWith("vol_"))
+        if (cmdLower.StartsWith("volume_") || cmdLower.StartsWith("set_volume:") || cmdLower.StartsWith("vol_") ||
+            cmdLower.StartsWith("brightness_") || cmdLower.StartsWith("set_brightness:") || cmdLower.StartsWith("bright_"))
         {
             var snap = LaptopStateCollector.GetLaptopSnapshot(_logger);
             await FrameCodec.WriteJsonFrameAsync(stream, new
             {
                 type = "HARDWARE_METRICS",
                 volumeLevel = currentVol,
+                brightnessLevel = currentBri,
                 batteryLevel = snap.BatteryLevel,
                 batteryPercent = snap.BatteryLevel,
                 isCharging = snap.IsCharging,
@@ -154,13 +157,17 @@ public sealed class PacketRouter
         }
         else if (cmd.Command.Equals("volume_get", StringComparison.OrdinalIgnoreCase) ||
             cmd.Command.Equals("vol_get", StringComparison.OrdinalIgnoreCase) ||
-            cmd.Command.Equals("get_volume", StringComparison.OrdinalIgnoreCase))
+            cmd.Command.Equals("get_volume", StringComparison.OrdinalIgnoreCase) ||
+            cmd.Command.Equals("brightness_get", StringComparison.OrdinalIgnoreCase) ||
+            cmd.Command.Equals("bright_get", StringComparison.OrdinalIgnoreCase) ||
+            cmd.Command.Equals("get_brightness", StringComparison.OrdinalIgnoreCase))
         {
             var snap = LaptopStateCollector.GetLaptopSnapshot(_logger);
             await FrameCodec.WriteJsonFrameAsync(stream, new
             {
                 type = "HARDWARE_METRICS",
                 volumeLevel = currentVol,
+                brightnessLevel = currentBri,
                 batteryLevel = snap.BatteryLevel,
                 batteryPercent = snap.BatteryLevel,
                 isCharging = snap.IsCharging,
@@ -175,7 +182,8 @@ public sealed class PacketRouter
             confirmedCommand = cmd.Command,
             success = executed,
             reason = executed ? "OK" : "Hardware execution failed",
-            volumeLevel = currentVol
+            volumeLevel = currentVol,
+            brightnessLevel = currentBri
         }, ct);
     }
 }

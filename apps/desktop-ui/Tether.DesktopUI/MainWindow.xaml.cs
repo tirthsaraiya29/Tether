@@ -476,12 +476,32 @@ namespace Tether.DesktopUI
             float vol = GetSystemMasterVolume();
             uint bri = GetMonitorBrightnessLevel();
 
-            switch (action)
+            string actionLower = action.ToLowerInvariant();
+            if (actionLower.StartsWith("brightness_set:") || actionLower.StartsWith("set_brightness:") || actionLower.StartsWith("bright_set:"))
             {
-                case "volume_up": SetSystemMasterVolume(Math.Min(1.0f, vol + 0.04f)); break;
-                case "volume_down": SetSystemMasterVolume(Math.Max(0.0f, vol - 0.04f)); break;
-                case "brightness_up": SetMonitorBrightnessLevel((uint)Math.Min(100, bri + 5)); break;
-                case "brightness_down": SetMonitorBrightnessLevel((uint)Math.Max(0, bri - 5)); break;
+                var parts = action.Split(':');
+                if (parts.Length > 1 && uint.TryParse(parts[1], out uint level))
+                {
+                    SetMonitorBrightnessLevel(Math.Min(100u, level));
+                }
+            }
+            else if (actionLower.StartsWith("volume_set:") || actionLower.StartsWith("set_volume:") || actionLower.StartsWith("vol_set:"))
+            {
+                var parts = action.Split(':');
+                if (parts.Length > 1 && float.TryParse(parts[1], out float level))
+                {
+                    SetSystemMasterVolume(Math.Clamp(level / 100.0f, 0.0f, 1.0f));
+                }
+            }
+            else
+            {
+                switch (actionLower)
+                {
+                    case "volume_up": case "vol_up": SetSystemMasterVolume(Math.Min(1.0f, vol + 0.04f)); break;
+                    case "volume_down": case "vol_down": SetSystemMasterVolume(Math.Max(0.0f, vol - 0.04f)); break;
+                    case "brightness_up": case "bright_up": SetMonitorBrightnessLevel((uint)Math.Min(100, bri + 5)); break;
+                    case "brightness_down": case "bright_down": SetMonitorBrightnessLevel((uint)Math.Max(0, bri - 5)); break;
+                }
             }
             PollAndSynchronizeHardwareStates();
             DebounceTelemetrySync();
