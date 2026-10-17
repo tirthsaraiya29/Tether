@@ -397,7 +397,7 @@ Download prebuilt binaries directly from the official releases:
 ### 1. Download Artifacts
 
 - Windows Installer: `Tether-Setup-*.exe`
-- Android Companion: `app-release.apk`
+- Android Companion: `Tether.apk`
 
 ### 2. Windows Account Preparation
 
