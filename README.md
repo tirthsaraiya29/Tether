@@ -508,11 +508,13 @@ Security vulnerabilities should be reported privately to the maintainers when a 
 
 ## License
 
-**No license has been specified for this project yet.**
+Tether's original code is licensed under the **GNU General Public License v3.0 only (GPL-3.0-only)**. See [`LICENSE`](LICENSE) in the repository root for the complete license text.
 
-Until a license is added to the repository, the source code should not be assumed to be available for unrestricted redistribution, modification, or commercial use.
+This licensing statement applies to original Tether code for which the project has the necessary rights to grant this license. Third-party dependencies, libraries, tools, and incorporated components remain subject to their respective licenses and notices.
 
-The maintainers should add an explicit license before describing Tether as open source.
+Third-party license information and required notices will be documented in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) as the dependency audit is completed.
+
+For details of the GPL version 3 terms, see the [GNU GPL version 3](https://www.gnu.org/licenses/gpl-3.0.html).
 
 ---
 
