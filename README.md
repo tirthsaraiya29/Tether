@@ -121,7 +121,7 @@ The Windows desktop interface provides IPC diagnostics, system audio and display
       <img src="docs/assets/screenshots/android-command-center.jpg" alt="Tether Mobile Trust Command Center" width="85%" />
       <br /><br />
       <strong>Mobile Trust Command Center</strong>
-      <p>Workstation connection status, lock and unlock controls, emergency lockdown, and audio controls.</p>
+      <p>Workstation connection status, lock and unlock controls, emergency lockdown, audio controls, and brightness sliders.</p>
     </td>
     <td width="50%" align="center" valign="top">
       <img src="docs/assets/screenshots/android-remote-trackpad.jpg" alt="Tether Remote Trackpad and Modifier Keys" width="85%" />
@@ -436,6 +436,7 @@ Download prebuilt binaries directly from the official releases:
 | **Trackpad** | Swipe/tap trackpad screen. | Injects synthetic mouse events via Session Helper. |
 | **Launch App** | Tap desired application shortcut. | Spawns utility process inside active user session. |
 | **Audio Control** | Adjust volume slider. | Updates Windows Core Audio endpoint master volume. |
+| **Brightness Control** | Adjust brightness slider. | Updates monitor brightness level via WMI methods. |
 
 ---
 
