@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Threading;
@@ -17,9 +18,28 @@ namespace Tether.CommunicationService.Transport;
 /// </summary>
 public sealed class InputForwarder : IHostedService, IDisposable
 {
-    public const string PipeName = "Tether.InputPipe";
+    public const string BasePipeName = "Tether.InputPipe";
     private const int PipeBufferSize = 64 * 1024;
     private const int WriteQueueCapacity = 4096;
+
+    [DllImport("kernel32.dll", SetLastError = false)]
+    private static extern uint WTSGetActiveConsoleSessionId();
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSQueryUserToken(uint SessionId, out IntPtr phToken);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(
+        IntPtr TokenHandle,
+        int TokenInformationClass,
+        IntPtr TokenInformation,
+        uint TokenInformationLength,
+        out uint ReturnLength);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    private const int TokenUserClass = 1;
 
     private readonly ITetherLogger _logger;
     private readonly Channel<byte[]> _queue;
@@ -43,11 +63,22 @@ public sealed class InputForwarder : IHostedService, IDisposable
         });
     }
 
+    public bool IsHelperConnected
+    {
+        get
+        {
+            lock (_pipeLock)
+            {
+                return _activePipe is { IsConnected: true };
+            }
+        }
+    }
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _acceptTask = Task.Run(() => AcceptLoopAsync(_cts.Token));
         _writeTask = Task.Run(() => WriteLoopAsync(_cts.Token));
-        _logger.Info($"InputForwarder started (pipe='{PipeName}').");
+        _logger.Info($"InputForwarder started.");
         return Task.CompletedTask;
     }
 
@@ -77,14 +108,34 @@ public sealed class InputForwarder : IHostedService, IDisposable
 
             try
             {
+                SecurityIdentifier? userSid = GetActiveConsoleUserSid(out uint activeSessionId);
+                string pipeName = activeSessionId != 0xFFFFFFFF
+                    ? $"{BasePipeName}.{activeSessionId}"
+                    : BasePipeName;
+
                 var security = new PipeSecurity();
                 security.AddAccessRule(new PipeAccessRule(
-                    new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
+                    new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
                     PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
                     AccessControlType.Allow));
 
+                if (userSid != null)
+                {
+                    security.AddAccessRule(new PipeAccessRule(
+                        userSid,
+                        PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
+                        AccessControlType.Allow));
+                }
+                else
+                {
+                    security.AddAccessRule(new PipeAccessRule(
+                        new SecurityIdentifier(WellKnownSidType.InteractiveSid, null),
+                        PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
+                        AccessControlType.Allow));
+                }
+
                 pipe = NamedPipeServerStreamAcl.Create(
-                    PipeName,
+                    pipeName,
                     PipeDirection.Out,
                     1,
                     PipeTransmissionMode.Byte,
@@ -100,11 +151,8 @@ public sealed class InputForwarder : IHostedService, IDisposable
                     _activePipe = pipe;
                     _clientDisconnectTcs = disconnectTcs;
                 }
-                _logger.Info("SessionHelper connected to input pipe.");
+                _logger.Info($"SessionHelper connected to input pipe '{pipeName}'.");
 
-                // Hold the connection open until either:
-                //   (a) the service is stopping, or
-                //   (b) the write loop sees a broken pipe and signals disconnect.
                 using var reg = ct.Register(() => disconnectTcs.TrySetResult(true));
                 await disconnectTcs.Task.ConfigureAwait(false);
             }
@@ -138,21 +186,36 @@ public sealed class InputForwarder : IHostedService, IDisposable
         var reader = _queue.Reader;
         while (!ct.IsCancellationRequested)
         {
-            byte[] frame;
+            byte[]? frame = null;
             try
             {
-                frame = await reader.ReadAsync(ct);
+                var readTask = reader.ReadAsync(ct).AsTask();
+                var delayTask = Task.Delay(5000, ct);
+                var completed = await Task.WhenAny(readTask, delayTask).ConfigureAwait(false);
+
+                if (completed == readTask)
+                {
+                    frame = await readTask.ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException) { break; }
             catch (ChannelClosedException) { break; }
 
             NamedPipeServerStream? pipe;
             lock (_pipeLock) { pipe = _activePipe; }
-            if (pipe is null) continue;
+            if (pipe is null || !pipe.IsConnected) continue;
 
             try
             {
-                await FrameCodec.WriteFrameAsync(pipe, frame, ct);
+                if (frame != null)
+                {
+                    await FrameCodec.WriteFrameAsync(pipe, frame, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    await pipe.WriteAsync(Array.Empty<byte>(), 0, 0, ct).ConfigureAwait(false);
+                    await pipe.FlushAsync(ct).ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -160,7 +223,7 @@ public sealed class InputForwarder : IHostedService, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.Warning($"Input pipe forward error: {ex.Message}");
+                _logger.Warning($"Input pipe forward / keepalive error: {ex.Message}");
 
                 TaskCompletionSource<bool>? tcs = null;
                 lock (_pipeLock)
@@ -175,6 +238,43 @@ public sealed class InputForwarder : IHostedService, IDisposable
                 tcs?.TrySetResult(true);
             }
         }
+    }
+
+    private static SecurityIdentifier? GetActiveConsoleUserSid(out uint activeSessionId)
+    {
+        activeSessionId = WTSGetActiveConsoleSessionId();
+        if (activeSessionId == 0xFFFFFFFF) return null;
+
+        if (!WTSQueryUserToken(activeSessionId, out IntPtr hToken)) return null;
+
+        try
+        {
+            GetTokenInformation(hToken, TokenUserClass, IntPtr.Zero, 0, out uint dwLength);
+            if (dwLength == 0) return null;
+
+            IntPtr tokenInfo = Marshal.AllocHGlobal((int)dwLength);
+            try
+            {
+                if (GetTokenInformation(hToken, TokenUserClass, tokenInfo, dwLength, out _))
+                {
+                    IntPtr pSid = Marshal.ReadIntPtr(tokenInfo);
+                    return new SecurityIdentifier(pSid);
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(tokenInfo);
+            }
+        }
+        catch
+        {
+        }
+        finally
+        {
+            CloseHandle(hToken);
+        }
+
+        return null;
     }
 
     public void Dispose()

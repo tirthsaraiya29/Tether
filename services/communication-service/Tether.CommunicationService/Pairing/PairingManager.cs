@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -32,7 +33,7 @@ public sealed class PendingPairing
 public sealed class PairingManager
 {
     private const int MaxFailedAttempts = 3;
-    private const int ExpirationSeconds = 60;
+    private const int ExpirationSeconds = 120;
 
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
@@ -57,6 +58,34 @@ public sealed class PairingManager
         string phoneDisplayName,
         byte[] initBytes)
     {
+        // Evict expired requests
+        var expiredKeys = _pending
+            .Where(kvp => (DateTime.UtcNow - kvp.Value.CreatedUtc).TotalSeconds > ExpirationSeconds)
+            .Select(kvp => kvp.Key)
+            .ToList();
+        foreach (var key in expiredKeys)
+        {
+            _pending.TryRemove(key, out _);
+        }
+
+        if (_pending.Count >= 32)
+        {
+            _logger.Warning($"PairingManager: Max pending pairing requests reached ({_pending.Count}/32). Rejecting new request from '{phoneDisplayName}'.");
+            var errResp = new HandshakeResponse
+            {
+                DeviceId = winDeviceId,
+                DeviceName = winDeviceName,
+                PublicKey = winSpkiBase64,
+                Status = HandshakeStatus.PairingDenied,
+                Capabilities = winCapabilities,
+                Pqc = false,
+                RequestId = "",
+                Commitment = ""
+            };
+            byte[] errBytes = JsonSerializer.SerializeToUtf8Bytes(errResp);
+            return (new PendingPairing(), errResp, errBytes);
+        }
+
         byte[] phoneSpkiDer = Convert.FromBase64String(phoneSpkiBase64);
         string phoneFingerprint = Trust.TrustStore.ComputeFingerprintOrNull(phoneSpkiBase64)
             ?? throw new ArgumentException("Invalid phone public key base64.", nameof(phoneSpkiBase64));
@@ -130,6 +159,19 @@ public sealed class PairingManager
 
         _logger.Info($"PairingManager: Generated pairing request {requestId} for phone '{phoneDisplayName}' ({phoneFingerprint}). PIN: {pin}");
 
+        try
+        {
+            string tetherDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether");
+            Directory.CreateDirectory(tetherDir);
+            string pinFile = Path.Combine(tetherDir, "pairing_pin.txt");
+            File.WriteAllText(pinFile, $"PIN: {pin}\nDevice: {phoneDisplayName}\nRequestId: {requestId}\nTimestamp: {DateTime.UtcNow:u}\n");
+            _logger.Info($"PairingManager: Written pairing PIN '{pin}' to well-known file: {pinFile}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"PairingManager: Could not write pairing_pin.txt: {ex.Message}");
+        }
+
         _eventBus.Publish(new TetherEvent
         {
             EventType = TetherEventType.PAIRING_REQUESTED,
@@ -195,7 +237,7 @@ public sealed class PairingManager
             pending.PhoneFingerprint,
             pending.DisplayName,
             pending.PhoneSpkiBase64,
-            new[] { "CLIPBOARD", "FILES", "NOTIFICATIONS", "MEDIA", "TERMINAL", "POWER_ELEVATED" });
+            new[] { "CLIPBOARD", "FILES", "NOTIFICATIONS", "MEDIA", "TERMINAL", "POWER_ELEVATED", "INPUT" });
 
         winProofBase64 = Convert.ToBase64String(pending.ExpectedWinProof);
         _pending.TryRemove(requestId, out _);

@@ -337,22 +337,17 @@ public static class HardwareExecutor
                 case "settings":
                     return LaunchInUserSession("cmd.exe /c start ms-settings:", logger);
 
-                case "powershell":
-                case "powershell7":
-                    return LaunchInUserSession("powershell.exe", logger);
-
-                case "cmd":
-                    return LaunchInUserSession("cmd.exe", logger);
-
+                case "launch_calc":
                 case "calc":
                     return LaunchInUserSession("calc.exe", logger);
 
+                case "launch_notepad":
                 case "notepad":
                     return LaunchInUserSession("notepad.exe", logger);
 
                 default:
-                    logger.Warning($"HardwareExecutor: Unrecognized command '{cmd}'. Trying user session launch...");
-                    return LaunchInUserSession(cmd, logger);
+                    logger.Warning($"HardwareExecutor: Unrecognized or unsupported command '{cmd}'. Execution rejected.");
+                    return false;
             }
         }
         catch (Exception ex)

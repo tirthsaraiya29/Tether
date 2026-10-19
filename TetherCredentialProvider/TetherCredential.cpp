@@ -4,6 +4,7 @@
 #endif
 #include <unknwn.h>
 #include <wincrypt.h>
+#include <bcrypt.h>
 #include <winreg.h>
 #include <vector>
 #include <cstring>
@@ -13,6 +14,7 @@
 #include "guid.h"
 #include "TetherCredentialGlobals.h"
 
+#pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "crypt32.lib")
 
 #define WM_SIGNAL_CREDENTIALS_CHANGED (WM_USER + 101)
@@ -395,8 +397,13 @@ HRESULT CSampleCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SER
     CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs)
 {
     HRESULT hr = E_FAIL;
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+    {
+        RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKey);
+    }
+
+    if (hKey != nullptr)
     {
         BYTE encryptedData[2048];
         DWORD dwSize = sizeof(encryptedData);
@@ -636,15 +643,50 @@ HRESULT CSampleCredential::GetUserSid(PWSTR* ppszSid)
     return SHStrDupW(_pszUserSid, ppszSid);
 }
 
+static bool ConstantTimeWcsEquals(PCWSTR a, PCWSTR b)
+{
+    if (!a || !b) return false;
+    size_t lenA = wcslen(a);
+    size_t lenB = wcslen(b);
+    size_t maxLen = (lenA > lenB) ? lenA : lenB;
+
+    int diff = (int)(lenA ^ lenB);
+    for (size_t i = 0; i < maxLen; i++)
+    {
+        WCHAR ca = (i < lenA) ? a[i] : 0;
+        WCHAR cb = (i < lenB) ? b[i] : 0;
+        diff |= (ca ^ cb);
+    }
+    return diff == 0;
+}
+
+static bool DerivePbkdf2Key(LPCWSTR algId, const BYTE* password, DWORD cbPassword, const BYTE* salt, DWORD cbSalt, DWORD iterations, BYTE* derivedKey, DWORD cbDerivedKey)
+{
+    BCRYPT_ALG_HANDLE hAlg = nullptr;
+    if (BCryptOpenAlgorithmProvider(&hAlg, algId, nullptr, BCRYPT_ALG_HANDLE_HMAC_FLAG) != 0)
+        return false;
+
+    NTSTATUS status = BCryptDeriveKeyPBKDF2(hAlg, (PUCHAR)password, cbPassword, (PUCHAR)salt, cbSalt, iterations, derivedKey, cbDerivedKey, 0);
+    BCryptCloseAlgorithmProvider(hAlg, 0);
+    return status == 0;
+}
+
 HRESULT CSampleCredential::_VerifySaltedPassword(PCWSTR pwzEnteredPassword)
 {
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
-        return E_FAIL;
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+    {
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+            return E_FAIL;
+    }
 
-    WCHAR szStoredHash[128];
-    DWORD dwSize = sizeof(szStoredHash);
-    DWORD dwType;
+    WCHAR szAlgorithm[64] = L"sha256-v1";
+    DWORD dwSize = sizeof(szAlgorithm);
+    DWORD dwType = 0;
+    RegQueryValueExW(hKey, L"HashAlgorithm", nullptr, &dwType, (LPBYTE)szAlgorithm, &dwSize);
+
+    WCHAR szStoredHash[256];
+    dwSize = sizeof(szStoredHash);
     if (RegQueryValueExW(hKey, L"PasswordHash", nullptr, &dwType, (LPBYTE)szStoredHash, &dwSize) != ERROR_SUCCESS || dwType != REG_SZ)
     {
         RegCloseKey(hKey);
@@ -658,6 +700,7 @@ HRESULT CSampleCredential::_VerifySaltedPassword(PCWSTR pwzEnteredPassword)
         RegCloseKey(hKey);
         return E_FAIL;
     }
+    DWORD saltLen = dwSize;
     RegCloseKey(hKey);
 
     int cchPassword = (int)wcslen(pwzEnteredPassword);
@@ -668,42 +711,95 @@ HRESULT CSampleCredential::_VerifySaltedPassword(PCWSTR pwzEnteredPassword)
     if (WideCharToMultiByte(CP_UTF8, 0, pwzEnteredPassword, cchPassword, (LPSTR)passwordBytes.data(), (int)passwordBytes.size(), nullptr, nullptr) == 0)
         return E_FAIL;
 
-    std::vector<BYTE> combined;
-    combined.reserve(dwSize + cbNeeded);
-    combined.insert(combined.end(), salt, salt + dwSize);
-    combined.insert(combined.end(), passwordBytes.begin(), passwordBytes.end());
+    if (wcscmp(szAlgorithm, L"pbkdf2-sha256-600k") == 0)
+    {
+        BYTE derived[32];
+        if (!DerivePbkdf2Key(BCRYPT_SHA256_ALGORITHM, passwordBytes.data(), (DWORD)passwordBytes.size(), salt, saltLen, 600000, derived, sizeof(derived)))
+            return E_FAIL;
 
-    HCRYPTPROV hProv;
-    if (!CryptAcquireContextW(&hProv, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
-        return E_FAIL;
-    HCRYPTHASH hHash;
-    if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash))
-    {
-        CryptReleaseContext(hProv, 0);
-        return E_FAIL;
+        WCHAR computedHex[65];
+        for (int i = 0; i < 32; i++)
+            swprintf_s(&computedHex[i * 2], 3, L"%02x", derived[i]);
+        computedHex[64] = 0;
+
+        return ConstantTimeWcsEquals(computedHex, szStoredHash) ? S_OK : E_FAIL;
     }
-    if (!CryptHashData(hHash, combined.data(), (DWORD)combined.size(), 0))
+    else if (wcscmp(szAlgorithm, L"pbkdf2-sha512-210k") == 0)
     {
+        BYTE derived[64];
+        if (!DerivePbkdf2Key(BCRYPT_SHA512_ALGORITHM, passwordBytes.data(), (DWORD)passwordBytes.size(), salt, saltLen, 210000, derived, sizeof(derived)))
+            return E_FAIL;
+
+        WCHAR computedHex[129];
+        for (int i = 0; i < 64; i++)
+            swprintf_s(&computedHex[i * 2], 3, L"%02x", derived[i]);
+        computedHex[128] = 0;
+
+        return ConstantTimeWcsEquals(computedHex, szStoredHash) ? S_OK : E_FAIL;
+    }
+    else
+    {
+        // Legacy sha256-v1
+        std::vector<BYTE> combined;
+        combined.reserve(saltLen + cbNeeded);
+        combined.insert(combined.end(), salt, salt + saltLen);
+        combined.insert(combined.end(), passwordBytes.begin(), passwordBytes.end());
+
+        HCRYPTPROV hProv;
+        if (!CryptAcquireContextW(&hProv, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
+            return E_FAIL;
+        HCRYPTHASH hHash;
+        if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash))
+        {
+            CryptReleaseContext(hProv, 0);
+            return E_FAIL;
+        }
+        if (!CryptHashData(hHash, combined.data(), (DWORD)combined.size(), 0))
+        {
+            CryptDestroyHash(hHash);
+            CryptReleaseContext(hProv, 0);
+            return E_FAIL;
+        }
+        BYTE hash[32];
+        DWORD cbHash = 32;
+        if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &cbHash, 0))
+        {
+            CryptDestroyHash(hHash);
+            CryptReleaseContext(hProv, 0);
+            return E_FAIL;
+        }
         CryptDestroyHash(hHash);
         CryptReleaseContext(hProv, 0);
-        return E_FAIL;
-    }
-    BYTE hash[32];
-    DWORD cbHash = 32;
-    if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &cbHash, 0))
-    {
-        CryptDestroyHash(hHash);
-        CryptReleaseContext(hProv, 0);
-        return E_FAIL;
-    }
-    CryptDestroyHash(hHash);
-    CryptReleaseContext(hProv, 0);
 
-    WCHAR computedHex[65];
-    for (int i = 0; i < 32; i++)
-        swprintf_s(&computedHex[i * 2], 3, L"%02x", hash[i]);
-    computedHex[64] = 0;
-    return (wcscmp(computedHex, szStoredHash) == 0) ? S_OK : E_FAIL;
+        WCHAR computedHex[65];
+        for (int i = 0; i < 32; i++)
+            swprintf_s(&computedHex[i * 2], 3, L"%02x", hash[i]);
+        computedHex[64] = 0;
+
+        bool isOk = ConstantTimeWcsEquals(computedHex, szStoredHash);
+        if (isOk)
+        {
+            BYTE newDerived[32];
+            if (DerivePbkdf2Key(BCRYPT_SHA256_ALGORITHM, passwordBytes.data(), (DWORD)passwordBytes.size(), salt, saltLen, 600000, newDerived, sizeof(newDerived)))
+            {
+                WCHAR newHex[65];
+                for (int i = 0; i < 32; i++)
+                    swprintf_s(&newHex[i * 2], 3, L"%02x", newDerived[i]);
+                newHex[64] = 0;
+
+                HKEY hWriteKey = nullptr;
+                if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_SET_VALUE, &hWriteKey) == ERROR_SUCCESS ||
+                    RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_SET_VALUE, &hWriteKey) == ERROR_SUCCESS)
+                {
+                    RegSetValueExW(hWriteKey, L"PasswordHash", 0, REG_SZ, (LPBYTE)newHex, (DWORD)((wcslen(newHex) + 1) * sizeof(WCHAR)));
+                    const WCHAR* newAlg = L"pbkdf2-sha256-600k";
+                    RegSetValueExW(hWriteKey, L"HashAlgorithm", 0, REG_SZ, (LPBYTE)newAlg, (DWORD)((wcslen(newAlg) + 1) * sizeof(WCHAR)));
+                    RegCloseKey(hWriteKey);
+                }
+            }
+        }
+        return isOk ? S_OK : E_FAIL;
+    }
 }
 
 HRESULT CSampleCredential::_VerifyTpmPassword(PCWSTR) { return E_NOTIMPL; }

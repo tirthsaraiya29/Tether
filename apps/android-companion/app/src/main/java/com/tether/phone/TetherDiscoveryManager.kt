@@ -292,67 +292,84 @@ class TetherDiscoveryManager(
         val probeBytes = probeJson.toString().toByteArray(StandardCharsets.UTF_8)
 
         udpWorkerThread = Thread {
-            try {
-                val socket = DatagramSocket(UDP_DISCOVERY_PORT).apply {
+            val socket = try {
+                DatagramSocket(null).apply {
+                    reuseAddress = true
+                    bind(java.net.InetSocketAddress(UDP_DISCOVERY_PORT))
                     broadcast = true
                     soTimeout = 1000
                 }
-                udpSocket = socket
-                val broadcastAddr = InetAddress.getByName("255.255.255.255")
-
-                val probeThread = Thread {
-                    while (isSearching && !Thread.currentThread().isInterrupted) {
-                        try {
-                            val sendPacket = DatagramPacket(probeBytes, probeBytes.size, broadcastAddr, UDP_DISCOVERY_PORT)
-                            socket.send(sendPacket)
-                        } catch (_: Exception) {}
-                        try { Thread.sleep(3000) } catch (_: InterruptedException) { break }
+            } catch (e: Exception) {
+                Log.w(TAG, "Binding fixed port $UDP_DISCOVERY_PORT failed (${e.message}); using ephemeral socket for UDP discovery.")
+                try {
+                    DatagramSocket().apply {
+                        broadcast = true
+                        soTimeout = 1000
                     }
-                }.apply { start() }
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Failed creating UDP discovery socket: ${e2.message}")
+                    return@Thread
+                }
+            }
+            udpSocket = socket
 
-                val buffer = ByteArray(2048)
+            val broadcastAddrs = mutableListOf<InetAddress>()
+            try {
+                broadcastAddrs.add(InetAddress.getByName("255.255.255.255"))
+            } catch (_: Exception) {}
 
+            val probeThread = Thread {
                 while (isSearching && !Thread.currentThread().isInterrupted) {
                     try {
-                        val recvPacket = DatagramPacket(buffer, buffer.size)
-                        socket.receive(recvPacket)
-
-                        val responseStr = String(recvPacket.data, 0, recvPacket.length, StandardCharsets.UTF_8)
-                        val json = JSONObject(responseStr)
-                        val type = json.optString("type", "")
-
-                        if (type == "TETHER_DISCOVERY_RESPONSE") {
-                            val hostAddr = recvPacket.address.hostAddress ?: continue
-                            val devId = json.optString("deviceId", hostAddr)
-
-                            if (devId == phoneId) continue
-
-                            val devName = json.optString("deviceName", "Tether Windows PC")
-                            val tcpPort = json.optInt("tcpPort", DEFAULT_PORT)
-
-                            val device = DiscoveredDevice(
-                                deviceId = devId,
-                                name = devName,
-                                hostAddress = hostAddr,
-                                port = tcpPort,
-                            )
-
-                            Log.i(TAG, "UDP Broadcast Discovered Tether device: $device")
-                            discoveredDevices[devId] = device
-                            mainHandler.post { externalListener?.onDeviceDiscovered(device) }
+                        for (addr in broadcastAddrs) {
+                            val sendPacket = DatagramPacket(probeBytes, probeBytes.size, addr, UDP_DISCOVERY_PORT)
+                            socket.send(sendPacket)
                         }
-                    } catch (_: SocketTimeoutException) {
-                        // Normal socket timeout when no response arrives in 1s; loop and continue receiving
-                    } catch (e: Exception) {
-                        if (!isSearching) break
-                        Log.d(TAG, "UDP receive exception: ${e.message}")
-                    }
+                    } catch (_: Exception) {}
+                    try { Thread.sleep(2000) } catch (_: InterruptedException) { break }
                 }
+            }.apply { start() }
 
-                try { probeThread.interrupt() } catch (_: Exception) {}
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not bind UDP discovery socket on $UDP_DISCOVERY_PORT: ${e.message}")
+            val buffer = ByteArray(2048)
+
+            while (isSearching && !Thread.currentThread().isInterrupted) {
+                try {
+                    val recvPacket = DatagramPacket(buffer, buffer.size)
+                    socket.receive(recvPacket)
+
+                    val responseStr = String(recvPacket.data, 0, recvPacket.length, StandardCharsets.UTF_8)
+                    val json = JSONObject(responseStr)
+                    val type = json.optString("type", "")
+
+                    if (type == "TETHER_DISCOVERY_RESPONSE") {
+                        val hostAddr = recvPacket.address.hostAddress ?: continue
+                        val devId = json.optString("deviceId", hostAddr)
+
+                        if (devId == phoneId) continue
+
+                        val devName = json.optString("deviceName", "Tether Windows PC")
+                        val tcpPort = json.optInt("tcpPort", DEFAULT_PORT)
+
+                        val device = DiscoveredDevice(
+                            deviceId = devId,
+                            name = devName,
+                            hostAddress = hostAddr,
+                            port = tcpPort,
+                        )
+
+                        Log.i(TAG, "UDP Broadcast Discovered Tether device: $device")
+                        discoveredDevices[devId] = device
+                        mainHandler.post { externalListener?.onDeviceDiscovered(device) }
+                    }
+                } catch (_: SocketTimeoutException) {
+                    // Normal timeout
+                } catch (e: Exception) {
+                    if (!isSearching) break
+                    Log.d(TAG, "UDP receive exception: ${e.message}")
+                }
             }
+
+            try { probeThread.interrupt() } catch (_: Exception) {}
         }.apply { start() }
     }
 
@@ -361,12 +378,12 @@ class TetherDiscoveryManager(
             serviceInfo,
             onResolved = { resolvedInfo ->
                 val host: InetAddress? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    resolvedInfo.hostAddresses.firstOrNull()
+                    resolvedInfo.hostAddresses.firstOrNull() ?: resolvedInfo.host
                 } else {
                     try {
-                        NsdServiceInfo::class.java.getMethod("getHost").invoke(resolvedInfo) as? InetAddress
+                        resolvedInfo.host ?: (NsdServiceInfo::class.java.getMethod("getHost").invoke(resolvedInfo) as? InetAddress)
                     } catch (_: Exception) {
-                        null
+                        resolvedInfo.host
                     }
                 }
                 val port: Int = resolvedInfo.port

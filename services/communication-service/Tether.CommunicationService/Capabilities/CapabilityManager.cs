@@ -35,13 +35,13 @@ public sealed class CapabilityManager
                 or "bright_up" or "bright_down" => "MEDIA",
 
             "launch_browser" or "launch_task_manager" or "launch_explorer" or "launch_settings"
+                or "launch_calc" or "launch_notepad"
                 or "browser" or "taskmgr" or "explorer" or "settings"
-                or "calc" or "notepad" or "cmd" or "powershell" or "powershell7"
-                or "wsl" or "bash" => "TERMINAL",
+                or "calc" or "notepad" => "APP_LAUNCH",
 
             "PING" or "PONG" => "MEDIA",
 
-            _ => "MEDIA"
+            _ => null
         };
     }
 

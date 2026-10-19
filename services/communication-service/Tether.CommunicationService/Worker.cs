@@ -15,6 +15,7 @@ using Tether.EnforcementEngine;
 using Tether.EventBus;
 using Tether.PanicEngine;
 using Tether.RecoveryEngine;
+using Tether.Shared.Events;
 using Tether.Shared.Logging;
 using Tether.TrustEngine;
 
@@ -50,7 +51,8 @@ public sealed class Worker : BackgroundService
         EnforcementManager enforcementManager,
         PanicManager panicManager,
         RecoveryManager recoveryManager,
-        IpcEventRelay ipcEventRelay)
+        IpcEventRelay ipcEventRelay,
+        IEventBus eventBus)
     {
         _logger = logger;
         _tetherLogger = tetherLogger;
@@ -63,6 +65,31 @@ public sealed class Worker : BackgroundService
         _powerWatcher = powerWatcher;
         _powerNotifier = powerNotifier;
         _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager; _ = ipcEventRelay;
+
+        eventBus.Subscribe(evt =>
+        {
+            if (evt.EventType == TetherEventType.TELEMETRY_SYNC_REQUESTED)
+            {
+                if (_sessionManager.ActiveSessionCount > 0)
+                {
+                    var firstDevice = _sessionManager.GetActiveSessions().FirstOrDefault()?.Device;
+                    if (firstDevice != null)
+                    {
+                        eventBus.Publish(new TetherEvent
+                        {
+                            EventType = TetherEventType.PHONE_CONNECTED,
+                            Source = "WorkerSync",
+                            PayloadJson = System.Text.Json.JsonSerializer.Serialize(new
+                            {
+                                deviceId = firstDevice.DeviceId,
+                                displayName = firstDevice.DisplayName,
+                                fingerprint = firstDevice.Fingerprint
+                            })
+                        });
+                    }
+                }
+            }
+        });
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)

@@ -14,12 +14,14 @@ public sealed class SessionHelperDaemon : IHostedService, IDisposable
     private const string HelperProcessName = "Tether.SessionHelper";
 
     private readonly ITetherLogger _logger;
+    private readonly InputForwarder _inputForwarder;
     private readonly CancellationTokenSource _cts = new();
     private Task? _loop;
 
-    public SessionHelperDaemon(ITetherLogger logger)
+    public SessionHelperDaemon(ITetherLogger logger, InputForwarder inputForwarder)
     {
         _logger = logger;
+        _inputForwarder = inputForwarder;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -61,7 +63,7 @@ public sealed class SessionHelperDaemon : IHostedService, IDisposable
 
     private void EnsureRunning()
     {
-        if (IsHelperRunning())
+        if (IsHelperRunning() && _inputForwarder.IsHelperConnected)
         {
             return;
         }

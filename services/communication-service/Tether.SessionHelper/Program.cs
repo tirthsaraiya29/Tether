@@ -13,6 +13,9 @@ internal static class Program
     private const string InputPipeName = "Tether.InputPipe";
     private const int MaxFrameBytes = 1024 * 1024;
 
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetNamedPipeServerProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle hPipe, out uint ServerProcessId);
+
     private static async Task<int> Main(string[] args)
     {
         if (args is { Length: > 0 })
@@ -223,17 +226,28 @@ internal static class Program
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
         AppDomain.CurrentDomain.ProcessExit += (_, _) => cts.Cancel();
 
+        int currentSessionId = System.Diagnostics.Process.GetCurrentProcess().SessionId;
+        string perSessionPipeName = $"{InputPipeName}.{currentSessionId}";
+
         while (!cts.IsCancellationRequested)
         {
             try
             {
                 using var pipe = new NamedPipeClientStream(
                     serverName: ".",
-                    pipeName: InputPipeName,
+                    pipeName: perSessionPipeName,
                     direction: PipeDirection.In,
                     options: PipeOptions.Asynchronous);
 
                 await pipe.ConnectAsync(5000, cts.Token);
+
+                if (!IsTrustedServerProcess(pipe))
+                {
+                    pipe.Close();
+                    await Task.Delay(1000, cts.Token);
+                    continue;
+                }
+
                 await PumpAsync(pipe, injector, cts.Token);
             }
             catch (OperationCanceledException)
@@ -249,6 +263,25 @@ internal static class Program
         }
 
         return 0;
+    }
+
+    private static bool IsTrustedServerProcess(NamedPipeClientStream pipe)
+    {
+        try
+        {
+            if (!GetNamedPipeServerProcessId(pipe.SafePipeHandle, out uint serverPid))
+                return false;
+
+            using var serverProc = System.Diagnostics.Process.GetProcessById((int)serverPid);
+            if (serverProc.SessionId != 0) return false;
+
+            string procName = serverProc.ProcessName;
+            return string.Equals(procName, "Tether.CommunicationService", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static async Task PumpAsync(Stream pipe, InputInjector injector, CancellationToken ct)
