@@ -96,6 +96,12 @@ class PairingConfirmationActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        requestId = intent.getStringExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID) ?: requestId
+    }
+
     private fun confirmPairing(pin: String) {
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_CONFIRM_PAIRING

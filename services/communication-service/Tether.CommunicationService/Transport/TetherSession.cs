@@ -123,13 +123,16 @@ public sealed class TetherSession : IDisposable
                 CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
             };
 
-            using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt);
-            handshakeCts.CancelAfter(TimeSpan.FromSeconds(60));
+            using var tlsCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt);
+            tlsCts.CancelAfter(TimeSpan.FromSeconds(15));
 
-            await _tls.AuthenticateAsServerAsync(sslOptions, handshakeCts.Token);
+            await _tls.AuthenticateAsServerAsync(sslOptions, tlsCts.Token);
             _logger.Info($"TetherSession [{SessionId}]: TLS 1.3 established with {remote} ({_tls.NegotiatedCipherSuite}).");
 
-            bool authenticated = await HandleHandshakeAsync(handshakeCts.Token);
+            using var authCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt);
+            authCts.CancelAfter(TimeSpan.FromSeconds(180));
+
+            bool authenticated = await HandleHandshakeAsync(authCts.Token);
             if (!authenticated || Device == null)
             {
                 _logger.Warning($"TetherSession [{SessionId}]: Closed without authentication.");
@@ -261,22 +264,33 @@ public sealed class TetherSession : IDisposable
             await FrameCodec.WriteFrameAsync(stream, respBytes, ct);
             _logger.Info($"TetherSession [{SessionId}]: Sent HANDSHAKE_RESPONSE (PAIRING_PENDING) with requestId '{pending.RequestId}'. Waiting for PAIRING_CONFIRMED...");
 
-            using var confirmedDoc = await FrameCodec.ReadJsonFrameAsync(stream, ct);
+            using var pairingCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            pairingCts.CancelAfter(TimeSpan.FromSeconds(120));
+
+            using var confirmedDoc = await FrameCodec.ReadJsonFrameAsync(stream, pairingCts.Token);
             if (confirmedDoc == null)
             {
                 _logger.Warning($"TetherSession [{SessionId}]: No PAIRING_CONFIRMED frame received.");
                 return false;
             }
 
-            string confirmedType = confirmedDoc.RootElement.GetProperty("type").GetString() ?? "";
+            string confirmedType = confirmedDoc.RootElement.TryGetProperty("type", out var typeProp) ? typeProp.GetString() ?? "" : "";
+            if (string.Equals(confirmedType, "PAIRING_REJECTED", StringComparison.Ordinal))
+            {
+                string reqIdToCancel = confirmedDoc.RootElement.TryGetProperty("requestId", out var rProp) ? rProp.GetString() ?? "" : pending.RequestId;
+                _pairingManager.CancelRequest(reqIdToCancel);
+                _logger.Info($"TetherSession [{SessionId}]: Pairing rejected by phone for requestId '{reqIdToCancel}'.");
+                return false;
+            }
+
             if (!string.Equals(confirmedType, "PAIRING_CONFIRMED", StringComparison.Ordinal))
             {
                 _logger.Warning($"TetherSession [{SessionId}]: Expected PAIRING_CONFIRMED but got '{confirmedType}'.");
                 return false;
             }
 
-            string reqId = confirmedDoc.RootElement.GetProperty("requestId").GetString() ?? "";
-            string proofBase64 = confirmedDoc.RootElement.GetProperty("proof").GetString() ?? "";
+            string reqId = confirmedDoc.RootElement.TryGetProperty("requestId", out var reqProp) ? reqProp.GetString() ?? "" : "";
+            string proofBase64 = confirmedDoc.RootElement.TryGetProperty("proof", out var proofProp) ? proofProp.GetString() ?? "" : "";
 
             bool verified = _pairingManager.TryVerifyPhoneProof(reqId, proofBase64, out string winProofBase64, out _);
             if (!verified)
@@ -290,7 +304,8 @@ public sealed class TetherSession : IDisposable
             {
                 type = "PAIRING_COMPLETE",
                 status = "OK",
-                proof = winProofBase64
+                proof = winProofBase64,
+                capabilities = ServerCaps
             }, ct);
 
             Device = _deviceManager.GetByFingerprint(phoneFingerprint);

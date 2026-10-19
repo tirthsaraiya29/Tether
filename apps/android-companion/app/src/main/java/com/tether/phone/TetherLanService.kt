@@ -279,6 +279,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
 
     @Volatile
+    private var isExplicitPairingRequested: Boolean = false
+
+    @Volatile
     private var connectedHostAddress: String? = null
 
     @Volatile
@@ -298,6 +301,41 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     @Volatile
     private var pendingTranscriptHash: ByteArray? = null
+
+    private fun savePendingPairingState(requestId: String, winPubKey: ByteArray?, transcriptHash: ByteArray?) {
+        pendingRequestId = requestId
+        pendingWinEcPubKey = winPubKey
+        pendingTranscriptHash = transcriptHash
+        getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
+            putString("pending_pairing_req_id", requestId)
+            if (winPubKey != null) putString("pending_win_ec_pub_key", Base64.encodeToString(winPubKey, Base64.NO_WRAP))
+            if (transcriptHash != null) putString("pending_transcript_hash", Base64.encodeToString(transcriptHash, Base64.NO_WRAP))
+        }
+    }
+
+    private fun loadPendingPairingState() {
+        val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
+        if (pendingRequestId.isNullOrBlank()) pendingRequestId = prefs.getString("pending_pairing_req_id", null)
+        if (pendingWinEcPubKey == null) {
+            val pubB64 = prefs.getString("pending_win_ec_pub_key", null)
+            if (!pubB64.isNullOrBlank()) try { pendingWinEcPubKey = Base64.decode(pubB64, Base64.NO_WRAP) } catch (_: Exception) {}
+        }
+        if (pendingTranscriptHash == null) {
+            val hashB64 = prefs.getString("pending_transcript_hash", null)
+            if (!hashB64.isNullOrBlank()) try { pendingTranscriptHash = Base64.decode(hashB64, Base64.NO_WRAP) } catch (_: Exception) {}
+        }
+    }
+
+    private fun clearPendingPairingState() {
+        pendingRequestId = null
+        pendingWinEcPubKey = null
+        pendingTranscriptHash = null
+        getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
+            remove("pending_pairing_req_id")
+            remove("pending_win_ec_pub_key")
+            remove("pending_transcript_hash")
+        }
+    }
 
     private val processedRequestIds = ConcurrentHashMap<String, Long>()
 
@@ -530,9 +568,14 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
             ACTION_INITIATE_PAIRING -> {
                 Log.i(TAG, "Explicit pairing requested by user.")
-                trustState = TrustState.PAIRING_REQUESTED
+                isExplicitPairingRequested = true
                 resetReconnectBackoff()
-                restartTransport()
+                if ((trustState == TrustState.PAIRING_REQUESTED) && (activeTransport?.isConnected() == true)) {
+                    Log.i(TAG, "Already awaiting pairing on active session. Not restarting transport.")
+                } else {
+                    restartTransport()
+                }
+                notifyStateToInterface()
                 return START_STICKY
             }
             ACTION_CANCEL_PAIRING -> {
@@ -602,7 +645,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     @Synchronized
     fun startDiscovery() {
-        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING)) {
+        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING) || (currentState == TransportState.PAIRING_REQUIRED)) {
             return
         }
         currentState = TransportState.DISCOVERING
@@ -652,6 +695,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     fun connectToHost(hostAddress: String, port: Int = TetherDiscoveryManager.DEFAULT_PORT) {
         if ((currentState == TransportState.AUTHENTICATING) || (currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) return
+        if ((currentState == TransportState.PAIRING_REQUIRED) && (activeTransport?.isConnected() == true)) {
+            Log.d(TAG, "Pairing is currently pending on active transport. Skipping connectToHost.")
+            return
+        }
         if ((currentState == TransportState.CONNECTING) && (connectedHostAddress == hostAddress) && (connectedHostPort == port)) {
             Log.d(TAG, "Already connecting to ${sanitizeLog(hostAddress)}:$port. Skipping duplicate.")
             return
@@ -670,9 +717,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 activeTransport = transport
                 currentState = TransportState.AUTHENTICATING
 
+                val isPairingReq = isExplicitPairingRequested || (trustState == TrustState.PAIRING_REQUESTED) || (trustState == TrustState.REPAIRING)
+                isExplicitPairingRequested = false
+
                 val result = pairingManager.executeHandshake(
                     transport = transport,
-                    isUserInitiatedPairing = ((trustState == TrustState.PAIRING_REQUESTED) || (trustState == TrustState.REPAIRING)),
+                    isUserInitiatedPairing = isPairingReq,
                 )
 
                 when (result) {
@@ -702,9 +752,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         val safeReqId = sanitizeLog(result.requestId)
                         Log.i(TAG, "Pairing pending for requestId=$safeReqId. Launching PairingConfirmationActivity...")
                         resetReconnectBackoff()
-                        pendingRequestId = result.requestId
-                        pendingWinEcPubKey = result.winEcPubKeyBytes
-                        pendingTranscriptHash = result.transcriptHash
+                        savePendingPairingState(result.requestId, result.winEcPubKeyBytes, result.transcriptHash)
 
                         trustState = TrustState.PAIRING_REQUESTED
                         currentState = TransportState.PAIRING_REQUIRED
@@ -760,6 +808,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 return@launch
             }
 
+            loadPendingPairingState()
+
             val transcriptHash = pendingTranscriptHash
             if (transcriptHash == null) {
                 Log.e(TAG, "Cannot confirm pairing: pending transcript hash is null.")
@@ -767,11 +817,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 return@launch
             }
 
-            val safeReqId = sanitizeLog(requestId)
+            val effectiveReqId = requestId.ifBlank { pendingRequestId ?: "" }
+            val safeReqId = sanitizeLog(effectiveReqId)
             Log.i(TAG, "Finalizing pairing with Windows host for requestId=$safeReqId...")
             val result = pairingManager.finalizePairing(
                 transport = transport,
-                requestId = requestId,
+                requestId = effectiveReqId,
                 userEnteredPin = userPin,
                 winEcPubKeyBytes = pendingWinEcPubKey,
                 transcriptHash = transcriptHash,
@@ -781,9 +832,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 is PairingResult.Authenticated -> {
                     Log.i(TAG, "Pairing successfully finalized and keys pinned! Entering READY state...")
                     resetReconnectBackoff()
-                    pendingRequestId = null
-                    pendingWinEcPubKey = null
-                    pendingTranscriptHash = null
+                    clearPendingPairingState()
+                    
+                    connectedHostAddress?.let { ip ->
+                        getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
+                            putString("saved_host_ip", ip)
+                        }
+                    }
+                    connectedPeerName = result.peerDeviceId.ifBlank { "Windows PC" }
+                    
                     trustState = TrustState.PAIRED
                     currentState = TransportState.AUTHENTICATED
                     capabilityManager.negotiateCapabilities(result.peerCapabilities.ifBlank { "" })
@@ -824,9 +881,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     Log.w(TAG, "Error sending PAIRING_REJECTED frame: ${e.message}")
                 }
             }
-            pendingRequestId = null
-            pendingWinEcPubKey = null
-            pendingTranscriptHash = null
+                    clearPendingPairingState()
             disconnectActiveSession("Pairing rejected by user")
         }
     }
@@ -1285,6 +1340,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun showPairingNotification(result: PairingResult.PairingPending) {
+        TetherNotificationChannels.createAllChannels(this)
+
         val promptIntent = Intent(this, PairingConfirmationActivity::class.java).apply {
             action = ACTION_SHOW_PAIRING_PROMPT
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -1305,15 +1362,20 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Pairing Request from ${result.peerName}")
             .setContentText("Tap to enter the 6-digit PIN displayed on your PC")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setFullScreenIntent(pendingIntent, true)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build()
 
         if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            NotificationManagerCompat.from(this).notify(NOTIFICATION_PAIRING_ID, notification)
+            try {
+                NotificationManagerCompat.from(this).notify(NOTIFICATION_PAIRING_ID, notification)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed posting pairing notification: ${e.message}")
+            }
         }
     }
 
@@ -1417,7 +1479,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun scheduleAlarmForHealthCheck() {
         alarmManager = getSystemService(ALARM_SERVICE) as AlarmManager
-        val intent = Intent(this, TetherServiceReceiver::class.java).apply {
+        val intent = Intent(this, TetherAlarmReceiver::class.java).apply {
             action = ALARM_ACTION
         }
         val pendingIntent = PendingIntent.getBroadcast(

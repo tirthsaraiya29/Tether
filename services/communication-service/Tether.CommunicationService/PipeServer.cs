@@ -53,9 +53,7 @@ public class PipeServer : IDisposable
     }
 
     public static bool IsAllowedIpcEvent(TetherEventType type) =>
-        type == TetherEventType.PANIC_TRIGGERED ||
-        type == TetherEventType.PAIRING_DECISION ||
-        type == TetherEventType.FORGET_PHONE;
+        type == TetherEventType.PANIC_TRIGGERED;
 
     public void Start()
     {
@@ -79,7 +77,7 @@ public class PipeServer : IDisposable
                 using var pipeServer = NamedPipeServerStreamAcl.Create(
                     IpcConstants.PipeName,
                     PipeDirection.InOut,
-                    1,
+                    10,
                     PipeTransmissionMode.Message,
                     PipeOptions.Asynchronous,
                     0,

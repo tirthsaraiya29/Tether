@@ -22,7 +22,8 @@
         PROVISION_PHONE,
         PAIRING_REQUESTED,
         PAIRING_DECISION,
-        FORGET_PHONE
+        FORGET_PHONE,
+        TELEMETRY_SYNC_REQUESTED
     }
 
     public class TetherEvent

@@ -17,6 +17,7 @@ namespace Tether.CommunicationService.Transport;
 public sealed class TetherTcpServer : IDisposable
 {
     public const int ListenPort = 37123;
+    private const int MaxConcurrentSessions = 16;
 
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
@@ -30,6 +31,7 @@ public sealed class TetherTcpServer : IDisposable
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _acceptLoop;
+    private int _activeSessionCount = 0;
 
     public TetherTcpServer(
         IEventBus eventBus,
@@ -99,6 +101,14 @@ public sealed class TetherTcpServer : IDisposable
 
             ConfigureSocketOptions(client.Client);
 
+            if (Interlocked.Increment(ref _activeSessionCount) > MaxConcurrentSessions)
+            {
+                Interlocked.Decrement(ref _activeSessionCount);
+                _logger.Warning($"TetherTcpServer: Max concurrent session limit ({MaxConcurrentSessions}) reached. Connection rejected.");
+                try { client.Close(); } catch { }
+                continue;
+            }
+
             _ = RunSessionAsync(client, ct);
         }
     }
@@ -125,6 +135,7 @@ public sealed class TetherTcpServer : IDisposable
         }
         finally
         {
+            Interlocked.Decrement(ref _activeSessionCount);
             try { client.Close(); } catch { }
         }
     }

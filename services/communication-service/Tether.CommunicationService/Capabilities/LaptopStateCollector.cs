@@ -42,6 +42,66 @@ public static class LaptopStateCollector
     [DllImport("kernel32.dll", SetLastError = false)]
     private static extern uint WTSGetActiveConsoleSessionId();
 
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSQueryUserToken(uint SessionId, out IntPtr phToken);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(
+        IntPtr TokenHandle,
+        int TokenInformationClass,
+        IntPtr TokenInformation,
+        uint TokenInformationLength,
+        out uint ReturnLength);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    private const int TokenUserClass = 1;
+
+    private static string? GetActiveConsoleUserProfilePath()
+    {
+        uint activeSessionId = WTSGetActiveConsoleSessionId();
+        if (activeSessionId == 0xFFFFFFFF) return null;
+
+        if (!WTSQueryUserToken(activeSessionId, out IntPtr hToken)) return null;
+
+        try
+        {
+            GetTokenInformation(hToken, TokenUserClass, IntPtr.Zero, 0, out uint dwLength);
+            if (dwLength == 0) return null;
+
+            IntPtr tokenInfo = Marshal.AllocHGlobal((int)dwLength);
+            try
+            {
+                if (GetTokenInformation(hToken, TokenUserClass, tokenInfo, dwLength, out _))
+                {
+                    IntPtr pSid = Marshal.ReadIntPtr(tokenInfo);
+                    var sid = new System.Security.Principal.SecurityIdentifier(pSid);
+                    string sidStr = sid.Value;
+
+                    using var key = Registry.LocalMachine.OpenSubKey($@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\{sidStr}");
+                    if (key?.GetValue("ProfileImagePath") is string profilePath)
+                    {
+                        return profilePath;
+                    }
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(tokenInfo);
+            }
+        }
+        catch
+        {
+        }
+        finally
+        {
+            CloseHandle(hToken);
+        }
+
+        return null;
+    }
+
     private static readonly object _lock = new();
     private static SessionManager? _sessionManager;
     private static ITetherLogger? _logger;
@@ -110,40 +170,24 @@ public static class LaptopStateCollector
         try
         {
             string? wallpaperPath = null;
+            string? activeUserProfile = GetActiveConsoleUserProfilePath();
 
-            // Search user profiles under C:\Users
-            string usersDir = @"C:\Users";
-            if (Directory.Exists(usersDir))
+            if (!string.IsNullOrEmpty(activeUserProfile) && Directory.Exists(activeUserProfile))
             {
-                var userFolders = Directory.GetDirectories(usersDir);
-                foreach (var userFolder in userFolders)
+                string transcoded = Path.Combine(activeUserProfile, @"AppData\Roaming\Microsoft\Windows\Themes\TranscodedWallpaper");
+                if (File.Exists(transcoded) && new FileInfo(transcoded).Length > 0)
                 {
-                    string folderName = Path.GetFileName(userFolder);
-                    if (folderName.Equals("Public", StringComparison.OrdinalIgnoreCase) ||
-                        folderName.Equals("Default", StringComparison.OrdinalIgnoreCase) ||
-                        folderName.Equals("Default User", StringComparison.OrdinalIgnoreCase) ||
-                        folderName.StartsWith("."))
-                    {
-                        continue;
-                    }
-
-                    // Check TranscodedWallpaper
-                    string transcoded = Path.Combine(userFolder, @"AppData\Roaming\Microsoft\Windows\Themes\TranscodedWallpaper");
-                    if (File.Exists(transcoded) && new FileInfo(transcoded).Length > 0)
-                    {
-                        wallpaperPath = transcoded;
-                        break;
-                    }
-
-                    // Check CachedFiles
-                    string cachedDir = Path.Combine(userFolder, @"AppData\Roaming\Microsoft\Windows\Themes\CachedFiles");
+                    wallpaperPath = transcoded;
+                }
+                else
+                {
+                    string cachedDir = Path.Combine(activeUserProfile, @"AppData\Roaming\Microsoft\Windows\Themes\CachedFiles");
                     if (Directory.Exists(cachedDir))
                     {
                         var files = Directory.GetFiles(cachedDir);
                         if (files.Length > 0 && File.Exists(files[0]))
                         {
                             wallpaperPath = files[0];
-                            break;
                         }
                     }
                 }

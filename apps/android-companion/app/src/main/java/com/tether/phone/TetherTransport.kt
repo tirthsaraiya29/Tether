@@ -75,7 +75,7 @@ class TetherTlsTransport(
         sslSock.useClientMode = true
 
         val sslParams = sslSock.sslParameters
-        sslParams.endpointIdentificationAlgorithm = "HTTPS"
+        sslParams.endpointIdentificationAlgorithm = null
         sslSock.sslParameters = sslParams
 
         sslSock.enabledProtocols = arrayOf("TLSv1.3")
@@ -95,9 +95,7 @@ class TetherTlsTransport(
 
         val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
         if ((pinnedBytes != null) && pinnedBytes.isNotEmpty()) {
-            val md = MessageDigest.getInstance("SHA-256")
-            val presentedHash = md.digest(cert.publicKey.encoded)
-            if (!MessageDigest.isEqual(pinnedBytes, presentedHash)) {
+            if (!MessageDigest.isEqual(pinnedBytes, cert.publicKey.encoded)) {
                 sslSock.close()
                 throw SSLException("Certificate pinning verification failed: public key fingerprint mismatch")
             }
@@ -163,13 +161,10 @@ class TetherTlsTransport(
                 leaf.checkValidity()
 
                 if ((pinnedBytes != null) && pinnedBytes.isNotEmpty()) {
-                    val md = MessageDigest.getInstance("SHA-256")
-                    val presentedHash = md.digest(leaf.publicKey.encoded)
-                    if (!MessageDigest.isEqual(pinnedBytes, presentedHash)) {
+                    if (!MessageDigest.isEqual(pinnedBytes, leaf.publicKey.encoded)) {
                         throw CertificateException("Certificate pinning verification failed: public key fingerprint mismatch")
                     }
                 }
-                // Unpinned / first-time pairing: allow TLS 1.3 handshake to complete so out-of-band 6-digit PIN proof can authenticate identity
             }
         }
 

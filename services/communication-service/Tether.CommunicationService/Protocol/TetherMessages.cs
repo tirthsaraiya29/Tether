@@ -25,7 +25,7 @@ public sealed record HandshakeInit
 public sealed record HandshakeResponse
 {
     [JsonPropertyName("type")] public string Type { get; init; } = "HANDSHAKE_RESPONSE";
-    [JsonPropertyName("version")] public string Version { get; init; } = "1.0";
+    [JsonPropertyName("version")] public string Version { get; init; } = "2.0";
     [JsonPropertyName("deviceId")] public string DeviceId { get; init; } = "";
     [JsonPropertyName("deviceName")] public string DeviceName { get; init; } = "";
     [JsonPropertyName("publicKey")] public string PublicKey { get; init; } = "";

@@ -435,6 +435,7 @@ class MainActivity : FragmentActivity() {
                                 onRestartServer = ::restartLanServer,
                                 onInitiatePairing = ::initiatePairing,
                                 onCancelPairing = ::cancelPairing,
+                                onConfirmPairing = ::confirmPairing,
                                 onForgetTrust = ::forgetTrust,
                             )
 
@@ -984,6 +985,18 @@ class MainActivity : FragmentActivity() {
             startForegroundService(intent)
         } catch (e: Exception) {
             Log.e("TetherActivity", "Failed to send initiate pairing action", e)
+        }
+    }
+
+    private fun confirmPairing(pin: String) {
+        val intent = Intent(this, TetherLanService::class.java).apply {
+            action = TetherLanService.ACTION_CONFIRM_PAIRING
+            putExtra(TetherLanService.EXTRA_PAIRING_PIN, pin)
+        }
+        try {
+            startForegroundService(intent)
+        } catch (e: Exception) {
+            Log.e("TetherActivity", "Failed to send confirm pairing action", e)
         }
     }
 

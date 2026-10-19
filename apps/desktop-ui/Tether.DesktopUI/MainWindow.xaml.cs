@@ -1,5 +1,6 @@
 ﻿using Microsoft.Win32;
 using System;
+using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -84,6 +85,9 @@ namespace Tether.DesktopUI
 
         [DllImport("powrprof.dll", SetLastError = true)]
         private static extern uint PowerGetActiveScheme(IntPtr UserRootPowerKey, out IntPtr ActivePolicyGuid);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr LocalFree(IntPtr hMem);
 
         [DllImport("powrprof.dll", SetLastError = true)]
         private static extern uint PowerSetActiveScheme(IntPtr UserRootPowerKey, ref Guid SchemeGuid);
@@ -237,6 +241,7 @@ namespace Tether.DesktopUI
             ResolveUserContext();
             LogTerminal("SYSTEM // Tether Telemetry Workspace loaded successfully.");
             CheckProvisioningStatus();
+            EnsureVaultDaclArchitecture();
 
             _ = RunTelemetryListenerAsync();
             InitializeHardwarePolling();
@@ -281,7 +286,10 @@ namespace Tether.DesktopUI
                     DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref micaFallback, sizeof(int));
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ApplyDwmGlassBackdrop warning: {ex.Message}");
+            }
         }
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -351,7 +359,7 @@ namespace Tether.DesktopUI
                         IpcConstants.UiPipeName,
                         PipeDirection.In,
                         NamedPipeServerStream.MaxAllowedServerInstances,
-                        PipeTransmissionMode.Message,
+                        PipeTransmissionMode.Byte,
                         PipeOptions.Asynchronous,
                         0,
                         0,
@@ -368,7 +376,7 @@ namespace Tether.DesktopUI
                         var telemetryEvent = JsonSerializer.Deserialize<TetherEvent>(json);
                         if (telemetryEvent != null)
                         {
-                            Dispatcher.Invoke(() => ParseRelayedSignal(telemetryEvent));
+                            Dispatcher.BeginInvoke(new Action(() => ParseRelayedSignal(telemetryEvent)));
                         }
                     }
                 }
@@ -403,12 +411,18 @@ namespace Tether.DesktopUI
                             string pin = root.TryGetProperty("pin", out var p) ? p.GetString() ?? "" : "";
                             string devName = root.TryGetProperty("displayName", out var d) ? d.GetString() ?? "Phone" : "Phone";
                             LogTerminal($"⚠ PAIRING REQUEST // PIN: {pin} for device '{devName}'");
-                            MessageBox.Show(
-                                this,
-                                $"Pairing Request from {devName}\n\nEnter this 6-digit PIN on your phone:\n\n      {pin}      \n",
-                                "Tether — Device Pairing",
-                                MessageBoxButton.OK,
-                                MessageBoxImage.Information);
+
+                            string msg = $"Pairing Request from {devName}\n\nEnter this 6-digit PIN on your phone:\n\n      {pin}      \n";
+                            _ = Task.Run(() =>
+                            {
+                                MessageBox.Show(
+                                    msg,
+                                    "Tether — Device Pairing",
+                                    MessageBoxButton.OK,
+                                    MessageBoxImage.Information,
+                                    MessageBoxResult.OK,
+                                    MessageBoxOptions.DefaultDesktopOnly);
+                            });
                         }
                         catch { }
                     }
@@ -554,9 +568,10 @@ namespace Tether.DesktopUI
 
         private uint GetMonitorBrightnessLevel()
         {
+            IntPtr activeGuidPtr = IntPtr.Zero;
             try
             {
-                if (PowerGetActiveScheme(IntPtr.Zero, out IntPtr activeGuidPtr) == 0 && activeGuidPtr != IntPtr.Zero)
+                if (PowerGetActiveScheme(IntPtr.Zero, out activeGuidPtr) == 0 && activeGuidPtr != IntPtr.Zero)
                 {
                     Guid activeScheme = Marshal.PtrToStructure<Guid>(activeGuidPtr);
                     Guid subgroup = GUID_VIDEO_SUBGROUP;
@@ -573,6 +588,13 @@ namespace Tether.DesktopUI
                 }
             }
             catch { }
+            finally
+            {
+                if (activeGuidPtr != IntPtr.Zero)
+                {
+                    LocalFree(activeGuidPtr);
+                }
+            }
 
             try
             {
@@ -600,9 +622,10 @@ namespace Tether.DesktopUI
             _cachedBrightness = level;
             bool hardwareControlled = false;
 
+            IntPtr activeGuidPtr = IntPtr.Zero;
             try
             {
-                if (PowerGetActiveScheme(IntPtr.Zero, out IntPtr activeGuidPtr) == 0 && activeGuidPtr != IntPtr.Zero)
+                if (PowerGetActiveScheme(IntPtr.Zero, out activeGuidPtr) == 0 && activeGuidPtr != IntPtr.Zero)
                 {
                     Guid activeScheme = Marshal.PtrToStructure<Guid>(activeGuidPtr);
                     Guid subgroup = GUID_VIDEO_SUBGROUP;
@@ -619,6 +642,13 @@ namespace Tether.DesktopUI
                 }
             }
             catch { }
+            finally
+            {
+                if (activeGuidPtr != IntPtr.Zero)
+                {
+                    LocalFree(activeGuidPtr);
+                }
+            }
 
             try
             {
@@ -866,6 +896,53 @@ namespace Tether.DesktopUI
             }
         }
 
+        private void EnsureVaultDaclArchitecture()
+        {
+            try
+            {
+                using var rootKey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider", true)
+                    ?? Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
+
+                if (rootKey == null) return;
+
+                object? marker = rootKey.GetValue("VaultDaclVersion");
+                int currentVersion = marker is int v ? v : 0;
+
+                if (currentVersion < 2)
+                {
+                    try { rootKey.DeleteValue("EncryptedPassword", false); } catch { }
+
+                    var rs = new System.Security.AccessControl.RegistrySecurity();
+                    var systemSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
+                    var adminsSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
+                    var usersSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinUsersSid, null);
+
+                    rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(systemSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
+                    rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(adminsSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
+                    rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(usersSid, System.Security.AccessControl.RegistryRights.ReadKey, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
+
+                    using (var secretsKey = rootKey.CreateSubKey("Secrets", RegistryKeyPermissionCheck.Default, rs))
+                    {
+                        var secretsSecurity = secretsKey?.GetAccessControl();
+                        if (secretsSecurity != null)
+                        {
+                            secretsSecurity.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                            secretsSecurity.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(systemSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+                            secretsSecurity.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(adminsSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+                            secretsKey?.SetAccessControl(secretsSecurity);
+                        }
+                    }
+
+                    rootKey.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
+                    LogTerminal("⚠️ VAULT // Vault architecture upgraded to Secrets subkey (DACL v2). Please re-commit your Windows password.");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"Vault DACL setup warning: {ex.Message}");
+            }
+        }
+
         private void BtnCommitVault_Click(object sender, RoutedEventArgs e)
         {
             IntPtr unmanagedPasswordPtr = IntPtr.Zero;
@@ -897,9 +974,20 @@ namespace Tether.DesktopUI
                 {
                     byte[] protectedPayload = new byte[dataOut.cbData];
                     Marshal.Copy(dataOut.pbData, protectedPayload, 0, dataOut.cbData);
-                    using RegistryKey? regKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
-                    regKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
-                    LogTerminal("✓ VAULT // Cryptographic alignment sealed with application entropy.");
+
+                    EnsureVaultDaclArchitecture();
+
+                    using (RegistryKey? secretsKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true))
+                    {
+                        secretsKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
+                    }
+
+                    using (RegistryKey? rootKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
+                    {
+                        rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
+                    }
+
+                    LogTerminal("✓ VAULT // Cryptographic alignment sealed in Secrets subkey with application entropy.");
                     TxtPassword.Clear();
                 }
             }

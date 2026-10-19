@@ -799,6 +799,7 @@ fun PairingScreen(
     windowsFingerprint: String = "",
     onInitiatePairing: () -> Unit = {},
     onCancelPairing: () -> Unit = {},
+    onConfirmPairing: (String) -> Unit = {},
     onForgetTrust: () -> Unit = {}
 ) {
     var visible by remember { mutableStateOf(value = false) }
@@ -924,11 +925,72 @@ fun PairingScreen(
                         )
                     }
                     TrustState.PAIRING_REQUESTED -> {
-                        TacticalAction(
-                            label = stringResource(R.string.label_cancel_pairing),
-                            accentColor = AlertRed,
-                            onClick = onCancelPairing
-                        )
+                        var pinInput by remember { mutableStateOf("") }
+                        ProfessionalGlassSurface(
+                            modifier = Modifier.fillMaxWidth(),
+                            tint = LiquidCyan,
+                            alpha = 0.18f,
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(
+                                    text = "ENTER 6-DIGIT PIN DISPLAYED ON PC",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LiquidCyan,
+                                    letterSpacing = 1.5.sp,
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                OutlinedTextField(
+                                    value = pinInput,
+                                    onValueChange = { input ->
+                                        if ((input.length <= 6) && input.all { it.isDigit() }) {
+                                            pinInput = input
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textStyle = androidx.compose.ui.text.TextStyle(
+                                        color = LiquidCyan,
+                                        fontSize = 28.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        textAlign = TextAlign.Center,
+                                        letterSpacing = 6.sp,
+                                    ),
+                                    singleLine = true,
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                                    ),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = LiquidCyan,
+                                        unfocusedBorderColor = TextSecondary.copy(alpha = 0.5f),
+                                        focusedContainerColor = Color.Black.copy(alpha = 0.45f),
+                                        unfocusedContainerColor = Color.Black.copy(alpha = 0.3f),
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    TacticalAction(
+                                        label = stringResource(R.string.label_cancel_pairing),
+                                        accentColor = AlertRed,
+                                        onClick = onCancelPairing,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    TacticalAction(
+                                        label = stringResource(R.string.btn_accept),
+                                        accentColor = IntegrityGreen,
+                                        onClick = { onConfirmPairing(pinInput) },
+                                        modifier = Modifier.weight(1f),
+                                        enabled = pinInput.length == 6,
+                                    )
+                                }
+                            }
+                        }
                     }
                     TrustState.PAIRED -> {
                         TacticalAction(
@@ -1076,6 +1138,7 @@ fun TetherNavigationShell(
     onRestartServer: () -> Unit,
     onInitiatePairing: () -> Unit = {},
     onCancelPairing: () -> Unit = {},
+    onConfirmPairing: (String) -> Unit = {},
     onForgetTrust: () -> Unit = {}
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -1240,6 +1303,7 @@ fun TetherNavigationShell(
                             windowsFingerprint = windowsFingerprint,
                             onInitiatePairing = onInitiatePairing,
                             onCancelPairing = onCancelPairing,
+                            onConfirmPairing = onConfirmPairing,
                             onForgetTrust = onForgetTrust
                         )
                         AppScreen.REMOTE_INPUT -> RemoteInputScreen(

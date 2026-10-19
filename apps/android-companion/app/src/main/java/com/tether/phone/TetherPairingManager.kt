@@ -141,7 +141,7 @@ class TetherPairingManager(
             )
 
             if (isAlreadyPinned) {
-                if (!winPubKeyBytes.contentEquals(pinnedKeyBytes)) {
+                if (!MessageDigest.isEqual(winPubKeyBytes, pinnedKeyBytes)) {
                     Log.e(TAG, "SECURITY ALERT: Windows identity key mismatch! Presented: $winFingerprint, Pinned: $pinnedFingerprint")
                     return PairingResult.KeyMismatch(
                         presentedFingerprint = winFingerprint,

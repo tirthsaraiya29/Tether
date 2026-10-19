@@ -54,14 +54,14 @@ public sealed class WindowsIdentity : IDisposable
             catch (Exception ex) { _logger.Warning($"Could not remove stale identity cert: {ex.Message}"); }
         }
 
-        _logger.Info("Generating new Tether identity certificate (ECDSA P-256, self-signed, 10y).");
+        _logger.Warning("TetherIdentityCertRegenerated: Generating new Tether identity certificate (ECDSA P-256, self-signed, 10y). Existing paired clients will require pinning update.");
 
         using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var req = new CertificateRequest(new X500DistinguishedName(SubjectDn), ecdsa, HashAlgorithmName.SHA256);
 
         req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
         req.CertificateExtensions.Add(new X509KeyUsageExtension(
-            X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyAgreement, false));
+            X509KeyUsageFlags.DigitalSignature, false));
         req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
             new OidCollection { new Oid(ServerAuthOid) }, false));
         req.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(req.PublicKey, false));
