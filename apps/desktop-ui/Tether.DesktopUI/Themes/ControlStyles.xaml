@@ -2,17 +2,23 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- ===================================================================== -->
-    <!-- GLASS PANEL CARD STYLES                                               -->
+    <!-- GLASS PANEL CARD STYLES (WITH INTERACTIVE SPECULAR HOVER)             -->
     <!-- ===================================================================== -->
     <Style x:Key="GlassPanel" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource GlassPanelBackgroundBrush}"/>
         <Setter Property="BorderBrush" Value="{StaticResource GlassSpecularBorderBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="CornerRadius" Value="12"/>
-        <Setter Property="Padding" Value="24"/>
+        <Setter Property="Padding" Value="22"/>
         <Setter Property="Margin" Value="0,0,0,16"/>
         <Setter Property="SnapsToDevicePixels" Value="True"/>
         <Setter Property="UseLayoutRounding" Value="True"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="BorderBrush" Value="{StaticResource GlassSpecularHoverBorderBrush}"/>
+                <Setter Property="Background" Value="{StaticResource GlassPanelHoverBackgroundBrush}"/>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <Style x:Key="FluentPanelCard" TargetType="Border" BasedOn="{StaticResource GlassPanel}"/>
@@ -22,7 +28,7 @@
     <!-- ===================================================================== -->
     <Style x:Key="SectionEyebrowTextStyle" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}"/>
-        <Setter Property="FontSize" Value="10.5"/>
+        <Setter Property="FontSize" Value="10"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
         <Setter Property="Margin" Value="0,0,0,4"/>
@@ -175,6 +181,9 @@
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.88"/>
                         </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.45"/>
+                        </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
@@ -214,7 +223,7 @@
     </Style>
 
     <!-- ===================================================================== -->
-    <!-- NAVIGATION RAIL ITEM STYLE                                            -->
+    <!-- NAVIGATION RAIL ITEM STYLE (ZERO SHADER)                              -->
     <!-- ===================================================================== -->
     <Style x:Key="NavigationItemStyle" TargetType="ListBoxItem">
         <Setter Property="Background" Value="Transparent"/>
@@ -244,8 +253,7 @@
                                 HorizontalAlignment="Left"
                                 VerticalAlignment="Center"
                                 Margin="2,0,0,0"
-                                Opacity="0"
-                                Effect="{StaticResource AccentAmbientGlow}"/>
+                                Opacity="0"/>
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
@@ -265,9 +273,25 @@
     </Style>
 
     <!-- ===================================================================== -->
-    <!-- HARDWARE SLIDER (FLUID TRACK + THUMB)                                 -->
+    <!-- HARDWARE SLIDER (FILLED ACCENT TRACK + ZERO-SHADER THUMB)             -->
     <!-- ===================================================================== -->
-    <Style x:Key="SliderRepeatButtonTransparentStyle" TargetType="RepeatButton">
+    <Style x:Key="SliderActiveTrackButtonStyle" TargetType="RepeatButton">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="IsTabStop" Value="False"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border Height="6"
+                            CornerRadius="3,0,0,3"
+                            Background="{StaticResource AccentGradientBrush}"
+                            VerticalAlignment="Center"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="SliderInactiveTrackButtonStyle" TargetType="RepeatButton">
         <Setter Property="OverridesDefaultStyle" Value="True"/>
         <Setter Property="IsTabStop" Value="False"/>
         <Setter Property="Focusable" Value="False"/>
@@ -282,38 +306,46 @@
 
     <Style x:Key="FluentSliderThumbStyle" TargetType="Thumb">
         <Setter Property="OverridesDefaultStyle" Value="True"/>
-        <Setter Property="Width" Value="18"/>
-        <Setter Property="Height" Value="18"/>
+        <Setter Property="Width" Value="22"/>
+        <Setter Property="Height" Value="22"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Thumb">
                     <Grid>
+                        <!-- Hardware-rendered vector halo instead of DropShadowEffect -->
+                        <Ellipse x:Name="VectorGlowHalo"
+                                 Width="22"
+                                 Height="22"
+                                 Fill="{StaticResource AccentHaloBrush}"
+                                 Opacity="0"/>
                         <Ellipse x:Name="OuterHalo"
-                                 Width="18"
-                                 Height="18"
+                                 Width="16"
+                                 Height="16"
                                  Fill="#FF0A0F1A"
                                  Stroke="{StaticResource SystemAccentBrush}"
                                  StrokeThickness="2"
-                                 Effect="{StaticResource CardElevationShadow}"/>
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Center"/>
                         <Ellipse x:Name="InnerCore"
-                                 Width="8"
-                                 Height="8"
+                                 Width="7"
+                                 Height="7"
                                  Fill="{StaticResource SystemAccentBrush}"
                                  HorizontalAlignment="Center"
                                  VerticalAlignment="Center"/>
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="VectorGlowHalo" Property="Opacity" Value="0.75"/>
                             <Setter TargetName="OuterHalo" Property="Stroke" Value="#7DD3FC"/>
-                            <Setter TargetName="InnerCore" Property="Width" Value="10"/>
-                            <Setter TargetName="InnerCore" Property="Height" Value="10"/>
+                            <Setter TargetName="InnerCore" Property="Width" Value="9"/>
+                            <Setter TargetName="InnerCore" Property="Height" Value="9"/>
                             <Setter TargetName="InnerCore" Property="Fill" Value="#7DD3FC"/>
                         </Trigger>
                         <Trigger Property="IsDragging" Value="True">
-                            <Setter TargetName="OuterHalo" Property="Effect" Value="{StaticResource AccentAmbientGlow}"/>
-                            <Setter TargetName="InnerCore" Property="Width" Value="6"/>
-                            <Setter TargetName="InnerCore" Property="Height" Value="6"/>
+                            <Setter TargetName="VectorGlowHalo" Property="Opacity" Value="1.0"/>
+                            <Setter TargetName="InnerCore" Property="Width" Value="5"/>
+                            <Setter TargetName="InnerCore" Property="Height" Value="5"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -325,7 +357,7 @@
         <Setter Property="Minimum" Value="0"/>
         <Setter Property="Maximum" Value="100"/>
         <Setter Property="IsMoveToPointEnabled" Value="True"/>
-        <Setter Property="Height" Value="28"/>
+        <Setter Property="Height" Value="26"/>
         <Setter Property="Orientation" Value="Horizontal"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
@@ -335,18 +367,18 @@
                         <!-- Background Rail -->
                         <Border Height="6"
                                 CornerRadius="3"
-                                Background="#1CFFFFFF"
+                                Background="#18FFFFFF"
                                 BorderBrush="#24FFFFFF"
                                 BorderThickness="1"
                                 VerticalAlignment="Center"/>
 
                         <Track x:Name="PART_Track" VerticalAlignment="Center">
                             <Track.DecreaseRepeatButton>
-                                <RepeatButton Style="{StaticResource SliderRepeatButtonTransparentStyle}"
+                                <RepeatButton Style="{StaticResource SliderActiveTrackButtonStyle}"
                                               Command="{x:Static Slider.DecreaseLarge}"/>
                             </Track.DecreaseRepeatButton>
                             <Track.IncreaseRepeatButton>
-                                <RepeatButton Style="{StaticResource SliderRepeatButtonTransparentStyle}"
+                                <RepeatButton Style="{StaticResource SliderInactiveTrackButtonStyle}"
                                               Command="{x:Static Slider.IncreaseLarge}"/>
                             </Track.IncreaseRepeatButton>
                             <Track.Thumb>
@@ -360,10 +392,10 @@
     </Style>
 
     <!-- ===================================================================== -->
-    <!-- GLASS PASSWORDBOX & TEXTBOX                                           -->
+    <!-- GLASS PASSWORDBOX                                                     -->
     <!-- ===================================================================== -->
     <Style TargetType="PasswordBox">
-        <Setter Property="Background" Value="#14000000"/>
+        <Setter Property="Background" Value="#18000000"/>
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
         <Setter Property="BorderBrush" Value="{StaticResource GlassControlBorderBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
@@ -395,11 +427,11 @@
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="InputBorder" Property="Background" Value="#20000000"/>
+                            <Setter TargetName="InputBorder" Property="Background" Value="#24000000"/>
                             <Setter TargetName="InputBorder" Property="BorderBrush" Value="#32FFFFFF"/>
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="InputBorder" Property="Background" Value="#28000000"/>
+                            <Setter TargetName="InputBorder" Property="Background" Value="#2E000000"/>
                             <Setter TargetName="InputBorder" Property="BorderBrush" Value="{StaticResource AccentPillBorderBrush}"/>
                             <Setter TargetName="FocusAccentLine" Property="Opacity" Value="1"/>
                         </Trigger>

@@ -117,7 +117,8 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
         hr = FieldDescriptorCopy(rgcpfd[i], &_rgCredProvFieldDescriptors[i]);
     }
 
-    _rgFieldStatePairs[SFI_PASSWORD].cpfs = (_dwSelectedMethod == 2) ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
+    // FIX: Show password field for both method 2 (TPM) and method 3 (manual fallback).
+    _rgFieldStatePairs[SFI_PASSWORD].cpfs = (_dwSelectedMethod == 2 || _dwSelectedMethod == 3) ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
 
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Tether Pro Gateway", &_rgFieldStrings[SFI_LABEL]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Sign in using Tether", &_rgFieldStrings[SFI_LARGE_TEXT]);
@@ -280,7 +281,8 @@ HRESULT CSampleCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD dwSel
 
         if (_pCredProvCredentialEvents)
         {
-            CREDENTIAL_PROVIDER_FIELD_STATE cpfsPassword = (_dwSelectedMethod == 2) ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
+            // FIX: Show password field for both method 2 (TPM) and method 3 (manual fallback).
+            CREDENTIAL_PROVIDER_FIELD_STATE cpfsPassword = (_dwSelectedMethod == 2 || _dwSelectedMethod == 3) ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
             CREDENTIAL_PROVIDER_FIELD_STATE cpfsBypass = (_dwSelectedMethod == 3) ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
             _pCredProvCredentialEvents->SetFieldState(this, SFI_PASSWORD, cpfsPassword);
 
@@ -471,13 +473,36 @@ HRESULT CSampleCredential::_GetManualPasswordAndPack(
 
 bool CSampleCredential::_IsEncryptedPasswordBlobPresent()
 {
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
-        return false;
-    DWORD dwType = 0;
-    LONG res = RegQueryValueExW(hKey, L"EncryptedPassword", nullptr, &dwType, nullptr, nullptr);
-    RegCloseKey(hKey);
-    return (res == ERROR_SUCCESS && dwType == REG_BINARY);
+    // FIX: The Desktop UI writes the blob into the "Secrets" subkey.
+    // Check that first, then fall back to the parent key for compatibility.
+    const wchar_t* subKeys[] =
+    {
+        L"SOFTWARE\\Tether\\CredentialProvider\\Secrets",
+        L"SOFTWARE\\Tether\\CredentialProvider"
+    };
+
+    for (const wchar_t* subKey : subKeys)
+    {
+        HKEY hKey = nullptr;
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, subKey, 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+            continue;
+
+        DWORD dwType = 0;
+        LONG res = RegQueryValueExW(
+            hKey,
+            L"EncryptedPassword",
+            nullptr,
+            &dwType,
+            nullptr,
+            nullptr);
+
+        RegCloseKey(hKey);
+
+        if (res == ERROR_SUCCESS && dwType == REG_BINARY)
+            return true;
+    }
+
+    return false;
 }
 
 HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,

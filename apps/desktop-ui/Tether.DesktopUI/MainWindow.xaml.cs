@@ -1,16 +1,18 @@
 ﻿using Microsoft.Win32;
 using System;
+using System.Buffers;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
-using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -23,12 +25,17 @@ namespace Tether.DesktopUI
     [SupportedOSPlatform("windows")]
     public partial class MainWindow : Window
     {
+        private const int MaxTerminalEntries = 250;
+        private readonly ObservableCollection<string> _terminalLogs = new();
+        private PipeSecurity? _cachedPipeSecurity;
+
         private bool _isListening = true;
         private DispatcherTimer? _syncTimer;
         private DispatcherTimer? _telemetryDebounceTimer;
         private bool _isInternalSliderChange = false;
         private bool _isClosingAnimated = false;
         private uint _cachedBrightness = 50;
+        private bool _supportsPowerSchemeBrightness = true;
 
         [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
         internal class MMDeviceEnumerator { }
@@ -66,6 +73,9 @@ namespace Tether.DesktopUI
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool LockWorkStation();
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetProcessWorkingSetSize(IntPtr hProcess, IntPtr dwMinimumWorkingSetSize, IntPtr dwMaximumWorkingSetSize);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MARGINS
@@ -107,10 +117,10 @@ namespace Tether.DesktopUI
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
 
-        [DllImport("user32.dll", SetLastError = true)]
+        [DllImport("dxva2.dll", SetLastError = true)]
         private static extern bool GetPhysicalMonitorsFromHMONITOR(IntPtr hMonitor, uint dwPhysicalMonitorArraySize, [Out] PHYSICAL_MONITOR[] pPhysicalMonitorArray);
 
-        [DllImport("user32.dll", SetLastError = true)]
+        [DllImport("dxva2.dll", SetLastError = true)]
         private static extern bool DestroyPhysicalMonitor(IntPtr hMonitor);
 
         [DllImport("dxva2.dll", SetLastError = true)]
@@ -129,9 +139,6 @@ namespace Tether.DesktopUI
 
         [DllImport("gdi32.dll")]
         private static extern bool SetDeviceGammaRamp(IntPtr hDC, ref RAMP lpRamp);
-
-        [DllImport("gdi32.dll")]
-        private static extern bool GetDeviceGammaRamp(IntPtr hDC, ref RAMP lpRamp);
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetDC(IntPtr hWnd);
@@ -184,9 +191,6 @@ namespace Tether.DesktopUI
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         private struct DATA_BLOB { public int cbData; public IntPtr pbData; }
 
-        // ---------------------------------------------------------------
-        // Windows Service Control Manager (SCM) interop
-        // ---------------------------------------------------------------
         [StructLayout(LayoutKind.Sequential)]
         private struct SERVICE_STATUS
         {
@@ -206,10 +210,7 @@ namespace Tether.DesktopUI
 
         private const uint SERVICE_CONTROL_STOP = 0x00000001;
         private const uint SERVICE_STOPPED = 0x00000001;
-        private const uint SERVICE_RUNNING = 0x00000004;
-
         private const int ERROR_SERVICE_ALREADY_RUNNING = 1056;
-
         private const string CommServiceName = "TetherCommService";
 
         [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
@@ -238,13 +239,40 @@ namespace Tether.DesktopUI
         public MainWindow()
         {
             InitializeComponent();
+            TerminalList.ItemsSource = _terminalLogs;
+
             ResolveUserContext();
-            LogTerminal("SYSTEM // Tether Telemetry Workspace loaded successfully.");
-            CheckProvisioningStatus();
+            LogTerminal("SYSTEM // Tether Telemetry Workspace initialized (Zero-Shader Mode).");
             EnsureVaultDaclArchitecture();
+
+            StateChanged += MainWindow_StateChanged;
 
             _ = RunTelemetryListenerAsync();
             InitializeHardwarePolling();
+        }
+
+        private void MainWindow_StateChanged(object? sender, EventArgs e)
+        {
+            if (WindowState == WindowState.Minimized)
+            {
+                _syncTimer?.Stop();
+                TrimProcessWorkingSet();
+            }
+            else
+            {
+                PollAndSynchronizeHardwareStates();
+                _syncTimer?.Start();
+            }
+        }
+
+        private static void TrimProcessWorkingSet()
+        {
+            try
+            {
+                using var currentProcess = Process.GetCurrentProcess();
+                SetProcessWorkingSetSize(currentProcess.Handle, (IntPtr)(-1), (IntPtr)(-1));
+            }
+            catch { }
         }
 
         protected override void OnSourceInitialized(EventArgs e)
@@ -294,8 +322,39 @@ namespace Tether.DesktopUI
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            var opacityAnim = new DoubleAnimation(0.0, 1.0, new Duration(TimeSpan.FromSeconds(0.2)));
+            PollAndSynchronizeHardwareStates();
+            var opacityAnim = new DoubleAnimation(0.0, 1.0, new Duration(TimeSpan.FromMilliseconds(160)));
+            opacityAnim.Completed += (_, _) => BeginAnimation(OpacityProperty, null); // Release animation clock
             BeginAnimation(OpacityProperty, opacityAnim);
+        }
+
+        private void NavRailList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (CardPipeline == null || CardHardware == null || CardVault == null) return;
+            if (NavRailList.SelectedItem is not ListBoxItem selected) return;
+
+            string tag = selected.Tag as string ?? "All";
+            switch (tag)
+            {
+                case "All":
+                    CardPipeline.Visibility = Visibility.Visible;
+                    CardHardware.Visibility = Visibility.Visible;
+                    CardVault.Visibility = Visibility.Visible;
+                    LeftScrollViewer?.ScrollToTop();
+                    break;
+                case "Hardware":
+                    CardPipeline.Visibility = Visibility.Collapsed;
+                    CardHardware.Visibility = Visibility.Visible;
+                    CardVault.Visibility = Visibility.Collapsed;
+                    LeftScrollViewer?.ScrollToTop();
+                    break;
+                case "Vault":
+                    CardPipeline.Visibility = Visibility.Collapsed;
+                    CardHardware.Visibility = Visibility.Collapsed;
+                    CardVault.Visibility = Visibility.Visible;
+                    LeftScrollViewer?.ScrollToTop();
+                    break;
+            }
         }
 
         private void BtnMinimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
@@ -312,7 +371,7 @@ namespace Tether.DesktopUI
                 e.Cancel = true;
                 _isClosingAnimated = true;
 
-                var fadeOut = new DoubleAnimation(1.0, 0.0, new Duration(TimeSpan.FromSeconds(0.15)));
+                var fadeOut = new DoubleAnimation(1.0, 0.0, new Duration(TimeSpan.FromMilliseconds(120)));
                 fadeOut.Completed += (s, ev) => Close();
                 BeginAnimation(OpacityProperty, fadeOut);
             }
@@ -325,36 +384,44 @@ namespace Tether.DesktopUI
             }
         }
 
-        private SolidColorBrush GetFluentStatusBrush(string key, Color fallbackColor)
+        private Brush GetFluentBrush(string key, Color fallbackColor)
         {
-            if (Application.Current != null)
+            if (Application.Current?.TryFindResource(key) is Brush resolvedBrush)
             {
-                if (Application.Current.TryFindResource(key) is SolidColorBrush resolvedBrush)
-                {
-                    return resolvedBrush;
-                }
+                return resolvedBrush;
             }
-            return new SolidColorBrush(fallbackColor);
+            var brush = new SolidColorBrush(fallbackColor);
+            brush.Freeze();
+            return brush;
         }
 
-        private void CheckProvisioningStatus() { }
+        private PipeSecurity GetOrCreatePipeSecurity()
+        {
+            if (_cachedPipeSecurity != null) return _cachedPipeSecurity;
+
+            var uiPipeSecurity = new PipeSecurity();
+            uiPipeSecurity.AddAccessRule(new PipeAccessRule(
+                WindowsIdentity.GetCurrent().User!,
+                PipeAccessRights.ReadWrite,
+                AccessControlType.Allow));
+            uiPipeSecurity.AddAccessRule(new PipeAccessRule(
+                new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                PipeAccessRights.ReadWrite,
+                AccessControlType.Allow));
+
+            _cachedPipeSecurity = uiPipeSecurity;
+            return _cachedPipeSecurity;
+        }
 
         private async Task RunTelemetryListenerAsync()
         {
+            var pipeSecurity = GetOrCreatePipeSecurity();
+
             while (_isListening)
             {
+                byte[]? rentedBuffer = null;
                 try
                 {
-                    var uiPipeSecurity = new PipeSecurity();
-                    uiPipeSecurity.AddAccessRule(new PipeAccessRule(
-                        WindowsIdentity.GetCurrent().User!,
-                        PipeAccessRights.ReadWrite,
-                        AccessControlType.Allow));
-                    uiPipeSecurity.AddAccessRule(new PipeAccessRule(
-                        new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
-                        PipeAccessRights.ReadWrite,
-                        AccessControlType.Allow));
-
                     using var server = NamedPipeServerStreamAcl.Create(
                         IpcConstants.UiPipeName,
                         PipeDirection.In,
@@ -363,24 +430,34 @@ namespace Tether.DesktopUI
                         PipeOptions.Asynchronous,
                         0,
                         0,
-                        uiPipeSecurity);
+                        pipeSecurity);
 
                     await server.WaitForConnectionAsync();
 
-                    var buffer = new byte[IpcConstants.PipeBufferSize];
-                    int readBytes = await server.ReadAsync(buffer, 0, buffer.Length);
+                    rentedBuffer = ArrayPool<byte>.Shared.Rent(IpcConstants.PipeBufferSize);
+                    int readBytes = await server.ReadAsync(rentedBuffer, 0, IpcConstants.PipeBufferSize);
 
                     if (readBytes > 0)
                     {
-                        string json = Encoding.UTF8.GetString(buffer, 0, readBytes);
+                        string json = Encoding.UTF8.GetString(rentedBuffer, 0, readBytes);
                         var telemetryEvent = JsonSerializer.Deserialize<TetherEvent>(json);
                         if (telemetryEvent != null)
                         {
-                            Dispatcher.BeginInvoke(new Action(() => ParseRelayedSignal(telemetryEvent)));
+                            _ = Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => ParseRelayedSignal(telemetryEvent)));
                         }
                     }
                 }
-                catch { await Task.Delay(500); }
+                catch
+                {
+                    await Task.Delay(500);
+                }
+                finally
+                {
+                    if (rentedBuffer != null)
+                    {
+                        ArrayPool<byte>.Shared.Return(rentedBuffer);
+                    }
+                }
             }
         }
 
@@ -390,14 +467,16 @@ namespace Tether.DesktopUI
             {
                 case TetherEventType.PHONE_CONNECTED:
                     TxtStatus.Text = "LINK ENFORCED";
-                    IndicatorNode.Fill = GetFluentStatusBrush("StatusHealthyBrush", Color.FromRgb(106, 237, 126));
+                    IndicatorNode.Fill = GetFluentBrush("StatusHealthyBrush", Color.FromRgb(52, 211, 153));
+                    IndicatorHalo.Fill = GetFluentBrush("HealthyHaloBrush", Color.FromArgb(90, 52, 211, 153));
                     LogTerminal("✓ LINK // Cryptographic over-the-air validation chain locked.");
                     ForceTelemetrySyncToPhone();
                     break;
 
                 case TetherEventType.PHONE_DISCONNECTED:
                     TxtStatus.Text = "NODE DISCONNECTED";
-                    IndicatorNode.Fill = GetFluentStatusBrush("StatusCriticalBrush", Color.FromRgb(255, 153, 164));
+                    IndicatorNode.Fill = GetFluentBrush("StatusCriticalBrush", Color.FromRgb(251, 113, 133));
+                    IndicatorHalo.Fill = GetFluentBrush("CriticalHaloBrush", Color.FromArgb(90, 251, 113, 133));
                     LogTerminal("⚠ LINK // Target node dropped carrier radio links unexpectedly.");
                     break;
 
@@ -451,33 +530,39 @@ namespace Tether.DesktopUI
                         LogTerminal("✓ POWER // Interactive display wake sequence executed.");
                     }
                     break;
-
-                case TetherEventType.PROVISION_PHONE:
-                    CheckProvisioningStatus();
-                    break;
             }
         }
 
         private void InitializeHardwarePolling()
         {
-            _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+            _syncTimer = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromSeconds(2.5)
+            };
             _syncTimer.Tick += (s, e) => PollAndSynchronizeHardwareStates();
             _syncTimer.Start();
         }
 
         private void PollAndSynchronizeHardwareStates()
         {
+            if (WindowState == WindowState.Minimized) return;
             if (SliderVolume.IsMouseCaptureWithin || SliderBrightness.IsMouseCaptureWithin) return;
 
             _isInternalSliderChange = true;
 
-            int currentVol = (int)(GetSystemMasterVolume() * 100);
-            SliderVolume.Value = currentVol;
-            TxtVolumeValue.Text = $"{currentVol}%";
+            int currentVol = (int)Math.Round(GetSystemMasterVolume() * 100);
+            if ((int)SliderVolume.Value != currentVol)
+            {
+                SliderVolume.Value = currentVol;
+                TxtVolumeValue.Text = $"{currentVol}%";
+            }
 
             int currentBri = (int)GetMonitorBrightnessLevel();
-            SliderBrightness.Value = currentBri;
-            TxtBrightnessValue.Text = $"{currentBri}%";
+            if ((int)SliderBrightness.Value != currentBri)
+            {
+                SliderBrightness.Value = currentBri;
+                TxtBrightnessValue.Text = $"{currentBri}%";
+            }
 
             _isInternalSliderChange = false;
         }
@@ -513,8 +598,8 @@ namespace Tether.DesktopUI
                 {
                     case "volume_up": case "vol_up": SetSystemMasterVolume(Math.Min(1.0f, vol + 0.04f)); break;
                     case "volume_down": case "vol_down": SetSystemMasterVolume(Math.Max(0.0f, vol - 0.04f)); break;
-                    case "brightness_up": case "bright_up": SetMonitorBrightnessLevel((uint)Math.Min(100, bri + 5)); break;
-                    case "brightness_down": case "bright_down": SetMonitorBrightnessLevel((uint)Math.Max(0, bri - 5)); break;
+                    case "brightness_up": case "bright_up": SetMonitorBrightnessLevel(Math.Min(100u, bri + 5)); break;
+                    case "brightness_down": case "bright_down": SetMonitorBrightnessLevel((uint)Math.Max(0, (int)bri - 5)); break;
                 }
             }
             PollAndSynchronizeHardwareStates();
@@ -529,41 +614,62 @@ namespace Tether.DesktopUI
             INPUT[] inputs = new INPUT[1];
             inputs[0].type = 0;
             inputs[0].mi.dx = 1; inputs[0].mi.dy = 1; inputs[0].mi.dwFlags = 0x0001;
-            SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
+            SendInput(1, inputs, Marshal.SizeOf<INPUT>());
         }
 
         private float GetSystemMasterVolume()
         {
             var volume = GetAudioEndpointVolumeInterface();
             if (volume == null) return 0.0f;
-            volume.GetMasterVolumeLevelScalar(out float level);
-            Marshal.ReleaseComObject(volume);
-            return level;
+            try
+            {
+                volume.GetMasterVolumeLevelScalar(out float level);
+                return level;
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(volume);
+            }
         }
 
         private void SetSystemMasterVolume(float level)
         {
             var volume = GetAudioEndpointVolumeInterface();
             if (volume == null) return;
-            Guid empty = Guid.Empty;
-            volume.SetMasterVolumeLevelScalar(level, ref empty);
-            Marshal.ReleaseComObject(volume);
+            try
+            {
+                Guid empty = Guid.Empty;
+                volume.SetMasterVolumeLevelScalar(level, ref empty);
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(volume);
+            }
         }
 
         private IAudioEndpointVolume? GetAudioEndpointVolumeInterface()
         {
+            IMMDeviceEnumerator? enumerator = null;
+            IMMDevice? device = null;
             try
             {
-                var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
-                int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out IMMDevice device);
+                enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+                int hr = enumerator.GetDefaultAudioEndpoint(0, 0, out device);
                 if (hr != 0 || device == null) return null;
 
                 Guid iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
                 device.Activate(ref iid, 23, IntPtr.Zero, out object comInterface);
-                Marshal.ReleaseComObject(device);
                 return (IAudioEndpointVolume)comInterface;
             }
-            catch { return null; }
+            catch
+            {
+                return null;
+            }
+            finally
+            {
+                if (device != null) Marshal.ReleaseComObject(device);
+                if (enumerator != null) Marshal.ReleaseComObject(enumerator);
+            }
         }
 
         private uint GetMonitorBrightnessLevel()
@@ -577,24 +683,21 @@ namespace Tether.DesktopUI
                     Guid subgroup = GUID_VIDEO_SUBGROUP;
                     Guid setting = GUID_DEVICE_POWER_POLICY_VIDEO_BRIGHTNESS;
 
-                    if (PowerReadACValueIndex(IntPtr.Zero, ref activeScheme, ref subgroup, ref setting, out uint val) == 0)
+                    if (PowerReadACValueIndex(IntPtr.Zero, ref activeScheme, ref subgroup, ref setting, out uint val) == 0 && val <= 100)
                     {
-                        if (val <= 100)
-                        {
-                            _cachedBrightness = val;
-                            return val;
-                        }
+                        _cachedBrightness = val;
+                        _supportsPowerSchemeBrightness = true;
+                        return val;
                     }
                 }
             }
             catch { }
             finally
             {
-                if (activeGuidPtr != IntPtr.Zero)
-                {
-                    LocalFree(activeGuidPtr);
-                }
+                if (activeGuidPtr != IntPtr.Zero) LocalFree(activeGuidPtr);
             }
+
+            if (!_supportsPowerSchemeBrightness) return _cachedBrightness;
 
             try
             {
@@ -610,8 +713,12 @@ namespace Tether.DesktopUI
                         return current;
                     }
                 }
+                _supportsPowerSchemeBrightness = false;
             }
-            catch { }
+            catch
+            {
+                _supportsPowerSchemeBrightness = false;
+            }
 
             return _cachedBrightness;
         }
@@ -644,26 +751,26 @@ namespace Tether.DesktopUI
             catch { }
             finally
             {
-                if (activeGuidPtr != IntPtr.Zero)
-                {
-                    LocalFree(activeGuidPtr);
-                }
+                if (activeGuidPtr != IntPtr.Zero) LocalFree(activeGuidPtr);
             }
 
-            try
+            if (!hardwareControlled)
             {
-                IntPtr hMonitor = MonitorFromWindow(IntPtr.Zero, MONITOR_DEFAULTTOPRIMARY);
-                PHYSICAL_MONITOR[] monitors = new PHYSICAL_MONITOR[1];
-                if (GetPhysicalMonitorsFromHMONITOR(hMonitor, 1, monitors))
+                try
                 {
-                    if (SetMonitorBrightness(monitors[0].hPhysicalMonitor, level))
+                    IntPtr hMonitor = MonitorFromWindow(IntPtr.Zero, MONITOR_DEFAULTTOPRIMARY);
+                    PHYSICAL_MONITOR[] monitors = new PHYSICAL_MONITOR[1];
+                    if (GetPhysicalMonitorsFromHMONITOR(hMonitor, 1, monitors))
                     {
-                        hardwareControlled = true;
+                        if (SetMonitorBrightness(monitors[0].hPhysicalMonitor, level))
+                        {
+                            hardwareControlled = true;
+                        }
+                        DestroyPhysicalMonitor(monitors[0].hPhysicalMonitor);
                     }
-                    DestroyPhysicalMonitor(monitors[0].hPhysicalMonitor);
                 }
+                catch { }
             }
-            catch { }
 
             if (!hardwareControlled)
             {
@@ -689,8 +796,7 @@ namespace Tether.DesktopUI
 
                 for (int i = 0; i < 256; i++)
                 {
-                    int value = (int)(i * 256.0 * factor);
-                    ushort clampedValue = (ushort)Math.Clamp(value, 0, 65535);
+                    ushort clampedValue = (ushort)Math.Clamp((int)(i * 256.0 * factor), 0, 65535);
                     ramp.Red[i] = clampedValue;
                     ramp.Green[i] = clampedValue;
                     ramp.Blue[i] = clampedValue;
@@ -722,7 +828,7 @@ namespace Tether.DesktopUI
         {
             if (_telemetryDebounceTimer == null)
             {
-                _telemetryDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+                _telemetryDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(220) };
                 _telemetryDebounceTimer.Tick += (s, e) =>
                 {
                     _telemetryDebounceTimer.Stop();
@@ -749,8 +855,30 @@ namespace Tether.DesktopUI
 
         private void LogTerminal(string message)
         {
-            TxtTerminal.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\n");
-            TerminalScroll.ScrollToEnd();
+            string entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
+            _terminalLogs.Add(entry);
+            while (_terminalLogs.Count > MaxTerminalEntries)
+            {
+                _terminalLogs.RemoveAt(0);
+            }
+
+            if (TerminalList.Items.Count > 0)
+            {
+                TerminalList.ScrollIntoView(TerminalList.Items[^1]);
+            }
+        }
+
+        private void BtnClearLogs_Click(object sender, RoutedEventArgs e)
+        {
+            _terminalLogs.Clear();
+            LogTerminal("SYSTEM // Diagnostic event ring buffer cleared.");
+        }
+
+        private void BtnCopyLogs_Click(object sender, RoutedEventArgs e)
+        {
+            if (_terminalLogs.Count == 0) return;
+            Clipboard.SetText(string.Join(Environment.NewLine, _terminalLogs));
+            LogTerminal("✓ BUFFER // Event stream copied to system clipboard.");
         }
 
         private async void DispatchServiceBusPipe(TetherEvent evt)
@@ -797,9 +925,6 @@ namespace Tether.DesktopUI
             LogTerminal("⚠ OVERRIDE // System lockdown event dispatched.");
         }
 
-        // ---------------------------------------------------------------
-        // TetherCommService restart (Windows SCM)
-        // ---------------------------------------------------------------
         private async void BtnRestartService_Click(object sender, RoutedEventArgs e)
         {
             BtnRestartService.IsEnabled = false;
@@ -856,7 +981,7 @@ namespace Tether.DesktopUI
 
                     LogTerminal($"⏳ SERVICE // Stop signal sent to '{CommServiceName}', awaiting STOPPED state...");
 
-                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    var sw = Stopwatch.StartNew();
                     while (sw.ElapsedMilliseconds < 15000)
                     {
                         await Task.Delay(400);
@@ -912,14 +1037,14 @@ namespace Tether.DesktopUI
                 {
                     try { rootKey.DeleteValue("EncryptedPassword", false); } catch { }
 
-                    var rs = new System.Security.AccessControl.RegistrySecurity();
-                    var systemSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
-                    var adminsSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
-                    var usersSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinUsersSid, null);
+                    var rs = new RegistrySecurity();
+                    var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+                    var adminsSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+                    var usersSid = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
 
-                    rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(systemSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
-                    rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(adminsSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
-                    rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(usersSid, System.Security.AccessControl.RegistryRights.ReadKey, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
+                    rs.AddAccessRule(new RegistryAccessRule(systemSid, RegistryRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+                    rs.AddAccessRule(new RegistryAccessRule(adminsSid, RegistryRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+                    rs.AddAccessRule(new RegistryAccessRule(usersSid, RegistryRights.ReadKey, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
 
                     using (var secretsKey = rootKey.CreateSubKey("Secrets", RegistryKeyPermissionCheck.Default, rs))
                     {
@@ -927,8 +1052,8 @@ namespace Tether.DesktopUI
                         if (secretsSecurity != null)
                         {
                             secretsSecurity.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-                            secretsSecurity.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(systemSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
-                            secretsSecurity.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(adminsSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+                            secretsSecurity.AddAccessRule(new RegistryAccessRule(systemSid, RegistryRights.FullControl, AccessControlType.Allow));
+                            secretsSecurity.AddAccessRule(new RegistryAccessRule(adminsSid, RegistryRights.FullControl, AccessControlType.Allow));
                             secretsKey?.SetAccessControl(secretsSecurity);
                         }
                     }
@@ -972,23 +1097,30 @@ namespace Tether.DesktopUI
 
                 if (CryptProtectData(ref dataIn, "TetherCredentialProviderSecret", ref entropy, IntPtr.Zero, IntPtr.Zero, 0x5, ref dataOut))
                 {
-                    byte[] protectedPayload = new byte[dataOut.cbData];
-                    Marshal.Copy(dataOut.pbData, protectedPayload, 0, dataOut.cbData);
-
-                    EnsureVaultDaclArchitecture();
-
-                    using (RegistryKey? secretsKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true))
+                    try
                     {
-                        secretsKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
-                    }
+                        byte[] protectedPayload = new byte[dataOut.cbData];
+                        Marshal.Copy(dataOut.pbData, protectedPayload, 0, dataOut.cbData);
 
-                    using (RegistryKey? rootKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
+                        EnsureVaultDaclArchitecture();
+
+                        using (RegistryKey? secretsKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true))
+                        {
+                            secretsKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
+                        }
+
+                        using (RegistryKey? rootKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
+                        {
+                            rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
+                        }
+
+                        LogTerminal("✓ VAULT // Cryptographic alignment sealed in Secrets subkey with application entropy.");
+                        TxtPassword.Clear();
+                    }
+                    finally
                     {
-                        rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
+                        if (dataOut.pbData != IntPtr.Zero) LocalFree(dataOut.pbData);
                     }
-
-                    LogTerminal("✓ VAULT // Cryptographic alignment sealed in Secrets subkey with application entropy.");
-                    TxtPassword.Clear();
                 }
             }
             catch (Exception ex) { LogTerminal($"Fatal registry exception: {ex.Message}"); }
