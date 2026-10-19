@@ -11,7 +11,7 @@
 ; ============================================================================
 
 #define MyAppName           "Tether"
-#define MyAppVersion        "1.0.0"
+#define MyAppVersion        "1.1.0"
 #define MyAppPublisher      "Tether Project"
 #define MyAppURL            "https://github.com/tirthsaraiya29/Tether"
 #define MyAppExeName        "Tether.CommunicationService.exe"

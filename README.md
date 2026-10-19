@@ -49,7 +49,7 @@ Download prebuilt binaries directly from the official releases:
 ### 1. Download Artifacts
 
 - Windows Installer: `Tether-Setup-*.exe`
-- Android Companion: `Tether.apk`
+- Android Companion: `Tether-*.apk`
 
 ### 2. Windows Account Preparation
 
@@ -64,7 +64,7 @@ Download prebuilt binaries directly from the official releases:
 
 ### 4. Install on Android
 
-1. Transfer and install `app-release.apk` on your mobile device.
+1. Transfer and install `Tether-*.apk` on your mobile device.
 2. Open Tether and grant the requested local network permissions.
 
 ### 5. Pair Devices
@@ -533,7 +533,7 @@ Settings can be inspected and modified via `appsettings.json` within service dir
 | `BIOMETRIC_FAILED` | Fingerprint/Face auth canceled or unconfigured. | Enroll biometrics in Android settings and ensure prompt is satisfied. |
 | `Windows unlock rejected` | Credential Provider unable to locate credentials or invalid hash. | Unlock via standard Windows PIN/Password and verify pairing state in Desktop UI. |
 
-If issues persist, file a bug on [GitHub Issues](https://www.google.com/search?q=https://github.com/tirthsaraiya29/Tether/issues) with service logs and system specifications.
+If issues persist, file a bug on [GitHub Issues](https://github.com/tirthsaraiya29/Tether/issues) with service logs and system specifications.
 
 ---
 
@@ -549,7 +549,7 @@ If issues persist, file a bug on [GitHub Issues](https://www.google.com/search?q
 
 ## Contributing
 
-1. Fork the [Tether repository](https://www.google.com/search?q=https://github.com/tirthsaraiya29/Tether).
+1. Fork the [Tether repository](https://github.com/tirthsaraiya29/Tether).
 2. Create your branch (`git checkout -b feature/new-capability`).
 3. Commit your changes (`git commit -m "feat: implement capability"`).
 4. Push to branch (`git push origin feature/new-capability`).
@@ -563,7 +563,7 @@ To report vulnerabilities that bypass authentication or lead to privilege escala
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0** (`GPL-3.0-only`). See the [LICENSE](https://www.google.com/search?q=LICENSE) file for complete terms.
+This project is licensed under the **GNU General Public License v3.0** (`GPL-3.0-only`). See the [LICENSE](LICENSE) file for complete terms.
 
 ---
 
