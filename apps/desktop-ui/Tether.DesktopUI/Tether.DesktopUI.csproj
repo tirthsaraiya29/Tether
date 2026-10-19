@@ -7,6 +7,12 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<UseWPF>true</UseWPF>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
+
+		<!-- Memory & JIT Performance Optimizations -->
+		<TieredPGO>true</TieredPGO>
+		<TieredCompilationQuickJitForLoops>true</TieredCompilationQuickJitForLoops>
+		<ServerGarbageCollection>false</ServerGarbageCollection>
+		<GarbageCollectionAdaptationMode>1</GarbageCollectionAdaptationMode>
 	</PropertyGroup>
 
 	<ItemGroup>

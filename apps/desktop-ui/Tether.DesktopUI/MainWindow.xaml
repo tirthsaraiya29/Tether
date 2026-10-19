@@ -10,7 +10,7 @@
         WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
-        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextFormattingMode="Display"
         TextOptions.TextRenderingMode="ClearType"
         Loaded="MainWindow_Loaded">
 
@@ -38,13 +38,11 @@
             <!-- ============================================================= -->
             <!-- TOP FLUSH TITLEBAR (ROW 0)                                    -->
             <!-- ============================================================= -->
-
-            <!-- Left Header: Aligned at Y=0 -->
             <Border Grid.Row="0"
                     Grid.Column="0"
                     Background="{StaticResource RailBackgroundBrush}"
                     BorderBrush="{StaticResource SubtleDividerBrush}"
-                    BorderThickness="0,0,1,0"
+                    BorderThickness="0,0,1,1"
                     Padding="20,0,16,0">
                 <Grid VerticalAlignment="Center">
                     <Grid.ColumnDefinitions>
@@ -77,8 +75,8 @@
 
                     <Border Grid.Column="2"
                             Style="{StaticResource BadgePillBorderStyle}"
-                            Padding="5,1">
-                        <TextBlock Text="IPC"
+                            Padding="6,2">
+                        <TextBlock Text="IPC v2"
                                    FontFamily="{StaticResource MonoFontFamily}"
                                    FontSize="9"
                                    FontWeight="SemiBold"
@@ -87,73 +85,77 @@
                 </Grid>
             </Border>
 
-            <!-- Right Header: Drag Area & Window Buttons Flush at Y=0 -->
-            <Grid Grid.Row="0"
-                  Grid.Column="1"
-                  Background="{StaticResource TitleBarBackgroundBrush}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+            <!-- Right Header: Drag Area & Window Buttons -->
+            <Border Grid.Row="0"
+                    Grid.Column="1"
+                    Background="{StaticResource TitleBarBackgroundBrush}"
+                    BorderBrush="{StaticResource SubtleDividerBrush}"
+                    BorderThickness="0,0,0,1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Center"
-                            Margin="24,0,0,0"
-                            IsHitTestVisible="False">
-                    <TextBlock Text="WORKSTATION"
-                               FontFamily="{StaticResource MonoFontFamily}"
-                               FontSize="10.5"
-                               FontWeight="SemiBold"
-                               Foreground="{StaticResource TextMutedBrush}"
-                               VerticalAlignment="Center"/>
-                    <TextBlock Text="  /  "
-                               FontFamily="{StaticResource MonoFontFamily}"
-                               FontSize="10.5"
-                               Foreground="{StaticResource TextMutedBrush}"
-                               VerticalAlignment="Center"/>
-                    <TextBlock Text="TELEMETRY CONTROL PLANE"
-                               FontFamily="{StaticResource MonoFontFamily}"
-                               FontSize="10.5"
-                               FontWeight="SemiBold"
-                               Foreground="{StaticResource TextSecondaryBrush}"
-                               VerticalAlignment="Center"/>
-                </StackPanel>
+                    <StackPanel Grid.Column="0"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center"
+                                Margin="24,0,0,0"
+                                IsHitTestVisible="False">
+                        <TextBlock Text="WORKSTATION"
+                                   FontFamily="{StaticResource MonoFontFamily}"
+                                   FontSize="10.5"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="  /  "
+                                   FontFamily="{StaticResource MonoFontFamily}"
+                                   FontSize="10.5"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Text="TELEMETRY CONTROL PLANE"
+                                   FontFamily="{StaticResource MonoFontFamily}"
+                                   FontSize="10.5"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
 
-                <StackPanel Grid.Column="1"
-                            Orientation="Horizontal"
-                            HorizontalAlignment="Right"
-                            VerticalAlignment="Stretch"
-                            WindowChrome.IsHitTestVisibleInChrome="True">
-                    <Button x:Name="BtnMinimize"
-                            Style="{StaticResource TitleBarButton}"
-                            Content="&#xE921;"
-                            FontFamily="{StaticResource IconFontFamily}"
-                            FontSize="10"
-                            Height="44"
-                            Width="46"
-                            Margin="0"
-                            Click="BtnMinimize_Click"/>
-                    <Button x:Name="BtnMaximize"
-                            Style="{StaticResource TitleBarButton}"
-                            Content="&#xE922;"
-                            FontFamily="{StaticResource IconFontFamily}"
-                            FontSize="10"
-                            Height="44"
-                            Width="46"
-                            Margin="0"
-                            Click="BtnMaximize_Click"/>
-                    <Button x:Name="BtnClose"
-                            Style="{StaticResource CloseTitleBarButton}"
-                            Content="&#xE8BB;"
-                            FontFamily="{StaticResource IconFontFamily}"
-                            FontSize="10"
-                            Height="44"
-                            Width="48"
-                            Margin="0"
-                            Click="BtnClose_Click"/>
-                </StackPanel>
-            </Grid>
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Stretch"
+                                WindowChrome.IsHitTestVisibleInChrome="True">
+                        <Button x:Name="BtnMinimize"
+                                Style="{StaticResource TitleBarButton}"
+                                Content="&#xE921;"
+                                FontFamily="{StaticResource IconFontFamily}"
+                                FontSize="10"
+                                Height="44"
+                                Width="46"
+                                Margin="0"
+                                Click="BtnMinimize_Click"/>
+                        <Button x:Name="BtnMaximize"
+                                Style="{StaticResource TitleBarButton}"
+                                Content="&#xE922;"
+                                FontFamily="{StaticResource IconFontFamily}"
+                                FontSize="10"
+                                Height="44"
+                                Width="46"
+                                Margin="0"
+                                Click="BtnMaximize_Click"/>
+                        <Button x:Name="BtnClose"
+                                Style="{StaticResource CloseTitleBarButton}"
+                                Content="&#xE8BB;"
+                                FontFamily="{StaticResource IconFontFamily}"
+                                FontSize="10"
+                                Height="44"
+                                Width="48"
+                                Margin="0"
+                                Click="BtnClose_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
 
             <!-- ============================================================= -->
             <!-- LEFT NAVIGATION RAIL (ROW 1)                                  -->
@@ -173,14 +175,16 @@
                     <TextBlock Grid.Row="0"
                                Text="WORKSPACE NODES"
                                Style="{StaticResource SectionEyebrowTextStyle}"
-                               Margin="20,16,0,8"/>
+                               Margin="20,18,0,8"/>
 
-                    <ListBox Grid.Row="1"
+                    <ListBox x:Name="NavRailList"
+                             Grid.Row="1"
                              Background="Transparent"
                              BorderThickness="0"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                             ItemContainerStyle="{StaticResource NavigationItemStyle}">
-                        <ListBoxItem IsSelected="True">
+                             ItemContainerStyle="{StaticResource NavigationItemStyle}"
+                             SelectionChanged="NavRailList_SelectionChanged">
+                        <ListBoxItem IsSelected="True" Tag="All">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#xEEA3;"
                                            FontFamily="{StaticResource IconFontFamily}"
@@ -196,7 +200,7 @@
                                            VerticalAlignment="Center"/>
                             </StackPanel>
                         </ListBoxItem>
-                        <ListBoxItem>
+                        <ListBoxItem Tag="Hardware">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#xE95A;"
                                            FontFamily="{StaticResource IconFontFamily}"
@@ -212,9 +216,9 @@
                                            VerticalAlignment="Center"/>
                             </StackPanel>
                         </ListBoxItem>
-                        <ListBoxItem>
+                        <ListBoxItem Tag="Vault">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE713;"
+                                <TextBlock Text="&#xE72E;"
                                            FontFamily="{StaticResource IconFontFamily}"
                                            FontSize="15"
                                            Width="22"
@@ -230,6 +234,7 @@
                         </ListBoxItem>
                     </ListBox>
 
+                    <!-- Security Principal Card -->
                     <Border Grid.Row="2"
                             Margin="12,0,12,12"
                             Padding="14,12"
@@ -253,7 +258,7 @@
                                 <TextBlock Text="&#xE77B;"
                                            FontFamily="{StaticResource IconFontFamily}"
                                            FontSize="13"
-                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Foreground="{StaticResource SystemAccentBrush}"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"/>
                             </Border>
@@ -283,7 +288,7 @@
             <!-- ============================================================= -->
             <Grid Grid.Row="1"
                   Grid.Column="1"
-                  Margin="24,14,24,24">
+                  Margin="24,18,24,24">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="1.08*"/>
                     <ColumnDefinition Width="20"/>
@@ -291,14 +296,15 @@
                 </Grid.ColumnDefinitions>
 
                 <!-- LEFT COLUMN -->
-                <ScrollViewer Grid.Column="0"
+                <ScrollViewer x:Name="LeftScrollViewer"
+                              Grid.Column="0"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled"
                               Padding="0,0,4,0">
                     <StackPanel>
 
-                        <!-- Security Pipeline -->
-                        <Border Style="{StaticResource GlassPanel}">
+                        <!-- Security Pipeline Card -->
+                        <Border x:Name="CardPipeline" Style="{StaticResource GlassPanel}">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
@@ -326,18 +332,22 @@
                                             Padding="10,5"
                                             VerticalAlignment="Top">
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <Ellipse x:Name="IndicatorNode"
-                                                     Width="10"
-                                                     Height="10"
-                                                     Fill="{StaticResource StatusCriticalBrush}"
-                                                     Effect="{StaticResource StatusNodeGlow}"
-                                                     VerticalAlignment="Center"/>
+                                            <Grid Width="16" Height="16" VerticalAlignment="Center">
+                                                <Ellipse x:Name="IndicatorHalo"
+                                                         Width="16" Height="16"
+                                                         Fill="{StaticResource CriticalHaloBrush}"/>
+                                                <Ellipse x:Name="IndicatorNode"
+                                                         Width="8" Height="8"
+                                                         Fill="{StaticResource StatusCriticalBrush}"
+                                                         HorizontalAlignment="Center"
+                                                         VerticalAlignment="Center"/>
+                                            </Grid>
                                             <TextBlock Text="NODE LINK"
                                                        FontFamily="{StaticResource MonoFontFamily}"
                                                        FontSize="10"
                                                        FontWeight="SemiBold"
                                                        Foreground="{StaticResource TextSecondaryBrush}"
-                                                       Margin="8,0,0,0"
+                                                       Margin="6,0,0,0"
                                                        VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Border>
@@ -347,7 +357,7 @@
                                         Margin="0,16,0,0"
                                         Padding="14,12"
                                         CornerRadius="8"
-                                        Background="#12000000"
+                                        Background="#1A000000"
                                         BorderBrush="{StaticResource SubtleDividerBrush}"
                                         BorderThickness="1">
                                     <Grid>
@@ -384,8 +394,8 @@
                             </Grid>
                         </Border>
 
-                        <!-- Hardware Layer -->
-                        <Border Style="{StaticResource GlassPanel}">
+                        <!-- Hardware Layer Card -->
+                        <Border x:Name="CardHardware" Style="{StaticResource GlassPanel}">
                             <StackPanel>
                                 <TextBlock Text="COREAUDIO COM &amp; WIN32 BACKENDS"
                                            Style="{StaticResource SectionEyebrowTextStyle}"/>
@@ -396,12 +406,12 @@
                                 <!-- System Master Volume -->
                                 <Border Padding="14,12"
                                         CornerRadius="8"
-                                        Background="#0D000000"
+                                        Background="#16000000"
                                         BorderBrush="{StaticResource SubtleDividerBrush}"
                                         BorderThickness="1"
                                         Margin="0,0,0,12">
                                     <StackPanel>
-                                        <Grid Margin="0,0,0,10">
+                                        <Grid Margin="0,0,0,8">
                                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                                 <TextBlock Text="&#xE767;"
                                                            FontFamily="{StaticResource IconFontFamily}"
@@ -422,7 +432,7 @@
                                                 <TextBlock x:Name="TxtVolumeValue"
                                                            Text="0%"
                                                            FontFamily="{StaticResource MonoFontFamily}"
-                                                           FontSize="11.5"
+                                                           FontSize="11"
                                                            FontWeight="SemiBold"
                                                            Foreground="{StaticResource TextAccentBrush}"/>
                                             </Border>
@@ -437,11 +447,11 @@
                                 <!-- Display Matrix Luminescence -->
                                 <Border Padding="14,12"
                                         CornerRadius="8"
-                                        Background="#0D000000"
+                                        Background="#16000000"
                                         BorderBrush="{StaticResource SubtleDividerBrush}"
                                         BorderThickness="1">
                                     <StackPanel>
-                                        <Grid Margin="0,0,0,10">
+                                        <Grid Margin="0,0,0,8">
                                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                                 <TextBlock Text="&#xE706;"
                                                            FontFamily="{StaticResource IconFontFamily}"
@@ -462,7 +472,7 @@
                                                 <TextBlock x:Name="TxtBrightnessValue"
                                                            Text="0%"
                                                            FontFamily="{StaticResource MonoFontFamily}"
-                                                           FontSize="11.5"
+                                                           FontSize="11"
                                                            FontWeight="SemiBold"
                                                            Foreground="{StaticResource TextAccentBrush}"/>
                                             </Border>
@@ -476,8 +486,8 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- DPAPI Vault -->
-                        <Border Style="{StaticResource GlassPanel}" Margin="0">
+                        <!-- DPAPI Vault Card -->
+                        <Border x:Name="CardVault" Style="{StaticResource GlassPanel}" Margin="0">
                             <StackPanel>
                                 <Grid Margin="0,0,0,6">
                                     <StackPanel>
@@ -489,11 +499,11 @@
                                     <Border Style="{StaticResource BadgePillBorderStyle}"
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Top">
-                                        <TextBlock Text="LOCALMACHINE"
+                                        <TextBlock Text="HKLM // DACL v2"
                                                    FontFamily="{StaticResource MonoFontFamily}"
                                                    FontSize="9.5"
                                                    FontWeight="SemiBold"
-                                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                   Foreground="{StaticResource TextAccentBrush}"/>
                                     </Border>
                                 </Grid>
 
@@ -501,7 +511,7 @@
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="12.5"
                                            Foreground="{StaticResource TextSecondaryBrush}"
-                                           Margin="0,0,0,16"
+                                           Margin="0,0,0,14"
                                            TextWrapping="Wrap"/>
 
                                 <PasswordBox x:Name="TxtPassword"
@@ -553,103 +563,139 @@
                                                Style="{StaticResource CardTitleTextStyle}"/>
                                 </StackPanel>
 
-                                <Border Background="#14FFFFFF"
-                                        BorderBrush="{StaticResource SubtleDividerBrush}"
-                                        BorderThickness="1"
-                                        CornerRadius="6"
-                                        Padding="8,4"
-                                        HorizontalAlignment="Right"
-                                        VerticalAlignment="Center">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Ellipse Width="6" Height="6"
-                                                 Fill="{StaticResource StatusHealthyBrush}"
-                                                 VerticalAlignment="Center"
-                                                 Margin="0,0,6,0"/>
-                                        <TextBlock Text="STDOUT // UTF-8"
-                                                   FontFamily="{StaticResource MonoFontFamily}"
-                                                   FontSize="10"
-                                                   Foreground="{StaticResource TextSecondaryBrush}"/>
-                                    </StackPanel>
-                                </Border>
+                                <StackPanel Orientation="Horizontal"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center">
+                                    <Button x:Name="BtnCopyLogs"
+                                            Padding="8,4"
+                                            Margin="0,0,6,0"
+                                            ToolTip="Copy Event Stream"
+                                            Click="BtnCopyLogs_Click">
+                                        <TextBlock Text="&#xE8C8;"
+                                                   FontFamily="{StaticResource IconFontFamily}"
+                                                   FontSize="11"/>
+                                    </Button>
+                                    <Button x:Name="BtnClearLogs"
+                                            Padding="8,4"
+                                            Margin="0,0,8,0"
+                                            ToolTip="Clear Event Stream"
+                                            Click="BtnClearLogs_Click">
+                                        <TextBlock Text="&#xE74D;"
+                                                   FontFamily="{StaticResource IconFontFamily}"
+                                                   FontSize="11"/>
+                                    </Button>
+                                    <Border Background="#14FFFFFF"
+                                            BorderBrush="{StaticResource SubtleDividerBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="6"
+                                            Padding="8,4"
+                                            VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Ellipse Width="6" Height="6"
+                                                     Fill="{StaticResource StatusHealthyBrush}"
+                                                     VerticalAlignment="Center"
+                                                     Margin="0,0,6,0"/>
+                                            <TextBlock Text="RING // 250"
+                                                       FontFamily="{StaticResource MonoFontFamily}"
+                                                       FontSize="10"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
                             </Grid>
 
+                            <!-- UI-Virtualized Ring-Buffer Terminal -->
                             <Border Grid.Row="1"
                                     Background="{StaticResource TerminalBackgroundBrush}"
                                     BorderBrush="{StaticResource TerminalBorderBrush}"
                                     BorderThickness="1"
-                                    CornerRadius="8">
-                                <ScrollViewer x:Name="TerminalScroll"
-                                              VerticalScrollBarVisibility="Auto"
-                                              Padding="4">
-                                    <TextBox x:Name="TxtTerminal"
-                                             Background="Transparent"
-                                             Foreground="#E2E8F0"
-                                             BorderThickness="0"
-                                             FontFamily="{StaticResource MonoFontFamily}"
-                                             FontSize="12"
-                                             IsReadOnly="True"
-                                             TextWrapping="Wrap"
-                                             Padding="12,10"
-                                             CaretBrush="{StaticResource SystemAccentBrush}"
-                                             SelectionBrush="{StaticResource SystemAccentBrush}">
-                                        <TextBox.Style>
-                                            <Style TargetType="TextBox">
-                                                <Setter Property="Template">
-                                                    <Setter.Value>
-                                                        <ControlTemplate TargetType="TextBox">
-                                                            <ScrollViewer x:Name="PART_ContentHost"/>
-                                                        </ControlTemplate>
-                                                    </Setter.Value>
-                                                </Setter>
-                                            </Style>
-                                        </TextBox.Style>
-                                    </TextBox>
-                                </ScrollViewer>
+                                    CornerRadius="8"
+                                    Padding="4">
+                                <ListBox x:Name="TerminalList"
+                                         Background="Transparent"
+                                         BorderThickness="0"
+                                         VirtualizingPanel.IsVirtualizing="True"
+                                         VirtualizingPanel.VirtualizationMode="Recycling"
+                                         VirtualizingPanel.ScrollUnit="Pixel"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                    <ListBox.ItemContainerStyle>
+                                        <Style TargetType="ListBoxItem">
+                                            <Setter Property="Padding" Value="8,3"/>
+                                            <Setter Property="Background" Value="Transparent"/>
+                                            <Setter Property="BorderThickness" Value="0"/>
+                                            <Setter Property="Focusable" Value="False"/>
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="ListBoxItem">
+                                                        <Border Background="{TemplateBinding Background}"
+                                                                Padding="{TemplateBinding Padding}">
+                                                            <ContentPresenter/>
+                                                        </Border>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}"
+                                                       FontFamily="{StaticResource MonoFontFamily}"
+                                                       FontSize="11.5"
+                                                       Foreground="#E2E8F0"
+                                                       TextWrapping="Wrap"/>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
                             </Border>
                         </Grid>
                     </Border>
 
-                    <!-- NEW: Restart TetherCommService -->
-                    <Button x:Name="BtnRestartService"
-                            Grid.Row="1"
-                            Margin="0,16,0,0"
-                            Height="44"
-                            Style="{StaticResource AccentButton}"
-                            Click="BtnRestartService_Click">
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                            <TextBlock Text="&#xE72C;"
-                                       FontFamily="{StaticResource IconFontFamily}"
-                                       FontSize="14"
-                                       VerticalAlignment="Center"
-                                       Margin="0,0,10,0"/>
-                            <TextBlock Text="Restart Comm Service"
-                                       FontFamily="{StaticResource FluentFontFamily}"
-                                       FontSize="13"
-                                       FontWeight="SemiBold"
-                                       VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
+                    <!-- Action Buttons: Side-by-Side or Stacked -->
+                    <Grid Grid.Row="1" Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
 
-                    <!-- Existing lockdown button, shifted down -->
-                    <Button x:Name="BtnLockdownOverride"
-                            Grid.Row="2"
-                            Margin="0,12,0,0"
-                            Height="44"
-                            Style="{StaticResource DestructiveButton}"
-                            Click="BtnLockdownOverride_Click">
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                            <TextBlock Text="&#xE7BA;"
-                                       FontFamily="{StaticResource IconFontFamily}"
-                                       FontSize="14"
-                                       VerticalAlignment="Center"
-                                       Margin="0,0,10,0"/>
-                            <TextBlock Text="System Lockdown"
-                                       FontFamily="{StaticResource FluentFontFamily}"
-                                       FontSize="13"
-                                       FontWeight="SemiBold"
-                                       VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
+                        <Button x:Name="BtnRestartService"
+                                Grid.Column="0"
+                                Height="44"
+                                Style="{StaticResource AccentButton}"
+                                Click="BtnRestartService_Click">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="&#xE72C;"
+                                           FontFamily="{StaticResource IconFontFamily}"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,8,0"/>
+                                <TextBlock Text="Restart Service"
+                                           FontFamily="{StaticResource FluentFontFamily}"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="BtnLockdownOverride"
+                                Grid.Column="2"
+                                Height="44"
+                                Style="{StaticResource DestructiveButton}"
+                                Click="BtnLockdownOverride_Click">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="&#xE7BA;"
+                                           FontFamily="{StaticResource IconFontFamily}"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,8,0"/>
+                                <TextBlock Text="System Lockdown"
+                                           FontFamily="{StaticResource FluentFontFamily}"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
                 </Grid>
             </Grid>
         </Grid>
