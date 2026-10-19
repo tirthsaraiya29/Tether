@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tether — Connect your Android phone to your Windows PC, locally</title>
-  <meta name="description" content="Tether is an open project that links an Android phone to a Windows PC over your own Wi-Fi. Lock your PC, control volume and brightness, and keep everything on your own network.">
+  <meta name="description" content="Tether connects an Android phone to a Windows workstation over local Wi-Fi. Features device-assisted Windows unlock, remote trackpad input, emergency lockdown, and local media controls without cloud relays.">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#080b10">
 
@@ -2545,11 +2545,11 @@
       <div class="hero-copy">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>PHONE + PC · YOUR OWN WI-FI</p>
         <h1 class="hero-title" id="hero-title">Your phone and your PC. <span class="hero-accent">Talking directly.</span></h1>
-        <p class="hero-lede">Tether is an open project that connects an Android phone to a Windows PC over your home Wi-Fi. Lock your PC from your phone, adjust volume and brightness, and keep every command on your own network — no cloud account, no third-party server in the middle.</p>
+        <p class="hero-lede">Tether is an open-source personal trust and authentication platform that connects an Android device to a Windows workstation over local Wi-Fi. Unlock Windows via biometric challenge, stream trackpad input, execute emergency lockdowns, and adjust media controls — entirely on your local network with zero cloud dependencies.</p>
 
         <div class="hero-actions">
-          <a class="btn btn-primary" href="#architecture">
-            See how it works
+          <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether/releases" target="_blank" rel="noopener noreferrer">
+            Download Releases
             <svg class="icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
               <path d="M2.5 8h10.5M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
             </svg>
@@ -2690,81 +2690,81 @@
       </header>
 
       <div class="feature-grid">
+        <!-- Feature 1: Unlock -->
         <article class="feature feature-wide reveal">
           <span class="feature-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" focusable="false">
-              <circle cx="12" cy="12" r="2" fill="currentColor"></circle>
-              <path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
-              <path d="M4.9 19.1a10 10 0 0 1 0-14.2M19.1 4.9a10 10 0 0 1 0 14.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-opacity=".45"></path>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
             </svg>
           </span>
-          <h3 class="feature-title">Find your PC and pair with it</h3>
-          <p class="feature-text">Your phone looks for Tether devices on the same Wi-Fi. You pick your PC and pair the two. Pairing is the one-time step that decides which phone is allowed to talk to which computer — everything afterwards depends on it.</p>
-          <p class="feature-meta"><span class="chip">Being built</span><span class="chip chip-mono">Works on your local network</span></p>
+          <h3 class="feature-title">Device-Assisted Windows Unlock</h3>
+          <p class="feature-text">Authenticate your Windows workstation via an Android biometric challenge. Communicates directly with the native C++ <code>TetherCredentialProvider</code> on the Windows logon screen.</p>
+          <p class="feature-meta"><span class="chip">Implemented</span><span class="chip chip-mono">Credential Provider</span></p>
         </article>
 
+        <!-- Feature 2: Trackpad & Input -->
         <article class="feature reveal">
           <span class="feature-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" focusable="false">
-              <rect x="2.8" y="4.4" width="18.4" height="12" rx="2" stroke="currentColor" stroke-width="1.4"></rect>
-              <path d="M9 20h6M12 16.4V20" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
-              <rect x="9.6" y="8.6" width="4.8" height="4" rx="1.2" stroke="currentColor" stroke-width="1.2"></rect>
-              <path d="M10.7 8.6V7.8a1.3 1.3 0 0 1 2.6 0v.8" stroke="currentColor" stroke-width="1.2"></path>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="5" y="3" width="14" height="18" rx="4"></rect>
+              <line x1="12" y1="7" x2="12" y2="11"></line>
             </svg>
           </span>
-          <h3 class="feature-title">Lock your PC from your phone</h3>
-          <p class="feature-text">Walk away and lock your computer with a tap, instead of walking back to the keyboard. Only works on the PC you paired with.</p>
-          <p class="feature-meta"><span class="chip">Being built</span></p>
+          <h3 class="feature-title">Remote Trackpad & Input</h3>
+          <p class="feature-text">Stream synthetic mouse movement, clicks, scrolling, and Windows modifier-key combinations into your active console session via the Session Helper.</p>
+          <p class="feature-meta"><span class="chip">Implemented</span></p>
         </article>
 
+        <!-- Feature 3: Panic & Lockdown -->
         <article class="feature reveal">
           <span class="feature-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" focusable="false">
-              <path d="M4 9.6h3l4.2-3.4v11.6L7 14.4H4V9.6Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path>
-              <path d="M15 9.2a4 4 0 0 1 0 5.6M17.6 6.8a7.4 7.4 0 0 1 0 10.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
             </svg>
           </span>
-          <h3 class="feature-title">Volume and brightness</h3>
-          <p class="feature-text">Adjust your PC's volume and screen brightness from your phone, over the same private connection as everything else.</p>
-          <p class="feature-meta"><span class="chip">Being built</span></p>
+          <h3 class="feature-title">Emergency Lockdown & Panic</h3>
+          <p class="feature-text">Trigger immediate workstation locking and trust-state revocation via <code>Tether.PanicEngine</code>, invalidating active sessions across the network boundary.</p>
+          <p class="feature-meta"><span class="chip">Implemented</span></p>
         </article>
 
+        <!-- Feature 4: Hardware Keystore Anchor -->
         <article class="feature feature-wide reveal">
           <span class="feature-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" focusable="false">
-              <path d="M12 3.2 5.4 5.7v5.6c0 4 2.8 7.4 6.6 8.6 3.8-1.2 6.6-4.6 6.6-8.6V5.7L12 3.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path>
-              <path d="m9.2 12 2 2 3.6-3.9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
             </svg>
           </span>
-          <h3 class="feature-title">Keep checking that the connection is real</h3>
-          <p class="feature-text">A connection shouldn't be trusted forever just because it started out fine. Tether is designed to re-check the pairing as things change — for example when your phone rejoins the Wi-Fi or the PC restarts.</p>
-          <p class="feature-meta"><span class="chip">Design goal</span></p>
+          <h3 class="feature-title">Hardware Keystore Trust Anchor</h3>
+          <p class="feature-text">Binds paired identity to RSA-2048 keys generated inside Android Keystore with StrongBox hardware protection where available. Validates SU status, developer flags, and biometric enrollment.</p>
+          <p class="feature-meta"><span class="chip">Implemented</span><span class="chip chip-mono">RSA-2048 / StrongBox</span></p>
         </article>
 
+        <!-- Feature 5: Desktop & Volume Controls -->
         <article class="feature reveal">
           <span class="feature-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" focusable="false">
-              <path d="M12 3.6 21 19.4H3L12 3.6Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path>
-              <path d="M12 9.6v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
-              <circle cx="12" cy="16.2" r=".95" fill="currentColor"></circle>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
             </svg>
           </span>
-          <h3 class="feature-title">Emergency lockdown</h3>
-          <p class="feature-text">A quick panic button in the phone app that immediately restricts access to your PC. Meant for the moment something feels wrong.</p>
-          <p class="feature-meta"><span class="chip">Planned</span></p>
+          <h3 class="feature-title">Audio, Display & Apps</h3>
+          <p class="feature-text">Adjust Windows Core Audio endpoint volume, change display brightness via WMI, and launch configured utilities (Terminal, Task Manager, Settings).</p>
+          <p class="feature-meta"><span class="chip">Implemented</span></p>
         </article>
 
+        <!-- Feature 6: Continuous Trust & Freshness -->
         <article class="feature reveal">
           <span class="feature-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" focusable="false">
-              <rect x="3.4" y="3.6" width="7.2" height="7.2" rx="2" stroke="currentColor" stroke-width="1.4"></rect>
-              <rect x="13.4" y="13.2" width="7.2" height="7.2" rx="2" stroke="currentColor" stroke-width="1.4"></rect>
-              <path d="M13.8 7.2h3.4a3 3 0 0 1 3 3v2.8M10.2 16.8H6.8a3 3 0 0 1-3-3V11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
             </svg>
           </span>
-          <h3 class="feature-title">Built properly for each platform</h3>
-          <p class="feature-text">The phone side is a native Android app. The PC side uses Windows' own building blocks — a background service, a small helper that runs inside your login session, and native Windows code. Some of these pieces are further along than others.</p>
-          <p class="feature-meta"><span class="chip">Mixed progress</span></p>
+          <h3 class="feature-title">Continuous Trust Validation</h3>
+          <p class="feature-text">Monitors connectivity state callbacks to drop sessions on interface switches. Enforces strict replay protection with monotonic request IDs and 30-second timestamp drift limits.</p>
+          <p class="feature-meta"><span class="chip">Implemented</span></p>
         </article>
       </div>
     </div>
@@ -3172,50 +3172,52 @@
           </div>
         </div>
 
-        <!-- 02 -->
+        <!-- Tab 02: Network Settings -->
         <div class="tabpanel" id="panel-network" role="tabpanel" aria-labelledby="tab-network" tabindex="0" hidden>
-          <h3 class="panel-title">Network settings at a glance</h3>
-          <p class="panel-lede">The values the project uses.</p>
-          <div class="table-wrap" tabindex="0" role="region" aria-label="Network settings table, scrollable">
+          <h3 class="panel-title">Transport and Protocol Specifications</h3>
+          <p class="panel-lede">Exact configuration defaults from <code>appsettings.json</code> and protocol constants.</p>
+          <div class="table-wrap" tabindex="0" role="region" aria-label="Network settings table">
             <table class="ref-table">
               <thead>
-                <tr>
-                  <th scope="col">Setting</th>
-                  <th scope="col">Value</th>
-                </tr>
+                <tr><th scope="col">Setting</th><th scope="col">Value</th><th scope="col">Purpose</th></tr>
               </thead>
               <tbody>
-                <tr><th scope="row">Network</th><td>Your local Wi-Fi or LAN</td></tr>
-                <tr><th scope="row">Connection type</th><td>Direct, device to device</td></tr>
-                <tr><th scope="row">Encryption</th><td>TLS 1.3</td></tr>
-                <tr><th scope="row">Port</th><td><code>TCP 37123</code></td></tr>
-                <tr><th scope="row">Finding each other</th><td>mDNS and UDP broadcast</td></tr>
-                <tr><th scope="row">Cloud relay</th><td>Not used</td></tr>
-                <tr><th scope="row">Bluetooth</th><td>Not used for commands</td></tr>
+                <tr><th scope="row">Transport</th><td>TLS 1.3 over direct TCP</td><td>Encapsulated command channel</td></tr>
+                <tr><th scope="row">Listen Port</th><td><code>TCP 37123</code></td><td>Local socket daemon</td></tr>
+                <tr><th scope="row">Discovery</th><td>mDNS (<code>_tether._tcp.</code>) & UDP <code>37123</code></td><td>Zero-configuration local pairing</td></tr>
+                <tr><th scope="row">Keepalive</th><td><code>5 seconds</code></td><td>Heartbeat interval for drop detection</td></tr>
+                <tr><th scope="row">Replay Window</th><td><code>30 seconds</code></td><td>Maximum allowable timestamp drift</td></tr>
+                <tr><th scope="row">Key Specifications</th><td>RSA-2048 (<code>TetherAsymmetricKey_v3</code>)</td><td>Mutual identity challenge signing</td></tr>
               </tbody>
             </table>
           </div>
-          <p class="panel-fine">Using TLS 1.3 on paper doesn't mean it's configured correctly. Certificates, key storage, and how the other device is verified all matter — and those live in the source code.</p>
         </div>
 
-        <!-- 03 -->
+        <!-- Tab 03: IPC Topology -->
         <div class="tabpanel" id="panel-ipc" role="tabpanel" aria-labelledby="tab-ipc" tabindex="0" hidden>
-          <h3 class="panel-title">How the Windows parts talk to each other</h3>
-          <p class="panel-lede">Named pipes are the internal messaging channel on the PC side.</p>
+          <h3 class="panel-title">Windows IPC & Session 0 Architecture</h3>
+          <p class="panel-lede">Isolated processes communicate through authenticated Windows Named Pipes with strict ACL enforcement.</p>
           <div class="ipc-map" aria-hidden="true">
-            <span class="ipc-box">Windows service</span>
+            <span class="ipc-box">Desktop UI</span>
             <span class="ipc-pipe"><i></i><i></i><i></i></span>
-            <span class="ipc-box">Desktop window</span>
+            <span class="ipc-box" style="border-color: var(--accent);">Tether.CommunicationService (Session 0)</span>
             <span class="ipc-pipe"><i></i><i></i><i></i></span>
-            <span class="ipc-box">Session helper</span>
+            <span class="ipc-box">Session Helper (Session 1+)</span>
           </div>
-          <p>Each of these runs in a different context, so the messaging between them needs care:</p>
-          <ul class="tick-list">
-            <li>Only approved programs should be able to connect to the pipe.</li>
-            <li>The program on the other end should prove who it is.</li>
-            <li>Messages should be checked before they trigger anything real.</li>
-            <li>Things should recover cleanly if a connection drops.</li>
-          </ul>
+          <dl class="role-list" style="margin-top: 18px;">
+            <div>
+              <dt><code>TetherPipe</code></dt>
+              <dd>Bidirectional control and event stream between <code>Tether.CommunicationService</code> and <code>Tether.DesktopUI</code>.</dd>
+            </div>
+            <div>
+              <dt><code>TetherUiPipe</code></dt>
+              <dd>Dedicated diagnostics relay streaming real-time IPC telemetry to the desktop control plane.</dd>
+            </div>
+            <div>
+              <dt><code>Tether.InputPipe</code></dt>
+              <dd>Dedicated input stream dispatching mouse deltas and key strokes from the network daemon to <code>Tether.SessionHelper.exe</code> inside the active interactive desktop.</dd>
+            </div>
+          </dl>
         </div>
 
         <!-- 04 -->
@@ -3345,33 +3347,41 @@
         <li class="roadmap-item reveal">
           <span class="roadmap-marker" aria-hidden="true"></span>
           <div class="roadmap-body">
-            <h3 class="roadmap-title">Support for hardware security keys</h3>
-            <p>Plug in a physical security key as an extra step when confirming something sensitive, on top of your phone.</p>
-            <p class="roadmap-status"><span class="chip chip-planned">Planned</span></p>
+            <h3 class="roadmap-title">FIDO2 / WebAuthn Passkey Support</h3>
+            <p>Android companion integration allowing your phone to act as a hardware-backed FIDO2 passkey authenticator for web and desktop sign-in.</p>
+            <p class="roadmap-status"><span class="chip chip-planned">Roadmap</span></p>
           </div>
         </li>
         <li class="roadmap-item reveal">
           <span class="roadmap-marker" aria-hidden="true"></span>
           <div class="roadmap-body">
-            <h3 class="roadmap-title">More fingerprint and face confirmation</h3>
-            <p>Use your phone's biometric unlock in more places, especially before important commands.</p>
-            <p class="roadmap-status"><span class="chip chip-planned">Planned</span></p>
+            <h3 class="roadmap-title">Multi-Workstation Management</h3>
+            <p>Manage and orchestrate pairing relationships with multiple Windows workstations simultaneously from a single mobile companion app.</p>
+            <p class="roadmap-status"><span class="chip chip-planned">Roadmap</span></p>
           </div>
         </li>
         <li class="roadmap-item reveal">
           <span class="roadmap-marker" aria-hidden="true"></span>
           <div class="roadmap-body">
-            <h3 class="roadmap-title">Manage more than one device</h3>
-            <p>A single screen to see and manage several paired computers.</p>
-            <p class="roadmap-status"><span class="chip chip-planned">Planned</span></p>
+            <h3 class="roadmap-title">Direct BLE Fallback Channel</h3>
+            <p>Low-latency Bluetooth Low Energy fallback transport for zero-Wi-Fi environments and restricted corporate subnets.</p>
+            <p class="roadmap-status"><span class="chip chip-planned">Roadmap</span></p>
           </div>
         </li>
         <li class="roadmap-item reveal">
           <span class="roadmap-marker" aria-hidden="true"></span>
           <div class="roadmap-body">
-            <h3 class="roadmap-title">Proper automated testing</h3>
-            <p>Tests that run the whole flow end to end, from phone to PC and back.</p>
-            <p class="roadmap-status"><span class="chip chip-planned">Planned</span></p>
+            <h3 class="roadmap-title">Credential Provider E2E Test Harness</h3>
+            <p>Automated end-to-end integration testing framework for verifying native Logon UI provider state changes and unlock sequences across Windows versions.</p>
+            <p class="roadmap-status"><span class="chip chip-planned">Roadmap</span></p>
+          </div>
+        </li>
+        <li class="roadmap-item reveal">
+          <span class="roadmap-marker" aria-hidden="true"></span>
+          <div class="roadmap-body">
+            <h3 class="roadmap-title">Native ARM64 Windows Support</h3>
+            <p>Compilation targets and native Win32 Credential Provider binaries for ARM64 Snapdragon Windows devices.</p>
+            <p class="roadmap-status"><span class="chip chip-planned">Roadmap</span></p>
           </div>
         </li>
       </ol>
@@ -3397,7 +3407,7 @@
         <details class="faq-item">
           <summary>What can it actually do right now?</summary>
           <div class="faq-body">
-            <p>The project is being built in stages. Right now, pairing your phone with your PC and sending basic commands such as locking the screen are the core focus. Volume, brightness, and the emergency lockdown are still being worked on.</p>
+            <p>The current beta build implements cryptographic device pairing over TLS 1.3, Windows unlock via the native Credential Provider and Android biometrics, emergency lockdown/trust revocation, remote trackpad and keyboard input streaming, display brightness and Core Audio controls, and session-aware utility launching.</p>
           </div>
         </details>
 
