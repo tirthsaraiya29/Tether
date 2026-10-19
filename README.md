@@ -14,6 +14,7 @@
 ## Table of Contents
 
 - [Overview](#overview)
+- [Installation and Setup](#installation-and-setup)
 - [Use Cases and Value Proposition](#use-cases-and-value-proposition)
 - [Key Features](#key-features)
 - [Visual Highlights and UI Screenshots](#visual-highlights-and-ui-screenshots)
@@ -21,7 +22,6 @@
 - [Architecture Deep Dive for Contributors](#architecture-deep-dive-for-contributors)
 - [Supported Platforms](#supported-platforms)
 - [Prerequisites](#prerequisites)
-- [Installation and Setup](#installation-and-setup)
 - [Quick Start and Usage](#quick-start-and-usage)
 - [Security Model](#security-model)
 - [Project Structure](#project-structure)
@@ -39,6 +39,42 @@
 **Tether** is an open-source personal trust and authentication platform designed to connect an Android device with a Windows workstation. It aims to use a smartphone as a cryptographically secured **trust anchor**, enabling device-based authentication workflows, workstation locking, trust validation, emergency lockdown, and remote workstation control.
 
 Unlike cloud-dependent companion applications, Tether communicates directly over local Wi-Fi/LAN infrastructure without requiring a cloud relay.
+
+## Installation and Setup
+
+Download prebuilt binaries directly from the official releases:
+
+[**Download Tether from GitHub Releases**](https://github.com/tirthsaraiya29/Tether/releases)
+
+### 1. Download Artifacts
+
+- Windows Installer: `Tether-Setup-*.exe`
+- Android Companion: `Tether.apk`
+
+### 2. Windows Account Preparation
+
+> [!WARNING]
+> Do not disable your default sign-in methods or remove PIN/password options. Maintain a secondary administrator account during beta testing.
+
+### 3. Install on Windows
+
+1. Run `Tether-Setup-*.exe` as Administrator.
+2. Complete the wizard to install `Tether.CommunicationService`, register `TetherCredentialProvider.dll`, and open local firewall port `37123`.
+3. Launch `Tether Desktop UI`.
+
+### 4. Install on Android
+
+1. Transfer and install `app-release.apk` on your mobile device.
+2. Open Tether and grant the requested local network permissions.
+
+### 5. Pair Devices
+
+1. Connect both devices to the same local Wi-Fi network.
+2. Open Tether Desktop UI and the Android companion app.
+3. Initiate pairing from Android and enter the pairing code displayed on the desktop UI.
+4. Verify the generated cryptographic fingerprint.
+
+---
 
 ### Who Is Tether For?
 
@@ -388,41 +424,6 @@ Named pipes must be hardened with strict ACLs, process identity validation, and 
 
 ---
 
-## Installation and Setup
-
-Download prebuilt binaries directly from the official releases:
-
-[**Download Tether from GitHub Releases**](https://github.com/tirthsaraiya29/Tether/releases)
-
-### 1. Download Artifacts
-
-- Windows Installer: `Tether-Setup-*.exe`
-- Android Companion: `Tether.apk`
-
-### 2. Windows Account Preparation
-
-> [!WARNING]
-> Do not disable your default sign-in methods or remove PIN/password options. Maintain a secondary administrator account during beta testing.
-
-### 3. Install on Windows
-
-1. Run `Tether-Setup-*.exe` as Administrator.
-2. Complete the wizard to install `Tether.CommunicationService`, register `TetherCredentialProvider.dll`, and open local firewall port `37123`.
-3. Launch `Tether Desktop UI`.
-
-### 4. Install on Android
-
-1. Transfer and install `app-release.apk` on your mobile device.
-2. Open Tether and grant the requested local network permissions.
-
-### 5. Pair Devices
-
-1. Connect both devices to the same local Wi-Fi network.
-2. Open Tether Desktop UI and the Android companion app.
-3. Initiate pairing from Android and enter the pairing code displayed on the desktop UI.
-4. Verify the generated cryptographic fingerprint.
-
----
 
 ## Quick Start and Usage
 
