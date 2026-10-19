@@ -123,6 +123,7 @@ Download prebuilt binaries directly from the official releases:
 - **Interactive Session Helper:** `Tether.SessionHelper.exe` operates inside active user sessions for session-bound operations.
 - **Desktop Configuration UI:** `Tether.DesktopUI` provides an interface for status monitoring, configuration, and diagnostics.
 - **Named-Pipe IPC:** Windows services and desktop clients communicate through authenticated inter-process communication channels.
+- **Service Lifecycle Management:** Direct service restart control from `Tether.DesktopUI` using the Windows Service Control Manager (SCM) APIs.
 
 ### Remote Control and Execution
 
@@ -398,7 +399,7 @@ To interact with resources in an active user session:
 Windows components use named pipes for local inter-process communication:
 
 - **`TetherPipe`:** Service-to-desktop-UI control and event channel (`Tether.Shared.IPC.IpcConstants.PipeName`).
-- **`TetherUiPipe`:** Service-to-desktop-UI diagnostics relay (`IpcConstants.UiPipeName`).
+- **`TetherUiPipe`:** Service-to-desktop-UI diagnostics relay (`IpcConstants.UiPipeName`), operating in byte transmission mode.
 - **`Tether.InputPipe`:** Communication-service-to-session-helper stream for remote input events.
 
 Named pipes must be hardened with strict ACLs, process identity validation, and message length validation to prevent unauthorized local manipulation.
@@ -460,6 +461,11 @@ All command payloads require:
 - Uncompromised root/SU status.
 - Hardware-backed biometric availability.
 - Developer options status.
+
+### 5. Windows Credential Storage & Password Verification
+- **Hashing Schemes:** Supports `pbkdf2-sha256-600k` (600,000 iterations), `pbkdf2-sha512-210k` (210,000 iterations), and legacy `sha256-v1` hashes with automatic inline upgrade upon successful authentication.
+- **Side-Channel Mitigation:** Constant-time password verification prevents timing side-channel leakage during hash comparisons.
+- **Registry Vault Hardening:** Credential secrets reside in a dedicated `HKLM\...\Secrets` registry subkey protected by hardened discretionary access control lists (`VaultDaclVersion=2`) restricted to privileged system accounts.
 
 ---
 
@@ -532,6 +538,7 @@ Settings can be inspected and modified via `appsettings.json` within service dir
 | `HELPER_NOT_FOUND` | `Tether.SessionHelper.exe` missing from expected path. | Reinstall or repair the Windows package via the installer. |
 | `BIOMETRIC_FAILED` | Fingerprint/Face auth canceled or unconfigured. | Enroll biometrics in Android settings and ensure prompt is satisfied. |
 | `Windows unlock rejected` | Credential Provider unable to locate credentials or invalid hash. | Unlock via standard Windows PIN/Password and verify pairing state in Desktop UI. |
+| `Connection timeout` | `TetherCommService` (`Tether.CommunicationService`) is stopped or TCP `37123` blocked. | Verify service status in `services.msc` and inspect Windows Firewall rules. |
 
 If issues persist, file a bug on [GitHub Issues](https://github.com/tirthsaraiya29/Tether/issues) with service logs and system specifications.
 
