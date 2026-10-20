@@ -548,6 +548,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 Log.w(TAG, "Manual server/transport restart requested")
                 resetReconnectBackoff()
                 restartTransport()
+                notifyStateToInterface()
                 return START_STICKY
             }
             ACTION_CONNECT_DIRECT -> {

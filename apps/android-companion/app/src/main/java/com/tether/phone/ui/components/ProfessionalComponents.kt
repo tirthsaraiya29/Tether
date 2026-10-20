@@ -477,7 +477,6 @@ fun LiquidGlassAppLauncher(
 ) {
     val apps = listOf(
         Triple("Browser", "🌐", "launch_browser"),
-        Triple("Terminal", "💻", "powershell"),
         Triple("Task Manager", "📊", "launch_task_manager"),
         Triple("Explorer", "📁", "launch_explorer"),
         Triple("Settings", "⚙️", "launch_settings"),
