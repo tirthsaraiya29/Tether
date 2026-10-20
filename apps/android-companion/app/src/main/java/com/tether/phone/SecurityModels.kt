@@ -26,7 +26,8 @@ enum class AppScreen {
     LAPTOP_CONTROL,
     SYSTEM_APPS,
     PAIRING,
-    REMOTE_INPUT
+    REMOTE_INPUT,
+    PERMISSIONS
 }
 
 enum class TrustTier(@param:StringRes val labelRes: Int, val color: Color) {
