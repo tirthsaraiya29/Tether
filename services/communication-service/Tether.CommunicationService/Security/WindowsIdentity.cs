@@ -12,6 +12,7 @@ public sealed class WindowsIdentity : IDisposable
     private const string FriendlyName = "Tether Windows Identity";
     private const string StoreName = "My";
     private const string ServerAuthOid = "1.3.6.1.5.5.7.3.1";
+    private const string PfxPassword = "tether-identity-pass";
 
     private readonly ITetherLogger _logger;
     private readonly X509Certificate2 _certificate;
@@ -52,21 +53,16 @@ public sealed class WindowsIdentity : IDisposable
             var existing = store.Certificates
                 .Find(X509FindType.FindBySubjectDistinguishedName, SubjectDn, validOnly: false)
                 .OfType<X509Certificate2>()
-                .FirstOrDefault(c =>
-                    string.Equals(c.FriendlyName, FriendlyName, StringComparison.Ordinal));
+                .FirstOrDefault(c => string.Equals(c.FriendlyName, FriendlyName, StringComparison.Ordinal));
 
             if (existing is { HasPrivateKey: true } && existing.NotAfter > DateTime.UtcNow.AddDays(30))
             {
-                try
+                if (CanSignWithPrivateKey(existing))
                 {
-                    // Verify private key access
-                    using var ec = existing.GetECDsaPrivateKey();
-                    if (ec != null) return existing;
+                    return existing;
                 }
-                catch (Exception ex)
-                {
-                    _logger.Warning($"Existing cert private key inaccessible ({ex.Message}), creating new identity.");
-                }
+
+                _logger.Warning("Existing cert private key signing test failed. Removing stale cert.");
             }
 
             if (existing != null)
@@ -75,24 +71,26 @@ public sealed class WindowsIdentity : IDisposable
                 catch (Exception ex) { _logger.Warning($"Could not remove stale identity cert: {ex.Message}"); }
             }
 
-            _logger.Warning($"Generating new Tether identity certificate (ECDSA P-256, self-signed, 10y, Store={storeLocation}).");
+            _logger.Warning($"Generating new Tether identity certificate (RSA 2048, self-signed, 10y, Store={storeLocation}).");
 
             using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
             var req = new CertificateRequest(new X500DistinguishedName(SubjectDn), ecdsa, HashAlgorithmName.SHA256);
 
             req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
-            req.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, false));
-            req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new Oid(ServerAuthOid) }, false));
+            req.CertificateExtensions.Add(new X509KeyUsageExtension(
+                X509KeyUsageFlags.DigitalSignature, false));
+            req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+                new OidCollection { new Oid(ServerAuthOid) }, false));
             req.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(req.PublicKey, false));
 
             var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
             var notAfter = DateTimeOffset.UtcNow.AddYears(10);
 
             using var ephemeral = req.CreateSelfSigned(notBefore, notAfter);
-            var pfx = ephemeral.Export(X509ContentType.Pfx);
+            var pfx = ephemeral.Export(X509ContentType.Pfx, PfxPassword);
 
 #pragma warning disable SYSLIB0057
-            var persisted = new X509Certificate2(pfx, (string?)null, keyFlags);
+            var persisted = new X509Certificate2(pfx, PfxPassword, keyFlags);
 #pragma warning restore SYSLIB0057
 
             persisted.FriendlyName = FriendlyName;
@@ -101,17 +99,42 @@ public sealed class WindowsIdentity : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Error($"Failed loading/creating identity cert in {storeLocation} store: {ex.Message}. Falling back to ephemeral in-memory cert.");
+            _logger.Error($"Failed loading/creating identity cert in {storeLocation} store: {ex.Message}. Falling back to ephemeral cert.");
 
-            using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-            var req = new CertificateRequest(new X500DistinguishedName(SubjectDn), ecdsa, HashAlgorithmName.SHA256);
+            using var rsa = RSA.Create(2048);
+            var req = new CertificateRequest(new X500DistinguishedName(SubjectDn), rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
-            req.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, false));
+            req.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, false));
             req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new Oid(ServerAuthOid) }, false));
             req.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(req.PublicKey, false));
 
             return req.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(10));
         }
+    }
+
+    private static bool CanSignWithPrivateKey(X509Certificate2 cert)
+    {
+        try
+        {
+            using var rsa = cert.GetRSAPrivateKey();
+            if (rsa != null)
+            {
+                byte[] testData = new byte[] { 1, 2, 3, 4, 5 };
+                byte[] sig = rsa.SignData(testData, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                return sig != null && sig.Length > 0;
+            }
+
+            using var ec = cert.GetECDsaPrivateKey();
+            if (ec != null)
+            {
+                byte[] testData = new byte[] { 1, 2, 3, 4, 5 };
+                byte[] sig = ec.SignData(testData, HashAlgorithmName.SHA256);
+                return sig != null && sig.Length > 0;
+            }
+        }
+        catch { }
+
+        return false;
     }
 
     private static bool IsAdministrator()

@@ -123,6 +123,13 @@ public sealed class TetherSession : IDisposable
                 CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
             };
 
+            // Workaround for ECDSA CNG key container issues
+            if (_identity.Certificate.HasPrivateKey)
+            {
+                sslOptions.ServerCertificateSelectionCallback = (sender, host) => _identity.Certificate;
+                sslOptions.ServerCertificate = null;
+            }
+
             using var tlsCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt);
             tlsCts.CancelAfter(TimeSpan.FromSeconds(15));
 
