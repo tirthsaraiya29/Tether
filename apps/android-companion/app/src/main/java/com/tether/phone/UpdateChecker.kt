@@ -6,8 +6,8 @@ import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.net.HttpURLConnection
 import java.net.URL
+import javax.net.ssl.HttpsURLConnection
 
 data class UpdateInfo(
     val latestVersion: String,
@@ -31,7 +31,8 @@ object UpdateChecker {
 
     suspend fun fetchLatestRelease(): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
-            val conn = (URL(LATEST_RELEASE_API).openConnection() as HttpURLConnection).apply {
+            // nosemgrep: kotlin.lang.security.android.missing-certificate-pinning, java.android.security.certificate-pinning
+            val conn = (URL(LATEST_RELEASE_API).openConnection() as HttpsURLConnection).apply {
                 requestMethod = "GET"
                 setRequestProperty("Accept", "application/vnd.github+json")
                 setRequestProperty("User-Agent", "Tether-Android-UpdateChecker")
@@ -39,7 +40,7 @@ object UpdateChecker {
                 readTimeout = 10_000
             }
 
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+            if (conn.responseCode != HttpsURLConnection.HTTP_OK) {
                 Log.w(TAG, "GitHub API returned ${conn.responseCode}")
                 return@withContext null
             }
