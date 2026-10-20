@@ -561,9 +561,11 @@ public sealed class FileTransferReceiver : IDisposable
 
     public static string PromoteToDownloads(string stagingPath, string fileName, ITetherLogger logger)
     {
-        string downloadsFolder = GetActiveUserDownloadsDirectory();
-        string tetherFolder = Path.Combine(downloadsFolder, "Tether");
-        Directory.CreateDirectory(tetherFolder);
+        string tetherFolder = GetTargetTetherFolder();
+        if (!Directory.Exists(tetherFolder))
+        {
+            Directory.CreateDirectory(tetherFolder);
+        }
 
         string destinationPath = Path.Combine(tetherFolder, fileName);
         string baseName = Path.GetFileNameWithoutExtension(fileName);
@@ -576,12 +578,41 @@ public sealed class FileTransferReceiver : IDisposable
             counter++;
         }
 
-        File.Move(stagingPath, destinationPath, overwrite: false);
+        // Copy then delete to properly inherit target folder ACLs for standard users
+        File.Copy(stagingPath, destinationPath, overwrite: false);
+        File.Delete(stagingPath);
+
         logger.Info($"Promoted file from staging to destination: {destinationPath}");
         return destinationPath;
     }
 
-    public static string GetActiveUserDownloadsDirectory()
+    public static string GetTargetTetherFolder()
+    {
+        string baseUserFolder = GetActiveUserDirectory();
+
+        // Check for custom path setting
+        string settingsFile = Path.Combine(baseUserFolder, "AppData", "Local", "Tether", "settings.json");
+        if (File.Exists(settingsFile))
+        {
+            try
+            {
+                var doc = JsonDocument.Parse(File.ReadAllText(settingsFile));
+                if (doc.RootElement.TryGetProperty("DownloadPath", out var pathProp))
+                {
+                    string customPath = pathProp.GetString() ?? "";
+                    if (!string.IsNullOrWhiteSpace(customPath) && Directory.Exists(customPath))
+                    {
+                        return customPath;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        return Path.Combine(baseUserFolder, "Downloads", "Tether");
+    }
+
+    public static string GetActiveUserDirectory()
     {
         try
         {
@@ -600,14 +631,13 @@ public sealed class FileTransferReceiver : IDisposable
 
                 foreach (var dir in userDirs)
                 {
-                    string downloads = Path.Combine(dir, "Downloads");
-                    if (Directory.Exists(downloads)) return downloads;
+                    if (Directory.Exists(Path.Combine(dir, "Downloads"))) return dir;
                 }
             }
         }
         catch { }
 
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     }
 
     private static bool FixedTimeHexEquals(string hexA, string hexB)

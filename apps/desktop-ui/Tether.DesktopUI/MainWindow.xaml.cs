@@ -11,6 +11,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -246,6 +247,7 @@ namespace Tether.DesktopUI
             ResolveUserContext();
             LogTerminal("SYSTEM // Tether Telemetry Workspace initialized (Zero-Shader Mode).");
             EnsureVaultDaclArchitecture();
+            UpdateDownloadFolderBtnText();
 
             StateChanged += MainWindow_StateChanged;
 
@@ -1154,17 +1156,80 @@ namespace Tether.DesktopUI
         {
             try
             {
-                string downloadsFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Tether");
-                if (!Directory.Exists(downloadsFolder))
+                string targetFolder = GetCurrentDownloadFolder();
+                if (!Directory.Exists(targetFolder))
                 {
-                    Directory.CreateDirectory(downloadsFolder);
+                    Directory.CreateDirectory(targetFolder);
                 }
-                Process.Start("explorer.exe", downloadsFolder);
+                Process.Start("explorer.exe", targetFolder);
             }
             catch (Exception ex)
             {
                 LogTerminal($"⚠ ERROR // Could not open Downloads folder: {ex.Message}");
             }
+        }
+
+        private void MenuItem_ChangeDownloadFolder_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dialog = new Microsoft.Win32.OpenFolderDialog
+                {
+                    Title = "Select Default Download Folder for Tether",
+                    InitialDirectory = GetCurrentDownloadFolder()
+                };
+
+                if (dialog.ShowDialog() == true)
+                {
+                    string newPath = dialog.FolderName;
+                    string settingsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tether");
+                    Directory.CreateDirectory(settingsDir);
+                    string settingsFile = Path.Combine(settingsDir, "settings.json");
+
+                    string json = "{}";
+                    if (File.Exists(settingsFile)) json = File.ReadAllText(settingsFile);
+
+                    var doc = JsonNode.Parse(json)?.AsObject() ?? new JsonObject();
+                    doc["DownloadPath"] = newPath;
+
+                    File.WriteAllText(settingsFile, doc.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+
+                    UpdateDownloadFolderBtnText();
+                    LogTerminal($"Download folder changed to: {newPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"⚠ ERROR // Could not change folder: {ex.Message}");
+            }
+        }
+
+        private string GetCurrentDownloadFolder()
+        {
+            try
+            {
+                string settingsFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tether", "settings.json");
+                if (File.Exists(settingsFile))
+                {
+                    var doc = JsonDocument.Parse(File.ReadAllText(settingsFile));
+                    if (doc.RootElement.TryGetProperty("DownloadPath", out var pathProp))
+                    {
+                        string customPath = pathProp.GetString() ?? "";
+                        if (!string.IsNullOrWhiteSpace(customPath) && Directory.Exists(customPath))
+                        {
+                            return customPath;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Tether");
+        }
+
+        private void UpdateDownloadFolderBtnText()
+        {
+            string current = GetCurrentDownloadFolder();
+            TxtDownloadFolderBtn.Text = $"Open {new DirectoryInfo(current).Name}";
         }
 
         private void BtnCancelActiveTransfer_Click(object sender, RoutedEventArgs e)
