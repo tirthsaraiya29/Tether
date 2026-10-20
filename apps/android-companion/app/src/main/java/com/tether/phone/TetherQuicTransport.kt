@@ -122,7 +122,9 @@ class TetherQuicTransportImpl(
     }
 
     private fun createSslContext(): SSLContext {
-        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
+        val tmf = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
+        tmf.init(null as java.security.KeyStore?)
+        val defaultTrustManager = tmf.trustManagers.filterIsInstance<X509ExtendedTrustManager>().firstOrNull()
 
         val pinningTrustManager = object : X509ExtendedTrustManager() {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
@@ -130,7 +132,7 @@ class TetherQuicTransportImpl(
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                checkPinning(chain)
+                checkPinning(chain, authType, null, null)
             }
 
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) {
@@ -138,7 +140,7 @@ class TetherQuicTransportImpl(
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) {
-                checkPinning(chain)
+                checkPinning(chain, authType, socket, null)
             }
 
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
@@ -146,21 +148,39 @@ class TetherQuicTransportImpl(
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
-                checkPinning(chain)
+                checkPinning(chain, authType, null, engine)
             }
 
-            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            override fun getAcceptedIssuers(): Array<X509Certificate> {
+                return defaultTrustManager?.acceptedIssuers ?: arrayOf()
+            }
 
-            private fun checkPinning(chain: Array<out X509Certificate>?) {
+            private fun checkPinning(
+                chain: Array<out X509Certificate>?,
+                authType: String?,
+                socket: Socket? = null,
+                engine: javax.net.ssl.SSLEngine? = null,
+            ) {
                 if (chain.isNullOrEmpty()) {
                     throw CertificateException("Server certificate chain is null or empty")
                 }
                 val leaf = chain[0]
                 leaf.checkValidity()
 
-                if ((pinnedBytes != null) && pinnedBytes.isNotEmpty()) {
+                val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
+                if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
                     if (!MessageDigest.isEqual(pinnedBytes, leaf.publicKey.encoded)) {
                         throw CertificateException("Certificate pinning verification failed: public key fingerprint mismatch")
+                    }
+                } else {
+                    try {
+                        when {
+                            socket != null -> defaultTrustManager?.checkServerTrusted(chain, authType, socket)
+                            engine != null -> defaultTrustManager?.checkServerTrusted(chain, authType, engine)
+                            else -> defaultTrustManager?.checkServerTrusted(chain, authType)
+                        }
+                    } catch (e: Exception) {
+                        throw CertificateException("No pinned key available and system trust verification failed: ${e.message}", e)
                     }
                 }
             }
