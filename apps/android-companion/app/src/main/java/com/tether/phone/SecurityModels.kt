@@ -21,6 +21,7 @@ enum class TrustState {
 
 enum class AppScreen {
     TELEMETRY_DASHBOARD,
+    FILE_TRANSFER,
     SECURITY_SETTINGS,
     LAPTOP_CONTROL,
     SYSTEM_APPS,
