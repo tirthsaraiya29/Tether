@@ -114,7 +114,7 @@ class TetherTlsTransport(
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                checkPinning(chain, authType, null, null)
+                checkPinning(chain)
             }
 
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
@@ -122,7 +122,7 @@ class TetherTlsTransport(
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
-                checkPinning(chain, authType, socket, null)
+                checkPinning(chain)
             }
 
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
@@ -130,7 +130,7 @@ class TetherTlsTransport(
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
-                checkPinning(chain, authType, null, engine)
+                checkPinning(chain)
             }
 
             override fun getAcceptedIssuers(): Array<X509Certificate> {
@@ -139,9 +139,6 @@ class TetherTlsTransport(
 
             private fun checkPinning(
                 chain: Array<out X509Certificate>?,
-                authType: String?,
-                socket: java.net.Socket? = null,
-                engine: javax.net.ssl.SSLEngine? = null,
             ) {
                 if (chain.isNullOrEmpty()) {
                     throw CertificateException("Server certificate chain is null or empty")
@@ -155,15 +152,11 @@ class TetherTlsTransport(
                         throw CertificateException("Certificate pinning verification failed: public key fingerprint mismatch")
                     }
                 } else {
-                    try {
-                        when {
-                            socket != null -> defaultTrustManager?.checkServerTrusted(chain, authType, socket)
-                            engine != null -> defaultTrustManager?.checkServerTrusted(chain, authType, engine)
-                            else -> defaultTrustManager?.checkServerTrusted(chain, authType)
-                        }
-                    } catch (e: Exception) {
-                        throw CertificateException("No pinned key available and system trust verification failed: ${e.message}", e)
-                    }
+                    // Trust On First Use (TOFU) / Pairing Mode:
+                    // If no key is pinned, we temporarily accept the self-signed certificate at the TLS layer.
+                    // The application-level TetherPairingManager will negotiate identity, display fingerprints,
+                    // and require user approval before finally pinning this key.
+                    Log.i(TAG, "No pinned key found. Temporarily accepting certificate for pairing handshake.")
                 }
             }
         }
