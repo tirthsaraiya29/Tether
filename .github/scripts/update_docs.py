@@ -1,4 +1,3 @@
-
 import json
 import os
 import re
@@ -16,16 +15,46 @@ DOCS = {
     "index.html": ROOT / "index.html",
 }
 
-IGNORED = {
+IGNORED_EXACT = {
     "README.md",
     "index.html",
     ".github/workflows/ai-documentation.yml",
     ".github/scripts/update_docs.py",
 }
 
-MAX_DIFF_CHARS = 40_000
-MAX_SOURCE_FILE_CHARS = 12_000
-MAX_SOURCE_CONTEXT_CHARS = 50_000
+IGNORED_EXTENSIONS = {
+    ".lock",
+    ".sln",
+    ".vcxproj",
+    ".vcxproj.filters",
+    ".csproj",
+    ".jar",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".svg",
+    ".ico",
+    ".bin",
+    ".exe",
+    ".dll",
+    ".pdb",
+}
+
+IGNORED_DIR_PREFIXES = (
+    ".git/",
+    ".github/",
+    ".gradle/",
+    "gradle/",
+    "build/",
+    "bin/",
+    "obj/",
+    ".idea/",
+    ".vs/",
+)
+
+MAX_DIFF_CHARS = 160_000
+MAX_SOURCE_FILE_CHARS = 20_000
+MAX_SOURCE_CONTEXT_CHARS = 80_000
 MAX_DOCUMENT_CHARS = 1_000_000
 MAX_RESPONSE_ATTEMPTS = 2
 
@@ -173,7 +202,6 @@ def read_changed_sources(paths):
     for relative in paths:
         path = ROOT / relative
 
-        # Never follow symlinks or read outside the repository.
         try:
             path.resolve().relative_to(ROOT.resolve())
         except ValueError:
@@ -303,19 +331,16 @@ No Markdown fences or text outside the JSON.
 
 
 def parse_model_content(content, done_reason):
-    """Parse JSON, tolerating common harmless model formatting mistakes."""
     if not isinstance(content, str) or not content.strip():
         raise RuntimeError("Ollama returned an empty response.")
 
     cleaned = content.strip()
 
-    # First try the response exactly as returned.
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
 
-    # Handle JSON wrapped in Markdown code fences.
     unfenced = re.sub(
         r"\A```(?:json)?\s*",
         "",
@@ -330,15 +355,12 @@ def parse_model_content(content, done_reason):
     except json.JSONDecodeError:
         pass
 
-    # Recover a complete JSON object if the model added surrounding prose.
-    # The regular JSON decoder still verifies the entire object syntax.
     start = unfenced.find("{")
     if start >= 0:
         try:
             answer, end = json.JSONDecoder().raw_decode(unfenced[start:])
             trailing = unfenced[start + end:].strip()
 
-            # Do not silently accept arbitrary trailing text.
             if not trailing or trailing in ("```",):
                 return answer
         except json.JSONDecodeError:
@@ -424,7 +446,6 @@ def ask_ollama(model, payload):
             if attempt + 1 >= MAX_RESPONSE_ATTEMPTS:
                 raise
 
-            # Retry once with a short instruction, without logging model output.
             messages.append({
                 "role": "assistant",
                 "content": content if isinstance(content, str) else "",
@@ -550,8 +571,9 @@ def main():
 
     source_paths = [
         path for path in all_paths
-        if path not in IGNORED
-        and not path.startswith(".git/")
+        if path not in IGNORED_EXACT
+        and not any(path.startswith(prefix) for prefix in IGNORED_DIR_PREFIXES)
+        and not any(path.endswith(ext) for ext in IGNORED_EXTENSIONS)
     ]
 
     if not source_paths:
@@ -566,10 +588,20 @@ def main():
     raw_diff = get_diff(base, head, source_paths)
 
     if len(raw_diff) > MAX_DIFF_CHARS:
-        raise RuntimeError(
-            "The source diff exceeds the safe context limit. "
-            "No update was attempted to avoid analyzing partial evidence."
+        print(
+            f"Source diff ({len(raw_diff)} chars) exceeds safe limit of {MAX_DIFF_CHARS}. "
+            "Abstaining from automated doc updates."
         )
+        set_output("changed", "false")
+        write_summary([
+            "## AI documentation review",
+            f"- Base SHA: `{base}`",
+            f"- Head SHA: `{head}`",
+            f"- Diff length: `{len(raw_diff)}` characters (Limit: `{MAX_DIFF_CHARS}`)",
+            "",
+            "Diff exceeds safe context window. Workflow skipped cleanly without failing the job.",
+        ])
+        return
 
     diff = redact(raw_diff)
     source_context, source_map = read_changed_sources(source_paths)
@@ -641,7 +673,6 @@ def main():
         write_summary(summary_lines)
         return
 
-    # Only these two approved files can be written.
     DOCS["README.md"].write_text(
         answer["readme_md"],
         encoding="utf-8",
