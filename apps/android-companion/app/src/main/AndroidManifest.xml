@@ -31,6 +31,7 @@
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <permission
@@ -83,7 +84,7 @@
             android:name=".TetherLanService"
             android:exported="false"
             android:directBootAware="true"
-            android:foregroundServiceType="connectedDevice">
+            android:foregroundServiceType="connectedDevice|dataSync">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Tether continuous Wi-Fi Direct / P2P connection with paired Windows host" />
