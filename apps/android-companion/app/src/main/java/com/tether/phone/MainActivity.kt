@@ -15,9 +15,11 @@ import android.util.Log
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.Toast
+import android.net.Uri
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -33,6 +35,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.tether.phone.ui.components.*
 import com.tether.phone.ui.screens.*
@@ -50,6 +53,8 @@ class MainActivity : FragmentActivity() {
     private val requestPermissionsCode = 101
     private val preferenceName = "tether_secure_prefs"
     private val panicStateKey = "is_panic_active"
+
+    private val updateViewModel: UpdateViewModel by viewModels()
 
     private val appLockBackgroundTimestampKey = "app_lock_bg_timestamp"
 
@@ -311,16 +316,23 @@ class MainActivity : FragmentActivity() {
             "reboot" -> LaptopPowerState.RESTARTING
             else -> LaptopPowerState.DISCONNECTED
         }
-        val oldPng = java.io.File(filesDir, "laptop_wallpaper.png")
-        if (oldPng.exists()) try { oldPng.delete() } catch (_: Exception) {}
 
-        val wpFile = java.io.File(filesDir, "laptop_wallpaper.jpg")
-        laptopTelemetry.value = LaptopTelemetry(
-            powerState = initialPowerState,
-            lastPowerCommand = persistedCmd,
-            lastPowerCommandAtMs = persistedCmdAtMs,
-            wallpaperPath = if (wpFile.exists() && wpFile.length() > 0) wpFile.absolutePath else null,
-        )
+        lifecycleScope.launch(Dispatchers.IO) {
+            val oldPng = java.io.File(filesDir, "laptop_wallpaper.png")
+            if (oldPng.exists()) try { oldPng.delete() } catch (_: Exception) {}
+
+            val wpFile = java.io.File(filesDir, "laptop_wallpaper.jpg")
+            val wpPath = if (wpFile.exists() && wpFile.length() > 0) wpFile.absolutePath else null
+            
+            withContext(Dispatchers.Main) {
+                laptopTelemetry.value = LaptopTelemetry(
+                    powerState = initialPowerState,
+                    lastPowerCommand = persistedCmd,
+                    lastPowerCommandAtMs = persistedCmdAtMs,
+                    wallpaperPath = wpPath,
+                )
+            }
+        }
 
         isBiometricSettingEnabled.value = true
         selectedTimeoutMs.longValue = 60_000L
@@ -334,11 +346,18 @@ class MainActivity : FragmentActivity() {
             setPanicUiState()
         }
 
-        requestBatteryOptimizationExemption()
-
         // Show biometric authentication prompt IMMEDIATELY on app launch
         isLoading.value = false
         authenticateForAppUnlock()
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                withContext(Dispatchers.Main) {
+                    requestBatteryOptimizationExemption()
+                }
+            }
+        }
 
         setContent {
             LaunchedEffect(isPrivacyMaskEnabled.value, isBlockScreenReadingEnabled.value, isHideInRecentsEnabled.value) {
@@ -362,6 +381,11 @@ class MainActivity : FragmentActivity() {
                             }
                         } else if (isEnvironmentRestricted.value) {
                             CompromisedEnvironmentOverlay(score = currentIntegrityScore.intValue)
+                        } else if (isAppLocked.value) {
+                            Box(Modifier.fillMaxSize()) { DeepSpaceCanvasVisualizer() }
+                            FuturisticLockOverlay {
+                                authenticateForAppUnlock()
+                            }
                         } else {
                             TetherNavigationShell(
                                 laptopTelemetry = laptopTelemetry.value,
@@ -453,16 +477,6 @@ class MainActivity : FragmentActivity() {
                             }
 
                             AnimatedVisibility(
-                                visible = isAppLocked.value,
-                                enter = fadeIn(animationSpec = tween(800, easing = TetherEase)),
-                                exit = fadeOut(animationSpec = tween(800, easing = TetherEase)),
-                            ) {
-                                FuturisticLockOverlay {
-                                    authenticateForAppUnlock()
-                                }
-                            }
-
-                            AnimatedVisibility(
                                 visible = activePendingCommand.value != null,
                                 enter = fadeIn(tween(400)),
                                 exit = fadeOut(tween(400)) + scaleOut(targetScale = 0.5f, animationSpec = tween(400, easing = TetherEase)),
@@ -475,6 +489,29 @@ class MainActivity : FragmentActivity() {
                                         activePendingCommand.value = null
                                     }
                                 }
+                            }
+
+                            val dialogVisible by updateViewModel.dialogVisible.collectAsStateWithLifecycle()
+                            val updateInfo by updateViewModel.updateInfo.collectAsStateWithLifecycle()
+
+                            val currentUpdateInfo = updateInfo
+                            if (dialogVisible && currentUpdateInfo != null) {
+                                UpdateDialog(
+                                    updateInfo = currentUpdateInfo,
+                                    onDismiss = { updateViewModel.dismissDialog() },
+                                    onDownload = {
+                                        val downloadUrl = currentUpdateInfo.apkDownloadUrl ?: currentUpdateInfo.releaseUrl
+                                        if (downloadUrl.isNotBlank()) {
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl))
+                                                startActivity(intent)
+                                                updateViewModel.dismissDialog()
+                                            } catch (e: Exception) {
+                                                Log.e("MainActivity", "Failed to open download URL: ${e.message}")
+                                            }
+                                        }
+                                    },
+                                )
                             }
                         }
                     }
@@ -573,6 +610,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        updateViewModel.checkForUpdate(BuildConfig.VERSION_NAME, this)
         if (isEnvironmentRestricted.value || isPanicActive.value) return
         if (!isAppLocked.value && checkPermissions()) {
             startLanService()
@@ -582,6 +620,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
+        updateViewModel.onAppBackgrounded()
         if (isBiometricSettingEnabled.value) {
             getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
                 putLong(appLockBackgroundTimestampKey, System.currentTimeMillis())
@@ -614,7 +653,7 @@ class MainActivity : FragmentActivity() {
                     }
 
                     lifecycleScope.launch(Dispatchers.IO) {
-                        val report = DeviceIntegrityRegistry(this@MainActivity).runAttestationPipeline()
+                        val report = DeviceIntegrityRegistry(this@MainActivity).getCachedOrFastReport()
                         withContext(Dispatchers.Main) {
                             currentIntegrityScore.intValue = report.score
                             if (report.score < 70) {
@@ -629,6 +668,11 @@ class MainActivity : FragmentActivity() {
                                 }
                                 syncLanState()
                                 handleVoiceIntent(intent)
+                                
+                                // Background evaluation of slow integrity checks
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    DeviceIntegrityRegistry(this@MainActivity).runAttestationPipelineAsync()
+                                }
                             }
                         }
                     }
@@ -722,6 +766,7 @@ class MainActivity : FragmentActivity() {
             val promptBuilder = BiometricPrompt.PromptInfo.Builder()
                 .setTitle(title)
                 .setSubtitle(subtitle)
+                .setConfirmationRequired(false) // Accelerate biometric auth
                 .setAllowedAuthenticators(allowedAuthenticators)
             if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
                 promptBuilder.setNegativeButtonText(getString(R.string.btn_abort))
