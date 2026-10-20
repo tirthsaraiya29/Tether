@@ -303,6 +303,116 @@
                               Padding="0,0,4,0">
                     <StackPanel>
 
+                        <!-- File Transfers Card -->
+                        <Border x:Name="CardFileTransfer" Style="{StaticResource GlassPanel}" Margin="0,0,0,18">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <Grid Grid.Row="0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="QUIC FILE SHARING // UDP:37125 • SHA-512"
+                                                   Style="{StaticResource SectionEyebrowTextStyle}"/>
+                                        <TextBlock Text="Active &amp; Recent Transfers"
+                                                   Style="{StaticResource CardTitleTextStyle}"/>
+                                    </StackPanel>
+
+                                    <Button x:Name="BtnOpenDownloadsFolder"
+                                            Grid.Column="1"
+                                            Height="32"
+                                            Padding="12,0"
+                                            Style="{StaticResource {x:Type Button}}"
+                                            Click="BtnOpenDownloadsFolder_Click">
+                                        <Button.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Change Download Folder..." Click="MenuItem_ChangeDownloadFolder_Click" />
+                                            </ContextMenu>
+                                        </Button.ContextMenu>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE8B7;"
+                                                       FontFamily="{StaticResource IconFontFamily}"
+                                                       FontSize="12"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,6,0"/>
+                                            <TextBlock x:Name="TxtDownloadFolderBtn"
+                                                       Text="Open Downloads"
+                                                       FontFamily="{StaticResource FluentFontFamily}"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+
+                                <Border Grid.Row="1"
+                                        Margin="0,14,0,0"
+                                        Padding="14,12"
+                                        CornerRadius="8"
+                                        Background="#1A000000"
+                                        BorderBrush="#33FFFFFF"
+                                        BorderThickness="1">
+                                    <StackPanel>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="TxtTransferFileName"
+                                                       Text="No active file transfers"
+                                                       FontFamily="{StaticResource FluentFontFamily}"
+                                                       FontSize="13"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                                            <TextBlock x:Name="TxtTransferSpeed"
+                                                       Grid.Column="1"
+                                                       Text="0.0 MB/s"
+                                                       FontFamily="{StaticResource MonoFontFamily}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                                        </Grid>
+
+                                        <ProgressBar x:Name="TransferProgressBar"
+                                                     Height="6"
+                                                     Margin="0,10,0,8"
+                                                     Minimum="0"
+                                                     Maximum="100"
+                                                     Value="0"
+                                                     Foreground="{StaticResource SystemAccentBrush}"
+                                                     Background="#33FFFFFF"
+                                                     BorderThickness="0"/>
+
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="TxtTransferMeta"
+                                                       Text="Receiver ready • ALPN tether-quic-v1"
+                                                       FontFamily="{StaticResource MonoFontFamily}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                                            <Button x:Name="BtnCancelActiveTransfer"
+                                                    Grid.Column="1"
+                                                    Height="24"
+                                                    Padding="8,0"
+                                                    Visibility="Collapsed"
+                                                    Style="{StaticResource DestructiveButton}"
+                                                    Click="BtnCancelActiveTransfer_Click">
+                                                <TextBlock Text="Cancel" FontSize="10" FontWeight="SemiBold"/>
+                                            </Button>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Border>
+
                         <!-- Security Pipeline Card -->
                         <Border x:Name="CardPipeline" Style="{StaticResource GlassPanel}">
                             <Grid>

@@ -3,6 +3,7 @@ using System;
 using System.Buffers;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -10,6 +11,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -36,6 +38,7 @@ namespace Tether.DesktopUI
         private bool _isClosingAnimated = false;
         private uint _cachedBrightness = 50;
         private bool _supportsPowerSchemeBrightness = true;
+        private string _activeTransferId = "";
 
         [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
         internal class MMDeviceEnumerator { }
@@ -244,6 +247,7 @@ namespace Tether.DesktopUI
             ResolveUserContext();
             LogTerminal("SYSTEM // Tether Telemetry Workspace initialized (Zero-Shader Mode).");
             EnsureVaultDaclArchitecture();
+            UpdateDownloadFolderBtnText();
 
             StateChanged += MainWindow_StateChanged;
 
@@ -528,6 +532,86 @@ namespace Tether.DesktopUI
                     {
                         WakeSystemDisplayAndInput();
                         LogTerminal("✓ POWER // Interactive display wake sequence executed.");
+                    }
+                    break;
+
+                case TetherEventType.FILE_TRANSFER_PROGRESS:
+                    if (!string.IsNullOrEmpty(evt.PayloadJson))
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(evt.PayloadJson);
+                            var root = doc.RootElement;
+                            string transferId = root.GetProperty("TransferId").GetString() ?? "";
+                            string fileName = root.GetProperty("FileName").GetString() ?? "file";
+                            long fileSize = root.GetProperty("FileSize").GetInt64();
+                            long bytesTransferred = root.GetProperty("BytesTransferred").GetInt64();
+                            double speedBytesPerSec = root.GetProperty("SpeedBytesPerSec").GetDouble();
+                            string peerName = root.GetProperty("PeerName").GetString() ?? "";
+
+                            _activeTransferId = transferId;
+                            int pct = fileSize > 0 ? (int)((double)bytesTransferred / fileSize * 100.0) : 0;
+                            double speedMb = speedBytesPerSec / (1024.0 * 1024.0);
+
+                            Dispatcher.InvokeAsync(() =>
+                            {
+                                TxtTransferFileName.Text = $"Receiving: {fileName} (from {peerName})";
+                                TransferProgressBar.Value = Math.Clamp(pct, 0, 100);
+                                TxtTransferSpeed.Text = $"{speedMb:F1} MB/s";
+                                TxtTransferMeta.Text = $"{bytesTransferred / (1024 * 1024)} / {fileSize / (1024 * 1024)} MB ({pct}%)";
+                                BtnCancelActiveTransfer.Visibility = Visibility.Visible;
+                            });
+                        }
+                        catch { }
+                    }
+                    break;
+
+                case TetherEventType.FILE_TRANSFER_COMPLETED:
+                    if (!string.IsNullOrEmpty(evt.PayloadJson))
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(evt.PayloadJson);
+                            var root = doc.RootElement;
+                            string fileName = root.GetProperty("FileName").GetString() ?? "file";
+                            string destPath = root.TryGetProperty("DestinationPath", out var dp) ? dp.GetString() ?? "" : "";
+
+                            Dispatcher.InvokeAsync(() =>
+                            {
+                                TxtTransferFileName.Text = $"Completed: {fileName}";
+                                TransferProgressBar.Value = 100;
+                                TxtTransferSpeed.Text = "SHA-512 Verified";
+                                TxtTransferMeta.Text = string.IsNullOrEmpty(destPath) ? "Saved to Downloads/Tether" : $"Saved to {destPath}";
+                                BtnCancelActiveTransfer.Visibility = Visibility.Collapsed;
+                                LogTerminal($"✓ FILE TRANSFER // Received and verified '{fileName}' successfully.");
+                            });
+                        }
+                        catch { }
+                    }
+                    break;
+
+                case TetherEventType.FILE_TRANSFER_FAILED:
+                case TetherEventType.FILE_TRANSFER_CANCELLED:
+                    if (!string.IsNullOrEmpty(evt.PayloadJson))
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(evt.PayloadJson);
+                            var root = doc.RootElement;
+                            string fileName = root.GetProperty("FileName").GetString() ?? "file";
+                            string errMsg = root.TryGetProperty("ErrorMessage", out var em) ? em.GetString() ?? "Stopped" : "Stopped";
+
+                            Dispatcher.InvokeAsync(() =>
+                            {
+                                TxtTransferFileName.Text = $"Stopped: {fileName}";
+                                TransferProgressBar.Value = 0;
+                                TxtTransferSpeed.Text = "Stopped";
+                                TxtTransferMeta.Text = errMsg;
+                                BtnCancelActiveTransfer.Visibility = Visibility.Collapsed;
+                                LogTerminal($"⚠ FILE TRANSFER // '{fileName}' {errMsg}");
+                            });
+                        }
+                        catch { }
                     }
                     break;
             }
@@ -1066,6 +1150,102 @@ namespace Tether.DesktopUI
             {
                 LogTerminal($"Vault DACL setup warning: {ex.Message}");
             }
+        }
+
+        private void BtnOpenDownloadsFolder_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string targetFolder = GetCurrentDownloadFolder();
+                if (!Directory.Exists(targetFolder))
+                {
+                    Directory.CreateDirectory(targetFolder);
+                }
+                Process.Start("explorer.exe", targetFolder);
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"⚠ ERROR // Could not open Downloads folder: {ex.Message}");
+            }
+        }
+
+        private void MenuItem_ChangeDownloadFolder_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dialog = new Microsoft.Win32.OpenFolderDialog
+                {
+                    Title = "Select Default Download Folder for Tether",
+                    InitialDirectory = GetCurrentDownloadFolder()
+                };
+
+                if (dialog.ShowDialog() == true)
+                {
+                    string newPath = dialog.FolderName;
+                    string settingsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tether");
+                    Directory.CreateDirectory(settingsDir);
+                    string settingsFile = Path.Combine(settingsDir, "settings.json");
+
+                    string json = "{}";
+                    if (File.Exists(settingsFile)) json = File.ReadAllText(settingsFile);
+
+                    var doc = JsonNode.Parse(json)?.AsObject() ?? new JsonObject();
+                    doc["DownloadPath"] = newPath;
+
+                    File.WriteAllText(settingsFile, doc.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+
+                    UpdateDownloadFolderBtnText();
+                    LogTerminal($"Download folder changed to: {newPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"⚠ ERROR // Could not change folder: {ex.Message}");
+            }
+        }
+
+        private string GetCurrentDownloadFolder()
+        {
+            try
+            {
+                string settingsFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tether", "settings.json");
+                if (File.Exists(settingsFile))
+                {
+                    var doc = JsonDocument.Parse(File.ReadAllText(settingsFile));
+                    if (doc.RootElement.TryGetProperty("DownloadPath", out var pathProp))
+                    {
+                        string customPath = pathProp.GetString() ?? "";
+                        if (!string.IsNullOrWhiteSpace(customPath) && Directory.Exists(customPath))
+                        {
+                            return customPath;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Tether");
+        }
+
+        private void UpdateDownloadFolderBtnText()
+        {
+            string current = GetCurrentDownloadFolder();
+            TxtDownloadFolderBtn.Text = $"Open {new DirectoryInfo(current).Name}";
+        }
+
+        private void BtnCancelActiveTransfer_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_activeTransferId)) return;
+
+            var cancelEvt = new TetherEvent
+            {
+                EventType = TetherEventType.FILE_TRANSFER_CANCEL_REQUESTED,
+                Timestamp = DateTime.UtcNow,
+                Source = "DesktopUI",
+                PayloadJson = JsonSerializer.Serialize(new { transferId = _activeTransferId })
+            };
+
+            DispatchServiceBusPipe(cancelEvt);
+            LogTerminal($"⚠ CANCEL REQUEST // Dispatched cancellation request for transfer '{_activeTransferId}'");
         }
 
         private void BtnCommitVault_Click(object sender, RoutedEventArgs e)

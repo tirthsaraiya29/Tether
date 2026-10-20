@@ -7,6 +7,7 @@ import android.graphics.Shader
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.QrCode
@@ -1156,6 +1158,7 @@ fun TetherNavigationShell(
 
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
+                            Triple("FILE SHARING", Icons.Default.Folder, AppScreen.FILE_TRANSFER),
                             Triple("REMOTE INPUT", Icons.Default.TouchApp, AppScreen.REMOTE_INPUT),
                             Triple(stringResource(R.string.nav_apps), Icons.Default.Refresh, AppScreen.SYSTEM_APPS),
                             Triple(stringResource(R.string.nav_security), Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
@@ -1275,6 +1278,13 @@ fun TetherNavigationShell(
                             onCancelPairing = onCancelPairing,
                             onConfirmPairing = onConfirmPairing,
                             onForgetTrust = onForgetTrust
+                        )
+                        AppScreen.FILE_TRANSFER -> FileTransferScreen(
+                            fileTransferManager = TetherLanService.instance?.fileTransferManager,
+                            onSendFileSelected = { uri ->
+                                Log.i("TetherApp", "User selected file URI for QUIC transfer: $uri")
+                                TetherLanService.instance?.sendFile(uri)
+                            }
                         )
                         AppScreen.REMOTE_INPUT -> RemoteInputScreen(
                             transportState = TetherLanService.instance?.currentState ?: TransportState.DISCONNECTED
