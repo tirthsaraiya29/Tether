@@ -86,6 +86,14 @@ public sealed class FileTransferManager : ITrustValidator, IDisposable
         out bool hasFilesCapability)
     {
         fingerprint = ComputeSpkiFingerprint(certificate);
+        return ValidatePeerByFingerprint(fingerprint, out displayName, out hasFilesCapability);
+    }
+
+    public bool ValidatePeerByFingerprint(
+        string fingerprint,
+        out string displayName,
+        out bool hasFilesCapability)
+    {
         bool trusted = _trustStoreProvider.IsPeerTrustedAndHasCapability(fingerprint, "FILES", out displayName);
         hasFilesCapability = trusted;
 
