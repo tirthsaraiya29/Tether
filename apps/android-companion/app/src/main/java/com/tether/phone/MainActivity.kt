@@ -104,6 +104,8 @@ class MainActivity : FragmentActivity() {
 
     private var lastBiometricAuthTime = 0L
     private val pendingSharedUris = java.util.Collections.synchronizedList(mutableListOf<Uri>())
+    private var isPermissionsBannerDismissed = mutableStateOf(false)
+    private var permissionStates = mutableStateOf<List<PermissionItemState>>(emptyList())
 
     private val securityEngine by lazy { ProductionSecurityEngine() }
     private lateinit var executor: ExecutorService
@@ -351,6 +353,8 @@ class MainActivity : FragmentActivity() {
             setPanicUiState()
         }
 
+        updatePermissionStates()
+
         // Process any incoming Share intent
         handleShareIntent(intent)
 
@@ -395,6 +399,11 @@ class MainActivity : FragmentActivity() {
                                 authenticateForAppUnlock()
                             }
                         } else {
+                            val ungrantedCritical = permissionStates.value.count { it.level == PermissionLevel.CRITICAL && !it.isGranted }
+                            val ungrantedHigh = permissionStates.value.count { it.level == PermissionLevel.HIGH && !it.isGranted }
+                            val missingTotal = ungrantedCritical + ungrantedHigh
+                            val showBanner = !isPermissionsBannerDismissed.value && missingTotal > 0
+
                             TetherNavigationShell(
                                 laptopTelemetry = laptopTelemetry.value,
                                 onLaptopCardClick = ::showLaptopHostDetailsDialog,
@@ -411,6 +420,12 @@ class MainActivity : FragmentActivity() {
                                 brightnessLevel = brightnessLevel.intValue,
                                 isMuted = isMuted.value,
                                 grantedCapabilities = grantedCapabilities.value,
+                                permissionItems = permissionStates.value,
+                                showPermissionsBanner = showBanner,
+                                missingPermissionsCount = missingTotal,
+                                onOpenAppSettings = ::openAppSettings,
+                                onGrantAllMissingPermissions = ::grantAllCriticalPermissions,
+                                onDismissPermissionsBanner = { isPermissionsBannerDismissed.value = true },
                                 onUnlockClick = {
                                     authenticateViaSystem(
                                         title = getString(R.string.auth_unlock_title),
@@ -736,6 +751,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        updatePermissionStates()
         updateViewModel.checkForUpdate(BuildConfig.VERSION_NAME, this)
         if (isEnvironmentRestricted.value || isPanicActive.value) return
         if (!isAppLocked.value && checkPermissions()) {
@@ -833,13 +849,16 @@ class MainActivity : FragmentActivity() {
         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
             Log.w("TetherUI", "App is not exempted from battery optimizations. Requesting exemption.")
             try {
-                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
                 batteryOptimizationLauncher.launch(intent)
             } catch (e: Exception) {
-                Log.e("TetherUI", "Failed to launch battery settings: ${e.message}")
+                Log.e("TetherUI", "Direct battery prompt failed, opening app settings: ${e.message}")
+                openAppSettings()
             }
         } else {
-            Log.i("TetherUI", "App is already exempted from battery optimizations.")
+            Toast.makeText(this, "Battery optimization exemption already active.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1083,6 +1102,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        updatePermissionStates()
         if (requestCode == requestPermissionsCode) {
             if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
                 if (!isAppLocked.value) {
@@ -1107,32 +1127,168 @@ class MainActivity : FragmentActivity() {
             required.add("android.permission.ACCESS_LOCAL_NETWORK")
         }
         ActivityCompat.requestPermissions(this, required.toTypedArray(), requestPermissionsCode)
-        checkSpecialPermissions()
     }
 
-    private fun checkSpecialPermissions() {
-        if (!Settings.canDrawOverlays(this)) {
-            try {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    android.net.Uri.parse("package:$packageName")
-                )
-                startActivity(intent)
-            } catch (_: Exception) {}
+    private fun openAppSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e("TetherUI", "Failed to open app details settings: ${e.message}")
         }
+    }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val nm = getSystemService(android.app.NotificationManager::class.java)
-            if (nm != null && !nm.canUseFullScreenIntent()) {
-                try {
-                    val intent = Intent(
-                        Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
-                        android.net.Uri.parse("package:$packageName")
-                    )
-                    startActivity(intent)
-                } catch (_: Exception) {}
+    private fun grantAllCriticalPermissions() {
+        val ungranted = mutableListOf<String>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ungranted.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
+                ungranted.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ungranted.add(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
+        if (Build.VERSION.SDK_INT >= 36) {
+            if (ContextCompat.checkSelfPermission(this, "android.permission.ACCESS_LOCAL_NETWORK") != PackageManager.PERMISSION_GRANTED) {
+                ungranted.add("android.permission.ACCESS_LOCAL_NETWORK")
+            }
+        }
+
+        if (ungranted.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, ungranted.toTypedArray(), requestPermissionsCode)
+        } else {
+            val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                requestBatteryOptimizationExemption()
+            }
+        }
+    }
+
+    private fun updatePermissionStates() {
+        val context = this
+        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+        val nm = getSystemService(android.app.NotificationManager::class.java)
+
+        val list = mutableListOf<PermissionItemState>()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val isGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
+            list.add(
+                PermissionItemState(
+                    id = Manifest.permission.NEARBY_WIFI_DEVICES,
+                    title = "Nearby Wi-Fi / Local Network",
+                    description = "Required for Wi-Fi Direct and local P2P socket communication with host PC.",
+                    level = PermissionLevel.CRITICAL,
+                    isGranted = isGranted,
+                    actionText = "GRANT",
+                    onClick = {
+                        if (!isGranted) {
+                            ActivityCompat.requestPermissions(context, arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES), requestPermissionsCode)
+                        }
+                    }
+                )
+            )
+        }
+
+        val isLocGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        list.add(
+            PermissionItemState(
+                id = Manifest.permission.ACCESS_FINE_LOCATION,
+                title = "Local Network Discovery (Location)",
+                description = "Required by Android OS to scan Wi-Fi LAN interfaces and discover host PC.",
+                level = PermissionLevel.CRITICAL,
+                isGranted = isLocGranted,
+                actionText = "GRANT",
+                onClick = {
+                    if (!isLocGranted) {
+                        ActivityCompat.requestPermissions(context, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), requestPermissionsCode)
+                    }
+                }
+            )
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val isNotifGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            list.add(
+                PermissionItemState(
+                    id = Manifest.permission.POST_NOTIFICATIONS,
+                    title = "System Notifications",
+                    description = "Shows real-time connection status, background link activity, and file progress.",
+                    level = PermissionLevel.HIGH,
+                    isGranted = isNotifGranted,
+                    actionText = "ALLOW",
+                    onClick = {
+                        if (!isNotifGranted) {
+                            ActivityCompat.requestPermissions(context, arrayOf(Manifest.permission.POST_NOTIFICATIONS), requestPermissionsCode)
+                        }
+                    }
+                )
+            )
+        }
+
+        val isBatteryIgnored = powerManager.isIgnoringBatteryOptimizations(packageName)
+        list.add(
+            PermissionItemState(
+                id = "battery_optimization",
+                title = "Manage Battery Usage",
+                description = "Exempts Tether from Android Doze mode so background LAN communication stays active.",
+                level = PermissionLevel.HIGH,
+                isGranted = isBatteryIgnored,
+                actionText = "EXEMPT",
+                onClick = {
+                    requestBatteryOptimizationExemption()
+                }
+            )
+        )
+
+        val canOverlay = Settings.canDrawOverlays(context)
+        list.add(
+            PermissionItemState(
+                id = "system_overlay",
+                title = "Display Over Other Apps",
+                description = "Enables floating quick controls and overlay alerts when working in other apps.",
+                level = PermissionLevel.OPTIONAL,
+                isGranted = canOverlay,
+                actionText = "CONFIGURE",
+                onClick = {
+                    try {
+                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+                        startActivity(intent)
+                    } catch (_: Exception) {
+                        openAppSettings()
+                    }
+                }
+            )
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val canFullScreen = nm?.canUseFullScreenIntent() ?: true
+            list.add(
+                PermissionItemState(
+                    id = "full_screen_intent",
+                    title = "Full Screen Emergency Alerts",
+                    description = "Allows immediate full-screen notifications for emergency panic disconnect or unlock prompts.",
+                    level = PermissionLevel.OPTIONAL,
+                    isGranted = canFullScreen,
+                    actionText = "CONFIGURE",
+                    onClick = {
+                        try {
+                            val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:$packageName"))
+                            startActivity(intent)
+                        } catch (_: Exception) {
+                            openAppSettings()
+                        }
+                    }
+                )
+            )
+        }
+
+        permissionStates.value = list
     }
 
     private fun startLanService() {

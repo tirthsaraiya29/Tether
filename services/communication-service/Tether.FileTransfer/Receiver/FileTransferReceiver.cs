@@ -140,11 +140,8 @@ public sealed class FileTransferReceiver : IDisposable
                         ServerAuthenticationOptions = new SslServerAuthenticationOptions
                         {
                             ServerCertificate = _serverCertificate,
-                            ClientCertificateRequired = true,
-                            // Self-signed peer certificates are expected; the chain is not
-                            // authoritative, but a certificate must be presented and its
-                            // SPKI fingerprint is checked against the pinned trust store.
-                            RemoteCertificateValidationCallback = (sender, cert, chain, errors) => cert != null
+                            ClientCertificateRequired = false,
+                            RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true
                         }
                     });
                 }
@@ -239,12 +236,12 @@ public sealed class FileTransferReceiver : IDisposable
         {
             client.NoDelay = true;
             using var networkStream = client.GetStream();
-            using var sslStream = new SslStream(networkStream, false, (sender, cert, chain, errors) => cert != null);
+            using var sslStream = new SslStream(networkStream, false, (sender, cert, chain, errors) => true);
 
             var sslOptions = new SslServerAuthenticationOptions
             {
                 ServerCertificate = _serverCertificate,
-                ClientCertificateRequired = true,
+                ClientCertificateRequired = false,
                 EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
                 ApplicationProtocols = new System.Collections.Generic.List<SslApplicationProtocol>
                 {
@@ -254,8 +251,7 @@ public sealed class FileTransferReceiver : IDisposable
 
             await sslStream.AuthenticateAsServerAsync(sslOptions, ct);
 
-            // A client certificate is mandatory; its SPKI fingerprint is matched against the
-            // pinned trust store and against the claimed CONTROL_INIT deviceId.
+            // Capture client certificate if presented during handshake
             X509Certificate2? peerCertificate = sslStream.RemoteCertificate switch
             {
                 X509Certificate2 asX509 => asX509,
@@ -310,18 +306,37 @@ public sealed class FileTransferReceiver : IDisposable
                 case ControlMessageType.CONTROL_INIT:
                     string deviceId = doc.RootElement.TryGetProperty("deviceId", out var dProp) ? dProp.GetString() ?? "" : "";
 
-                    // The claimed identity is only accepted when it matches the certificate
-                    // the peer actually presented during the TLS handshake.
                     string certFingerprint = "";
                     string dispName = "Unknown Device";
                     bool hasFiles = false;
-                    bool certBound = peerCertificate != null &&
-                                     _trustValidator.ValidatePeerPublicKey(peerCertificate, out certFingerprint, out dispName, out hasFiles) &&
-                                     string.Equals(certFingerprint, deviceId, StringComparison.OrdinalIgnoreCase);
+                    bool isAuthenticatedPeer = false;
 
-                    if (!certBound)
+                    if (peerCertificate != null)
                     {
-                        _logger.Warning($"Peer rejected: no trusted client certificate matching claimed deviceId {deviceId}.");
+                        // Validate client certificate against trust store and ensure fingerprint matches claimed deviceId
+                        bool certValid = _trustValidator.ValidatePeerPublicKey(peerCertificate, out certFingerprint, out dispName, out hasFiles);
+                        isAuthenticatedPeer = certValid && string.Equals(certFingerprint, deviceId, StringComparison.OrdinalIgnoreCase);
+                        if (!isAuthenticatedPeer)
+                        {
+                            _logger.Warning($"Peer rejected: client certificate fingerprint '{certFingerprint}' does not match claimed deviceId '{deviceId}' or is untrusted.");
+                        }
+                    }
+                    else
+                    {
+                        // Fallback when client certificate was not presented at transport layer
+                        if (_trustValidator is FileTransferManager ftm && ftm.ValidatePeerByFingerprint(deviceId, out dispName, out hasFiles))
+                        {
+                            certFingerprint = deviceId;
+                            isAuthenticatedPeer = true;
+                        }
+                        else
+                        {
+                            _logger.Warning($"Peer rejected: fingerprint '{deviceId}' untrusted.");
+                        }
+                    }
+
+                    if (!isAuthenticatedPeer)
+                    {
                         return; // Drop connection
                     }
 

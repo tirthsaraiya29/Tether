@@ -9,15 +9,19 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.SocketException
 import java.net.SocketTimeoutException
+import java.security.Principal
+import java.security.PrivateKey
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
+import javax.net.ssl.X509ExtendedKeyManager
 
 
 interface TetherTransport {
@@ -161,13 +165,33 @@ class TetherTlsTransport(
             }
         }
 
-        val keyManagerFactory = javax.net.ssl.KeyManagerFactory.getInstance(javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm())
-        val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore")
-        keyStore.load(null)
-        keyManagerFactory.init(keyStore, null)
+        val customKeyManager = object : X509ExtendedKeyManager() {
+            override fun getClientAliases(keyType: String?, issuers: Array<out Principal>?): Array<String> = arrayOf("TetherIdentity")
+            override fun chooseClientAlias(keyType: Array<out String>?, issuers: Array<out Principal>?, socket: java.net.Socket?): String = "TetherIdentity"
+            override fun chooseEngineClientAlias(keyType: Array<out String>?, issuers: Array<out Principal>?, engine: SSLEngine?): String = "TetherIdentity"
+            override fun getServerAliases(keyType: String?, issuers: Array<out Principal>?): Array<String> = emptyArray()
+            override fun chooseServerAlias(keyType: String?, issuers: Array<out Principal>?, socket: java.net.Socket?): String? = null
+            override fun chooseEngineServerAlias(keyType: String?, issuers: Array<out Principal>?, engine: SSLEngine?): String? = null
+            override fun getCertificateChain(alias: String?): Array<X509Certificate>? {
+                return try {
+                    arrayOf(securityEngine.getIdentityCertificate())
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed retrieving identity certificate for TLS client auth: ${e.message}")
+                    null
+                }
+            }
+            override fun getPrivateKey(alias: String?): PrivateKey? {
+                return try {
+                    securityEngine.getIdentityPrivateKey()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed retrieving identity private key for TLS client auth: ${e.message}")
+                    null
+                }
+            }
+        }
 
         val sslContext = SSLContext.getInstance("TLSv1.3")
-        sslContext.init(keyManagerFactory.keyManagers, arrayOf<TrustManager>(pinningTrustManager), SecureRandom())
+        sslContext.init(arrayOf(customKeyManager), arrayOf<TrustManager>(pinningTrustManager), SecureRandom())
         return sslContext
     }
 
