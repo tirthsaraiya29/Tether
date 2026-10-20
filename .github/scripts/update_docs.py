@@ -8,6 +8,7 @@ import urllib.request
 from pathlib import Path
 
 API_URL = "https://ollama.com/api/chat"
+GITHUB_API_URL = "https://api.github.com"
 
 ROOT = Path.cwd()
 DOCS = {
@@ -122,10 +123,60 @@ def write_summary(lines):
         handle.write("\n".join(lines) + "\n")
 
 
+def find_last_successful_commit():
+    """Query GitHub API for the head commit of the last successful run of this workflow on this branch."""
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    branch = os.environ.get("BRANCH_NAME", "").strip()
+    workflow_file = "ai-documentation.yml"
+
+    if not token or not repo or not branch:
+        return ""
+
+    url = (
+        f"{GITHUB_API_URL}/repos/{repo}/actions/workflows/{workflow_file}/runs"
+        f"?branch={branch}&status=completed&conclusion=success&per_page=1"
+    )
+
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "Tether-CI-Documentation",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=15) as res:
+            data = json.loads(res.read().decode("utf-8"))
+            runs = data.get("workflow_runs", [])
+            if runs:
+                sha = runs[0].get("head_sha", "").strip()
+                # Confirm the SHA actually exists in local fetched history
+                if sha:
+                    try:
+                        run_git("cat-file", "-e", f"{sha}^{{commit}}")
+                        return sha
+                    except subprocess.CalledProcessError:
+                        pass
+    except Exception as exc:
+        print(f"Notice: Could not query previous workflow runs via GitHub API: {exc}")
+
+    return ""
+
+
 def determine_commits():
     head = os.environ.get("HEAD_SHA", "").strip()
     if not head:
         head = run_git("rev-parse", "HEAD").strip()
+
+    # Prioritize the commit from the last successful run to capture accumulated changes
+    base = find_last_successful_commit()
+    if base:
+        print(f"Using last successful workflow run commit as base: {base}")
+        return base, head
 
     base = os.environ.get("BASE_SHA", "").strip()
 
@@ -628,7 +679,7 @@ def main():
         raise RuntimeError("OLLAMA_MODEL cannot be empty.")
 
     print(
-        f"Analyzing {len(source_paths)} changed files with Ollama Cloud."
+        f"Analyzing {len(source_paths)} changed files with Ollama Cloud (diff from {base[:7] if base else 'root'}..{head[:7]})."
     )
 
     answer = ask_ollama(model, payload)
@@ -645,6 +696,8 @@ def main():
         "## AI documentation review",
         f"- Model: `{model}`",
         f"- Branch: `{payload['branch']}`",
+        f"- Base Commit: `{base}`",
+        f"- Head Commit: `{head}`",
         f"- Source files reviewed: {len(source_paths)}",
         f"- Decision: {'proposed changes' if should_write else 'no changes'}",
         "",
