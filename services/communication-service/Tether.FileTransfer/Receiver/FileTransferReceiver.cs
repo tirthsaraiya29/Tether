@@ -32,6 +32,7 @@ public sealed class FileTransferReceiver : IDisposable
 {
     public const int DefaultPort = 37125;
     private const int MaxControlFrameBytes = 65536; // 64 KB
+    private const int MaxDataFrameBytes = (1024 * 1024) + DataChunkFraming.HeaderSizeBytes; // 1 MB chunk + framing header
 
     private readonly ITetherLogger _logger;
     private readonly ITrustValidator _trustValidator;
@@ -101,10 +102,17 @@ public sealed class FileTransferReceiver : IDisposable
             try { cts.Dispose(); } catch { }
         }
 
-        string stagingFile = GetStagingFilePath(transferId);
-        if (File.Exists(stagingFile))
+        try
         {
-            try { File.Delete(stagingFile); } catch { }
+            string stagingFile = GetStagingFilePath(transferId);
+            if (File.Exists(stagingFile))
+            {
+                try { File.Delete(stagingFile); } catch { }
+            }
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.Warning($"Invalid transferId in CancelTransfer: {ex.Message}");
         }
     }
 
@@ -132,8 +140,11 @@ public sealed class FileTransferReceiver : IDisposable
                         ServerAuthenticationOptions = new SslServerAuthenticationOptions
                         {
                             ServerCertificate = _serverCertificate,
-                            ClientCertificateRequired = false,
-                            RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true
+                            ClientCertificateRequired = true,
+                            // Self-signed peer certificates are expected; the chain is not
+                            // authoritative, but a certificate must be presented and its
+                            // SPKI fingerprint is checked against the pinned trust store.
+                            RemoteCertificateValidationCallback = (sender, cert, chain, errors) => cert != null
                         }
                     });
                 }
@@ -167,10 +178,10 @@ public sealed class FileTransferReceiver : IDisposable
     {
         try
         {
-            // Identity validation is deferred to CONTROL_INIT
+            // Identity is proven by the client certificate; CONTROL_INIT may only confirm it.
             var stream = await connection.AcceptInboundStreamAsync(ct);
             using var streamAdapter = new QuicStreamAdapter(stream);
-            await HandleTransferSessionAsync(streamAdapter, ct);
+            await HandleTransferSessionAsync(streamAdapter, ExtractPeerCertFromConnection(connection), ct);
         }
         catch (Exception ex)
         {
@@ -228,12 +239,12 @@ public sealed class FileTransferReceiver : IDisposable
         {
             client.NoDelay = true;
             using var networkStream = client.GetStream();
-            using var sslStream = new SslStream(networkStream, false, (sender, cert, chain, errors) => true);
+            using var sslStream = new SslStream(networkStream, false, (sender, cert, chain, errors) => cert != null);
 
             var sslOptions = new SslServerAuthenticationOptions
             {
                 ServerCertificate = _serverCertificate,
-                ClientCertificateRequired = false,
+                ClientCertificateRequired = true,
                 EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
                 ApplicationProtocols = new System.Collections.Generic.List<SslApplicationProtocol>
                 {
@@ -243,10 +254,17 @@ public sealed class FileTransferReceiver : IDisposable
 
             await sslStream.AuthenticateAsServerAsync(sslOptions, ct);
 
-            // We do not require mTLS at the transport layer to avoid cross-platform ECDSA/RSA negotiation issues.
-            // Peer identity and FILES capability will be validated at the application layer via CONTROL_INIT.
+            // A client certificate is mandatory; its SPKI fingerprint is matched against the
+            // pinned trust store and against the claimed CONTROL_INIT deviceId.
+            X509Certificate2? peerCertificate = sslStream.RemoteCertificate switch
+            {
+                X509Certificate2 asX509 => asX509,
+                null => null,
+                var other => new X509Certificate2(other)
+            };
+
             using var streamAdapter = new NetworkStreamAdapter(sslStream);
-            await HandleTransferSessionAsync(streamAdapter, ct);
+            await HandleTransferSessionAsync(streamAdapter, peerCertificate, ct);
         }
         catch (Exception ex)
         {
@@ -258,7 +276,7 @@ public sealed class FileTransferReceiver : IDisposable
         }
     }
 
-    private async Task HandleTransferSessionAsync(ITransportStream stream, CancellationToken ct)
+    private async Task HandleTransferSessionAsync(ITransportStream stream, X509Certificate2? peerCertificate, CancellationToken ct)
     {
         _logger.Info("Starting HandleTransferSessionAsync (waiting for CONTROL_INIT)");
         byte[] lenBuffer = new byte[4];
@@ -292,27 +310,33 @@ public sealed class FileTransferReceiver : IDisposable
                 case ControlMessageType.CONTROL_INIT:
                     string deviceId = doc.RootElement.TryGetProperty("deviceId", out var dProp) ? dProp.GetString() ?? "" : "";
 
-                    // Call the new overloaded validate method (we'll implement this next)
-                    if (_trustValidator is FileTransferManager ftm && ftm.ValidatePeerByFingerprint(deviceId, out string dispName, out bool hasFiles))
+                    // The claimed identity is only accepted when it matches the certificate
+                    // the peer actually presented during the TLS handshake.
+                    string certFingerprint = "";
+                    string dispName = "Unknown Device";
+                    bool hasFiles = false;
+                    bool certBound = peerCertificate != null &&
+                                     _trustValidator.ValidatePeerPublicKey(peerCertificate, out certFingerprint, out dispName, out hasFiles) &&
+                                     string.Equals(certFingerprint, deviceId, StringComparison.OrdinalIgnoreCase);
+
+                    if (!certBound)
                     {
-                        if (hasFiles)
-                        {
-                            isAuthenticated = true;
-                            authenticatedPeerName = dispName;
-                            authenticatedFingerprint = deviceId;
-                            _logger.Info($"QUIC/TCP peer authenticated successfully: {dispName}");
-                            var ack = new ControlInitAckFrame { Status = "OK", GrantedCapabilities = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA" };
-                            await SendControlFrameAsync(stream, JsonSerializer.Serialize(ack), ct);
-                        }
-                        else
-                        {
-                            _logger.Warning($"Peer {dispName} rejected: missing FILES capability.");
-                            return; // Drop connection
-                        }
+                        _logger.Warning($"Peer rejected: no trusted client certificate matching claimed deviceId {deviceId}.");
+                        return; // Drop connection
+                    }
+
+                    if (hasFiles)
+                    {
+                        isAuthenticated = true;
+                        authenticatedPeerName = dispName;
+                        authenticatedFingerprint = certFingerprint;
+                        _logger.Info($"QUIC/TCP peer authenticated successfully: {dispName}");
+                        var ack = new ControlInitAckFrame { Status = "OK", GrantedCapabilities = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA" };
+                        await SendControlFrameAsync(stream, JsonSerializer.Serialize(ack), ct);
                     }
                     else
                     {
-                        _logger.Warning($"Peer rejected: fingerprint {deviceId} untrusted.");
+                        _logger.Warning($"Peer {dispName} rejected: missing FILES capability.");
                         return; // Drop connection
                     }
                     break;
@@ -331,6 +355,11 @@ public sealed class FileTransferReceiver : IDisposable
                     break;
 
                 case ControlMessageType.TRANSFER_CANCEL:
+                    if (!isAuthenticated)
+                    {
+                        _logger.Warning("TRANSFER_CANCEL received before CONTROL_INIT. Dropping connection.");
+                        return;
+                    }
                     var cancel = JsonSerializer.Deserialize<TransferCancelFrame>(jsonStr);
                     if (cancel != null)
                     {
@@ -405,6 +434,14 @@ public sealed class FileTransferReceiver : IDisposable
 
                     int totalFrameLength = BinaryPrimitives.ReadInt32BigEndian(frameLenBuf);
                     if (totalFrameLength < DataChunkFraming.HeaderSizeBytes - 4) break;
+
+                    long remainingBytes = request.FileSize - bytesTransferred;
+                    if (totalFrameLength > MaxDataFrameBytes ||
+                        totalFrameLength > remainingBytes + (DataChunkFraming.HeaderSizeBytes - 4))
+                    {
+                        throw new InvalidDataException(
+                            $"Data frame length {totalFrameLength} is invalid for transfer {transferId} (remaining bytes: {remainingBytes}).");
+                    }
 
                     byte[] frameBuffer = ArrayPool<byte>.Shared.Rent(totalFrameLength);
                     try
@@ -683,7 +720,20 @@ public sealed class FileTransferReceiver : IDisposable
 
     private string GetStagingFilePath(string transferId)
     {
-        return Path.Combine(_stagingDirectory, $"{transferId}.tmp");
+        if (!Guid.TryParse(transferId, out _))
+        {
+            throw new ArgumentException("transferId must be a GUID.", nameof(transferId));
+        }
+
+        string stagingRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_stagingDirectory));
+        string stagingFile = Path.GetFullPath(Path.Combine(stagingRoot, $"{transferId}.tmp"));
+
+        if (!stagingFile.StartsWith(stagingRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("transferId resolves outside the staging directory.", nameof(transferId));
+        }
+
+        return stagingFile;
     }
 
     private static void EnsureStagingDirectoryAcl(string directoryPath, ITetherLogger logger)
