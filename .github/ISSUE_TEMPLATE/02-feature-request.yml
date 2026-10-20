@@ -1,0 +1,72 @@
+
+name: "Feature Request"
+description: "Suggest a new feature or improvement for Tether."
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping shape Tether!
+
+        Describe the problem or use case first.
+        Suggestions are welcome, but acceptance and implementation are not guaranteed.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What limitation, inconvenience, or unmet need are you experiencing?
+      placeholder: |
+        As a Tether user, I want to...
+        because...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe how you think Tether could address this problem.
+      placeholder: Explain your proposed feature or improvement.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Relevant component
+      description: Which part of Tether would this affect?
+      options:
+        - Android app
+        - Windows service
+        - Windows desktop UI
+        - Windows Credential Provider
+        - Device pairing and trust
+        - Communication and file transfer
+        - Input and trackpad
+        - Installation and updates
+        - Cross-platform functionality
+        - Other / Unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you considered other solutions or workarounds?
+      placeholder: Describe any alternatives, if applicable.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: |
+        Add relevant examples, mockups, screenshots, or technical details.
+        Do not include secrets or sensitive personal information.
+    validations:
+      required: false

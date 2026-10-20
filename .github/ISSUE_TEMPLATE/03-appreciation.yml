@@ -1,0 +1,42 @@
+
+name: "Appreciation & Feedback"
+description: "Share appreciation, feedback, or your experience with Tether."
+title: "[Appreciation]: "
+labels:
+  - appreciation
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to share your experience with Tether!
+
+        Whether you appreciate the project, found something useful,
+        or have feedback to share, your message is welcome.
+
+  - type: textarea
+    id: message
+    attributes:
+      label: Your message
+      description: What would you like to share?
+      placeholder: |
+        Tell us what you appreciate about Tether,
+        how you use it, or what it means to you.
+    validations:
+      required: true
+
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Suggestions or feedback (optional)
+      description: What could make Tether better?
+      placeholder: Share any ideas or constructive feedback.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have not included passwords, private keys, tokens, or other sensitive information.
+          required: true
