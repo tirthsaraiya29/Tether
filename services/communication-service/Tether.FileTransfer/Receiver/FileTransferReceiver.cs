@@ -1,0 +1,729 @@
+using System;
+using System.Buffers;
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Quic;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.AccessControl;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Runtime.Versioning;
+using Tether.FileTransfer.Protocol;
+using Tether.Shared.Logging;
+
+namespace Tether.FileTransfer.Receiver;
+
+public interface ITrustValidator
+{
+    bool ValidatePeerPublicKey(X509Certificate2 certificate, out string fingerprint, out string displayName, out bool hasFilesCapability);
+}
+
+[SupportedOSPlatform("windows")]
+public sealed class FileTransferReceiver : IDisposable
+{
+    public const int DefaultPort = 37125;
+    private const int MaxControlFrameBytes = 65536; // 64 KB
+
+    private readonly ITetherLogger _logger;
+    private readonly ITrustValidator _trustValidator;
+    private readonly Action<TransferProgress> _onProgressUpdate;
+    private readonly X509Certificate2 _serverCertificate;
+
+    private readonly string _stagingDirectory;
+    private CancellationTokenSource? _cts;
+    private QuicListener? _quicListener;
+    private TcpListener? _tcpListener;
+
+    private Task? _quicLoop;
+    private Task? _tcpLoop;
+    private bool _disposed;
+
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeTransferCts = new();
+
+    public FileTransferReceiver(
+        ITetherLogger logger,
+        ITrustValidator trustValidator,
+        X509Certificate2 serverCertificate,
+        Action<TransferProgress> onProgressUpdate)
+    {
+        _logger = logger;
+        _trustValidator = trustValidator;
+        _serverCertificate = serverCertificate;
+        _onProgressUpdate = onProgressUpdate;
+
+        string commonData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        _stagingDirectory = Path.Combine(commonData, "Tether", "staging");
+        EnsureStagingDirectoryAcl(_stagingDirectory, _logger);
+    }
+
+    public void Start(int port = DefaultPort)
+    {
+        _cts = new CancellationTokenSource();
+
+        // 1. Start QUIC listener on UDP port
+        _quicLoop = Task.Run(() => StartQuicListenerAsync(port, _cts.Token));
+
+        // 2. Start TCP/SslStream listener on TCP port for Android client fallback
+        _tcpLoop = Task.Run(() => StartTcpListenerAsync(port, _cts.Token));
+
+        _logger.Info($"FileTransferReceiver listening on UDP/TCP port {port} (ALPN=tether-quic-v1).");
+    }
+
+    public void Stop()
+    {
+        try { _cts?.Cancel(); } catch { }
+
+        try { _quicListener?.DisposeAsync().AsTask().Wait(2000); } catch { }
+        try { _tcpListener?.Stop(); } catch { }
+
+        try { _quicLoop?.Wait(2000); } catch { }
+        try { _tcpLoop?.Wait(2000); } catch { }
+
+        _cts?.Dispose();
+        _cts = null;
+        _logger.Info("FileTransferReceiver stopped.");
+    }
+
+    public void CancelTransfer(string transferId)
+    {
+        if (_activeTransferCts.TryRemove(transferId, out var cts))
+        {
+            try { cts.Cancel(); } catch { }
+            try { cts.Dispose(); } catch { }
+        }
+
+        string stagingFile = GetStagingFilePath(transferId);
+        if (File.Exists(stagingFile))
+        {
+            try { File.Delete(stagingFile); } catch { }
+        }
+    }
+
+    private async Task StartQuicListenerAsync(int port, CancellationToken ct)
+    {
+        if (!QuicListener.IsSupported)
+        {
+            _logger.Warning("System.Net.Quic is not supported on this platform. QUIC UDP listener will not start.");
+            return;
+        }
+
+        try
+        {
+            var options = new QuicListenerOptions
+            {
+                ListenEndPoint = new IPEndPoint(IPAddress.Any, port),
+                ApplicationProtocols = new System.Collections.Generic.List<SslApplicationProtocol>
+                {
+                    new SslApplicationProtocol("tether-quic-v1")
+                },
+                ConnectionOptionsCallback = (connection, info, cancellationToken) =>
+                {
+                    return ValueTask.FromResult(new QuicServerConnectionOptions
+                    {
+                        ServerAuthenticationOptions = new SslServerAuthenticationOptions
+                        {
+                            ServerCertificate = _serverCertificate,
+                            ClientCertificateRequired = true,
+                            RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true // Handled in pipeline
+                        }
+                    });
+                }
+            };
+
+            _quicListener = await QuicListener.ListenAsync(options, ct);
+            _logger.Info($"QuicListener active on UDP port {port}.");
+
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    var conn = await _quicListener.AcceptConnectionAsync(ct);
+                    _ = Task.Run(() => HandleQuicConnectionAsync(conn, ct), ct);
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    if (ct.IsCancellationRequested) break;
+                    _logger.Warning($"QuicListener accept exception: {ex.Message}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed starting QuicListener on UDP {port}: {ex.Message}");
+        }
+    }
+
+    private async Task HandleQuicConnectionAsync(QuicConnection connection, CancellationToken ct)
+    {
+        try
+        {
+            X509Certificate2? x509 = ExtractPeerCertFromConnection(connection);
+
+            if (x509 == null || !_trustValidator.ValidatePeerPublicKey(x509, out string fingerprint, out string displayName, out bool hasFilesCap))
+            {
+                _logger.Warning("QUIC Connection rejected: Peer identity is untrusted or missing certificate.");
+                await connection.CloseAsync(QuicTransportErrorCode.CRYPTO_ERROR_BASE, ct);
+                return;
+            }
+
+            if (!hasFilesCap)
+            {
+                _logger.Warning($"QUIC Connection rejected for {displayName}: Missing FILES capability.");
+                await connection.CloseAsync(QuicTransportErrorCode.PROTOCOL_VIOLATION, ct);
+                return;
+            }
+
+            var stream = await connection.AcceptInboundStreamAsync(ct);
+            using var streamAdapter = new QuicStreamAdapter(stream);
+            await HandleTransferSessionAsync(streamAdapter, displayName, fingerprint, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"QuicConnection session ended: {ex.Message}");
+        }
+        finally
+        {
+            try { await connection.CloseAsync(0, ct); } catch { }
+        }
+    }
+
+    private static X509Certificate2? ExtractPeerCertFromConnection(QuicConnection connection)
+    {
+        try
+        {
+            if (connection.RemoteCertificate is X509Certificate2 cert) return cert;
+            if (connection.RemoteCertificate != null) return new X509Certificate2(connection.RemoteCertificate);
+        }
+        catch { }
+        return null;
+    }
+
+    private async Task StartTcpListenerAsync(int port, CancellationToken ct)
+    {
+        try
+        {
+            _tcpListener = new TcpListener(IPAddress.Any, port);
+            _tcpListener.Start(backlog: 8);
+            _logger.Info($"TcpListener active on TCP port {port}.");
+
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    var client = await _tcpListener.AcceptTcpClientAsync(ct);
+                    _ = Task.Run(() => HandleTcpConnectionAsync(client, ct), ct);
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    if (ct.IsCancellationRequested) break;
+                    _logger.Warning($"TcpListener accept exception: {ex.Message}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed starting TcpListener on TCP {port}: {ex.Message}");
+        }
+    }
+
+    private async Task HandleTcpConnectionAsync(TcpClient client, CancellationToken ct)
+    {
+        try
+        {
+            client.NoDelay = true;
+            using var networkStream = client.GetStream();
+            using var sslStream = new SslStream(networkStream, false, (sender, cert, chain, errors) => true);
+
+            var sslOptions = new SslServerAuthenticationOptions
+            {
+                ServerCertificate = _serverCertificate,
+                ClientCertificateRequired = true,
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
+                ApplicationProtocols = new System.Collections.Generic.List<SslApplicationProtocol>
+                {
+                    new SslApplicationProtocol("tether-quic-v1")
+                }
+            };
+
+            await sslStream.AuthenticateAsServerAsync(sslOptions, ct);
+
+            X509Certificate2? x509 = sslStream.RemoteCertificate is X509Certificate2 cert2
+                ? cert2
+                : (sslStream.RemoteCertificate != null ? new X509Certificate2(sslStream.RemoteCertificate) : null);
+
+            if (x509 == null || !_trustValidator.ValidatePeerPublicKey(x509, out string fingerprint, out string displayName, out bool hasFilesCap))
+            {
+                _logger.Warning("TCP TLS Connection rejected: Peer identity untrusted.");
+                return;
+            }
+
+            if (!hasFilesCap)
+            {
+                _logger.Warning($"TCP TLS Connection rejected for {displayName}: Missing FILES capability.");
+                return;
+            }
+
+            using var streamAdapter = new NetworkStreamAdapter(sslStream);
+            await HandleTransferSessionAsync(streamAdapter, displayName, fingerprint, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"TcpConnection session ended: {ex.Message}");
+        }
+        finally
+        {
+            try { client.Close(); } catch { }
+        }
+    }
+
+    private async Task HandleTransferSessionAsync(
+        ITransportStream stream,
+        string peerName,
+        string peerFingerprint,
+        CancellationToken ct)
+    {
+        byte[] lenBuffer = new byte[4];
+
+        while (!ct.IsCancellationRequested)
+        {
+            int read = await ReadExactAsync(stream, lenBuffer, 0, 4, ct);
+            if (read < 4) break;
+
+            int payloadLen = BinaryPrimitives.ReadInt32BigEndian(lenBuffer);
+            if (payloadLen <= 0 || payloadLen > MaxControlFrameBytes)
+            {
+                _logger.Error($"Invalid control frame length received: {payloadLen} bytes.");
+                break;
+            }
+
+            byte[] controlJsonBytes = new byte[payloadLen];
+            read = await ReadExactAsync(stream, controlJsonBytes, 0, payloadLen, ct);
+            if (read < payloadLen) break;
+
+            string jsonStr = Encoding.UTF8.GetString(controlJsonBytes);
+            using var doc = JsonDocument.Parse(jsonStr);
+            string messageType = doc.RootElement.GetProperty("type").GetString() ?? "";
+
+            switch (messageType)
+            {
+                case ControlMessageType.CONTROL_INIT:
+                    var ack = new ControlInitAckFrame { Status = "OK", GrantedCapabilities = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA" };
+                    await SendControlFrameAsync(stream, JsonSerializer.Serialize(ack), ct);
+                    break;
+
+                case ControlMessageType.TRANSFER_REQUEST:
+                    var request = JsonSerializer.Deserialize<TransferRequestFrame>(jsonStr);
+                    if (request != null)
+                    {
+                        await HandleIncomingTransferRequestAsync(stream, request, peerName, ct);
+                    }
+                    break;
+
+                case ControlMessageType.TRANSFER_CANCEL:
+                    var cancel = JsonSerializer.Deserialize<TransferCancelFrame>(jsonStr);
+                    if (cancel != null)
+                    {
+                        CancelTransfer(cancel.TransferId);
+                    }
+                    break;
+
+                default:
+                    _logger.Debug($"Unhandled control message type: {messageType}");
+                    break;
+            }
+        }
+    }
+
+    private async Task HandleIncomingTransferRequestAsync(
+        ITransportStream stream,
+        TransferRequestFrame request,
+        string peerName,
+        CancellationToken ct)
+    {
+        string transferId = request.TransferId;
+        string sanitizedFileName = SanitizeFilename(request.FileName);
+        string stagingFile = GetStagingFilePath(transferId);
+
+        using var transferCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        _activeTransferCts[transferId] = transferCts;
+
+        var progress = new TransferProgress
+        {
+            TransferId = transferId,
+            FileName = sanitizedFileName,
+            FileSize = request.FileSize,
+            BytesTransferred = 0L,
+            SpeedBytesPerSec = 0.0,
+            State = FileTransferState.TRANSFERRING,
+            IsIncoming = true,
+            PeerName = peerName
+        };
+
+        _onProgressUpdate(progress);
+
+        // Send ACCEPTED response
+        var acceptResp = new TransferResponseFrame
+        {
+            TransferId = transferId,
+            Status = "ACCEPTED",
+            ResumeOffset = 0L
+        };
+        await SendControlFrameAsync(stream, JsonSerializer.Serialize(acceptResp), ct);
+
+        // Prepare streaming file write & SHA-512 calculation
+        if (File.Exists(stagingFile))
+        {
+            try { File.Delete(stagingFile); } catch { }
+        }
+
+        using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA512);
+        long bytesTransferred = 0L;
+        long startTimeMs = Environment.TickCount64;
+        long lastEmitTimeMs = startTimeMs;
+
+        try
+        {
+            using (var fileStream = new FileStream(stagingFile, FileMode.Create, FileAccess.Write, FileShare.None, 65536, useAsync: true))
+            {
+                byte[] frameLenBuf = new byte[4];
+
+                while (bytesTransferred < request.FileSize && !transferCts.Token.IsCancellationRequested)
+                {
+                    int readLen = await ReadExactAsync(stream, frameLenBuf, 0, 4, transferCts.Token);
+                    if (readLen < 4) break;
+
+                    int totalFrameLength = BinaryPrimitives.ReadInt32BigEndian(frameLenBuf);
+                    if (totalFrameLength < DataChunkFraming.HeaderSizeBytes - 4) break;
+
+                    byte[] frameBuffer = ArrayPool<byte>.Shared.Rent(totalFrameLength);
+                    try
+                    {
+                        readLen = await ReadExactAsync(stream, frameBuffer, 0, totalFrameLength, transferCts.Token);
+                        if (readLen < totalFrameLength) break;
+
+                        var header = DataChunkFraming.ParseHeader(frameBuffer.AsSpan(0, DataChunkFraming.HeaderSizeBytes - 4));
+                        if (header.MsgType == DataChunkMessageType.MSG_DATA_END)
+                        {
+                            _logger.Info($"Received DATA_END signal for transfer {transferId}.");
+                            break;
+                        }
+
+                        int payloadOffset = DataChunkFraming.HeaderSizeBytes - 4;
+                        int payloadLen = header.PayloadLength;
+
+                        if (payloadLen > 0 && payloadOffset + payloadLen <= totalFrameLength)
+                        {
+                            await fileStream.WriteAsync(frameBuffer.AsMemory(payloadOffset, payloadLen), transferCts.Token);
+                            hasher.AppendData(frameBuffer, payloadOffset, payloadLen);
+                            bytesTransferred += payloadLen;
+
+                            long now = Environment.TickCount64;
+                            if (now - lastEmitTimeMs >= 100) // ~100ms throttle
+                            {
+                                double elapsedSec = (now - startTimeMs) / 1000.0;
+                                double speed = elapsedSec > 0 ? bytesTransferred / elapsedSec : 0.0;
+
+                                progress = progress with
+                                {
+                                    BytesTransferred = bytesTransferred,
+                                    SpeedBytesPerSec = speed,
+                                    State = FileTransferState.TRANSFERRING
+                                };
+                                _onProgressUpdate(progress);
+                                lastEmitTimeMs = now;
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(frameBuffer);
+                    }
+                }
+
+                await fileStream.FlushAsync(transferCts.Token);
+            }
+
+            // Verify SHA-512 integrity
+            progress = progress with { BytesTransferred = bytesTransferred, State = FileTransferState.VERIFYING };
+            _onProgressUpdate(progress);
+
+            byte[] computedHash = hasher.GetHashAndReset();
+            string computedHashHex = Convert.ToHexString(computedHash);
+
+            if (!FixedTimeHexEquals(computedHashHex, request.ExpectedSha512))
+            {
+                _logger.Error($"SHA-512 integrity verification failed for {sanitizedFileName} ({transferId}). Expected={request.ExpectedSha512}, Computed={computedHashHex}");
+                try { File.Delete(stagingFile); } catch { }
+
+                progress = progress with
+                {
+                    State = FileTransferState.FAILED,
+                    ErrorMessage = "SHA-512 integrity verification failed."
+                };
+                _onProgressUpdate(progress);
+
+                var failComplete = new TransferCompleteFrame
+                {
+                    TransferId = transferId,
+                    Status = "FAILED",
+                    ErrorCode = (int)FileTransferErrorCode.INTEGRITY_FAILED,
+                    Reason = "SHA-512 digest mismatch"
+                };
+                await SendControlFrameAsync(stream, JsonSerializer.Serialize(failComplete), ct);
+                return;
+            }
+
+            // Promote staging file to Downloads\Tether
+            string finalDestination = PromoteToDownloads(stagingFile, sanitizedFileName, _logger);
+
+            progress = progress with
+            {
+                BytesTransferred = bytesTransferred,
+                State = FileTransferState.COMPLETED,
+                DestinationPath = finalDestination,
+                ErrorMessage = null
+            };
+            _onProgressUpdate(progress);
+
+            _logger.Info($"File transfer {transferId} completed successfully! Destination={finalDestination}");
+
+            var successComplete = new TransferCompleteFrame
+            {
+                TransferId = transferId,
+                Status = "SUCCESS",
+                ErrorCode = 0,
+                Reason = ""
+            };
+            await SendControlFrameAsync(stream, JsonSerializer.Serialize(successComplete), ct);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.Warning($"Transfer {transferId} cancelled by user.");
+            try { File.Delete(stagingFile); } catch { }
+
+            progress = progress with
+            {
+                State = FileTransferState.CANCELLED,
+                ErrorMessage = "Cancelled by user"
+            };
+            _onProgressUpdate(progress);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error receiving transfer {transferId}: {ex.Message}");
+            try { File.Delete(stagingFile); } catch { }
+
+            progress = progress with
+            {
+                State = FileTransferState.FAILED,
+                ErrorMessage = ex.Message
+            };
+            _onProgressUpdate(progress);
+        }
+        finally
+        {
+            _activeTransferCts.TryRemove(transferId, out _);
+        }
+    }
+
+    public static string SanitizeFilename(string? rawFileName)
+    {
+        if (string.IsNullOrWhiteSpace(rawFileName)) return "tether_received_file";
+
+        string name = Path.GetFileName(rawFileName.Trim());
+        char[] invalidChars = Path.GetInvalidFileNameChars();
+
+        var sb = new StringBuilder(name.Length);
+        foreach (char c in name)
+        {
+            sb.Append(invalidChars.Contains(c) ? '_' : c);
+        }
+
+        string sanitized = sb.ToString().Trim();
+        if (string.IsNullOrEmpty(sanitized) || sanitized == "." || sanitized == "..")
+        {
+            return "tether_received_file";
+        }
+
+        return sanitized.Length > 255 ? sanitized[..255] : sanitized;
+    }
+
+    public static string PromoteToDownloads(string stagingPath, string fileName, ITetherLogger logger)
+    {
+        string downloadsFolder = GetActiveUserDownloadsDirectory();
+        string tetherFolder = Path.Combine(downloadsFolder, "Tether");
+        Directory.CreateDirectory(tetherFolder);
+
+        string destinationPath = Path.Combine(tetherFolder, fileName);
+        string baseName = Path.GetFileNameWithoutExtension(fileName);
+        string extension = Path.GetExtension(fileName);
+
+        int counter = 1;
+        while (File.Exists(destinationPath))
+        {
+            destinationPath = Path.Combine(tetherFolder, $"{baseName} ({counter}){extension}");
+            counter++;
+        }
+
+        File.Move(stagingPath, destinationPath, overwrite: false);
+        logger.Info($"Promoted file from staging to destination: {destinationPath}");
+        return destinationPath;
+    }
+
+    public static string GetActiveUserDownloadsDirectory()
+    {
+        try
+        {
+            string systemDrive = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
+            string usersDir = Path.Combine(systemDrive, "Users");
+
+            if (Directory.Exists(usersDir))
+            {
+                var userDirs = Directory.GetDirectories(usersDir)
+                    .Where(d => !d.EndsWith("Public", StringComparison.OrdinalIgnoreCase) &&
+                                !d.EndsWith("Default", StringComparison.OrdinalIgnoreCase) &&
+                                !d.EndsWith("Default User", StringComparison.OrdinalIgnoreCase) &&
+                                !d.EndsWith("All Users", StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(Directory.GetLastWriteTime)
+                    .ToList();
+
+                foreach (var dir in userDirs)
+                {
+                    string downloads = Path.Combine(dir, "Downloads");
+                    if (Directory.Exists(downloads)) return downloads;
+                }
+            }
+        }
+        catch { }
+
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+    }
+
+    private static bool FixedTimeHexEquals(string hexA, string hexB)
+    {
+        if (string.Equals(hexA, hexB, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        try
+        {
+            byte[] a = Convert.FromHexString(hexA);
+            byte[] b = Convert.FromHexString(hexB);
+            return CryptographicOperations.FixedTimeEquals(a, b);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task SendControlFrameAsync(ITransportStream stream, string jsonPayload, CancellationToken ct)
+    {
+        byte[] payloadBytes = Encoding.UTF8.GetBytes(jsonPayload);
+        byte[] frame = new byte[4 + payloadBytes.Length];
+
+        BinaryPrimitives.WriteInt32BigEndian(frame.AsSpan(0, 4), payloadBytes.Length);
+        Array.Copy(payloadBytes, 0, frame, 4, payloadBytes.Length);
+
+        await stream.WriteAsync(frame.AsMemory(), ct);
+        await stream.FlushAsync(ct);
+    }
+
+    private static async Task<int> ReadExactAsync(ITransportStream stream, byte[] buffer, int offset, int count, CancellationToken ct)
+    {
+        int totalRead = 0;
+        while (totalRead < count)
+        {
+            int read = await stream.ReadAsync(buffer.AsMemory(offset + totalRead, count - totalRead), ct);
+            if (read == 0) break;
+            totalRead += read;
+        }
+        return totalRead;
+    }
+
+    private string GetStagingFilePath(string transferId)
+    {
+        return Path.Combine(_stagingDirectory, $"{transferId}.tmp");
+    }
+
+    private static void EnsureStagingDirectoryAcl(string directoryPath, ITetherLogger logger)
+    {
+        try
+        {
+            Directory.CreateDirectory(directoryPath);
+            var di = new DirectoryInfo(directoryPath);
+            var sec = di.GetAccessControl();
+            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+
+            var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+
+            sec.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, AccessControlType.Allow));
+            sec.AddAccessRule(new FileSystemAccessRule(adminSid, FileSystemRights.FullControl, AccessControlType.Allow));
+
+            di.SetAccessControl(sec);
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Could not set strict ACL on staging directory {directoryPath}: {ex.Message}");
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Stop();
+    }
+}
+
+public interface ITransportStream
+{
+    ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken);
+    ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken);
+    ValueTask FlushAsync(CancellationToken cancellationToken);
+}
+
+internal sealed class QuicStreamAdapter : ITransportStream, IDisposable
+{
+    private readonly QuicStream _stream;
+    public QuicStreamAdapter(QuicStream stream) => _stream = stream;
+
+    public ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken) =>
+        _stream.ReadAsync(buffer, cancellationToken);
+
+    public ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken) =>
+        _stream.WriteAsync(buffer, cancellationToken);
+
+    public ValueTask FlushAsync(CancellationToken cancellationToken) =>
+        ValueTask.CompletedTask;
+
+    public void Dispose() => _stream.Dispose();
+}
+
+internal sealed class NetworkStreamAdapter : ITransportStream, IDisposable
+{
+    private readonly SslStream _stream;
+    public NetworkStreamAdapter(SslStream stream) => _stream = stream;
+
+    public ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken) =>
+        _stream.ReadAsync(buffer, cancellationToken);
+
+    public ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken) =>
+        _stream.WriteAsync(buffer, cancellationToken);
+
+    public ValueTask FlushAsync(CancellationToken cancellationToken) =>
+        new ValueTask(_stream.FlushAsync(cancellationToken));
+
+    public void Dispose() => _stream.Dispose();
+}

@@ -11,13 +11,14 @@ using Tether.CommunicationService.Discovery;
 using Tether.CommunicationService.Ipc;
 using Tether.CommunicationService.Pairing;
 using Tether.CommunicationService.Protocol;
+using Tether.CommunicationService.Power;
 using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
 using Tether.CommunicationService.Trust;
-using Tether.CommunicationService.Power;
 using Tether.EnforcementEngine;
 using Tether.EventBus;
+using Tether.FileTransfer;
 using Tether.PanicEngine;
 using Tether.RecoveryEngine;
 using Tether.Shared.Logging;
@@ -59,6 +60,14 @@ var host = builder
         services.AddSingleton<TetherTcpServer>();
         services.AddSingleton<PowerEventWatcher>();
         services.AddSingleton<PowerEventNotifier>();
+
+        services.AddSingleton<ITrustStoreProvider, TrustStoreProviderBridge>();
+        services.AddSingleton<FileTransferManager>(sp =>
+            new FileTransferManager(
+                sp.GetRequiredService<ITetherLogger>(),
+                sp.GetRequiredService<ITrustStoreProvider>(),
+                sp.GetRequiredService<WindowsIdentity>().Certificate,
+                evt => sp.GetRequiredService<IEventBus>().Publish(evt)));
 
         services.AddSingleton<InputForwarder>();
         services.AddHostedService(sp => sp.GetRequiredService<InputForwarder>());

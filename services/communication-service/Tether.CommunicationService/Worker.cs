@@ -2,6 +2,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Tether.CommunicationService.Capabilities;
@@ -13,6 +14,7 @@ using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
 using Tether.EnforcementEngine;
 using Tether.EventBus;
+using Tether.FileTransfer;
 using Tether.PanicEngine;
 using Tether.RecoveryEngine;
 using Tether.Shared.Events;
@@ -35,6 +37,7 @@ public sealed class Worker : BackgroundService
     private readonly SessionManager _sessionManager;
     private readonly PowerEventWatcher _powerWatcher;
     private readonly PowerEventNotifier _powerNotifier;
+    private readonly FileTransferManager _fileTransferManager;
 
     public Worker(
         ILogger<Worker> logger,
@@ -47,6 +50,7 @@ public sealed class Worker : BackgroundService
         SessionManager sessionManager,
         PowerEventWatcher powerWatcher,
         PowerEventNotifier powerNotifier,
+        FileTransferManager fileTransferManager,
         TrustStateManager trustStateManager,
         EnforcementManager enforcementManager,
         PanicManager panicManager,
@@ -64,6 +68,7 @@ public sealed class Worker : BackgroundService
         _sessionManager = sessionManager;
         _powerWatcher = powerWatcher;
         _powerNotifier = powerNotifier;
+        _fileTransferManager = fileTransferManager;
         _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager; _ = ipcEventRelay;
 
         eventBus.Subscribe(evt =>
@@ -89,17 +94,33 @@ public sealed class Worker : BackgroundService
                     }
                 }
             }
+            else if (evt.EventType == TetherEventType.FILE_TRANSFER_CANCEL_REQUESTED && !string.IsNullOrEmpty(evt.PayloadJson))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(evt.PayloadJson);
+                    if (doc.RootElement.TryGetProperty("transferId", out var idElem))
+                    {
+                        string transferId = idElem.GetString() ?? "";
+                        if (!string.IsNullOrEmpty(transferId))
+                        {
+                            _fileTransferManager.CancelTransfer(transferId);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _tetherLogger.Warning($"Failed handling FILE_TRANSFER_CANCEL_REQUESTED: {ex.Message}");
+                }
+            }
         });
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _tetherLogger.Info("Tether Communication Service starting (mDNS + UDP Broadcast + TLS 1.3 transport).");
+        _tetherLogger.Info("Tether Communication Service starting (mDNS + UDP Broadcast + TLS 1.3 transport + QUIC File Transfer).");
         _logger.LogInformation("Tether Communication Service running at {Time}", DateTimeOffset.Now);
 
-        // Publish the watcher to the static hub before any long-running setup.
-        // ServiceBase callbacks can fire at any time after host.Start() returns,
-        // and HardwareExecutor reads PowerEventHub.Watcher on the hot path.
         PowerEventHub.Watcher = _powerWatcher;
 
         EnsureFirewallRulesExist();
@@ -107,6 +128,7 @@ public sealed class Worker : BackgroundService
         _pipeServer.Start();
         _tcpServer.Start();
         _udpDiscovery.Start();
+        _fileTransferManager.Start();
 
         _mdns.Start(
             port: TetherTcpServer.ListenPort,
@@ -190,6 +212,26 @@ public sealed class Worker : BackgroundService
             };
             using var p2 = Process.Start(psiUdp);
             p2?.WaitForExit(2000);
+
+            var psiQuicUdp = new ProcessStartInfo
+            {
+                FileName = "netsh",
+                Arguments = "advfirewall firewall add rule name=\"Tether QUIC UDP 37125\" dir=in action=allow protocol=UDP localport=37125 profile=any",
+                CreateNoWindow = true,
+                UseShellExecute = false
+            };
+            using var p3 = Process.Start(psiQuicUdp);
+            p3?.WaitForExit(2000);
+
+            var psiQuicTcp = new ProcessStartInfo
+            {
+                FileName = "netsh",
+                Arguments = "advfirewall firewall add rule name=\"Tether QUIC TCP 37125\" dir=in action=allow protocol=TCP localport=37125 profile=any",
+                CreateNoWindow = true,
+                UseShellExecute = false
+            };
+            using var p4 = Process.Start(psiQuicTcp);
+            p4?.WaitForExit(2000);
         }
         catch { }
     }
@@ -203,6 +245,7 @@ public sealed class Worker : BackgroundService
 
         _mdns.Stop();
         _udpDiscovery.Stop();
+        _fileTransferManager.Stop();
         _tcpServer.Stop();
         _pipeServer.Dispose();
         await base.StopAsync(cancellationToken);
