@@ -5,10 +5,12 @@ on:
     branches:
       - main
       - canary
+      - beta
   pull_request:
     branches:
       - main
       - canary
+      - beta
   schedule:
     - cron: "21 20 * * 2"
   workflow_dispatch:

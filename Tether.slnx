@@ -6,6 +6,7 @@
   </Configurations>
   <Project Path="apps/desktop-ui/Tether.DesktopUI/Tether.DesktopUI.csproj" Id="a070738e-07bb-4121-ae87-cc2d2c5b5515" />
   <Project Path="services/communication-service/Tether.CommunicationService/Tether.CommunicationService.csproj" Id="52fd365d-08fc-4891-9b33-acae9bbff409" />
+  <Project Path="services/communication-service/Tether.FileTransfer/Tether.FileTransfer.csproj" Id="9d8f3312-70b1-4d32-a5e2-63f820c812d4" />
   <Project Path="services/communication-service/Tether.SessionHelper/Tether.SessionHelper.csproj" Id="f7f26105-65e6-4900-b04a-c374ec05362d" />
   <Project Path="services/enforcement-engine/Tether.EnforcementEngine/Tether.EnforcementEngine.csproj" Id="776c4d29-2fc9-46b7-8c1f-60a6658611d9" />
   <Project Path="services/event-bus/Tether.EventBus/Tether.EventBus.csproj" Id="db980167-9fe8-4743-b031-b1b43507d5d9" />
@@ -14,5 +15,6 @@
   <Project Path="services/trust-engine/Tether.TrustEngine/Tether.TrustEngine.csproj" Id="77b02dff-5d0c-4e89-b107-11237cb641b2" />
   <Project Path="shared/Tether.Shared/Tether.Shared.csproj" Id="fa22ec12-1ea6-4d30-b4d0-373c8b9a214d" />
   <Project Path="tests/PipeTest/PipeTest.csproj" Id="d56e1606-90b5-4a6e-8e97-fdd9970ba661" />
+  <Project Path="tests/Tether.FileTransfer.Tests/Tether.FileTransfer.Tests.csproj" Id="a43d9282-1e94-43c2-b5e8-1e428d098192" />
   <Project Path="TetherCredentialProvider/TetherCredentialProvider.vcxproj" Id="8feec4ff-7295-447f-94ba-6d1fdac8d30e" />
 </Solution>

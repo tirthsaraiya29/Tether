@@ -91,15 +91,6 @@ class TetherTlsTransport(
         }
 
         val cert = peerCerts[0] as X509Certificate
-        cert.checkValidity()
-
-        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
-        if ((pinnedBytes != null) && pinnedBytes.isNotEmpty()) {
-            if (!MessageDigest.isEqual(pinnedBytes, cert.publicKey.encoded)) {
-                sslSock.close()
-                throw SSLException("Certificate pinning verification failed: public key fingerprint mismatch")
-            }
-        }
 
         peerCertificate = cert
         peerFingerprint = securityEngine.computePublicKeyFingerprint(cert.publicKey.encoded)
@@ -113,11 +104,9 @@ class TetherTlsTransport(
     }
 
     private fun createSslContext(): SSLContext {
-        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
-
         val tmf = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
         tmf.init(null as java.security.KeyStore?)
-        val defaultTrustManager = tmf.trustManagers.filterIsInstance<javax.net.ssl.X509TrustManager>().firstOrNull()
+        val defaultTrustManager = tmf.trustManagers.filterIsInstance<javax.net.ssl.X509ExtendedTrustManager>().firstOrNull()
 
         val pinningTrustManager = object : javax.net.ssl.X509ExtendedTrustManager() {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
@@ -125,7 +114,7 @@ class TetherTlsTransport(
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                checkPinning(chain, authType, null, null)
+                checkPinning(chain)
             }
 
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
@@ -133,7 +122,7 @@ class TetherTlsTransport(
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
-                checkPinning(chain, authType, socket, null)
+                checkPinning(chain)
             }
 
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
@@ -141,7 +130,7 @@ class TetherTlsTransport(
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
-                checkPinning(chain, authType, null, engine)
+                checkPinning(chain)
             }
 
             override fun getAcceptedIssuers(): Array<X509Certificate> {
@@ -150,9 +139,6 @@ class TetherTlsTransport(
 
             private fun checkPinning(
                 chain: Array<out X509Certificate>?,
-                @Suppress("UNUSED_PARAMETER") authType: String?,
-                @Suppress("UNUSED_PARAMETER") socket: java.net.Socket? = null,
-                @Suppress("UNUSED_PARAMETER") engine: javax.net.ssl.SSLEngine? = null,
             ) {
                 if (chain.isNullOrEmpty()) {
                     throw CertificateException("Server certificate chain is null or empty")
@@ -160,16 +146,28 @@ class TetherTlsTransport(
                 val leaf = chain[0]
                 leaf.checkValidity()
 
-                if ((pinnedBytes != null) && pinnedBytes.isNotEmpty()) {
+                val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
+                if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
                     if (!MessageDigest.isEqual(pinnedBytes, leaf.publicKey.encoded)) {
                         throw CertificateException("Certificate pinning verification failed: public key fingerprint mismatch")
                     }
+                } else {
+                    // Trust On First Use (TOFU) / Pairing Mode:
+                    // If no key is pinned, we temporarily accept the self-signed certificate at the TLS layer.
+                    // The application-level TetherPairingManager will negotiate identity, display fingerprints,
+                    // and require user approval before finally pinning this key.
+                    Log.i(TAG, "No pinned key found. Temporarily accepting certificate for pairing handshake.")
                 }
             }
         }
 
+        val keyManagerFactory = javax.net.ssl.KeyManagerFactory.getInstance(javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm())
+        val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+        keyManagerFactory.init(keyStore, null)
+
         val sslContext = SSLContext.getInstance("TLSv1.3")
-        sslContext.init(null, arrayOf<TrustManager>(pinningTrustManager), SecureRandom())
+        sslContext.init(keyManagerFactory.keyManagers, arrayOf<TrustManager>(pinningTrustManager), SecureRandom())
         return sslContext
     }
 
