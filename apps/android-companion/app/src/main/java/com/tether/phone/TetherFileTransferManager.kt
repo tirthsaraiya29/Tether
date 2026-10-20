@@ -496,7 +496,7 @@ class TetherFileTransferManager(
 
                     val completeRaw = transport.readControlFrame()
                     if (completeRaw != null) {
-                        val completeStr = String(completeRaw, StandardCharsets.UTF_8)
+                        val completeStr = String(completeRaw, StandardCharsets.UTF_8).replace(Regex("[\r\n]"), " ")
                         Log.i(TAG, "Server completed transfer response: $completeStr")
                     }
 

@@ -330,13 +330,19 @@
                                             Padding="12,0"
                                             Style="{StaticResource {x:Type Button}}"
                                             Click="BtnOpenDownloadsFolder_Click">
+                                        <Button.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Change Download Folder..." Click="MenuItem_ChangeDownloadFolder_Click" />
+                                            </ContextMenu>
+                                        </Button.ContextMenu>
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="&#xE8B7;"
                                                        FontFamily="{StaticResource IconFontFamily}"
                                                        FontSize="12"
                                                        VerticalAlignment="Center"
                                                        Margin="0,0,6,0"/>
-                                            <TextBlock Text="Open Downloads"
+                                            <TextBlock x:Name="TxtDownloadFolderBtn"
+                                                       Text="Open Downloads"
                                                        FontFamily="{StaticResource FluentFontFamily}"
                                                        FontSize="11"
                                                        FontWeight="SemiBold"
