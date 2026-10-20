@@ -36,54 +36,96 @@ public sealed class WindowsIdentity : IDisposable
 
     private X509Certificate2 LoadOrCreate()
     {
-        using var store = new X509Store(StoreName, StoreLocation.LocalMachine);
-        store.Open(OpenFlags.ReadWrite);
+        StoreLocation storeLocation = IsAdministrator()
+            ? StoreLocation.LocalMachine
+            : StoreLocation.CurrentUser;
 
-        var existing = store.Certificates
-            .Find(X509FindType.FindBySubjectDistinguishedName, SubjectDn, validOnly: false)
-            .OfType<X509Certificate2>()
-            .FirstOrDefault(c =>
-                string.Equals(c.FriendlyName, FriendlyName, StringComparison.Ordinal));
+        X509KeyStorageFlags keyFlags = storeLocation == StoreLocation.LocalMachine
+            ? X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable
+            : X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable;
 
-        if (existing is { HasPrivateKey: true } && existing.NotAfter > DateTime.UtcNow.AddDays(30))
-            return existing;
-
-        if (existing != null)
+        try
         {
-            try { store.Remove(existing); }
-            catch (Exception ex) { _logger.Warning($"Could not remove stale identity cert: {ex.Message}"); }
-        }
+            using var store = new X509Store(StoreName, storeLocation);
+            store.Open(OpenFlags.ReadWrite);
 
-        _logger.Warning("TetherIdentityCertRegenerated: Generating new Tether identity certificate (ECDSA P-256, self-signed, 10y). Existing paired clients will require pinning update.");
+            var existing = store.Certificates
+                .Find(X509FindType.FindBySubjectDistinguishedName, SubjectDn, validOnly: false)
+                .OfType<X509Certificate2>()
+                .FirstOrDefault(c =>
+                    string.Equals(c.FriendlyName, FriendlyName, StringComparison.Ordinal));
 
-        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var req = new CertificateRequest(new X500DistinguishedName(SubjectDn), ecdsa, HashAlgorithmName.SHA256);
+            if (existing is { HasPrivateKey: true } && existing.NotAfter > DateTime.UtcNow.AddDays(30))
+            {
+                try
+                {
+                    // Verify private key access
+                    using var ec = existing.GetECDsaPrivateKey();
+                    if (ec != null) return existing;
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"Existing cert private key inaccessible ({ex.Message}), creating new identity.");
+                }
+            }
 
-        req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
-        req.CertificateExtensions.Add(new X509KeyUsageExtension(
-            X509KeyUsageFlags.DigitalSignature, false));
-        req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
-            new OidCollection { new Oid(ServerAuthOid) }, false));
-        req.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(req.PublicKey, false));
+            if (existing != null)
+            {
+                try { store.Remove(existing); }
+                catch (Exception ex) { _logger.Warning($"Could not remove stale identity cert: {ex.Message}"); }
+            }
 
-        var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
-        var notAfter = DateTimeOffset.UtcNow.AddYears(10);
+            _logger.Warning($"Generating new Tether identity certificate (ECDSA P-256, self-signed, 10y, Store={storeLocation}).");
 
-        using var ephemeral = req.CreateSelfSigned(notBefore, notAfter);
+            using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var req = new CertificateRequest(new X500DistinguishedName(SubjectDn), ecdsa, HashAlgorithmName.SHA256);
 
-        var pfx = ephemeral.Export(X509ContentType.Pfx);
+            req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
+            req.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, false));
+            req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new Oid(ServerAuthOid) }, false));
+            req.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(req.PublicKey, false));
+
+            var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
+            var notAfter = DateTimeOffset.UtcNow.AddYears(10);
+
+            using var ephemeral = req.CreateSelfSigned(notBefore, notAfter);
+            var pfx = ephemeral.Export(X509ContentType.Pfx);
+
 #pragma warning disable SYSLIB0057
-        var persisted = new X509Certificate2(
-            pfx,
-            (string?)null,
-            X509KeyStorageFlags.MachineKeySet |
-            X509KeyStorageFlags.PersistKeySet |
-            X509KeyStorageFlags.Exportable);
+            var persisted = new X509Certificate2(pfx, (string?)null, keyFlags);
 #pragma warning restore SYSLIB0057
 
-        persisted.FriendlyName = FriendlyName;
-        store.Add(persisted);
-        return persisted;
+            persisted.FriendlyName = FriendlyName;
+            store.Add(persisted);
+            return persisted;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed loading/creating identity cert in {storeLocation} store: {ex.Message}. Falling back to ephemeral in-memory cert.");
+
+            using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var req = new CertificateRequest(new X500DistinguishedName(SubjectDn), ecdsa, HashAlgorithmName.SHA256);
+            req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
+            req.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, false));
+            req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new Oid(ServerAuthOid) }, false));
+            req.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(req.PublicKey, false));
+
+            return req.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(10));
+        }
+    }
+
+    private static bool IsAdministrator()
+    {
+        try
+        {
+            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            var principal = new System.Security.Principal.WindowsPrincipal(identity);
+            return principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static byte[] ExportSpki(X509Certificate2 cert)
