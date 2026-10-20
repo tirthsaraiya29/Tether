@@ -119,7 +119,7 @@ public sealed class TetherSession : IDisposable
             {
                 ServerCertificate = _identity.Certificate,
                 ClientCertificateRequired = false,
-                EnabledSslProtocols = SslProtocols.Tls13,
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
                 CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
             };
 
@@ -181,7 +181,11 @@ public sealed class TetherSession : IDisposable
             await CommandAndHeartbeatLoopAsync(serviceCt);
         }
         catch (OperationCanceledException) { _logger.Info($"TetherSession [{SessionId}]: Handshake timed out."); }
-        catch (AuthenticationException ex) { _logger.Warning($"TetherSession [{SessionId}]: TLS failure: {ex.Message}"); }
+        catch (AuthenticationException ex)
+        {
+            string inner = ex.InnerException != null ? $" ({ex.InnerException.Message})" : "";
+            _logger.Warning($"TetherSession [{SessionId}]: TLS failure: {ex.Message}{inner}");
+        }
         catch (Exception ex) { _logger.Warning($"TetherSession [{SessionId}]: Session error: {ex.Message}"); }
         finally
         {
