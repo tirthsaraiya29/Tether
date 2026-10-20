@@ -597,36 +597,6 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(28.dp))
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 200)) + 
-                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 200)) { it / 3 }
-        ) {
-            ProfessionalGlassSurface {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = "Security Hardening",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = "Biometric Gateway, No-Screenshot Security Policy, and UI Privacy Mask are active and enforced by system policy.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = IntegrityGreen
-                        )
-                    }
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = IntegrityGreen,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(28.dp))
-        AnimatedVisibility(
-            visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 300)) + 
                     slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 300)) { it / 3 }
         ) {
