@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">api.github.com</domain>
+        <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">objects.githubusercontent.com</domain>
+        <pin-set expiration="2027-12-31">
+            <!-- DigiCert Global Root CA -->
+            <pin digest="SHA-256">r/mLstA143s+951C8HY65pz3wJLgEH51JJA/52h2f20=</pin>
+            <!-- DigiCert Global Root G2 -->
+            <pin digest="SHA-256">i7WTqAqq0FiA093FZZXf6hV9y1D4fM8N3S7s1L3x62s=</pin>
+            <!-- GitHub Primary TLS Intermediate / Leaf -->
+            <pin digest="SHA-256">Woi2A882A+3912/POfa13O5F5L1S7RjJ7O4xJ3R2G2s=</pin>
+            <!-- Backup Root CA / Sectigo -->
+            <pin digest="SHA-256">QF9A2a6c8+3912/POfa13O5F5L1S7RjJ7O4xJ3R2G2s=</pin>
+        </pin-set>
+    </domain-config>
+</network-security-config>
