@@ -91,15 +91,6 @@ class TetherTlsTransport(
         }
 
         val cert = peerCerts[0] as X509Certificate
-        cert.checkValidity()
-
-        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
-        if ((pinnedBytes != null) && pinnedBytes.isNotEmpty()) {
-            if (!MessageDigest.isEqual(pinnedBytes, cert.publicKey.encoded)) {
-                sslSock.close()
-                throw SSLException("Certificate pinning verification failed: public key fingerprint mismatch")
-            }
-        }
 
         peerCertificate = cert
         peerFingerprint = securityEngine.computePublicKeyFingerprint(cert.publicKey.encoded)
@@ -113,11 +104,9 @@ class TetherTlsTransport(
     }
 
     private fun createSslContext(): SSLContext {
-        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
-
         val tmf = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
         tmf.init(null as java.security.KeyStore?)
-        val defaultTrustManager = tmf.trustManagers.filterIsInstance<javax.net.ssl.X509TrustManager>().firstOrNull()
+        val defaultTrustManager = tmf.trustManagers.filterIsInstance<javax.net.ssl.X509ExtendedTrustManager>().firstOrNull()
 
         val pinningTrustManager = object : javax.net.ssl.X509ExtendedTrustManager() {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
@@ -150,9 +139,9 @@ class TetherTlsTransport(
 
             private fun checkPinning(
                 chain: Array<out X509Certificate>?,
-                @Suppress("UNUSED_PARAMETER") authType: String?,
-                @Suppress("UNUSED_PARAMETER") socket: java.net.Socket? = null,
-                @Suppress("UNUSED_PARAMETER") engine: javax.net.ssl.SSLEngine? = null,
+                authType: String?,
+                socket: java.net.Socket? = null,
+                engine: javax.net.ssl.SSLEngine? = null,
             ) {
                 if (chain.isNullOrEmpty()) {
                     throw CertificateException("Server certificate chain is null or empty")
@@ -160,9 +149,20 @@ class TetherTlsTransport(
                 val leaf = chain[0]
                 leaf.checkValidity()
 
-                if ((pinnedBytes != null) && pinnedBytes.isNotEmpty()) {
+                val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
+                if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
                     if (!MessageDigest.isEqual(pinnedBytes, leaf.publicKey.encoded)) {
                         throw CertificateException("Certificate pinning verification failed: public key fingerprint mismatch")
+                    }
+                } else {
+                    try {
+                        when {
+                            socket != null -> defaultTrustManager?.checkServerTrusted(chain, authType, socket)
+                            engine != null -> defaultTrustManager?.checkServerTrusted(chain, authType, engine)
+                            else -> defaultTrustManager?.checkServerTrusted(chain, authType)
+                        }
+                    } catch (e: Exception) {
+                        throw CertificateException("No pinned key available and system trust verification failed: ${e.message}", e)
                     }
                 }
             }

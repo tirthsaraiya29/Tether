@@ -100,15 +100,6 @@ class TetherQuicTransportImpl(
         }
 
         val cert = peerCerts[0] as X509Certificate
-        cert.checkValidity()
-
-        val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
-        if ((pinnedBytes != null) && pinnedBytes.isNotEmpty()) {
-            if (!MessageDigest.isEqual(pinnedBytes, cert.publicKey.encoded)) {
-                sslSock.close()
-                throw SSLException("Certificate pinning verification failed: public key fingerprint mismatch")
-            }
-        }
 
         peerCertificate = cert
         peerFingerprint = securityEngine.computePublicKeyFingerprint(cert.publicKey.encoded)
