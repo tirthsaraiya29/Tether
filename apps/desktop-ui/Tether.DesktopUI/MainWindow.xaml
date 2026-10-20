@@ -328,7 +328,7 @@
                                             Grid.Column="1"
                                             Height="32"
                                             Padding="12,0"
-                                            Style="{StaticResource SubtleButton}"
+                                            Style="{StaticResource {x:Type Button}}"
                                             Click="BtnOpenDownloadsFolder_Click">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="&#xE8B7;"

@@ -14,6 +14,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -1559,6 +1560,25 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     fun getDiscoveredDevices(): List<DiscoveredDevice> = discoveryManager.getDiscoveredDevices()
+
+    val activeHostAddress: String?
+        get() = connectedHostAddress
+
+    fun sendFile(uri: Uri) {
+        val host = connectedHostAddress ?: "192.168.1.100"
+        val peerName = "PC ($host)"
+        if (::securityEngine.isInitialized && ::fileTransferManager.isInitialized) {
+            fileTransferManager.sendFile(
+                securityEngine = securityEngine,
+                host = host,
+                port = 37125,
+                uri = uri,
+                peerName = peerName,
+            )
+        } else {
+            Log.e(TAG, "Cannot send file: service or securityEngine not initialized")
+        }
+    }
 
     override fun onDestroy() {
         instance = null

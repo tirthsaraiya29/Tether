@@ -1283,6 +1283,7 @@ fun TetherNavigationShell(
                             fileTransferManager = TetherLanService.instance?.fileTransferManager,
                             onSendFileSelected = { uri ->
                                 Log.i("TetherApp", "User selected file URI for QUIC transfer: $uri")
+                                TetherLanService.instance?.sendFile(uri)
                             }
                         )
                         AppScreen.REMOTE_INPUT -> RemoteInputScreen(
