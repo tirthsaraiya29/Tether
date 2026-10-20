@@ -1,0 +1,99 @@
+
+name: AI Documentation Sync
+
+on:
+  push:
+    branches:
+      - main
+      - canary
+    paths-ignore:
+      - README.md
+      - index.html
+      - .github/workflows/ai-documentation.yml
+      - .github/scripts/update_docs.py
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ai-documentation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  update-documentation:
+    name: Review documentation against code changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Only run for trusted pushes to the repository.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'push' &&
+        github.event.deleted == false &&
+        !contains(github.event.head_commit.message, '[skip docs-ai]')
+      )
+
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Analyze changes and update approved documentation files
+        id: docs
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'gpt-oss:120b' }}
+          BASE_SHA: ${{ github.event.before || '' }}
+          HEAD_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: python .github/scripts/update_docs.py
+
+      - name: Create documentation pull request
+        if: steps.docs.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+          # Separate PR for each source branch.
+          branch: automation/ai-docs-${{ github.ref_name }}
+          base: ${{ github.ref_name }}
+          delete-branch: true
+
+          # Never include application source or workflow files.
+          add-paths: |
+            README.md
+            index.html
+
+          title: "docs: synchronize README and website"
+          commit-message: "docs: update README and website"
+
+          body: |
+            ## AI-assisted documentation update
+
+            This pull request was generated after reviewing changes
+            to the Tether repository using an Ollama Cloud model.
+
+            ### Review checklist
+
+            - [ ] Every feature claim matches the implementation.
+            - [ ] No planned feature is described as completed.
+            - [ ] No test is described as passing without test evidence.
+            - [ ] Security and platform claims remain accurate.
+            - [ ] README and website descriptions agree.
+            - [ ] No unrelated design or formatting changes were introduced.
+
+            The model does not have permission to merge this pull request.
+            Please review all changes before merging.
+
+            Generated changes are restricted to README.md and index.html.
