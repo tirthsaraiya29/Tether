@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +19,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Locale
@@ -344,5 +346,184 @@ class TetherFileTransferManager(
     fun clearHistory() {
         activeTransfers.clear()
         _transferListFlow.value = emptyList()
+    }
+
+    fun sendFile(
+        securityEngine: ProductionSecurityEngine,
+        host: String,
+        port: Int = 37125,
+        uri: Uri,
+        peerName: String,
+    ) {
+        val transferId = UUID.randomUUID().toString()
+        val job = coroutineScope.launch(Dispatchers.IO) {
+            val resolver = appContext.contentResolver
+            var fileName = "tether_upload_file"
+            var fileSize = 0L
+            var mimeType = "application/octet-stream"
+
+            try {
+                resolver.query(uri, null, null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                        if (nameIdx >= 0) fileName = cursor.getString(nameIdx) ?: "tether_upload_file"
+                        if (sizeIdx >= 0) fileSize = cursor.getLong(sizeIdx)
+                    }
+                }
+                mimeType = resolver.getType(uri) ?: "application/octet-stream"
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed resolving file details from Uri: ${e.message}")
+            }
+
+            fileName = sanitizeFilename(fileName)
+
+            var progress = TransferProgress(
+                transferId = transferId,
+                fileName = fileName,
+                fileSize = fileSize,
+                bytesTransferred = 0L,
+                speedBytesPerSec = 0.0,
+                state = FileTransferState.CONNECTING,
+                isIncoming = false,
+                peerName = peerName,
+            )
+            updateProgress(progress)
+
+            val stagingFile = getStagingFile(transferId)
+            if (stagingFile.exists()) stagingFile.delete()
+
+            val digest = MessageDigest.getInstance("SHA-512")
+            try {
+                resolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(stagingFile).use { output ->
+                        val buffer = ByteArray(BUFFER_SIZE)
+                        var read: Int
+                        while (input.read(buffer).also { read = it } > 0) {
+                            output.write(buffer, 0, read)
+                            digest.update(buffer, 0, read)
+                        }
+                    }
+                }
+                fileSize = stagingFile.length()
+                val expectedSha512Hex = digest.digest().joinToString("") { String.format(Locale.US, "%02X", it) }
+
+                progress = progress.copy(fileSize = fileSize, state = FileTransferState.CONNECTING)
+                updateProgress(progress)
+
+                val transport = TetherQuicTransportImpl(appContext, securityEngine)
+                try {
+                    Log.i(TAG, "Connecting QUIC transport to $host:$port to send $fileName ($fileSize bytes)...")
+                    transport.connect(host, port, timeoutMs = 5000)
+
+                    val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext) ?: byteArrayOf()
+                    val myFingerprint = securityEngine.computePublicKeyFingerprint(pinnedBytes)
+
+                    val initReqJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT}\",\"protocolVersion\":\"1.0\",\"deviceId\":\"$myFingerprint\"}"
+                    transport.sendControlFrame(initReqJson.toByteArray(StandardCharsets.UTF_8))
+
+                    val initAckRaw = transport.readControlFrame()
+                        ?: throw IOException("No CONTROL_INIT_ACK received from server")
+
+                    val reqFrame = TransferRequestFrame(
+                        version = "1.0",
+                        transferId = transferId,
+                        fileName = fileName,
+                        fileSize = fileSize,
+                        mimeType = mimeType,
+                        expectedSha512 = expectedSha512Hex,
+                        chunkSize = BUFFER_SIZE,
+                        totalChunks = if (fileSize > 0) (fileSize + BUFFER_SIZE - 1) / BUFFER_SIZE else 0L,
+                        sourceLastModified = System.currentTimeMillis(),
+                    )
+                    transport.sendControlFrame(reqFrame.toJson().toString().toByteArray(StandardCharsets.UTF_8))
+
+                    val respRaw = transport.readControlFrame()
+                        ?: throw IOException("No TRANSFER_RESPONSE received from server")
+
+                    val respStr = String(respRaw, StandardCharsets.UTF_8)
+                    val respFrame = TransferResponseFrame.parseJsonString(respStr)
+
+                    if (respFrame.status != "ACCEPTED") {
+                        throw IOException("Transfer rejected by server: ${respFrame.reason} (code=${respFrame.errorCode})")
+                    }
+
+                    progress = progress.copy(state = FileTransferState.TRANSFERRING)
+                    updateProgress(progress)
+
+                    val startTimeMs = System.currentTimeMillis()
+                    var lastEmitTimeMs = startTimeMs
+                    var bytesSent = 0L
+                    var chunkIndex = 0L
+
+                    FileInputStream(stagingFile).use { fis ->
+                        val chunkBuf = ByteArray(BUFFER_SIZE)
+                        var readLen: Int
+                        val uuid = UUID.fromString(transferId)
+
+                        while (fis.read(chunkBuf).also { readLen = it } > 0) {
+                            val frameBytes = DataChunkFraming.serializeChunk(
+                                transferIdUuid = uuid,
+                                chunkIndex = chunkIndex++,
+                                offset = bytesSent,
+                                payload = chunkBuf,
+                                payloadOffset = 0,
+                                payloadLength = readLen,
+                            )
+                            transport.sendDataChunk(frameBytes)
+                            bytesSent += readLen
+
+                            val now = System.currentTimeMillis()
+                            if (now - lastEmitTimeMs >= PROGRESS_EMIT_INTERVAL_MS) {
+                                val elapsedSec = (now - startTimeMs) / 1000.0
+                                val speed = if (elapsedSec > 0) bytesSent / elapsedSec else 0.0
+                                progress = progress.copy(
+                                    bytesTransferred = bytesSent,
+                                    speedBytesPerSec = speed,
+                                    state = FileTransferState.TRANSFERRING,
+                                )
+                                updateProgress(progress)
+                                lastEmitTimeMs = now
+                            }
+                        }
+
+                        val endSignal = DataChunkFraming.serializeEndSignal(uuid)
+                        transport.sendDataChunk(endSignal)
+                    }
+
+                    progress = progress.copy(bytesTransferred = fileSize, state = FileTransferState.VERIFYING)
+                    updateProgress(progress)
+
+                    val completeRaw = transport.readControlFrame()
+                    if (completeRaw != null) {
+                        val completeStr = String(completeRaw, StandardCharsets.UTF_8)
+                        Log.i(TAG, "Server completed transfer response: $completeStr")
+                    }
+
+                    progress = progress.copy(
+                        bytesTransferred = fileSize,
+                        state = FileTransferState.COMPLETED,
+                        errorMessage = null,
+                    )
+                    updateProgress(progress)
+                    Log.i(TAG, "Successfully sent file $fileName ($fileSize bytes) to $peerName!")
+
+                } finally {
+                    transport.disconnect("Transfer finished")
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending file $fileName ($transferId): ${e.message}", e)
+                progress = progress.copy(
+                    state = FileTransferState.FAILED,
+                    errorMessage = e.message ?: "Transfer failed",
+                )
+                updateProgress(progress)
+            } finally {
+                stagingFile.delete()
+                transferJobs.remove(transferId)
+            }
+        }
+        transferJobs[transferId] = job
     }
 }
