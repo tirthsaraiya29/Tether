@@ -138,6 +138,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private lateinit var discoveryManager: TetherDiscoveryManager
     private lateinit var pairingManager: TetherPairingManager
     private lateinit var capabilityManager: TetherCapabilityManager
+    lateinit var fileTransferManager: TetherFileTransferManager
+        private set
     private lateinit var connectivityManager: ConnectivityManager
     private var activeTransport: TetherTransport? = null
 
@@ -411,6 +413,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         pairingManager = TetherPairingManager(this, securityEngine)
         capabilityManager = TetherCapabilityManager()
+        fileTransferManager = TetherFileTransferManager(applicationContext, capabilityManager, serviceScope)
 
         val pinnedKey = securityEngine.getPinnedKeyDecrypted(this)
         trustState = if (pinnedKey != null) TrustState.PAIRED else TrustState.UNPAIRED
