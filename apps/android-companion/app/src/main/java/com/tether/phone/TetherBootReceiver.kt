@@ -32,6 +32,7 @@ class TetherBootReceiver : BroadcastReceiver() {
                 }
                 try {
                     ContextCompat.startForegroundService(context, serviceIntent)
+                    UpdateCheckService.startCheck(context)
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed starting TetherLanService on boot: ${e.message}")
                 }

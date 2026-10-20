@@ -470,9 +470,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             )
         }
 
-        scheduleAlarmForHealthCheck()
-        startRequestIdCleanup()
-        startTelemetryPolling()
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (instance != null) {
+                scheduleAlarmForHealthCheck()
+                startRequestIdCleanup()
+                startTelemetryPolling()
+            }
+        }, 200L)
     }
 
     private fun startTelemetryPolling() {
