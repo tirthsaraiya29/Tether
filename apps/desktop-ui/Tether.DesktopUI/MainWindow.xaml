@@ -350,7 +350,7 @@
                                         Padding="14,12"
                                         CornerRadius="8"
                                         Background="#1A000000"
-                                        BorderBrush="{StaticResource GlassBorderBrush}"
+                                        BorderBrush="#33FFFFFF"
                                         BorderThickness="1">
                                     <StackPanel>
                                         <Grid>
@@ -378,7 +378,7 @@
                                                      Minimum="0"
                                                      Maximum="100"
                                                      Value="0"
-                                                     Foreground="{StaticResource PrimaryGradientBrush}"
+                                                     Foreground="{StaticResource SystemAccentBrush}"
                                                      Background="#33FFFFFF"
                                                      BorderThickness="0"/>
 

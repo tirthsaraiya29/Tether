@@ -168,8 +168,13 @@ class TetherQuicTransportImpl(
             }
         }
 
+        val keyManagerFactory = javax.net.ssl.KeyManagerFactory.getInstance(javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm())
+        val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+        keyManagerFactory.init(keyStore, null)
+
         val sslContext = SSLContext.getInstance("TLSv1.3")
-        sslContext.init(null, arrayOf<TrustManager>(pinningTrustManager), SecureRandom())
+        sslContext.init(keyManagerFactory.keyManagers, arrayOf<TrustManager>(pinningTrustManager), SecureRandom())
         return sslContext
     }
 

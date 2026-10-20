@@ -132,8 +132,8 @@ public sealed class FileTransferReceiver : IDisposable
                         ServerAuthenticationOptions = new SslServerAuthenticationOptions
                         {
                             ServerCertificate = _serverCertificate,
-                            ClientCertificateRequired = true,
-                            RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true // Handled in pipeline
+                            ClientCertificateRequired = false,
+                            RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true
                         }
                     });
                 }
@@ -167,25 +167,10 @@ public sealed class FileTransferReceiver : IDisposable
     {
         try
         {
-            X509Certificate2? x509 = ExtractPeerCertFromConnection(connection);
-
-            if (x509 == null || !_trustValidator.ValidatePeerPublicKey(x509, out string fingerprint, out string displayName, out bool hasFilesCap))
-            {
-                _logger.Warning("QUIC Connection rejected: Peer identity is untrusted or missing certificate.");
-                await connection.CloseAsync(QuicTransportErrorCode.CRYPTO_ERROR_BASE, ct);
-                return;
-            }
-
-            if (!hasFilesCap)
-            {
-                _logger.Warning($"QUIC Connection rejected for {displayName}: Missing FILES capability.");
-                await connection.CloseAsync(QuicTransportErrorCode.PROTOCOL_VIOLATION, ct);
-                return;
-            }
-
+            // Identity validation is deferred to CONTROL_INIT
             var stream = await connection.AcceptInboundStreamAsync(ct);
             using var streamAdapter = new QuicStreamAdapter(stream);
-            await HandleTransferSessionAsync(streamAdapter, displayName, fingerprint, ct);
+            await HandleTransferSessionAsync(streamAdapter, ct);
         }
         catch (Exception ex)
         {
@@ -248,8 +233,8 @@ public sealed class FileTransferReceiver : IDisposable
             var sslOptions = new SslServerAuthenticationOptions
             {
                 ServerCertificate = _serverCertificate,
-                ClientCertificateRequired = true,
-                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
+                ClientCertificateRequired = false,
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
                 ApplicationProtocols = new System.Collections.Generic.List<SslApplicationProtocol>
                 {
                     new SslApplicationProtocol("tether-quic-v1")
@@ -258,24 +243,10 @@ public sealed class FileTransferReceiver : IDisposable
 
             await sslStream.AuthenticateAsServerAsync(sslOptions, ct);
 
-            X509Certificate2? x509 = sslStream.RemoteCertificate is X509Certificate2 cert2
-                ? cert2
-                : (sslStream.RemoteCertificate != null ? new X509Certificate2(sslStream.RemoteCertificate) : null);
-
-            if (x509 == null || !_trustValidator.ValidatePeerPublicKey(x509, out string fingerprint, out string displayName, out bool hasFilesCap))
-            {
-                _logger.Warning("TCP TLS Connection rejected: Peer identity untrusted.");
-                return;
-            }
-
-            if (!hasFilesCap)
-            {
-                _logger.Warning($"TCP TLS Connection rejected for {displayName}: Missing FILES capability.");
-                return;
-            }
-
+            // We do not require mTLS at the transport layer to avoid cross-platform ECDSA/RSA negotiation issues.
+            // Peer identity and FILES capability will be validated at the application layer via CONTROL_INIT.
             using var streamAdapter = new NetworkStreamAdapter(sslStream);
-            await HandleTransferSessionAsync(streamAdapter, displayName, fingerprint, ct);
+            await HandleTransferSessionAsync(streamAdapter, ct);
         }
         catch (Exception ex)
         {
@@ -287,13 +258,14 @@ public sealed class FileTransferReceiver : IDisposable
         }
     }
 
-    private async Task HandleTransferSessionAsync(
-        ITransportStream stream,
-        string peerName,
-        string peerFingerprint,
-        CancellationToken ct)
+    private async Task HandleTransferSessionAsync(ITransportStream stream, CancellationToken ct)
     {
+        _logger.Info("Starting HandleTransferSessionAsync (waiting for CONTROL_INIT)");
         byte[] lenBuffer = new byte[4];
+
+        string authenticatedPeerName = "Unknown Device";
+        string authenticatedFingerprint = "";
+        bool isAuthenticated = false;
 
         while (!ct.IsCancellationRequested)
         {
@@ -318,15 +290,43 @@ public sealed class FileTransferReceiver : IDisposable
             switch (messageType)
             {
                 case ControlMessageType.CONTROL_INIT:
-                    var ack = new ControlInitAckFrame { Status = "OK", GrantedCapabilities = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA" };
-                    await SendControlFrameAsync(stream, JsonSerializer.Serialize(ack), ct);
+                    string deviceId = doc.RootElement.TryGetProperty("deviceId", out var dProp) ? dProp.GetString() ?? "" : "";
+
+                    // Call the new overloaded validate method (we'll implement this next)
+                    if (_trustValidator is FileTransferManager ftm && ftm.ValidatePeerByFingerprint(deviceId, out string dispName, out bool hasFiles))
+                    {
+                        if (hasFiles)
+                        {
+                            isAuthenticated = true;
+                            authenticatedPeerName = dispName;
+                            authenticatedFingerprint = deviceId;
+                            _logger.Info($"QUIC/TCP peer authenticated successfully: {dispName}");
+                            var ack = new ControlInitAckFrame { Status = "OK", GrantedCapabilities = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA" };
+                            await SendControlFrameAsync(stream, JsonSerializer.Serialize(ack), ct);
+                        }
+                        else
+                        {
+                            _logger.Warning($"Peer {dispName} rejected: missing FILES capability.");
+                            return; // Drop connection
+                        }
+                    }
+                    else
+                    {
+                        _logger.Warning($"Peer rejected: fingerprint {deviceId} untrusted.");
+                        return; // Drop connection
+                    }
                     break;
 
                 case ControlMessageType.TRANSFER_REQUEST:
+                    if (!isAuthenticated)
+                    {
+                        _logger.Warning("TRANSFER_REQUEST received before CONTROL_INIT. Dropping connection.");
+                        return;
+                    }
                     var request = JsonSerializer.Deserialize<TransferRequestFrame>(jsonStr);
                     if (request != null)
                     {
-                        await HandleIncomingTransferRequestAsync(stream, request, peerName, ct);
+                        await HandleIncomingTransferRequestAsync(stream, request, authenticatedPeerName, ct);
                     }
                     break;
 

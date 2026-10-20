@@ -416,8 +416,8 @@ class TetherFileTransferManager(
                     Log.i(TAG, "Connecting QUIC transport to $host:$port to send $fileName ($fileSize bytes)...")
                     transport.connect(host, port, timeoutMs = 5000)
 
-                    val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext) ?: byteArrayOf()
-                    val myFingerprint = securityEngine.computePublicKeyFingerprint(pinnedBytes)
+                    val myPublicKeyBytes = securityEngine.getPublicKeyBytes()
+                    val myFingerprint = securityEngine.computePublicKeyFingerprint(myPublicKeyBytes)
 
                     val initReqJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT}\",\"protocolVersion\":\"1.0\",\"deviceId\":\"$myFingerprint\"}"
                     transport.sendControlFrame(initReqJson.toByteArray(StandardCharsets.UTF_8))
