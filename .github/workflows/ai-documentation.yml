@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - canary
+      - beta
     paths-ignore:
       - README.md
       - index.html
