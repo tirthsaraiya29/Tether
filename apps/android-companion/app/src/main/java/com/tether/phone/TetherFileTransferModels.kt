@@ -72,6 +72,10 @@ object ControlMessageType {
     const val TRANSFER_PAUSE = "TRANSFER_PAUSE"
     const val TRANSFER_CANCEL = "TRANSFER_CANCEL"
     const val TRANSFER_COMPLETE = "TRANSFER_COMPLETE"
+    const val FS_DB_SYNC_REQUEST = "FS_DB_SYNC_REQUEST"
+    const val FS_DB_SYNC_RESPONSE = "FS_DB_SYNC_RESPONSE"
+    const val FS_DELTA_UPDATE = "FS_DELTA_UPDATE"
+    const val FS_ON_DEMAND_SCAN = "FS_ON_DEMAND_SCAN"
 }
 
 /**
@@ -356,4 +360,27 @@ data class ListDirRequestFrame(
     val path: String,
 ) {
     fun toJsonString(): String = "{\"type\":\"${ControlMessageType.LIST_DIR_REQUEST}\",\"requestId\":\"$requestId\",\"path\":\"$path\"}"
+}
+
+data class FsDbSyncRequestFrame(
+    val requestId: String = UUID.randomUUID().toString(),
+    val platform: String = "ANDROID"
+) {
+    fun toJsonString(): String = "{\"type\":\"${ControlMessageType.FS_DB_SYNC_REQUEST}\",\"requestId\":\"$requestId\",\"platform\":\"$platform\"}"
+}
+
+data class FsDbSyncResponseFrame(
+    val requestId: String,
+    val status: String,
+    val dbSize: Long,
+    val checksum: String
+) {
+    fun toJsonString(): String = "{\"type\":\"${ControlMessageType.FS_DB_SYNC_RESPONSE}\",\"requestId\":\"$requestId\",\"status\":\"$status\",\"dbSize\":$dbSize,\"checksum\":\"$checksum\"}"
+}
+
+data class FsOnDemandScanFrame(
+    val requestId: String = UUID.randomUUID().toString(),
+    val targetPath: String
+) {
+    fun toJsonString(): String = "{\"type\":\"${ControlMessageType.FS_ON_DEMAND_SCAN}\",\"requestId\":\"$requestId\",\"targetPath\":\"$targetPath\"}"
 }

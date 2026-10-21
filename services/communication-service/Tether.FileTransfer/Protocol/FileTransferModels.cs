@@ -57,6 +57,10 @@ public static class ControlMessageType
     public const string TRANSFER_PAUSE = "TRANSFER_PAUSE";
     public const string TRANSFER_CANCEL = "TRANSFER_CANCEL";
     public const string TRANSFER_COMPLETE = "TRANSFER_COMPLETE";
+    public const string FS_DB_SYNC_REQUEST = "FS_DB_SYNC_REQUEST";
+    public const string FS_DB_SYNC_RESPONSE = "FS_DB_SYNC_RESPONSE";
+    public const string FS_DELTA_UPDATE = "FS_DELTA_UPDATE";
+    public const string FS_ON_DEMAND_SCAN = "FS_ON_DEMAND_SCAN";
 }
 
 public static class DataChunkMessageType
@@ -180,6 +184,29 @@ public sealed record ListDirRequestFrame
     [JsonPropertyName("type")] public string Type { get; init; } = ControlMessageType.LIST_DIR_REQUEST;
     [JsonPropertyName("requestId")] public string RequestId { get; init; } = Guid.NewGuid().ToString();
     [JsonPropertyName("path")] public string Path { get; init; } = "";
+}
+
+public sealed record FsDbSyncRequestFrame
+{
+    [JsonPropertyName("type")] public string Type { get; init; } = ControlMessageType.FS_DB_SYNC_REQUEST;
+    [JsonPropertyName("requestId")] public string RequestId { get; init; } = Guid.NewGuid().ToString();
+    [JsonPropertyName("platform")] public string Platform { get; init; } = "WINDOWS";
+}
+
+public sealed record FsDbSyncResponseFrame
+{
+    [JsonPropertyName("type")] public string Type { get; init; } = ControlMessageType.FS_DB_SYNC_RESPONSE;
+    [JsonPropertyName("requestId")] public string RequestId { get; init; } = "";
+    [JsonPropertyName("status")] public string Status { get; init; } = "OK";
+    [JsonPropertyName("dbSize")] public long DbSize { get; init; }
+    [JsonPropertyName("checksum")] public string Checksum { get; init; } = "";
+}
+
+public sealed record FsOnDemandScanFrame
+{
+    [JsonPropertyName("type")] public string Type { get; init; } = ControlMessageType.FS_ON_DEMAND_SCAN;
+    [JsonPropertyName("requestId")] public string RequestId { get; init; } = Guid.NewGuid().ToString();
+    [JsonPropertyName("targetPath")] public string TargetPath { get; init; } = "";
 }
 
 public sealed record ListDirResponseFrame
