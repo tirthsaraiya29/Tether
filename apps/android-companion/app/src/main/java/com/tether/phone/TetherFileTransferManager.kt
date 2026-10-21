@@ -162,7 +162,7 @@ class TetherFileTransferManager(
                         break
                     }
 
-                    val payloadOffset = DataChunkFraming.HEADER_SIZE_BYTES
+                    val payloadOffset = DataChunkFraming.HEADER_SIZE_BYTES - 4
                     val payloadLen = header.payloadLength
                     if (payloadLen <= 0 || payloadOffset + payloadLen > chunkBytes.size) break
 

@@ -362,6 +362,42 @@ public sealed class FileTransferReceiver : IDisposable
                     }
                     break;
 
+                case ControlMessageType.FS_DB_SYNC_REQUEST:
+                    if (!isAuthenticated) return;
+                    var syncReq = JsonSerializer.Deserialize<FsDbSyncRequestFrame>(jsonStr);
+                    if (syncReq != null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var indexer = new WindowsFilesystemIndexer(_logger);
+                                string dbPath = await indexer.BuildDatabaseAsync();
+
+                                var resp = new FsDbSyncResponseFrame
+                                {
+                                    RequestId = syncReq.RequestId,
+                                    Status = "OK",
+                                    DbSize = new FileInfo(dbPath).Length,
+                                    Checksum = "unknown_for_now"
+                                };
+                                await SendControlFrameAsync(stream, JsonSerializer.Serialize(resp), ct);
+
+                                _durableQueue.EnqueueOutgoing(dbPath, authenticatedPeerName, "windows_fs.db");
+                            }
+                            catch (Exception ex)
+                            {
+                                var resp = new FsDbSyncResponseFrame
+                                {
+                                    RequestId = syncReq.RequestId,
+                                    Status = "ERROR"
+                                };
+                                await SendControlFrameAsync(stream, JsonSerializer.Serialize(resp), ct);
+                            }
+                        });
+                    }
+                    break;
+
                 case ControlMessageType.BROWSE_ROOTS_REQUEST:
                     if (!isAuthenticated)
                     {
@@ -417,11 +453,11 @@ public sealed class FileTransferReceiver : IDisposable
                         _logger.Warning("QUEUE_SYNC_REQUEST received before CONTROL_INIT.");
                         return;
                     }
-                    var syncReq = JsonSerializer.Deserialize<QueueSyncRequestFrame>(jsonStr);
+                    var qSyncReq = JsonSerializer.Deserialize<QueueSyncRequestFrame>(jsonStr);
                     var queueItems = _durableQueue.GetAllItems().ToList();
                     var syncSnapshot = new QueueSyncSnapshotFrame
                     {
-                        RequestId = syncReq?.RequestId ?? "",
+                        RequestId = qSyncReq?.RequestId ?? "",
                         Items = queueItems
                     };
                     await SendControlFrameAsync(stream, JsonSerializer.Serialize(syncSnapshot), ct);
