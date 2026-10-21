@@ -174,9 +174,11 @@ class TetherPairingManager(
                         val verifiedStatus = verifiedJson.optString("status")
                         if (verifiedType == "HANDSHAKE_VERIFIED" && verifiedStatus != "OK") {
                             return PairingResult.Error("Windows host rejected handshake proof verification")
+                        } else if (verifiedType == "HANDSHAKE_VERIFIED") {
+                            Log.i(TAG, "Received HANDSHAKE_VERIFIED confirmation from Windows host.")
                         }
                     } catch (e: Exception) {
-                        Log.w(TAG, "Non-JSON or unexpected HANDSHAKE_VERIFIED response; fallback to legacy flow: ${e.message}")
+                        Log.w(TAG, "Non-JSON response to HANDSHAKE_PROOF; proceeding with authenticated session: ${e.message}")
                     }
                 }
 

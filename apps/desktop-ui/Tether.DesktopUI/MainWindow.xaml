@@ -324,31 +324,52 @@
                                                    Style="{StaticResource CardTitleTextStyle}"/>
                                     </StackPanel>
 
-                                    <Button x:Name="BtnOpenDownloadsFolder"
-                                            Grid.Column="1"
-                                            Height="32"
-                                            Padding="12,0"
-                                            Style="{StaticResource {x:Type Button}}"
-                                            Click="BtnOpenDownloadsFolder_Click">
-                                        <Button.ContextMenu>
-                                            <ContextMenu>
-                                                <MenuItem Header="Change Download Folder..." Click="MenuItem_ChangeDownloadFolder_Click" />
-                                            </ContextMenu>
-                                        </Button.ContextMenu>
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="&#xE8B7;"
-                                                       FontFamily="{StaticResource IconFontFamily}"
-                                                       FontSize="12"
-                                                       VerticalAlignment="Center"
-                                                       Margin="0,0,6,0"/>
-                                            <TextBlock x:Name="TxtDownloadFolderBtn"
-                                                       Text="Open Downloads"
-                                                       FontFamily="{StaticResource FluentFontFamily}"
-                                                       FontSize="11"
-                                                       FontWeight="SemiBold"
-                                                       VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                    </Button>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                        <Button x:Name="BtnEnqueueFiles"
+                                                Height="32"
+                                                Padding="12,0"
+                                                Margin="0,0,8,0"
+                                                Style="{StaticResource {x:Type Button}}"
+                                                Click="BtnEnqueueFiles_Click">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#xE898;"
+                                                           FontFamily="{StaticResource IconFontFamily}"
+                                                           FontSize="12"
+                                                           VerticalAlignment="Center"
+                                                           Margin="0,0,6,0"/>
+                                                <TextBlock Text="Send Files..."
+                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                           FontSize="11"
+                                                           FontWeight="SemiBold"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+
+                                        <Button x:Name="BtnOpenDownloadsFolder"
+                                                Height="32"
+                                                Padding="12,0"
+                                                Style="{StaticResource {x:Type Button}}"
+                                                Click="BtnOpenDownloadsFolder_Click">
+                                            <Button.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="Change Download Folder..." Click="MenuItem_ChangeDownloadFolder_Click" />
+                                                </ContextMenu>
+                                            </Button.ContextMenu>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#xE8B7;"
+                                                           FontFamily="{StaticResource IconFontFamily}"
+                                                           FontSize="12"
+                                                           VerticalAlignment="Center"
+                                                           Margin="0,0,6,0"/>
+                                                <TextBlock x:Name="TxtDownloadFolderBtn"
+                                                           Text="Open Downloads"
+                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                           FontSize="11"
+                                                           FontWeight="SemiBold"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
                                 </Grid>
 
                                 <Border Grid.Row="1"
@@ -408,6 +429,32 @@
                                                 <TextBlock Text="Cancel" FontSize="10" FontWeight="SemiBold"/>
                                             </Button>
                                         </Grid>
+
+                                        <!-- File Explorer Panel -->
+                                        <Border Margin="0,12,0,0" Padding="12" CornerRadius="8" Background="#0DFFFFFF" BorderBrush="#22FFFFFF" BorderThickness="1">
+                                            <StackPanel>
+                                                <Grid Margin="0,0,0,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Button x:Name="BtnNavUp" Content="⬆ Up" Height="26" Padding="8,0" Click="BtnNavUp_Click" Margin="0,0,8,0" Style="{StaticResource {x:Type Button}}"/>
+                                                    <TextBox x:Name="TxtCurrentExplorerPath" Grid.Column="1" Height="26" Padding="6,2" VerticalContentAlignment="Center" Background="#11FFFFFF" Foreground="#E1E1E1" BorderThickness="1" BorderBrush="#33FFFFFF" IsReadOnly="True"/>
+                                                    <Button x:Name="BtnSendExplorerSelected" Grid.Column="2" Content="Send Selected to Phone" Height="26" Padding="10,0" Margin="8,0,0,0" Click="BtnSendExplorerSelected_Click" Style="{StaticResource {x:Type Button}}"/>
+                                                </Grid>
+
+                                                <ListView x:Name="LstFileExplorer" Height="140" Background="Transparent" BorderThickness="0" Foreground="#E1E1E1" MouseDoubleClick="LstFileExplorer_MouseDoubleClick">
+                                                    <ListView.View>
+                                                        <GridView>
+                                                            <GridViewColumn Header="Name" Width="220" DisplayMemberBinding="{Binding Name}"/>
+                                                            <GridViewColumn Header="Size" Width="90" DisplayMemberBinding="{Binding FormattedSize}"/>
+                                                            <GridViewColumn Header="Modified" Width="140" DisplayMemberBinding="{Binding FormattedDate}"/>
+                                                        </GridView>
+                                                    </ListView.View>
+                                                </ListView>
+                                            </StackPanel>
+                                        </Border>
                                     </StackPanel>
                                 </Border>
                             </Grid>

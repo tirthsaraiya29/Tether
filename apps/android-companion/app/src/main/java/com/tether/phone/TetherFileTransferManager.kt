@@ -25,6 +25,7 @@ import java.security.MessageDigest
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import org.json.JSONObject
 
 class TetherFileTransferManager(
     private val appContext: Context,
@@ -525,5 +526,75 @@ class TetherFileTransferManager(
             }
         }
         transferJobs[transferId] = job
+    }
+
+    /**
+     * Sends BROWSE_ROOTS_REQUEST to Windows PC and returns permitted roots
+     */
+    suspend fun requestWindowsRoots(transport: TetherQuicTransport): List<FilesystemRootItem> = withContext(Dispatchers.IO) {
+        try {
+            val req = BrowseRootsRequestFrame()
+            transport.sendControlFrame(req.toJsonString().toByteArray(StandardCharsets.UTF_8))
+
+            val respRaw = transport.readControlFrame() ?: return@withContext emptyList()
+            val respStr = String(respRaw, StandardCharsets.UTF_8)
+            val json = JSONObject(respStr)
+
+            val rootsList = mutableListOf<FilesystemRootItem>()
+            if (json.optString("status") == "OK" && json.has("roots")) {
+                val array = json.getJSONArray("roots")
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    rootsList.add(
+                        FilesystemRootItem(
+                            name = obj.optString("Name", obj.optString("name", "Root")),
+                            path = obj.optString("Path", obj.optString("path", "")),
+                            rootType = obj.optString("RootType", obj.optString("rootType", "FOLDER")),
+                            isReadable = obj.optBoolean("IsReadable", obj.optBoolean("isReadable", true)),
+                        )
+                    )
+                }
+            }
+            return@withContext rootsList
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed requesting Windows roots: ${e.message}", e)
+            return@withContext emptyList()
+        }
+    }
+
+    /**
+     * Sends LIST_DIR_REQUEST to Windows PC for a specific path
+     */
+    suspend fun requestWindowsDirectory(transport: TetherQuicTransport, path: String): List<DirectoryListingItem> = withContext(Dispatchers.IO) {
+        try {
+            val req = ListDirRequestFrame(path = path)
+            transport.sendControlFrame(req.toJsonString().toByteArray(StandardCharsets.UTF_8))
+
+            val respRaw = transport.readControlFrame() ?: return@withContext emptyList()
+            val respStr = String(respRaw, StandardCharsets.UTF_8)
+            val json = JSONObject(respStr)
+
+            val itemsList = mutableListOf<DirectoryListingItem>()
+            if (json.optString("status") == "OK" && json.has("items")) {
+                val array = json.getJSONArray("items")
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    itemsList.add(
+                        DirectoryListingItem(
+                            name = obj.optString("Name", obj.optString("name", "")),
+                            relativePath = obj.optString("RelativePath", obj.optString("relativePath", "")),
+                            isDirectory = obj.optBoolean("IsDirectory", obj.optBoolean("isDirectory", false)),
+                            fileSize = obj.optLong("FileSize", obj.optLong("fileSize", 0L)),
+                            lastModifiedMs = obj.optLong("LastModifiedMs", obj.optLong("lastModifiedMs", 0L)),
+                            isReadable = obj.optBoolean("IsReadable", obj.optBoolean("isReadable", true)),
+                        )
+                    )
+                }
+            }
+            return@withContext itemsList
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed listing Windows directory '$path': ${e.message}", e)
+            return@withContext emptyList()
+        }
     }
 }

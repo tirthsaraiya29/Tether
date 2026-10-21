@@ -113,6 +113,34 @@ public sealed class Worker : BackgroundService
                     _tetherLogger.Warning($"Failed handling FILE_TRANSFER_CANCEL_REQUESTED: {ex.Message}");
                 }
             }
+            else if (evt.EventType == TetherEventType.FILE_TRANSFER_ENQUEUE_REQUESTED && !string.IsNullOrEmpty(evt.PayloadJson))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(evt.PayloadJson);
+                    string targetDeviceId = doc.RootElement.TryGetProperty("targetDeviceId", out var devElem) ? devElem.GetString() ?? "" : "";
+                    if (string.IsNullOrEmpty(targetDeviceId))
+                    {
+                        targetDeviceId = _sessionManager.GetActiveSessions().FirstOrDefault()?.Device?.DeviceId ?? "TARGET_PHONE";
+                    }
+
+                    if (doc.RootElement.TryGetProperty("paths", out var pathsElem) && pathsElem.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    {
+                        foreach (var pathNode in pathsElem.EnumerateArray())
+                        {
+                            string path = pathNode.GetString() ?? "";
+                            if (!string.IsNullOrWhiteSpace(path))
+                            {
+                                _fileTransferManager.DurableQueue.EnqueueOutgoing(path, targetDeviceId);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _tetherLogger.Warning($"Failed handling FILE_TRANSFER_ENQUEUE_REQUESTED: {ex.Message}");
+                }
+            }
         });
     }
 
@@ -158,6 +186,12 @@ public sealed class Worker : BackgroundService
 
                     if (_sessionManager.ActiveSessionCount > 0)
                     {
+                        var activeSession = _sessionManager.GetActiveSessions().FirstOrDefault();
+                        if (activeSession != null && !string.IsNullOrEmpty(activeSession.IpAddress))
+                        {
+                            await _fileTransferManager.ProcessOutgoingQueueAsync(activeSession.IpAddress, stoppingToken);
+                        }
+
                         var snap = LaptopStateCollector.GetLaptopSnapshot(_tetherLogger);
                         if (snap.IsCharging != lastIsCharging || snap.BatteryLevel != lastBattery || snap.LockState != lastLock)
                         {
@@ -193,6 +227,30 @@ public sealed class Worker : BackgroundService
     {
         try
         {
+            string exePath = Process.GetCurrentProcess().MainModule?.FileName ?? "";
+            if (!string.IsNullOrEmpty(exePath))
+            {
+                var psiDeleteBlock = new ProcessStartInfo
+                {
+                    FileName = "netsh",
+                    Arguments = $"advfirewall firewall delete rule name=all program=\"{exePath}\"",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                using var p0 = Process.Start(psiDeleteBlock);
+                p0?.WaitForExit(2000);
+
+                var psiAllowExe = new ProcessStartInfo
+                {
+                    FileName = "netsh",
+                    Arguments = $"advfirewall firewall add rule name=\"Tether Service Exe\" dir=in action=allow program=\"{exePath}\" enable=yes profile=any",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                using var pExe = Process.Start(psiAllowExe);
+                pExe?.WaitForExit(2000);
+            }
+
             var psiTcp = new ProcessStartInfo
             {
                 FileName = "netsh",

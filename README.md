@@ -135,13 +135,15 @@ Download prebuilt binaries directly from the official releases:
 - **Remote Input:** Stream mouse movement, clicks, scrolling, and modifier-key events.
 - **Application Launching:** Launch configured Windows utilities into the active desktop session.
 
-### Local File Transfer and Share to PC
+### Tether Files, Explorer Integration & Durable Transfer Queue
 
-- **Encrypted transfer channel:** TCP `37125` with TLS, ALPN `tether-quic-v1`, mirroring the Windows receiver's QUIC UDP listener.
-- **Integrity:** Each file is streamed, hashed with SHA-512 while in transit, and verified on the receiving side before being promoted out of staging.
-- **Configurable destination:** Downloads folder is set from the desktop UI and persisted to `%LOCALAPPDATA%\Tether\settings.json`; the service reads the same value.
-- **Share to PC:** Android registers `ACTION_SEND` and `ACTION_SEND_MULTIPLE` intent filters, so content can be pushed from any app. Shared text and links are staged as temporary `.txt` files.
-- **Transfer UI:** Dedicated file-sharing screen on Android and a transfer card on the Windows desktop showing active progress, speed, and cancellation.
+- **Bidirectional File & Folder Explorer:** Browse permitted Windows roots (Downloads, Documents, Pictures, Videos, Desktop, plus custom settings paths) from Android, and browse Android-accessible storage locations from Windows.
+- **Windows Explorer Context Menu:** Integrated "Send to Phone — Tether" context-menu command in Windows Explorer for single/multiple files and folders.
+- **Durable Reconciled Queue:** Persistent JSON queue store on Windows (`%LOCALAPPDATA%\Tether\transfer_queue.json`) and Android (`Context.filesDir`). Queued transfers persist across UI closures, service restarts, and disconnections, resuming automatically when the trusted device reconnects.
+- **Standard-User Privilege Separation:** Tether Desktop UI runs natively under standard-user privileges (`asInvoker`) without requiring UAC elevation for ordinary file browsing, queueing, or workstation control.
+- **Encrypted Transfer Channel:** TCP `37125` with TLS 1.3 / QUIC ALPN `tether-quic-v1` transport.
+- **SHA-512 Integrity Verification:** Files stream in 64 KB chunks, compute SHA-512 in transit, and undergo digest verification before staging files are committed to destination storage.
+- **Share to PC:** Android registers `ACTION_SEND` and `ACTION_SEND_MULTIPLE` intent filters to push links, text, and files directly from any Android app to PC.
 
 ### Android Update Checks and Permissions
 

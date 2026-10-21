@@ -121,4 +121,19 @@ class TetherFileTransferTest {
         assertEquals("ACCEPTED", parsedResp.status)
         assertEquals(0L, parsedResp.resumeOffset)
     }
+
+    @Test
+    fun testBrowseRootsAndListDirRequestJsonFraming() {
+        val req = BrowseRootsRequestFrame()
+        val jsonStr = req.toJsonString()
+
+        assertEquals("BROWSE_ROOTS_REQUEST", JsonParserUtils.getString(jsonStr, "type", ""))
+        assertNotNull(JsonParserUtils.getString(jsonStr, "requestId", ""))
+
+        val listReq = ListDirRequestFrame(path = "C:\\Users\\Downloads")
+        val listJsonStr = listReq.toJsonString()
+
+        assertEquals("LIST_DIR_REQUEST", JsonParserUtils.getString(listJsonStr, "type", ""))
+        assertEquals("C:\\Users\\Downloads", JsonParserUtils.getString(listJsonStr, "path", ""))
+    }
 }

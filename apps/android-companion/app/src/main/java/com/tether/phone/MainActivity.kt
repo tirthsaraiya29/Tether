@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
 import android.text.InputType
@@ -1225,6 +1226,33 @@ class MainActivity : FragmentActivity() {
                     onClick = {
                         if (!isNotifGranted) {
                             ActivityCompat.requestPermissions(context, arrayOf(Manifest.permission.POST_NOTIFICATIONS), requestPermissionsCode)
+                        }
+                    }
+                )
+            )
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val isAllFilesGranted = Environment.isExternalStorageManager()
+            list.add(
+                PermissionItemState(
+                    id = "all_files_storage_access",
+                    title = "All Files Storage Access",
+                    description = "Required to browse, read, and save files across all internal and SD card storage folders.",
+                    level = PermissionLevel.HIGH,
+                    isGranted = isAllFilesGranted,
+                    actionText = "GRANT",
+                    onClick = {
+                        try {
+                            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))
+                            startActivity(intent)
+                        } catch (_: Exception) {
+                            try {
+                                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                startActivity(intent)
+                            } catch (_: Exception) {
+                                openAppSettings()
+                            }
                         }
                     }
                 )

@@ -2771,7 +2771,7 @@
           <p class="feature-text">Monitors connectivity state callbacks to drop sessions on interface switches. Enforces strict replay protection with monotonic request IDs and 30-second timestamp drift limits.</p>
           <p class="feature-meta"><span class="chip">Implemented</span></p>
         </article>
-        <!-- Feature 7: File Sharing -->
+        <!-- Feature 7: Tether Files & Explorer Integration -->
         <article class="feature feature-wide reveal">
           <span class="feature-icon" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -2780,9 +2780,9 @@
               <path d="M7 9l5-5 5 5"></path>
             </svg>
           </span>
-          <h3 class="feature-title">File Sharing &amp; Share to PC</h3>
-          <p class="feature-text">Send files, photos, links, and text from your Android phone to the paired Windows PC over an encrypted local channel. Files are staged, verified with a SHA-512 digest, then saved to a Downloads folder you can change from the desktop UI. Tether also registers as an Android share target, so you can share from any app without opening it first.</p>
-          <p class="feature-meta"><span class="chip">Implemented</span><span class="chip chip-mono">Port 37125</span><span class="chip chip-mono">SHA-512</span></p>
+          <h3 class="feature-title">Tether Files, Explorer Integration &amp; Durable Queue</h3>
+          <p class="feature-text">Browse permitted Windows roots (Downloads, Documents, Pictures, Videos, Desktop) from Android, and browse Android-accessible locations from Windows. Right-click any file or folder in Windows File Explorer to choose <strong>Send to Phone — Tether</strong>. Transfers enter a durable offline queue immediately, waiting for the target phone to become reachable, then transferring automatically over an encrypted channel (Port 37125, ALPN tether-quic-v1) with SHA-512 integrity verification.</p>
+          <p class="feature-meta"><span class="chip">Implemented</span><span class="chip chip-mono">Explorer Context Menu</span><span class="chip chip-mono">Durable Queue</span><span class="chip chip-mono">SHA-512</span></p>
         </article>
       </div>
     </div>

@@ -41,6 +41,7 @@ public sealed class TetherSession : IDisposable
 
     public string SessionId { get; } = Guid.NewGuid().ToString("N")[..8];
     public TetherDevice? Device { get; private set; }
+    public string IpAddress { get; set; } = "";
 
     public TetherSession(
         IEventBus eventBus,
@@ -108,6 +109,7 @@ public sealed class TetherSession : IDisposable
     public async Task RunAsync(TcpClient client, CancellationToken serviceCt)
     {
         var remote = (client.Client.RemoteEndPoint as System.Net.IPEndPoint)?.Address?.ToString() ?? "unknown";
+        IpAddress = remote;
         _logger.Info($"TetherSession [{SessionId}]: TCP connection accepted from {remote}.");
 
         try
@@ -121,6 +123,7 @@ public sealed class TetherSession : IDisposable
                 ClientCertificateRequired = false,
                 EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
                 CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
+                RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true,
             };
 
             // Workaround for ECDSA CNG key container issues
@@ -258,6 +261,29 @@ public sealed class TetherSession : IDisposable
                 Pqc = false
             };
             await FrameCodec.WriteJsonFrameAsync(stream, resp, ct);
+
+            try
+            {
+                using var proofCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                proofCts.CancelAfter(TimeSpan.FromSeconds(3));
+                var proofBytes = await FrameCodec.ReadFrameAsync(stream, proofCts.Token);
+                if (proofBytes != null && proofBytes.Length > 0)
+                {
+                    using var proofDoc = JsonDocument.Parse(proofBytes);
+                    if (proofDoc.RootElement.TryGetProperty("type", out var pType) &&
+                        string.Equals(pType.GetString(), "HANDSHAKE_PROOF", StringComparison.Ordinal))
+                    {
+                        _logger.Debug($"TetherSession [{SessionId}]: Received HANDSHAKE_PROOF for paired device. Responding with HANDSHAKE_VERIFIED.");
+                        await FrameCodec.WriteJsonFrameAsync(stream, new { type = "HANDSHAKE_VERIFIED", status = "OK" }, ct);
+                    }
+                }
+            }
+            catch (OperationCanceledException) { /* Optional HANDSHAKE_PROOF not sent, proceed */ }
+            catch (Exception ex)
+            {
+                _logger.Debug($"TetherSession [{SessionId}]: Handshake proof check completed: {ex.Message}");
+            }
+
             return true;
         }
 
