@@ -1,10 +1,12 @@
 ﻿using Microsoft.Win32;
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
@@ -245,7 +247,7 @@ namespace Tether.DesktopUI
             TerminalList.ItemsSource = _terminalLogs;
 
             ResolveUserContext();
-            LogTerminal("SYSTEM // Tether Telemetry Workspace initialized (Zero-Shader Mode).");
+            LogTerminal("Tether is ready.");
             EnsureVaultDaclArchitecture();
             UpdateDownloadFolderBtnText();
             LoadExplorerDirectory(GetCurrentDownloadFolder());
@@ -329,37 +331,18 @@ namespace Tether.DesktopUI
         {
             PollAndSynchronizeHardwareStates();
             var opacityAnim = new DoubleAnimation(0.0, 1.0, new Duration(TimeSpan.FromMilliseconds(160)));
-            opacityAnim.Completed += (_, _) => BeginAnimation(OpacityProperty, null); // Release animation clock
+            opacityAnim.Completed += (_, _) => BeginAnimation(OpacityProperty, null);
             BeginAnimation(OpacityProperty, opacityAnim);
         }
 
         private void NavRailList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (CardPipeline == null || CardHardware == null || CardVault == null) return;
-            if (NavRailList.SelectedItem is not ListBoxItem selected) return;
-
-            string tag = selected.Tag as string ?? "All";
-            switch (tag)
-            {
-                case "All":
-                    CardPipeline.Visibility = Visibility.Visible;
-                    CardHardware.Visibility = Visibility.Visible;
-                    CardVault.Visibility = Visibility.Visible;
-                    LeftScrollViewer?.ScrollToTop();
-                    break;
-                case "Hardware":
-                    CardPipeline.Visibility = Visibility.Collapsed;
-                    CardHardware.Visibility = Visibility.Visible;
-                    CardVault.Visibility = Visibility.Collapsed;
-                    LeftScrollViewer?.ScrollToTop();
-                    break;
-                case "Vault":
-                    CardPipeline.Visibility = Visibility.Collapsed;
-                    CardHardware.Visibility = Visibility.Collapsed;
-                    CardVault.Visibility = Visibility.Visible;
-                    LeftScrollViewer?.ScrollToTop();
-                    break;
-            }
+            if (CardPipeline == null || CardHardware == null || CardVault == null || CardFileTransfer == null) return;
+            CardPipeline.Visibility = Visibility.Visible;
+            CardHardware.Visibility = Visibility.Visible;
+            CardVault.Visibility = Visibility.Visible;
+            CardFileTransfer.Visibility = Visibility.Visible;
+            LeftScrollViewer?.ScrollToTop();
         }
 
         private void BtnMinimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
@@ -474,7 +457,7 @@ namespace Tether.DesktopUI
                     TxtStatus.Text = "LINK ENFORCED";
                     IndicatorNode.Fill = GetFluentBrush("StatusHealthyBrush", Color.FromRgb(52, 211, 153));
                     IndicatorHalo.Fill = GetFluentBrush("HealthyHaloBrush", Color.FromArgb(90, 52, 211, 153));
-                    LogTerminal("✓ LINK // Cryptographic over-the-air validation chain locked.");
+                    LogTerminal("Phone connected.");
                     ForceTelemetrySyncToPhone();
                     break;
 
@@ -482,7 +465,7 @@ namespace Tether.DesktopUI
                     TxtStatus.Text = "NODE DISCONNECTED";
                     IndicatorNode.Fill = GetFluentBrush("StatusCriticalBrush", Color.FromRgb(251, 113, 133));
                     IndicatorHalo.Fill = GetFluentBrush("CriticalHaloBrush", Color.FromArgb(90, 251, 113, 133));
-                    LogTerminal("⚠ LINK // Target node dropped carrier radio links unexpectedly.");
+                    LogTerminal("Phone disconnected.");
                     break;
 
                 case TetherEventType.PAIRING_REQUESTED:
@@ -494,7 +477,7 @@ namespace Tether.DesktopUI
                             var root = document.RootElement;
                             string pin = root.TryGetProperty("pin", out var p) ? p.GetString() ?? "" : "";
                             string devName = root.TryGetProperty("displayName", out var d) ? d.GetString() ?? "Phone" : "Phone";
-                            LogTerminal($"⚠ PAIRING REQUEST // PIN: {pin} for device '{devName}'");
+                            LogTerminal($"Pairing request from {devName}. Enter PIN {pin} on your phone.");
 
                             string msg = $"Pairing Request from {devName}\n\nEnter this 6-digit PIN on your phone:\n\n      {pin}      \n";
                             _ = Task.Run(() =>
@@ -532,7 +515,7 @@ namespace Tether.DesktopUI
                     if (evt.PayloadJson?.Contains("wake_") == true)
                     {
                         WakeSystemDisplayAndInput();
-                        LogTerminal("✓ POWER // Interactive display wake sequence executed.");
+                        LogTerminal("Screen woken.");
                     }
                     break;
 
@@ -581,10 +564,10 @@ namespace Tether.DesktopUI
                             {
                                 TxtTransferFileName.Text = $"Completed: {fileName}";
                                 TransferProgressBar.Value = 100;
-                                TxtTransferSpeed.Text = "SHA-512 Verified";
+                                TxtTransferSpeed.Text = "Verified";
                                 TxtTransferMeta.Text = string.IsNullOrEmpty(destPath) ? "Saved to Downloads/Tether" : $"Saved to {destPath}";
                                 BtnCancelActiveTransfer.Visibility = Visibility.Collapsed;
-                                LogTerminal($"✓ FILE TRANSFER // Received and verified '{fileName}' successfully.");
+                                LogTerminal($"Received '{fileName}'.");
                             });
                         }
                         catch { }
@@ -609,7 +592,7 @@ namespace Tether.DesktopUI
                                 TxtTransferSpeed.Text = "Stopped";
                                 TxtTransferMeta.Text = errMsg;
                                 BtnCancelActiveTransfer.Visibility = Visibility.Collapsed;
-                                LogTerminal($"⚠ FILE TRANSFER // '{fileName}' {errMsg}");
+                                LogTerminal($"Transfer of '{fileName}' stopped: {errMsg}");
                             });
                         }
                         catch { }
@@ -655,7 +638,6 @@ namespace Tether.DesktopUI
         private void ExecuteHardwareAction(string? action)
         {
             if (string.IsNullOrEmpty(action)) return;
-            LogTerminal($"⚙ SYSTEM // Executing hardware primitive context shift: {action}");
 
             float vol = GetSystemMasterVolume();
             uint bri = GetMonitorBrightnessLevel();
@@ -956,14 +938,14 @@ namespace Tether.DesktopUI
         private void BtnClearLogs_Click(object sender, RoutedEventArgs e)
         {
             _terminalLogs.Clear();
-            LogTerminal("SYSTEM // Diagnostic event ring buffer cleared.");
+            LogTerminal("Log cleared.");
         }
 
         private void BtnCopyLogs_Click(object sender, RoutedEventArgs e)
         {
             if (_terminalLogs.Count == 0) return;
             Clipboard.SetText(string.Join(Environment.NewLine, _terminalLogs));
-            LogTerminal("✓ BUFFER // Event stream copied to system clipboard.");
+            LogTerminal("Log copied to clipboard.");
         }
 
         private async void DispatchServiceBusPipe(TetherEvent evt)
@@ -990,12 +972,13 @@ namespace Tether.DesktopUI
                 }
                 catch (Exception ex)
                 {
-                    LogTerminal($"⚠ PIPE // Dispatch failed: {ex.Message}");
+                    Debug.WriteLine($"Dispatch failed: {ex.Message}");
+                    LogTerminal("Could not reach the Tether service. Retrying…");
                     break;
                 }
             }
             if (!_isListening) return;
-            LogTerminal("⚠ PIPE // Could not reach Tether service – verify service process status.");
+            LogTerminal("Tether service is not running. Click 'Restart Service' to try again.");
         }
 
         private void BtnLockdownOverride_Click(object sender, RoutedEventArgs e)
@@ -1007,7 +990,7 @@ namespace Tether.DesktopUI
                 Source = "DesktopUI"
             };
             DispatchServiceBusPipe(evt);
-            LogTerminal("⚠ OVERRIDE // System lockdown event dispatched.");
+            LogTerminal("System locked.");
         }
 
         private async void BtnRestartService_Click(object sender, RoutedEventArgs e)
@@ -1015,7 +998,7 @@ namespace Tether.DesktopUI
             BtnRestartService.IsEnabled = false;
             try
             {
-                LogTerminal($"⚙ SERVICE // Restart requested for '{CommServiceName}'...");
+                LogTerminal("Restarting the Tether service…");
                 await RestartCommServiceAsync();
             }
             finally
@@ -1028,7 +1011,7 @@ namespace Tether.DesktopUI
         {
             try
             {
-                LogTerminal("⚙ SERVICE // Windows Service handle unavailable. Attempting standalone launch of 'Tether.CommunicationService.exe'...");
+                LogTerminal("Starting the Tether service directly…");
                 string appDir = AppDomain.CurrentDomain.BaseDirectory;
                 string serviceExePath = Path.Combine(appDir, "Tether.CommunicationService.exe");
 
@@ -1047,18 +1030,18 @@ namespace Tether.DesktopUI
                         CreateNoWindow = false
                     };
                     Process.Start(psi);
-                    LogTerminal($"✓ SERVICE // Successfully launched communication service '{Path.GetFileName(serviceExePath)}'.");
+                    LogTerminal("Tether service started.");
                     return true;
                 }
                 else
                 {
-                    LogTerminal("❌ SERVICE // 'Tether.CommunicationService.exe' binary not found.");
+                    LogTerminal("Could not find the Tether service program.");
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                LogTerminal($"❌ SERVICE // Failed starting standalone service: {ex.Message}");
+                LogTerminal($"Could not start the Tether service: {ex.Message}");
                 return false;
             }
         }
@@ -1086,7 +1069,7 @@ namespace Tether.DesktopUI
 
                 if (!QueryServiceStatus(serviceHandle, out SERVICE_STATUS status))
                 {
-                    LogTerminal("❌ SERVICE // QueryServiceStatus failed.");
+                    LogTerminal("Could not read the Tether service status.");
                     return false;
                 }
 
@@ -1095,12 +1078,11 @@ namespace Tether.DesktopUI
                     SERVICE_STATUS stopStatus = default;
                     if (!ControlService(serviceHandle, SERVICE_CONTROL_STOP, ref stopStatus))
                     {
-                        int err = Marshal.GetLastWin32Error();
-                        LogTerminal($"❌ SERVICE // Stop request rejected (Win32 {err}).");
+                        LogTerminal("Could not stop the Tether service.");
                         return false;
                     }
 
-                    LogTerminal($"⏳ SERVICE // Stop signal sent to '{CommServiceName}', awaiting STOPPED state...");
+                    LogTerminal("Stopping the Tether service…");
 
                     var sw = Stopwatch.StartNew();
                     while (sw.ElapsedMilliseconds < 15000)
@@ -1112,7 +1094,7 @@ namespace Tether.DesktopUI
 
                     if (status.dwCurrentState != SERVICE_STOPPED)
                     {
-                        LogTerminal("❌ SERVICE // Service did not reach STOPPED within 15s. Aborting restart.");
+                        LogTerminal("The Tether service did not stop in time.");
                         return false;
                     }
                 }
@@ -1122,17 +1104,17 @@ namespace Tether.DesktopUI
                     int err = Marshal.GetLastWin32Error();
                     if (err != ERROR_SERVICE_ALREADY_RUNNING)
                     {
-                        LogTerminal($"❌ SERVICE // StartService failed (Win32 {err}).");
+                        LogTerminal("Could not start the Tether service.");
                         return false;
                     }
                 }
 
-                LogTerminal($"✓ SERVICE // '{CommServiceName}' restart sequence executed successfully.");
+                LogTerminal("Tether service restarted.");
                 return true;
             }
             catch (Exception ex)
             {
-                LogTerminal($"❌ SERVICE // Exception while restarting: {ex.Message}");
+                LogTerminal($"Could not restart the Tether service: {ex.Message}");
                 return false;
             }
             finally
@@ -1180,12 +1162,12 @@ namespace Tether.DesktopUI
                     }
 
                     rootKey.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
-                    LogTerminal("⚠️ VAULT // Vault architecture upgraded to Secrets subkey (DACL v2). Please re-commit your Windows password.");
+                    LogTerminal("Password storage upgraded. Please re-enter your Windows password.");
                 }
             }
             catch (Exception ex)
             {
-                LogTerminal($"Vault DACL setup warning: {ex.Message}");
+                LogTerminal($"Password setup notice: {ex.Message}");
             }
         }
 
@@ -1242,7 +1224,7 @@ namespace Tether.DesktopUI
             }
             catch (Exception ex)
             {
-                LogTerminal($"⚠ EXPLORER // Cannot list directory: {ex.Message}");
+                LogTerminal($"Could not list directory: {ex.Message}");
             }
         }
 
@@ -1275,12 +1257,12 @@ namespace Tether.DesktopUI
                 if (selectedItems.Length > 0)
                 {
                     App.ProcessLaunchArgs(selectedItems);
-                    LogTerminal($"✓ QUEUE // Enqueued {selectedItems.Length} item(s) from File Explorer for transfer.");
+                    LogTerminal($"Queued {selectedItems.Length} item(s) for transfer.");
                 }
             }
             catch (Exception ex)
             {
-                LogTerminal($"⚠ ERROR // Could not send selected items: {ex.Message}");
+                LogTerminal($"Could not send selected items: {ex.Message}");
             }
         }
 
@@ -1297,12 +1279,12 @@ namespace Tether.DesktopUI
                 if (dialog.ShowDialog() == true && dialog.FileNames.Length > 0)
                 {
                     App.ProcessLaunchArgs(dialog.FileNames);
-                    LogTerminal($"✓ QUEUE // Enqueued {dialog.FileNames.Length} file(s) for transfer to phone.");
+                    LogTerminal($"Queued {dialog.FileNames.Length} file(s) for transfer.");
                 }
             }
             catch (Exception ex)
             {
-                LogTerminal($"⚠ ERROR // Could not enqueue files: {ex.Message}");
+                LogTerminal($"Could not queue files: {ex.Message}");
             }
         }
 
@@ -1319,7 +1301,7 @@ namespace Tether.DesktopUI
             }
             catch (Exception ex)
             {
-                LogTerminal($"⚠ ERROR // Could not open Downloads folder: {ex.Message}");
+                LogTerminal($"Could not open the Downloads folder: {ex.Message}");
             }
         }
 
@@ -1349,12 +1331,12 @@ namespace Tether.DesktopUI
                     File.WriteAllText(settingsFile, doc.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
 
                     UpdateDownloadFolderBtnText();
-                    LogTerminal($"Download folder changed to: {newPath}");
+                    LogTerminal($"Download folder set to {newPath}.");
                 }
             }
             catch (Exception ex)
             {
-                LogTerminal($"⚠ ERROR // Could not change folder: {ex.Message}");
+                LogTerminal($"Could not change the download folder: {ex.Message}");
             }
         }
 
@@ -1399,7 +1381,7 @@ namespace Tether.DesktopUI
             };
 
             DispatchServiceBusPipe(cancelEvt);
-            LogTerminal($"⚠ CANCEL REQUEST // Dispatched cancellation request for transfer '{_activeTransferId}'");
+            LogTerminal("Cancelling transfer…");
         }
 
         private void BtnCommitVault_Click(object sender, RoutedEventArgs e)
@@ -1416,7 +1398,7 @@ namespace Tether.DesktopUI
 
                 if (!LogonUser(Environment.UserName, Environment.UserDomainName, Marshal.PtrToStringUni(unmanagedPasswordPtr), 2, 0, out IntPtr token))
                 {
-                    LogTerminal("❌ VAULT // Windows operational token assignment failed. Secret rejected.");
+                    LogTerminal("Could not verify password. Please check your Windows password and try again.");
                     return;
                 }
                 CloseHandle(token);
@@ -1450,7 +1432,7 @@ namespace Tether.DesktopUI
                                 rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
                             }
 
-                            LogTerminal("✓ VAULT // Cryptographic alignment sealed in Secrets subkey with application entropy.");
+                            LogTerminal("Password saved successfully.");
                             TxtPassword.Clear();
                         }
                         catch (UnauthorizedAccessException)
@@ -1469,12 +1451,12 @@ namespace Tether.DesktopUI
                                 };
 
                                 Process.Start(startInfo);
-                                LogTerminal("✓ VAULT // Cryptographic alignment sealed in Secrets subkey via elevated helper.");
+                                LogTerminal("Password saved successfully.");
                                 TxtPassword.Clear();
                             }
                             catch (Exception ex)
                             {
-                                LogTerminal($"❌ VAULT // Elevation cancelled or failed: {ex.Message}");
+                                LogTerminal($"Could not save password: {ex.Message}");
                             }
                         }
                     }
@@ -1484,7 +1466,7 @@ namespace Tether.DesktopUI
                     }
                 }
             }
-            catch (Exception ex) { LogTerminal($"Fatal registry exception: {ex.Message}"); }
+            catch (Exception ex) { LogTerminal($"Could not save password: {ex.Message}"); }
             finally
             {
                 if (unmanagedEntropy != IntPtr.Zero)

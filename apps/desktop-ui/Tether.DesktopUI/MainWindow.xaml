@@ -1,7 +1,7 @@
 ﻿<Window x:Class="Tether.DesktopUI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Tether — Security &amp; Telemetry Workstation"
+        Title="Tether"
         Height="820" Width="1160"
         MinHeight="720" MinWidth="1020"
         WindowStyle="None"
@@ -76,7 +76,7 @@
                     <Border Grid.Column="2"
                             Style="{StaticResource BadgePillBorderStyle}"
                             Padding="6,2">
-                        <TextBlock Text="IPC v2"
+                        <TextBlock Text="v2"
                                    FontFamily="{StaticResource MonoFontFamily}"
                                    FontSize="9"
                                    FontWeight="SemiBold"
@@ -102,20 +102,9 @@
                                 VerticalAlignment="Center"
                                 Margin="24,0,0,0"
                                 IsHitTestVisible="False">
-                        <TextBlock Text="WORKSTATION"
-                                   FontFamily="{StaticResource MonoFontFamily}"
-                                   FontSize="10.5"
-                                   FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextMutedBrush}"
-                                   VerticalAlignment="Center"/>
-                        <TextBlock Text="  /  "
-                                   FontFamily="{StaticResource MonoFontFamily}"
-                                   FontSize="10.5"
-                                   Foreground="{StaticResource TextMutedBrush}"
-                                   VerticalAlignment="Center"/>
-                        <TextBlock Text="TELEMETRY CONTROL PLANE"
-                                   FontFamily="{StaticResource MonoFontFamily}"
-                                   FontSize="10.5"
+                        <TextBlock Text="Tether — Connected Device"
+                                   FontFamily="{StaticResource FluentDisplayFontFamily}"
+                                   FontSize="12"
                                    FontWeight="SemiBold"
                                    Foreground="{StaticResource TextSecondaryBrush}"
                                    VerticalAlignment="Center"/>
@@ -165,20 +154,14 @@
                     Background="{StaticResource RailBackgroundBrush}"
                     BorderBrush="{StaticResource SubtleDividerBrush}"
                     BorderThickness="0,0,1,0">
-                <Grid>
+                <Grid Margin="0,18,0,0">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0"
-                               Text="WORKSPACE NODES"
-                               Style="{StaticResource SectionEyebrowTextStyle}"
-                               Margin="20,18,0,8"/>
-
                     <ListBox x:Name="NavRailList"
-                             Grid.Row="1"
+                             Grid.Row="0"
                              Background="Transparent"
                              BorderThickness="0"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -186,45 +169,13 @@
                              SelectionChanged="NavRailList_SelectionChanged">
                         <ListBoxItem IsSelected="True" Tag="All">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xEEA3;"
+                                <TextBlock Text="&#xE80F;"
                                            FontFamily="{StaticResource IconFontFamily}"
                                            FontSize="15"
                                            Width="22"
                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
                                            VerticalAlignment="Center"/>
-                                <TextBlock Text="Telemetry Overview"
-                                           FontFamily="{StaticResource FluentFontFamily}"
-                                           FontSize="13"
-                                           FontWeight="Medium"
-                                           Margin="8,0,0,0"
-                                           VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </ListBoxItem>
-                        <ListBoxItem Tag="Hardware">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE95A;"
-                                           FontFamily="{StaticResource IconFontFamily}"
-                                           FontSize="15"
-                                           Width="22"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
-                                           VerticalAlignment="Center"/>
-                                <TextBlock Text="Hardware Controls"
-                                           FontFamily="{StaticResource FluentFontFamily}"
-                                           FontSize="13"
-                                           FontWeight="Medium"
-                                           Margin="8,0,0,0"
-                                           VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </ListBoxItem>
-                        <ListBoxItem Tag="Vault">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE72E;"
-                                           FontFamily="{StaticResource IconFontFamily}"
-                                           FontSize="15"
-                                           Width="22"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
-                                           VerticalAlignment="Center"/>
-                                <TextBlock Text="DPAPI Vault"
+                                <TextBlock Text="Home"
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="13"
                                            FontWeight="Medium"
@@ -234,8 +185,8 @@
                         </ListBoxItem>
                     </ListBox>
 
-                    <!-- Security Principal Card -->
-                    <Border Grid.Row="2"
+                    <!-- User Account Card -->
+                    <Border Grid.Row="1"
                             Margin="12,0,12,12"
                             Padding="14,12"
                             CornerRadius="10"
@@ -264,9 +215,9 @@
                             </Border>
 
                             <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
-                                <TextBlock Text="SECURITY PRINCIPAL"
-                                           FontFamily="{StaticResource MonoFontFamily}"
-                                           FontSize="9.5"
+                                <TextBlock Text="User Account"
+                                           FontFamily="{StaticResource FluentFontFamily}"
+                                           FontSize="11"
                                            FontWeight="SemiBold"
                                            Foreground="{StaticResource TextMutedBrush}"/>
                                 <TextBlock x:Name="TxtUserType"
@@ -318,9 +269,9 @@
                                     </Grid.ColumnDefinitions>
 
                                     <StackPanel Grid.Column="0">
-                                        <TextBlock Text="QUIC FILE SHARING // UDP:37125 • SHA-512"
+                                        <TextBlock Text="FILE TRANSFER"
                                                    Style="{StaticResource SectionEyebrowTextStyle}"/>
-                                        <TextBlock Text="Active &amp; Recent Transfers"
+                                        <TextBlock Text="Send &amp; Receive Files"
                                                    Style="{StaticResource CardTitleTextStyle}"/>
                                     </StackPanel>
 
@@ -415,7 +366,7 @@
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
                                             <TextBlock x:Name="TxtTransferMeta"
-                                                       Text="Receiver ready • ALPN tether-quic-v1"
+                                                       Text="Receiver ready"
                                                        FontFamily="{StaticResource MonoFontFamily}"
                                                        FontSize="11"
                                                        Foreground="{StaticResource TextSecondaryBrush}"/>
@@ -460,7 +411,7 @@
                             </Grid>
                         </Border>
 
-                        <!-- Security Pipeline Card -->
+                        <!-- Connection Pipeline Card -->
                         <Border x:Name="CardPipeline" Style="{StaticResource GlassPanel}">
                             <Grid>
                                 <Grid.RowDefinitions>
@@ -475,9 +426,9 @@
                                     </Grid.ColumnDefinitions>
 
                                     <StackPanel Grid.Column="0">
-                                        <TextBlock Text="SIGNAL ENFORCEMENT // NAMED PIPE BUS"
+                                        <TextBlock Text="CONNECTION STATUS"
                                                    Style="{StaticResource SectionEyebrowTextStyle}"/>
-                                        <TextBlock Text="Core Security Network Pipeline"
+                                        <TextBlock Text="Phone Connection"
                                                    Style="{StaticResource CardTitleTextStyle}"/>
                                     </StackPanel>
 
@@ -520,11 +471,10 @@
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
 
                                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                            <TextBlock Text="STATE VECTOR"
+                                            <TextBlock Text="Status"
                                                        FontFamily="{StaticResource MonoFontFamily}"
                                                        FontSize="9.5"
                                                        Foreground="{StaticResource TextMutedBrush}"/>
@@ -536,16 +486,6 @@
                                                        Foreground="{StaticResource TextPrimaryBrush}"
                                                        Margin="0,3,0,0"/>
                                         </StackPanel>
-
-                                        <Border Grid.Column="1"
-                                                Style="{StaticResource BadgePillBorderStyle}">
-                                            <TextBlock x:Name="TxtRssi"
-                                                       Text="RSSI NODE: -- dBm"
-                                                       FontFamily="{StaticResource MonoFontFamily}"
-                                                       FontSize="11"
-                                                       FontWeight="Medium"
-                                                       Foreground="{StaticResource TextAccentBrush}"/>
-                                        </Border>
                                     </Grid>
                                 </Border>
                             </Grid>
@@ -554,13 +494,13 @@
                         <!-- Hardware Layer Card -->
                         <Border x:Name="CardHardware" Style="{StaticResource GlassPanel}">
                             <StackPanel>
-                                <TextBlock Text="COREAUDIO COM &amp; WIN32 BACKENDS"
+                                <TextBlock Text="DEVICE CONTROLS"
                                            Style="{StaticResource SectionEyebrowTextStyle}"/>
-                                <TextBlock Text="Hardware Device Layer Integrations"
+                                <TextBlock Text="Volume &amp; Brightness"
                                            Style="{StaticResource CardTitleTextStyle}"
                                            Margin="0,0,0,18"/>
 
-                                <!-- System Master Volume -->
+                                <!-- Volume -->
                                 <Border Padding="14,12"
                                         CornerRadius="8"
                                         Background="#16000000"
@@ -570,17 +510,11 @@
                                     <StackPanel>
                                         <Grid Margin="0,0,0,8">
                                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                                <TextBlock Text="&#xE767;"
-                                                           FontFamily="{StaticResource IconFontFamily}"
-                                                           FontSize="14"
-                                                           Foreground="{StaticResource SystemAccentBrush}"
-                                                           VerticalAlignment="Center"/>
-                                                <TextBlock Text="System Master Volume"
+                                                <TextBlock Text="Volume"
                                                            FontFamily="{StaticResource FluentFontFamily}"
                                                            FontSize="13"
                                                            FontWeight="Medium"
                                                            Foreground="{StaticResource TextPrimaryBrush}"
-                                                           Margin="10,0,0,0"
                                                            VerticalAlignment="Center"/>
                                             </StackPanel>
 
@@ -601,7 +535,7 @@
                                     </StackPanel>
                                 </Border>
 
-                                <!-- Display Matrix Luminescence -->
+                                <!-- Brightness -->
                                 <Border Padding="14,12"
                                         CornerRadius="8"
                                         Background="#16000000"
@@ -610,17 +544,11 @@
                                     <StackPanel>
                                         <Grid Margin="0,0,0,8">
                                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                                <TextBlock Text="&#xE706;"
-                                                           FontFamily="{StaticResource IconFontFamily}"
-                                                           FontSize="14"
-                                                           Foreground="{StaticResource SystemAccentBrush}"
-                                                           VerticalAlignment="Center"/>
-                                                <TextBlock Text="Display Matrix Luminescence"
+                                                <TextBlock Text="Brightness"
                                                            FontFamily="{StaticResource FluentFontFamily}"
                                                            FontSize="13"
                                                            FontWeight="Medium"
                                                            Foreground="{StaticResource TextPrimaryBrush}"
-                                                           Margin="10,0,0,0"
                                                            VerticalAlignment="Center"/>
                                             </StackPanel>
 
@@ -643,20 +571,20 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- DPAPI Vault Card -->
+                        <!-- Password / Security Vault Card -->
                         <Border x:Name="CardVault" Style="{StaticResource GlassPanel}" Margin="0">
                             <StackPanel>
                                 <Grid Margin="0,0,0,6">
                                     <StackPanel>
-                                        <TextBlock Text="CRYPT32 // DPAPI ENTROPY SEAL"
+                                        <TextBlock Text="SECURITY VAULT"
                                                    Style="{StaticResource SectionEyebrowTextStyle}"/>
-                                        <TextBlock Text="Local Vault Cryptographic Subsystem"
+                                        <TextBlock Text="Windows Password Setup"
                                                    Style="{StaticResource CardTitleTextStyle}"/>
                                     </StackPanel>
                                     <Border Style="{StaticResource BadgePillBorderStyle}"
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Top">
-                                        <TextBlock Text="HKLM // DACL v2"
+                                        <TextBlock Text="Secured"
                                                    FontFamily="{StaticResource MonoFontFamily}"
                                                    FontSize="9.5"
                                                    FontWeight="SemiBold"
@@ -664,7 +592,7 @@
                                     </Border>
                                 </Grid>
 
-                                <TextBlock Text="Validate domain credentials via LogonUser and seal secret payload into HKLM CredentialProvider registry storage."
+                                <TextBlock Text="Store your Windows password securely so Tether can authenticate unlock requests."
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="12.5"
                                            Foreground="{StaticResource TextSecondaryBrush}"
@@ -684,7 +612,7 @@
                                                    FontSize="13"
                                                    VerticalAlignment="Center"
                                                    Margin="0,0,8,0"/>
-                                        <TextBlock Text="Commit Secret To Vault"
+                                        <TextBlock Text="Save Password"
                                                    VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
@@ -714,9 +642,9 @@
 
                             <Grid Grid.Row="0" Margin="0,0,0,14">
                                 <StackPanel>
-                                    <TextBlock Text="REALTIME IPC BUS MONITOR"
+                                    <TextBlock Text="ACTIVITY LOG"
                                                Style="{StaticResource SectionEyebrowTextStyle}"/>
-                                    <TextBlock Text="System Diagnostic Event Stream"
+                                    <TextBlock Text="Recent Activity"
                                                Style="{StaticResource CardTitleTextStyle}"/>
                                 </StackPanel>
 
@@ -726,7 +654,7 @@
                                     <Button x:Name="BtnCopyLogs"
                                             Padding="8,4"
                                             Margin="0,0,6,0"
-                                            ToolTip="Copy Event Stream"
+                                            ToolTip="Copy log"
                                             Click="BtnCopyLogs_Click">
                                         <TextBlock Text="&#xE8C8;"
                                                    FontFamily="{StaticResource IconFontFamily}"
@@ -735,7 +663,7 @@
                                     <Button x:Name="BtnClearLogs"
                                             Padding="8,4"
                                             Margin="0,0,8,0"
-                                            ToolTip="Clear Event Stream"
+                                            ToolTip="Clear log"
                                             Click="BtnClearLogs_Click">
                                         <TextBlock Text="&#xE74D;"
                                                    FontFamily="{StaticResource IconFontFamily}"
@@ -752,7 +680,7 @@
                                                      Fill="{StaticResource StatusHealthyBrush}"
                                                      VerticalAlignment="Center"
                                                      Margin="0,0,6,0"/>
-                                            <TextBlock Text="RING // 250"
+                                            <TextBlock Text="Last 250 events"
                                                        FontFamily="{StaticResource MonoFontFamily}"
                                                        FontSize="10"
                                                        Foreground="{StaticResource TextSecondaryBrush}"/>
@@ -807,7 +735,7 @@
                         </Grid>
                     </Border>
 
-                    <!-- Action Buttons: Side-by-Side or Stacked -->
+                    <!-- Action Buttons -->
                     <Grid Grid.Row="1" Margin="0,14,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -826,7 +754,7 @@
                                            FontSize="13"
                                            VerticalAlignment="Center"
                                            Margin="0,0,8,0"/>
-                                <TextBlock Text="Restart Service"
+                                <TextBlock Text="Restart Tether Service"
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="13"
                                            FontWeight="SemiBold"
@@ -845,7 +773,7 @@
                                            FontSize="13"
                                            VerticalAlignment="Center"
                                            Margin="0,0,8,0"/>
-                                <TextBlock Text="System Lockdown"
+                                <TextBlock Text="Lock My PC"
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="13"
                                            FontWeight="SemiBold"
