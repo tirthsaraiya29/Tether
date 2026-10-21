@@ -500,10 +500,20 @@ class TetherFileTransferManager(
                     updateProgress(progress)
 
                     val completeRaw = transport.readControlFrame()
-                    if (completeRaw != null) {
-                        val completeStr = String(completeRaw, StandardCharsets.UTF_8)
-                        val safeCompleteStr = sanitizeLogInput(completeStr)
-                        Log.i(TAG, "Server completed transfer response: $safeCompleteStr")
+                        ?: throw IOException("No TRANSFER_COMPLETE received from server")
+
+                    val completeStr = String(completeRaw, StandardCharsets.UTF_8)
+                    val safeCompleteStr = sanitizeLogInput(completeStr)
+                    Log.i(TAG, "Server completed transfer response: $safeCompleteStr")
+
+                    val type = JsonParserUtils.getString(completeStr, "type", "")
+                    val status = JsonParserUtils.getString(completeStr, "status", "OK")
+                    if (type == ControlMessageType.TRANSFER_COMPLETE && status != "OK") {
+                        val reason = JsonParserUtils.getString(completeStr, "reason", "Unknown error")
+                        throw IOException("Receiver reported transfer failure: $reason")
+                    } else if (status == "ERROR" || status == "REJECTED") {
+                        val reason = JsonParserUtils.getString(completeStr, "reason", "Unknown error")
+                        throw IOException("Receiver reported failure: $reason")
                     }
 
                     progress = progress.copy(
