@@ -38,6 +38,8 @@
 
 **Tether** is an open-source personal trust and authentication platform designed to connect an Android device with a Windows workstation. It aims to use a smartphone as a cryptographically secured **trust anchor**, enabling device-based authentication workflows, workstation locking, trust validation, emergency lockdown, and remote workstation control.
 
+Tether also includes an encrypted local file-transfer channel (TCP 37125, ALPN tether-quic-v1) so files and links can be pushed from Android to the paired Windows host without a cloud service, and a Share-to-PC intent handler that lets any Android app hand off content to Tether.
+
 Unlike cloud-dependent companion applications, Tether communicates directly over local Wi-Fi/LAN infrastructure without requiring a cloud relay.
 
 ## Installation and Setup
@@ -59,7 +61,7 @@ Download prebuilt binaries directly from the official releases:
 ### 3. Install on Windows
 
 1. Run `Tether-Setup-*.exe` as Administrator.
-2. Complete the wizard to install `Tether.CommunicationService`, register `TetherCredentialProvider.dll`, and open local firewall port `37123`.
+2. Complete the wizard to install `Tether.CommunicationService`, register `TetherCredentialProvider.dll`, and open local firewall ports 37123 (control) and 37125 (file transfer). The service also attempts to add the matching netsh rules on startup.
 3. Launch `Tether Desktop UI`.
 
 ### 4. Install on Android
@@ -73,6 +75,7 @@ Download prebuilt binaries directly from the official releases:
 2. Open Tether Desktop UI and the Android companion app.
 3. Initiate pairing from Android and enter the pairing code displayed on the desktop UI.
 4. Verify the generated cryptographic fingerprint.
+5. On Windows, the Tether Credential Provider now offers a single sign-in path: unlock with the phone app. There is no longer a manual password box, a TPM-stored password option, or a phone-screen-unlock option on the logon tile.
 
 ---
 
@@ -132,6 +135,18 @@ Download prebuilt binaries directly from the official releases:
 - **Remote Input:** Stream mouse movement, clicks, scrolling, and modifier-key events.
 - **Application Launching:** Launch configured Windows utilities into the active desktop session.
 
+### Local File Transfer and Share to PC
+
+- **Encrypted transfer channel:** TCP `37125` with TLS, ALPN `tether-quic-v1`, mirroring the Windows receiver's QUIC UDP listener.
+- **Integrity:** Each file is streamed, hashed with SHA-512 while in transit, and verified on the receiving side before being promoted out of staging.
+- **Configurable destination:** Downloads folder is set from the desktop UI and persisted to `%LOCALAPPDATA%\Tether\settings.json`; the service reads the same value.
+- **Share to PC:** Android registers `ACTION_SEND` and `ACTION_SEND_MULTIPLE` intent filters, so content can be pushed from any app. Shared text and links are staged as temporary `.txt` files.
+- **Transfer UI:** Dedicated file-sharing screen on Android and a transfer card on the Windows desktop showing active progress, speed, and cancellation.
+
+### Android Update Checks and Permissions
+
+- **Background update notifications:** A foreground `UpdateCheckService` checks GitHub releases on a dedicated notification channel and offers an in-app update dialog.
+- **Permissions dashboard:** A dedicated Permissions screen, plus a dashboard banner, tracks the runtime permissions Tether needs (nearby Wi-Fi, location, notifications, battery optimization exemption, overlays, full-screen intents) and offers one-tap grant actions.
 ---
 
 ## Visual Highlights and UI Screenshots
@@ -445,7 +460,7 @@ Named pipes must be hardened with strict ACLs, process identity validation, and 
 ## Security Model
 
 ### 1. TLS 1.3 & Cryptographic Handshake
-All control traffic is encapsulated within TLS 1.3 over direct TCP (`37123`). Mutual identity validation relies on stored RSA-2048 public keys paired with device-unique nonces (`phoneNonce`, `windowsNonce`).
+All control traffic is encapsulated within TLS over direct TCP (37123). TLS 1.3 is preferred; TLS 1.2 is also accepted for compatibility with clients that do not offer TLS 1.3. File transfers use a parallel channel on TCP 37125 with ALPN tether-quic-v1. Mutual identity validation relies on stored RSA-2048 public keys paired with device-unique nonces (`phoneNonce`, `windowsNonce`).
 
 ### 2. Hardware Keystore Binding
 Android private keys are generated inside the Android Keystore with StrongBox hardware protection enabled where supported by hardware. Keys never leave secure enclave boundaries.
@@ -463,9 +478,9 @@ All command payloads require:
 - Developer options status.
 
 ### 5. Windows Credential Storage & Password Verification
-- **Hashing Schemes:** Supports `pbkdf2-sha256-600k` (600,000 iterations), `pbkdf2-sha512-210k` (210,000 iterations), and legacy `sha256-v1` hashes with automatic inline upgrade upon successful authentication.
-- **Side-Channel Mitigation:** Constant-time password verification prevents timing side-channel leakage during hash comparisons.
-- **Registry Vault Hardening:** Credential secrets reside in a dedicated `HKLM\...\Secrets` registry subkey protected by hardened discretionary access control lists (`VaultDaclVersion=2`) restricted to privileged system accounts.
+- **Phone-app unlock only:** The Credential Provider no longer exposes a manual password fallback, a TPM-stored password option, or a phone-screen-unlock option. Unlock is driven by the paired Android app, which is validated against the trust store before the provider serializes a credential.
+- **Registry Vault Hardening:** Credential secrets reside in a dedicated `HKLM\...\Secrets` registry subkey protected by hardened discretionary access control lists (`VaultDaclVersion=2`) restricted to privileged system accounts. The provider now also reads the legacy path under `HKLM\...\CredentialProvider` for backward compatibility.
+- **DPAPI protection:** The stored password payload remains protected with `CryptProtectData` using the `Tether_System_Bound_Vault_v1` entropy string.
 
 ---
 
