@@ -33,6 +33,12 @@ namespace Tether.FileTransfer
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             connection.Open();
 
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText = "PRAGMA journal_mode=DELETE;";
+                cmd.ExecuteNonQuery();
+            }
+
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = @"

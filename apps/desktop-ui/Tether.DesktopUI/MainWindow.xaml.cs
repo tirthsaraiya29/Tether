@@ -250,7 +250,7 @@ namespace Tether.DesktopUI
             LogTerminal("Tether is ready.");
             EnsureVaultDaclArchitecture();
             UpdateDownloadFolderBtnText();
-            LoadExplorerDirectory(GetCurrentDownloadFolder());
+            LoadExplorerDirectory("/");
 
             StateChanged += MainWindow_StateChanged;
 
@@ -1018,7 +1018,15 @@ namespace Tether.DesktopUI
                 if (!File.Exists(serviceExePath))
                 {
                     string solutionDir = Path.GetFullPath(Path.Combine(appDir, "..", "..", "..", "..", ".."));
-                    serviceExePath = Path.Combine(solutionDir, "services", "communication-service", "Tether.CommunicationService", "bin", "Debug", "net10.0-windows", "Tether.CommunicationService.exe");
+                    string commBin = Path.Combine(solutionDir, "services", "communication-service", "Tether.CommunicationService", "bin", "Debug");
+                    if (Directory.Exists(commBin))
+                    {
+                        var matches = Directory.GetFiles(commBin, "Tether.CommunicationService.exe", SearchOption.AllDirectories);
+                        if (matches.Length > 0)
+                        {
+                            serviceExePath = matches[0];
+                        }
+                    }
                 }
 
                 if (File.Exists(serviceExePath))
@@ -1181,42 +1189,59 @@ namespace Tether.DesktopUI
             public string FormattedDate { get; init; } = "";
         }
 
-        private string _currentExplorerDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            private string _currentExplorerDir = "/";
 
         private void LoadExplorerDirectory(string path)
         {
             try
             {
-                if (!Directory.Exists(path)) return;
-                _currentExplorerDir = path;
-                TxtCurrentExplorerPath.Text = path;
+                _currentExplorerDir = string.IsNullOrWhiteSpace(path) ? "/" : path;
+                TxtCurrentExplorerPath.Text = $"Android: {_currentExplorerDir}";
+
+                string commonData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                string dbPath = Path.Combine(commonData, "Tether", "android_fs.db");
 
                 var items = new List<ExplorerItemModel>();
-                var dirInfo = new DirectoryInfo(path);
 
-                foreach (var d in dirInfo.GetDirectories())
+                if (File.Exists(dbPath))
                 {
-                    if ((d.Attributes & FileAttributes.Hidden) != 0) continue;
-                    items.Add(new ExplorerItemModel
+                    using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+                    connection.Open();
+
+                    using var command = connection.CreateCommand();
+                    command.CommandText = "SELECT name, path, is_directory, size, last_modified FROM files WHERE parent_path = $parent ORDER BY is_directory DESC, name ASC";
+                    command.Parameters.AddWithValue("$parent", _currentExplorerDir);
+
+                    using var reader = command.ExecuteReader();
+                    while (reader.Read())
                     {
-                        Name = $"📁 {d.Name}",
-                        FullPath = d.FullName,
-                        IsDirectory = true,
-                        FileSize = 0,
-                        FormattedDate = d.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
-                    });
+                        string name = reader.GetString(0);
+                        string itemPath = reader.GetString(1);
+                        bool isDir = reader.GetInt32(2) == 1;
+                        long size = reader.GetInt64(3);
+                        long lastMod = reader.GetInt64(4);
+
+                        DateTime date = DateTimeOffset.FromUnixTimeMilliseconds(lastMod).LocalDateTime;
+
+                        items.Add(new ExplorerItemModel
+                        {
+                            Name = isDir ? $"📁 {name}" : $"📄 {name}",
+                            FullPath = itemPath,
+                            IsDirectory = isDir,
+                            FileSize = size,
+                            FormattedDate = date.ToString("yyyy-MM-dd HH:mm")
+                        });
+                    }
                 }
-
-                foreach (var f in dirInfo.GetFiles())
+                else
                 {
-                    if ((f.Attributes & FileAttributes.Hidden) != 0) continue;
                     items.Add(new ExplorerItemModel
                     {
-                        Name = f.Name,
-                        FullPath = f.FullName,
+                        Name = "⚠️ No Android Filesystem Sync DB found (Auto-syncing...)",
+                        FullPath = "",
                         IsDirectory = false,
-                        FileSize = f.Length,
-                        FormattedDate = f.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                        FileSize = 0,
+                        FormattedDate = ""
                     });
                 }
 
@@ -1224,7 +1249,7 @@ namespace Tether.DesktopUI
             }
             catch (Exception ex)
             {
-                LogTerminal($"Could not list directory: {ex.Message}");
+                LogTerminal($"Could not query Android filesystem DB: {ex.Message}");
             }
         }
 
@@ -1232,10 +1257,16 @@ namespace Tether.DesktopUI
         {
             try
             {
-                var parent = Directory.GetParent(_currentExplorerDir);
-                if (parent != null)
+                if (_currentExplorerDir == "/" || string.IsNullOrEmpty(_currentExplorerDir)) return;
+
+                int lastSlash = _currentExplorerDir.LastIndexOf('/');
+                if (lastSlash > 0)
                 {
-                    LoadExplorerDirectory(parent.FullName);
+                    LoadExplorerDirectory(_currentExplorerDir.Substring(0, lastSlash));
+                }
+                else
+                {
+                    LoadExplorerDirectory("/");
                 }
             }
             catch { }
@@ -1247,6 +1278,17 @@ namespace Tether.DesktopUI
             {
                 LoadExplorerDirectory(selected.FullPath);
             }
+        }
+
+        private void BtnSyncAndroidFs_Click(object sender, RoutedEventArgs e)
+        {
+            var evt = new TetherEvent
+            {
+                EventType = TetherEventType.FS_DB_SYNC_REQUESTED,
+                Source = "DesktopUI"
+            };
+            DispatchServiceBusPipe(evt);
+            LogTerminal("Requesting Android filesystem sync...");
         }
 
         private void BtnSendExplorerSelected_Click(object sender, RoutedEventArgs e)

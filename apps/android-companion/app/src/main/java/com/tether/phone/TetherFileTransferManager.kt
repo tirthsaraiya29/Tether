@@ -421,7 +421,13 @@ class TetherFileTransferManager(
 
             val digest = MessageDigest.getInstance("SHA-512")
             try {
-                resolver.openInputStream(uri)?.use { input ->
+                val inputStream = if (uri.scheme == "file" && uri.path != null) {
+                    FileInputStream(File(uri.path!!))
+                } else {
+                    resolver.openInputStream(uri)
+                }
+
+                inputStream?.use { input ->
                     FileOutputStream(stagingFile).use { output ->
                         val buffer = ByteArray(BUFFER_SIZE)
                         var read: Int

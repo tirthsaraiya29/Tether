@@ -135,7 +135,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val networkExecutor = Executors.newCachedThreadPool()
 
-    private lateinit var securityEngine: ProductionSecurityEngine
+    lateinit var securityEngine: ProductionSecurityEngine
     private lateinit var discoveryManager: TetherDiscoveryManager
     private lateinit var pairingManager: TetherPairingManager
     private lateinit var capabilityManager: TetherCapabilityManager
@@ -191,6 +191,22 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         lastPowerCommandAtMs = 0L
         rebootTimeoutJob?.cancel()
         shutdownTimeoutJob?.cancel()
+
+        // Auto-trigger background filesystem indexing and DB sync asynchronously
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                Log.i(TAG, "Auto-indexing local filesystem for DB sync...")
+                val indexer = AndroidFilesystemIndexer(applicationContext)
+                indexer.buildDatabase()
+
+                val hostIp = connectedHostAddress
+                if (!hostIp.isNullOrBlank()) {
+                    fileTransferManager.requestWindowsDbSync(securityEngine, hostIp)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Auto filesystem DB sync failed: ${e.message}")
+            }
+        }
         currentPowerState = LaptopPowerState.CONNECTED_LOCKED
         getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
             remove("last_power_command")
@@ -286,7 +302,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private var isExplicitPairingRequested: Boolean = false
 
     @Volatile
-    private var connectedHostAddress: String? = null
+    var connectedHostAddress: String? = null
 
     @Volatile
     private var currentVolumeLevel: Int = 50

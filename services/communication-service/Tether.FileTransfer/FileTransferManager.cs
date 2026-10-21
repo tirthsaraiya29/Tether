@@ -57,6 +57,59 @@ public sealed class FileTransferManager : ITrustValidator, IDisposable
         await _sender.ProcessOutgoingQueueAsync(phoneIp, _durableQueue, FileTransferReceiver.DefaultPort, ct);
     }
 
+    public async System.Threading.Tasks.Task RequestPhoneDbSyncAsync(string phoneIp, System.Threading.CancellationToken ct = default)
+    {
+        _logger.Info($"Requesting Phone DB Sync from {phoneIp}...");
+        using var client = new System.Net.Sockets.TcpClient();
+        client.NoDelay = true;
+        try
+        {
+            await client.ConnectAsync(phoneIp, FileTransferReceiver.DefaultPort, ct);
+            using var sslStream = new System.Net.Security.SslStream(
+                client.GetStream(),
+                leaveInnerStreamOpen: false,
+                userCertificateValidationCallback: (s, c, ch, e) => true);
+
+            var options = new System.Net.Security.SslClientAuthenticationOptions
+            {
+                TargetHost = phoneIp,
+                ClientCertificates = new X509CertificateCollection { _serverCertificate },
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13
+            };
+
+            await sslStream.AuthenticateAsClientAsync(options, ct);
+
+            var initFrame = new ControlInitFrame { DeviceId = "LOCAL_WIN" };
+            byte[] initPayload = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(initFrame));
+            byte[] lenBytes = new byte[4];
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBytes, initPayload.Length);
+            await sslStream.WriteAsync(lenBytes, ct);
+            await sslStream.WriteAsync(initPayload, ct);
+            await sslStream.FlushAsync(ct);
+
+            // Read Init Ack
+            byte[] ackLenBytes = new byte[4];
+            await sslStream.ReadAsync(ackLenBytes, 0, 4, ct);
+            int ackLen = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(ackLenBytes);
+            byte[] ackPayload = new byte[ackLen];
+            await sslStream.ReadAsync(ackPayload, 0, ackLen, ct);
+
+            // Send FS_DB_SYNC_REQUEST
+            var syncReq = new FsDbSyncRequestFrame();
+            byte[] reqPayload = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(syncReq));
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBytes, reqPayload.Length);
+            await sslStream.WriteAsync(lenBytes, ct);
+            await sslStream.WriteAsync(reqPayload, ct);
+            await sslStream.FlushAsync(ct);
+
+            _logger.Info("Sent FS_DB_SYNC_REQUEST to phone successfully.");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"Failed sending FS_DB_SYNC_REQUEST to phone: {ex.Message}");
+        }
+    }
+
     public void Start(int port = FileTransferReceiver.DefaultPort)
     {
         _receiver = new FileTransferReceiver(_logger, this, _serverCertificate, OnProgressUpdate, _fileSystemBrowser, _durableQueue);
