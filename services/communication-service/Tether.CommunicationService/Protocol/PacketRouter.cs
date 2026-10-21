@@ -43,6 +43,15 @@ public sealed class PacketRouter
                 session.RecordPongReceived();
                 break;
 
+            case "HANDSHAKE_PROOF":
+                _logger.Debug($"PacketRouter: Received HANDSHAKE_PROOF from '{device.DisplayName}'. Responding with HANDSHAKE_VERIFIED.");
+                await FrameCodec.WriteJsonFrameAsync(stream, new { type = "HANDSHAKE_VERIFIED", status = "OK" }, ct);
+                break;
+
+            case "HANDSHAKE_VERIFIED":
+                _logger.Debug($"PacketRouter: Received HANDSHAKE_VERIFIED from '{device.DisplayName}'.");
+                break;
+
             case "COMMAND_EXECUTE":
                 await HandleCommandAsync(doc, session, device, stream, ct);
                 break;

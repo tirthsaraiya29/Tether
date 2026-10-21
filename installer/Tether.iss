@@ -147,6 +147,15 @@ Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{#MyD
 Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{#MyDesktopUIExeName}"; \
     ValueType: string; ValueName: "Path"; ValueData: "{app}"
 
+; 6. Windows Explorer Shell Context Menu ("Send to Phone — Tether")
+Root: HKCR; Subkey: "*\shell\TetherSendToPhone"; ValueType: string; ValueName: ""; ValueData: "Send to Phone — Tether"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "*\shell\TetherSendToPhone"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\{#MyDesktopUIExeName},0"
+Root: HKCR; Subkey: "*\shell\TetherSendToPhone\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyDesktopUIExeName}"" ""--send"" ""%1"""
+
+Root: HKCR; Subkey: "Directory\shell\TetherSendToPhone"; ValueType: string; ValueName: ""; ValueData: "Send to Phone — Tether"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "Directory\shell\TetherSendToPhone"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\{#MyDesktopUIExeName},0"
+Root: HKCR; Subkey: "Directory\shell\TetherSendToPhone\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyDesktopUIExeName}"" ""--send"" ""%1"""
+
 [Run]
 ; Firewall Configuration
 Filename: "{sys}\netsh.exe"; \

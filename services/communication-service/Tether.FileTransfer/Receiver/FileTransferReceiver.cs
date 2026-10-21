@@ -38,6 +38,8 @@ public sealed class FileTransferReceiver : IDisposable
     private readonly ITrustValidator _trustValidator;
     private readonly Action<TransferProgress> _onProgressUpdate;
     private readonly X509Certificate2 _serverCertificate;
+    private readonly FileSystemBrowser _fileSystemBrowser;
+    private readonly DurableTransferQueue _durableQueue;
 
     private readonly string _stagingDirectory;
     private CancellationTokenSource? _cts;
@@ -54,12 +56,16 @@ public sealed class FileTransferReceiver : IDisposable
         ITetherLogger logger,
         ITrustValidator trustValidator,
         X509Certificate2 serverCertificate,
-        Action<TransferProgress> onProgressUpdate)
+        Action<TransferProgress> onProgressUpdate,
+        FileSystemBrowser? fileSystemBrowser = null,
+        DurableTransferQueue? durableQueue = null)
     {
         _logger = logger;
         _trustValidator = trustValidator;
         _serverCertificate = serverCertificate;
         _onProgressUpdate = onProgressUpdate;
+        _fileSystemBrowser = fileSystemBrowser ?? new FileSystemBrowser(logger);
+        _durableQueue = durableQueue ?? new DurableTransferQueue(logger);
 
         string commonData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         _stagingDirectory = Path.Combine(commonData, "Tether", "staging");
@@ -354,6 +360,71 @@ public sealed class FileTransferReceiver : IDisposable
                         _logger.Warning($"Peer {dispName} rejected: missing FILES capability.");
                         return; // Drop connection
                     }
+                    break;
+
+                case ControlMessageType.BROWSE_ROOTS_REQUEST:
+                    if (!isAuthenticated)
+                    {
+                        _logger.Warning("BROWSE_ROOTS_REQUEST received before CONTROL_INIT.");
+                        return;
+                    }
+                    var browseReq = JsonSerializer.Deserialize<BrowseRootsRequestFrame>(jsonStr);
+                    var roots = _fileSystemBrowser.GetPermittedRoots();
+                    var browseResp = new BrowseRootsResponseFrame
+                    {
+                        RequestId = browseReq?.RequestId ?? "",
+                        Status = "OK",
+                        Roots = roots
+                    };
+                    await SendControlFrameAsync(stream, JsonSerializer.Serialize(browseResp), ct);
+                    break;
+
+                case ControlMessageType.LIST_DIR_REQUEST:
+                    if (!isAuthenticated)
+                    {
+                        _logger.Warning("LIST_DIR_REQUEST received before CONTROL_INIT.");
+                        return;
+                    }
+                    var listReq = JsonSerializer.Deserialize<ListDirRequestFrame>(jsonStr);
+                    try
+                    {
+                        var items = _fileSystemBrowser.ListDirectory(listReq?.Path ?? "");
+                        var listResp = new ListDirResponseFrame
+                        {
+                            RequestId = listReq?.RequestId ?? "",
+                            Status = "OK",
+                            Path = listReq?.Path ?? "",
+                            Items = items
+                        };
+                        await SendControlFrameAsync(stream, JsonSerializer.Serialize(listResp), ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        var errorResp = new ListDirResponseFrame
+                        {
+                            RequestId = listReq?.RequestId ?? "",
+                            Status = "ERROR",
+                            Path = listReq?.Path ?? "",
+                            ErrorMessage = ex.Message
+                        };
+                        await SendControlFrameAsync(stream, JsonSerializer.Serialize(errorResp), ct);
+                    }
+                    break;
+
+                case ControlMessageType.QUEUE_SYNC_REQUEST:
+                    if (!isAuthenticated)
+                    {
+                        _logger.Warning("QUEUE_SYNC_REQUEST received before CONTROL_INIT.");
+                        return;
+                    }
+                    var syncReq = JsonSerializer.Deserialize<QueueSyncRequestFrame>(jsonStr);
+                    var queueItems = _durableQueue.GetAllItems().ToList();
+                    var syncSnapshot = new QueueSyncSnapshotFrame
+                    {
+                        RequestId = syncReq?.RequestId ?? "",
+                        Items = queueItems
+                    };
+                    await SendControlFrameAsync(stream, JsonSerializer.Serialize(syncSnapshot), ct);
                     break;
 
                 case ControlMessageType.TRANSFER_REQUEST:

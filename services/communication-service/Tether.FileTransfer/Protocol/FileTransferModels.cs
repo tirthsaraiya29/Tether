@@ -44,6 +44,12 @@ public static class ControlMessageType
 {
     public const string CONTROL_INIT = "CONTROL_INIT";
     public const string CONTROL_INIT_ACK = "CONTROL_INIT_ACK";
+    public const string BROWSE_ROOTS_REQUEST = "BROWSE_ROOTS_REQUEST";
+    public const string BROWSE_ROOTS_RESPONSE = "BROWSE_ROOTS_RESPONSE";
+    public const string LIST_DIR_REQUEST = "LIST_DIR_REQUEST";
+    public const string LIST_DIR_RESPONSE = "LIST_DIR_RESPONSE";
+    public const string QUEUE_SYNC_REQUEST = "QUEUE_SYNC_REQUEST";
+    public const string QUEUE_SYNC_SNAPSHOT = "QUEUE_SYNC_SNAPSHOT";
     public const string TRANSFER_REQUEST = "TRANSFER_REQUEST";
     public const string TRANSFER_RESPONSE = "TRANSFER_RESPONSE";
     public const string TRANSFER_RESUME_REQUEST = "TRANSFER_RESUME_REQUEST";
@@ -152,4 +158,49 @@ public sealed record TransferProgress
     public long EtaSeconds => (SpeedBytesPerSec > 0 && FileSize > BytesTransferred)
         ? (long)((FileSize - BytesTransferred) / SpeedBytesPerSec)
         : 0L;
+}
+
+public sealed record BrowseRootsRequestFrame
+{
+    [JsonPropertyName("type")] public string Type { get; init; } = ControlMessageType.BROWSE_ROOTS_REQUEST;
+    [JsonPropertyName("requestId")] public string RequestId { get; init; } = Guid.NewGuid().ToString();
+}
+
+public sealed record BrowseRootsResponseFrame
+{
+    [JsonPropertyName("type")] public string Type { get; init; } = ControlMessageType.BROWSE_ROOTS_RESPONSE;
+    [JsonPropertyName("requestId")] public string RequestId { get; init; } = "";
+    [JsonPropertyName("status")] public string Status { get; init; } = "OK";
+    [JsonPropertyName("roots")] public List<FilesystemRootItem> Roots { get; init; } = new();
+    [JsonPropertyName("errorMessage")] public string? ErrorMessage { get; init; }
+}
+
+public sealed record ListDirRequestFrame
+{
+    [JsonPropertyName("type")] public string Type { get; init; } = ControlMessageType.LIST_DIR_REQUEST;
+    [JsonPropertyName("requestId")] public string RequestId { get; init; } = Guid.NewGuid().ToString();
+    [JsonPropertyName("path")] public string Path { get; init; } = "";
+}
+
+public sealed record ListDirResponseFrame
+{
+    [JsonPropertyName("type")] public string Type { get; init; } = ControlMessageType.LIST_DIR_RESPONSE;
+    [JsonPropertyName("requestId")] public string RequestId { get; init; } = "";
+    [JsonPropertyName("status")] public string Status { get; init; } = "OK";
+    [JsonPropertyName("path")] public string Path { get; init; } = "";
+    [JsonPropertyName("items")] public List<DirectoryListingItem> Items { get; init; } = new();
+    [JsonPropertyName("errorMessage")] public string? ErrorMessage { get; init; }
+}
+
+public sealed record QueueSyncRequestFrame
+{
+    [JsonPropertyName("type")] public string Type { get; init; } = ControlMessageType.QUEUE_SYNC_REQUEST;
+    [JsonPropertyName("requestId")] public string RequestId { get; init; } = Guid.NewGuid().ToString();
+}
+
+public sealed record QueueSyncSnapshotFrame
+{
+    [JsonPropertyName("type")] public string Type { get; init; } = ControlMessageType.QUEUE_SYNC_SNAPSHOT;
+    [JsonPropertyName("requestId")] public string RequestId { get; init; } = "";
+    [JsonPropertyName("items")] public List<DurableTransferItem> Items { get; init; } = new();
 }

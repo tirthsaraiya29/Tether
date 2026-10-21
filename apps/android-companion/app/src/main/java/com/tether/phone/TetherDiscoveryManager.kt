@@ -379,7 +379,10 @@ class TetherDiscoveryManager(
             serviceInfo,
             onResolved = { resolvedInfo ->
                 val host: InetAddress? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    resolvedInfo.hostAddresses.firstOrNull() ?: resolvedInfo.host
+                    resolvedInfo.hostAddresses.firstOrNull { it is Inet4Address }
+                        ?: resolvedInfo.hostAddresses.firstOrNull { !it.isLinkLocalAddress }
+                        ?: resolvedInfo.hostAddresses.firstOrNull()
+                        ?: resolvedInfo.host
                 } else {
                     try {
                         resolvedInfo.host ?: (NsdServiceInfo::class.java.getMethod("getHost").invoke(resolvedInfo) as? InetAddress)

@@ -1,12 +1,11 @@
 package com.tether.phone.ui.screens
 
 import android.net.Uri
+import android.os.Environment
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,17 +22,20 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -41,11 +43,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,9 +61,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tether.phone.DirectoryListingItem
 import com.tether.phone.FileTransferState
+import com.tether.phone.FilesystemRootItem
 import com.tether.phone.TetherFileTransferManager
 import com.tether.phone.TransferProgress
+import java.io.File
 import java.util.Locale
 
 @Composable
@@ -66,7 +76,9 @@ fun FileTransferScreen(
     modifier: Modifier = Modifier,
 ) {
     val transferList by fileTransferManager?.transferListFlow?.collectAsState(initial = emptyList())
-        ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(emptyList()) }
+        ?: remember { mutableStateOf(emptyList()) }
+
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -102,20 +114,20 @@ fun FileTransferScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "QUIC File Sharing",
+                            text = "Tether File Sharing & Explorer",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            text = "UDP :37125 • SHA-512 Verified • ALPN tether-quic-v1",
+                            text = "TCP :37125 • SHA-512 Verified • ALPN tether-quic-v1",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Button(
                     onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
@@ -135,6 +147,210 @@ fun FileTransferScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Tab Row
+        TabRow(
+            selectedTabIndex = selectedTabIndex,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Tab(
+                selected = selectedTabIndex == 0,
+                onClick = { selectedTabIndex = 0 },
+                text = { Text("PC Files", fontWeight = FontWeight.SemiBold) },
+                icon = { Icon(Icons.Default.Computer, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            )
+            Tab(
+                selected = selectedTabIndex == 1,
+                onClick = { selectedTabIndex = 1 },
+                text = { Text("Phone Files", fontWeight = FontWeight.SemiBold) },
+                icon = { Icon(Icons.Default.PhoneAndroid, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            )
+            Tab(
+                selected = selectedTabIndex == 2,
+                onClick = { selectedTabIndex = 2 },
+                text = { Text("Queue (${transferList.size})", fontWeight = FontWeight.SemiBold) },
+                icon = { Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        when (selectedTabIndex) {
+            0 -> PcFilesExplorerView()
+            1 -> PhoneLocalExplorerView(onFilePicked = onSendFileSelected)
+            2 -> TransferQueueView(
+                transferList = transferList,
+                onCancelClick = { id -> fileTransferManager?.cancelTransfer(id) },
+                onClearClick = { fileTransferManager?.clearHistory() },
+            )
+        }
+    }
+}
+
+@Composable
+fun PcFilesExplorerView() {
+    var currentPath by remember { mutableStateOf("") }
+    val defaultRoots = remember {
+        listOf(
+            FilesystemRootItem("Downloads", "Downloads", "DOWNLOADS"),
+            FilesystemRootItem("Documents", "Documents", "DOCUMENTS"),
+            FilesystemRootItem("Pictures", "Pictures", "PICTURES"),
+            FilesystemRootItem("Videos", "Videos", "VIDEOS"),
+            FilesystemRootItem("Desktop", "Desktop", "DESKTOP"),
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = if (currentPath.isBlank()) "Permitted PC Roots" else currentPath,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (currentPath.isNotBlank()) {
+                IconButton(onClick = { currentPath = "" }) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back to Roots")
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (currentPath.isBlank()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(defaultRoots) { root ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { currentPath = root.name },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(root.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        }
+                    }
+                }
+            }
+        } else {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "PC Connection Active • Ready to stream files from $currentPath",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PhoneLocalExplorerView(onFilePicked: (Uri) -> Unit) {
+    var currentDir by remember { mutableStateOf(Environment.getExternalStorageDirectory() ?: File("/sdcard")) }
+    val filesList = remember(currentDir) {
+        currentDir.listFiles()?.filter { !it.name.startsWith(".") }?.sortedWith(compareByDescending<File> { it.isDirectory }.thenBy { it.name }) ?: emptyList()
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = currentDir.name.ifBlank { "Storage" },
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (currentDir.parentFile != null && currentDir != Environment.getExternalStorageDirectory()) {
+                IconButton(onClick = { currentDir.parentFile?.let { currentDir = it } }) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Up")
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            items(filesList, key = { it.absolutePath }) { file ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            if (file.isDirectory) {
+                                currentDir = file
+                            } else {
+                                onFilePicked(Uri.fromFile(file))
+                            }
+                        },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = if (file.isDirectory) Icons.Default.Folder else Icons.Default.InsertDriveFile,
+                            contentDescription = null,
+                            tint = if (file.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(file.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                text = if (file.isDirectory) "Folder" else formatFileSize(file.length()),
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TransferQueueView(
+    transferList: List<TransferProgress>,
+    onCancelClick: (String) -> Unit,
+    onClearClick: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -142,21 +358,17 @@ fun FileTransferScreen(
         ) {
             Text(
                 text = "Transfers (${transferList.size})",
-                fontSize = 16.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
 
             if (transferList.isNotEmpty()) {
                 OutlinedButton(
-                    onClick = { fileTransferManager?.clearHistory() },
+                    onClick = onClearClick,
                     shape = RoundedCornerShape(8.dp),
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Clear,
-                        contentDescription = "Clear History",
-                        modifier = Modifier.size(16.dp),
-                    )
+                    Icon(Icons.Default.Clear, contentDescription = "Clear History", modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(text = "Clear", fontSize = 12.sp)
                 }
@@ -172,9 +384,7 @@ fun FileTransferScreen(
                     .weight(1f),
                 contentAlignment = Alignment.Center,
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
                         imageVector = Icons.Default.FolderOpen,
                         contentDescription = null,
@@ -197,7 +407,7 @@ fun FileTransferScreen(
                 items(transferList, key = { it.transferId }) { item ->
                     TransferItemCard(
                         item = item,
-                        onCancelClick = { fileTransferManager?.cancelTransfer(item.transferId) },
+                        onCancelClick = { onCancelClick(item.transferId) },
                     )
                 }
             }

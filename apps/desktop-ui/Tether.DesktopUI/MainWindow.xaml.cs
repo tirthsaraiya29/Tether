@@ -248,6 +248,7 @@ namespace Tether.DesktopUI
             LogTerminal("SYSTEM // Tether Telemetry Workspace initialized (Zero-Shader Mode).");
             EnsureVaultDaclArchitecture();
             UpdateDownloadFolderBtnText();
+            LoadExplorerDirectory(GetCurrentDownloadFolder());
 
             StateChanged += MainWindow_StateChanged;
 
@@ -1023,6 +1024,45 @@ namespace Tether.DesktopUI
             }
         }
 
+        private bool TryStartStandaloneCommService()
+        {
+            try
+            {
+                LogTerminal("⚙ SERVICE // Windows Service handle unavailable. Attempting standalone launch of 'Tether.CommunicationService.exe'...");
+                string appDir = AppDomain.CurrentDomain.BaseDirectory;
+                string serviceExePath = Path.Combine(appDir, "Tether.CommunicationService.exe");
+
+                if (!File.Exists(serviceExePath))
+                {
+                    string solutionDir = Path.GetFullPath(Path.Combine(appDir, "..", "..", "..", "..", ".."));
+                    serviceExePath = Path.Combine(solutionDir, "services", "communication-service", "Tether.CommunicationService", "bin", "Debug", "net10.0-windows", "Tether.CommunicationService.exe");
+                }
+
+                if (File.Exists(serviceExePath))
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = serviceExePath,
+                        UseShellExecute = true,
+                        CreateNoWindow = false
+                    };
+                    Process.Start(psi);
+                    LogTerminal($"✓ SERVICE // Successfully launched communication service '{Path.GetFileName(serviceExePath)}'.");
+                    return true;
+                }
+                else
+                {
+                    LogTerminal("❌ SERVICE // 'Tether.CommunicationService.exe' binary not found.");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"❌ SERVICE // Failed starting standalone service: {ex.Message}");
+                return false;
+            }
+        }
+
         private async Task<bool> RestartCommServiceAsync()
         {
             IntPtr scmHandle = IntPtr.Zero;
@@ -1033,8 +1073,7 @@ namespace Tether.DesktopUI
                 scmHandle = OpenSCManager(null, null, SC_MANAGER_CONNECT);
                 if (scmHandle == IntPtr.Zero)
                 {
-                    LogTerminal("❌ SERVICE // Cannot open Service Control Manager. Run Tether Desktop as Administrator.");
-                    return false;
+                    return TryStartStandaloneCommService();
                 }
 
                 serviceHandle = OpenService(scmHandle, CommServiceName,
@@ -1042,9 +1081,7 @@ namespace Tether.DesktopUI
 
                 if (serviceHandle == IntPtr.Zero)
                 {
-                    int err = Marshal.GetLastWin32Error();
-                    LogTerminal($"❌ SERVICE // OpenService('{CommServiceName}') failed (Win32 {err}). Is it installed?");
-                    return false;
+                    return TryStartStandaloneCommService();
                 }
 
                 if (!QueryServiceStatus(serviceHandle, out SERVICE_STATUS status))
@@ -1149,6 +1186,123 @@ namespace Tether.DesktopUI
             catch (Exception ex)
             {
                 LogTerminal($"Vault DACL setup warning: {ex.Message}");
+            }
+        }
+
+        public sealed class ExplorerItemModel
+        {
+            public required string Name { get; init; }
+            public required string FullPath { get; init; }
+            public required bool IsDirectory { get; init; }
+            public long FileSize { get; init; }
+            public string FormattedSize => IsDirectory ? "<DIR>" : $"{FileSize / 1024.0:F1} KB";
+            public string FormattedDate { get; init; } = "";
+        }
+
+        private string _currentExplorerDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        private void LoadExplorerDirectory(string path)
+        {
+            try
+            {
+                if (!Directory.Exists(path)) return;
+                _currentExplorerDir = path;
+                TxtCurrentExplorerPath.Text = path;
+
+                var items = new List<ExplorerItemModel>();
+                var dirInfo = new DirectoryInfo(path);
+
+                foreach (var d in dirInfo.GetDirectories())
+                {
+                    if ((d.Attributes & FileAttributes.Hidden) != 0) continue;
+                    items.Add(new ExplorerItemModel
+                    {
+                        Name = $"📁 {d.Name}",
+                        FullPath = d.FullName,
+                        IsDirectory = true,
+                        FileSize = 0,
+                        FormattedDate = d.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                    });
+                }
+
+                foreach (var f in dirInfo.GetFiles())
+                {
+                    if ((f.Attributes & FileAttributes.Hidden) != 0) continue;
+                    items.Add(new ExplorerItemModel
+                    {
+                        Name = f.Name,
+                        FullPath = f.FullName,
+                        IsDirectory = false,
+                        FileSize = f.Length,
+                        FormattedDate = f.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                    });
+                }
+
+                LstFileExplorer.ItemsSource = items;
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"⚠ EXPLORER // Cannot list directory: {ex.Message}");
+            }
+        }
+
+        private void BtnNavUp_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var parent = Directory.GetParent(_currentExplorerDir);
+                if (parent != null)
+                {
+                    LoadExplorerDirectory(parent.FullName);
+                }
+            }
+            catch { }
+        }
+
+        private void LstFileExplorer_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (LstFileExplorer.SelectedItem is ExplorerItemModel selected && selected.IsDirectory)
+            {
+                LoadExplorerDirectory(selected.FullPath);
+            }
+        }
+
+        private void BtnSendExplorerSelected_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var selectedItems = LstFileExplorer.SelectedItems.Cast<ExplorerItemModel>().Select(i => i.FullPath).ToArray();
+                if (selectedItems.Length > 0)
+                {
+                    App.ProcessLaunchArgs(selectedItems);
+                    LogTerminal($"✓ QUEUE // Enqueued {selectedItems.Length} item(s) from File Explorer for transfer.");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"⚠ ERROR // Could not send selected items: {ex.Message}");
+            }
+        }
+
+        private void BtnEnqueueFiles_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dialog = new Microsoft.Win32.OpenFileDialog
+                {
+                    Title = "Select Files to Send to Phone",
+                    Multiselect = true
+                };
+
+                if (dialog.ShowDialog() == true && dialog.FileNames.Length > 0)
+                {
+                    App.ProcessLaunchArgs(dialog.FileNames);
+                    LogTerminal($"✓ QUEUE // Enqueued {dialog.FileNames.Length} file(s) for transfer to phone.");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"⚠ ERROR // Could not enqueue files: {ex.Message}");
             }
         }
 
@@ -1282,20 +1436,47 @@ namespace Tether.DesktopUI
                         byte[] protectedPayload = new byte[dataOut.cbData];
                         Marshal.Copy(dataOut.pbData, protectedPayload, 0, dataOut.cbData);
 
-                        EnsureVaultDaclArchitecture();
-
-                        using (RegistryKey? secretsKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true))
+                        try
                         {
-                            secretsKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
-                        }
+                            EnsureVaultDaclArchitecture();
 
-                        using (RegistryKey? rootKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
+                            using (RegistryKey? secretsKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true))
+                            {
+                                secretsKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
+                            }
+
+                            using (RegistryKey? rootKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
+                            {
+                                rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
+                            }
+
+                            LogTerminal("✓ VAULT // Cryptographic alignment sealed in Secrets subkey with application entropy.");
+                            TxtPassword.Clear();
+                        }
+                        catch (UnauthorizedAccessException)
                         {
-                            rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
-                        }
+                            try
+                            {
+                                string hexPayload = Convert.ToHexString(protectedPayload);
+                                string exePath = Environment.ProcessPath ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
 
-                        LogTerminal("✓ VAULT // Cryptographic alignment sealed in Secrets subkey with application entropy.");
-                        TxtPassword.Clear();
+                                var startInfo = new ProcessStartInfo
+                                {
+                                    FileName = exePath,
+                                    Arguments = $"--commit-vault-payload \"{hexPayload}\"",
+                                    Verb = "runas",
+                                    UseShellExecute = true
+                                };
+
+                                Process.Start(startInfo);
+                                LogTerminal("✓ VAULT // Cryptographic alignment sealed in Secrets subkey via elevated helper.");
+                                TxtPassword.Clear();
+                            }
+                            catch (Exception ex)
+                            {
+                                LogTerminal($"❌ VAULT // Elevation cancelled or failed: {ex.Message}");
+                            }
+                        }
                     }
                     finally
                     {

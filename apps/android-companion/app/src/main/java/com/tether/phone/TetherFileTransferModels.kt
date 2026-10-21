@@ -59,6 +59,12 @@ enum class FileTransferState {
 object ControlMessageType {
     const val CONTROL_INIT = "CONTROL_INIT"
     const val CONTROL_INIT_ACK = "CONTROL_INIT_ACK"
+    const val BROWSE_ROOTS_REQUEST = "BROWSE_ROOTS_REQUEST"
+    const val BROWSE_ROOTS_RESPONSE = "BROWSE_ROOTS_RESPONSE"
+    const val LIST_DIR_REQUEST = "LIST_DIR_REQUEST"
+    const val LIST_DIR_RESPONSE = "LIST_DIR_RESPONSE"
+    const val QUEUE_SYNC_REQUEST = "QUEUE_SYNC_REQUEST"
+    const val QUEUE_SYNC_SNAPSHOT = "QUEUE_SYNC_SNAPSHOT"
     const val TRANSFER_REQUEST = "TRANSFER_REQUEST"
     const val TRANSFER_RESPONSE = "TRANSFER_RESPONSE"
     const val TRANSFER_RESUME_REQUEST = "TRANSFER_RESUME_REQUEST"
@@ -321,4 +327,33 @@ data class TransferProgress(
         } else {
             0L
         }
+}
+
+data class FilesystemRootItem(
+    val name: String,
+    val path: String,
+    val rootType: String,
+    val isReadable: Boolean = true,
+)
+
+data class DirectoryListingItem(
+    val name: String,
+    val relativePath: String,
+    val isDirectory: Boolean,
+    val fileSize: Long = 0L,
+    val lastModifiedMs: Long = 0L,
+    val isReadable: Boolean = true,
+)
+
+data class BrowseRootsRequestFrame(
+    val requestId: String = UUID.randomUUID().toString(),
+) {
+    fun toJsonString(): String = "{\"type\":\"${ControlMessageType.BROWSE_ROOTS_REQUEST}\",\"requestId\":\"$requestId\"}"
+}
+
+data class ListDirRequestFrame(
+    val requestId: String = UUID.randomUUID().toString(),
+    val path: String,
+) {
+    fun toJsonString(): String = "{\"type\":\"${ControlMessageType.LIST_DIR_REQUEST}\",\"requestId\":\"$requestId\",\"path\":\"$path\"}"
 }

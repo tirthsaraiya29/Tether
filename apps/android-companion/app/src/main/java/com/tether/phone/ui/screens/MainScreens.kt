@@ -12,8 +12,10 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
@@ -65,6 +67,7 @@ fun TetherAppScreen(
     showPermissionsBanner: Boolean = false,
     missingPermissionsCount: Int = 0,
     onNavigateToPermissions: () -> Unit = {},
+    onNavigateToFileTransfer: () -> Unit = {},
     onDismissPermissionsBanner: () -> Unit = {},
     onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
@@ -207,6 +210,57 @@ fun TetherAppScreen(
                     onBrightnessDown = { onLanActionRequested("BRIGHT_DOWN") },
                     enabled = isConnected,
                 )
+
+                // File Explorer & Sharing Quick Access Card
+                ProfessionalGlassSurface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToFileTransfer() }
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(LiquidCyan.copy(alpha = 0.15f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Folder,
+                                    contentDescription = "File Explorer",
+                                    tint = LiquidCyan,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "TETHER FILES & EXPLORER",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Browse PC & Phone Storage • QUIC / TLS 1.3",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.ArrowForward,
+                            contentDescription = "Open File Explorer",
+                            tint = LiquidCyan
+                        )
+                    }
+                }
 
                 ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
                     Text(
@@ -1252,6 +1306,7 @@ fun TetherNavigationShell(
                             laptopTelemetry = laptopTelemetry,
                             windowsFingerprint = windowsFingerprint,
                             onLaptopCardClick = onLaptopCardClick,
+                            onNavigateToFileTransfer = { currentScreen = AppScreen.FILE_TRANSFER },
                             statusText = statusText,
                             statusColor = statusColor,
                             connectionStatus = connectionStatus,

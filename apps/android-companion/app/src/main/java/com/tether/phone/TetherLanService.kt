@@ -141,6 +141,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private lateinit var capabilityManager: TetherCapabilityManager
     lateinit var fileTransferManager: TetherFileTransferManager
         private set
+    private var fileTransferServer: TetherFileTransferServer? = null
     private lateinit var connectivityManager: ConnectivityManager
     private var activeTransport: TetherTransport? = null
 
@@ -415,6 +416,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         pairingManager = TetherPairingManager(this, securityEngine)
         capabilityManager = TetherCapabilityManager()
         fileTransferManager = TetherFileTransferManager(applicationContext, capabilityManager, serviceScope)
+        fileTransferServer = TetherFileTransferServer(applicationContext, securityEngine, fileTransferManager, serviceScope)
+        fileTransferServer?.start()
 
         val pinnedKey = securityEngine.getPinnedKeyDecrypted(this)
         trustState = if (pinnedKey != null) TrustState.PAIRED else TrustState.UNPAIRED
@@ -1582,6 +1585,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     override fun onDestroy() {
         instance = null
+        fileTransferServer?.stop()
+        fileTransferServer = null
         serviceJob.cancelChildren()
 
         try { unregisterReceiver(powerSaveReceiver) } catch (_: Exception) {}

@@ -120,4 +120,56 @@ public class FileTransferTests
         Assert.Contains(":", fp);
         Assert.Equal(32, fp.Split(':').Length); // SHA-256 is 32 bytes = 32 hex pairs
     }
+
+    [Fact]
+    public void FileSystemBrowser_GetPermittedRoots_ReturnsValidUserDirectories()
+    {
+        var browser = new FileSystemBrowser(new Tether.Shared.Logging.SerilogTetherLogger());
+        var roots = browser.GetPermittedRoots();
+
+        Assert.NotEmpty(roots);
+        Assert.Contains(roots, r => r.RootType == "DOWNLOADS");
+    }
+
+    [Fact]
+    public void FileSystemBrowser_PathTraversal_ThrowsUnauthorizedAccess()
+    {
+        var browser = new FileSystemBrowser(new Tether.Shared.Logging.SerilogTetherLogger());
+
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            browser.GetCanonicalValidatedPath("C:\\Windows\\System32\\config\\SAM"));
+    }
+
+    [Fact]
+    public void DurableTransferQueue_EnqueueAndPersist_SurvivesReload()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "TetherQueueTest_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string testFile = Path.Combine(tempDir, "sample.txt");
+            File.WriteAllText(testFile, "Hello Tether Durable Queue");
+
+            var logger = new Tether.Shared.Logging.SerilogTetherLogger();
+            var queue = new DurableTransferQueue(logger, tempDir);
+
+            var item = queue.EnqueueOutgoing(testFile, "DEVICE_123");
+            Assert.NotNull(item);
+            Assert.Equal("sample.txt", item.FileName);
+
+            var reloadedQueue = new DurableTransferQueue(logger, tempDir);
+            var reloadedItem = reloadedQueue.GetItem(item.TransferId);
+
+            Assert.NotNull(reloadedItem);
+            Assert.Equal(item.FileName, reloadedItem.FileName);
+            Assert.Equal(item.DestinationDeviceId, reloadedItem.DestinationDeviceId);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
 }

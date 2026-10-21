@@ -28,6 +28,9 @@ public sealed class FileTransferManager : ITrustValidator, IDisposable
     private readonly X509Certificate2 _serverCertificate;
 
     private readonly ConcurrentDictionary<string, TransferProgress> _transfers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly FileSystemBrowser _fileSystemBrowser;
+    private readonly DurableTransferQueue _durableQueue;
+    private readonly FileTransferSender _sender;
     private FileTransferReceiver? _receiver;
     private bool _disposed;
 
@@ -41,11 +44,22 @@ public sealed class FileTransferManager : ITrustValidator, IDisposable
         _trustStoreProvider = trustStoreProvider;
         _serverCertificate = serverCertificate;
         _eventPublisher = eventPublisher;
+        _fileSystemBrowser = new FileSystemBrowser(logger);
+        _durableQueue = new DurableTransferQueue(logger);
+        _sender = new FileTransferSender(logger, serverCertificate);
+    }
+
+    public FileSystemBrowser FileSystemBrowser => _fileSystemBrowser;
+    public DurableTransferQueue DurableQueue => _durableQueue;
+
+    public async System.Threading.Tasks.Task ProcessOutgoingQueueAsync(string phoneIp, System.Threading.CancellationToken ct = default)
+    {
+        await _sender.ProcessOutgoingQueueAsync(phoneIp, _durableQueue, FileTransferReceiver.DefaultPort, ct);
     }
 
     public void Start(int port = FileTransferReceiver.DefaultPort)
     {
-        _receiver = new FileTransferReceiver(_logger, this, _serverCertificate, OnProgressUpdate);
+        _receiver = new FileTransferReceiver(_logger, this, _serverCertificate, OnProgressUpdate, _fileSystemBrowser, _durableQueue);
         _receiver.Start(port);
         _logger.Info("FileTransferManager initialized and receiver started.");
     }
