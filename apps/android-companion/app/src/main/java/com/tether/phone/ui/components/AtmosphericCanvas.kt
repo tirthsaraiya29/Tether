@@ -1,5 +1,4 @@
 package com.tether.phone.ui.components
-
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,12 +12,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.tether.phone.ui.theme.*
-
 @Composable
 fun DeepSpaceCanvasVisualizer() {
     val density = LocalDensity.current
     val gridStep = remember { with(density) { 60.dp.toPx() } }
-
     val transition = rememberInfiniteTransition(label = "Atmosphere")
     val shift by transition.animateFloat(
         initialValue = 0f,
@@ -46,10 +43,8 @@ fun DeepSpaceCanvasVisualizer() {
         ),
         label = "Stars",
     )
-
     Canvas(modifier = Modifier.fillMaxSize()) {
         drawRect(color = DeepSpace)
-
         var x = (shift % gridStep) - gridStep
         while (x < (size.width + gridStep)) {
             val distortion = kotlin.math.sin((x + shift) / 150.0).toFloat() * 6f
@@ -72,7 +67,6 @@ fun DeepSpaceCanvasVisualizer() {
             )
             y += gridStep
         }
-
         drawCircle(
             brush = Brush.radialGradient(
                 0.0f to LiquidCyan.copy(alpha = nebAlpha),
@@ -84,7 +78,6 @@ fun DeepSpaceCanvasVisualizer() {
             center = Offset(size.width * 0.2f, size.height * 0.2f),
             radius = 1200.dp.toPx(),
         )
-
         drawCircle(
             brush = Brush.radialGradient(
                 0.0f to IntegrityGreen.copy(alpha = nebAlpha * 0.7f),
@@ -96,7 +89,6 @@ fun DeepSpaceCanvasVisualizer() {
             center = Offset(size.width * 0.8f, size.height * 0.8f),
             radius = 1000.dp.toPx(),
         )
-
         drawCircle(
             brush = Brush.radialGradient(
                 0.0f to AlertRed.copy(alpha = nebAlpha * 0.4f),
@@ -107,7 +99,6 @@ fun DeepSpaceCanvasVisualizer() {
             center = Offset(size.width * 0.9f, size.height * 0.4f),
             radius = 800.dp.toPx(),
         )
-
         val rnd = java.util.Random(42)
         repeat(60) {
             val px = rnd.nextFloat() * size.width

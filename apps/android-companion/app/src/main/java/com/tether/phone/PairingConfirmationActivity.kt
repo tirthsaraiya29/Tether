@@ -1,5 +1,4 @@
 package com.tether.phone
-
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -59,20 +58,15 @@ import com.tether.phone.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 import android.view.WindowManager
 import kotlin.time.Duration.Companion.seconds
-
 class PairingConfirmationActivity : ComponentActivity() {
-
     private var requestId: String = ""
-
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-
         requestId = intent.getStringExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID) ?: ""
         val peerName = intent.getStringExtra(TetherLanService.EXTRA_PEER_DEVICE_NAME) ?: "Windows PC"
         val peerFingerprint = intent.getStringExtra(TetherLanService.EXTRA_WINDOWS_FINGERPRINT) ?: "NONE"
-
         setContent {
             TetherTheme {
                 Surface(
@@ -95,13 +89,11 @@ class PairingConfirmationActivity : ComponentActivity() {
             }
         }
     }
-
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         requestId = intent.getStringExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID) ?: requestId
     }
-
     private fun confirmPairing(pin: String) {
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_CONFIRM_PAIRING
@@ -111,7 +103,6 @@ class PairingConfirmationActivity : ComponentActivity() {
         startForegroundService(intent)
         finish()
     }
-
     private fun rejectPairing() {
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_REJECT_PAIRING
@@ -121,7 +112,6 @@ class PairingConfirmationActivity : ComponentActivity() {
         finish()
     }
 }
-
 @Composable
 fun PairingConfirmationContent(
     peerName: String,
@@ -132,7 +122,6 @@ fun PairingConfirmationContent(
 ) {
     var secondsLeft by remember { mutableIntStateOf(60) }
     var userPin by remember { mutableStateOf("") }
-
     LaunchedEffect(Unit) {
         while (secondsLeft > 0) {
             delay(1.seconds)
@@ -140,23 +129,19 @@ fun PairingConfirmationContent(
         }
         onTimeout()
     }
-
     val progress by animateFloatAsState(
         targetValue = secondsLeft / 60f,
         animationSpec = tween(durationMillis = 1000, easing = LinearEasing),
         label = "Countdown",
     )
-
     val formattedFpLines = if (peerFingerprint.length > 32) {
         val mid = peerFingerprint.length / 2
         "${peerFingerprint.substring(0, mid)}\n${peerFingerprint.substring(mid)}"
     } else {
         peerFingerprint
     }
-
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         DeepSpaceCanvasVisualizer()
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -186,9 +171,7 @@ fun PairingConfirmationContent(
                             fontWeight = FontWeight.Bold,
                         )
                     }
-
                     Spacer(modifier = Modifier.height(24.dp))
-
                     Text(
                         text = "Pair with $peerName?",
                         style = MaterialTheme.typography.headlineSmall,
@@ -196,9 +179,7 @@ fun PairingConfirmationContent(
                         fontWeight = FontWeight.ExtraBold,
                         textAlign = TextAlign.Center,
                     )
-
                     Spacer(modifier = Modifier.height(12.dp))
-
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
@@ -212,18 +193,14 @@ fun PairingConfirmationContent(
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
-
                     Spacer(modifier = Modifier.height(24.dp))
-
                     Text(
                         text = "ENTER 6-DIGIT PIN DISPLAYED ON PC",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondary,
                         letterSpacing = 1.5.sp,
                     )
-
                     Spacer(modifier = Modifier.height(12.dp))
-
                     OutlinedTextField(
                         value = userPin,
                         onValueChange = { input ->
@@ -250,18 +227,14 @@ fun PairingConfirmationContent(
                         ),
                         shape = RoundedCornerShape(16.dp),
                     )
-
                     Spacer(modifier = Modifier.height(20.dp))
-
                     Text(
                         text = "WINDOWS HOST FINGERPRINT",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondary,
                         letterSpacing = 1.5.sp,
                     )
-
                     Spacer(modifier = Modifier.height(6.dp))
-
                     Text(
                         text = formattedFpLines,
                         fontSize = 11.sp,
@@ -270,9 +243,7 @@ fun PairingConfirmationContent(
                         textAlign = TextAlign.Center,
                         lineHeight = 16.sp,
                     )
-
                     Spacer(modifier = Modifier.height(28.dp))
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),

@@ -1,5 +1,4 @@
 package com.tether.phone
-
 import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -50,40 +49,30 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.time.Duration.Companion.seconds
-
 class MainActivity : FragmentActivity() {
     private val requestPermissionsCode = 101
     private val preferenceName = "tether_secure_prefs"
     private val panicStateKey = "is_panic_active"
-
     private val updateViewModel: UpdateViewModel by viewModels()
-
     private val appLockBackgroundTimestampKey = "app_lock_bg_timestamp"
-
     private var uiStatusText = mutableStateOf("")
     private var uiStatusColor = mutableStateOf(TextSecondary)
     private var uiConnectionStatusText = mutableStateOf("")
-
     private var isConnected = mutableStateOf(value = false)
     private var isPanicActive = mutableStateOf(value = false)
     private var currentVerificationStep = mutableStateOf(value = TrustVerificationStep.NOT_IN_PANIC)
-
     private var isAppLocked = mutableStateOf(value = false)
     private var isBiometricSettingEnabled = mutableStateOf(value = true)
     private var selectedTimeoutMs = mutableLongStateOf(value = 0L)
-
     private var isPrivacyMaskEnabled = mutableStateOf(value = false)
     private var isBlockScreenReadingEnabled = mutableStateOf(value = false)
     private var isHideInRecentsEnabled = mutableStateOf(value = false)
-
     private var isEnvironmentRestricted = mutableStateOf(value = false)
     private var currentIntegrityScore = mutableIntStateOf(value = 100)
     private var isLoading = mutableStateOf(value = true)
-
     private var trustState = mutableStateOf(TrustState.UNPAIRED)
     private var phoneFingerprint = mutableStateOf("")
     private var windowsFingerprint = mutableStateOf("")
-
     private var volumeLevel = mutableIntStateOf(50)
     private var lastLocalVolumeChangeTimeMs = 0L
     private var brightnessLevel = mutableIntStateOf(50)
@@ -91,26 +80,20 @@ class MainActivity : FragmentActivity() {
     private var isMuted = mutableStateOf(value = false)
     private var grantedCapabilities = mutableStateOf(setOf<String>())
     private var connectedHostAddress = mutableStateOf("")
-
     private var laptopTelemetry = mutableStateOf(LaptopTelemetry())
-
     private var activePendingCommand = mutableStateOf<String?>(null)
     private var isCommandConfirmed = mutableStateOf(value = false)
     private var lastCommandSuccess = mutableStateOf<Boolean?>(null)
     private var lastCommandReason = mutableStateOf<String?>(null)
     private var dismissalJob: Job? = null
-
     private var pendingPowerAction = mutableStateOf<PowerAction?>(null)
     private data class PowerAction(val command: String, val title: String)
-
     private var lastBiometricAuthTime = 0L
     private val pendingSharedUris = java.util.Collections.synchronizedList(mutableListOf<Uri>())
     private var isPermissionsBannerDismissed = mutableStateOf(false)
     private var permissionStates = mutableStateOf<List<PermissionItemState>>(emptyList())
-
     private val securityEngine by lazy { ProductionSecurityEngine() }
     private lateinit var executor: ExecutorService
-
     private fun updateVolumeFromRemote(newVol: Int) {
         if (newVol in 0..100) {
             val quietWindowPassed = (System.currentTimeMillis() - lastLocalVolumeChangeTimeMs) > 2000L
@@ -119,7 +102,6 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     private fun updateBrightnessFromRemote(newBri: Int) {
         if (newBri in 0..100) {
             val quietWindowPassed = (System.currentTimeMillis() - lastLocalBrightnessChangeTimeMs) > 2000L
@@ -128,7 +110,6 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     private val batteryOptimizationLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
@@ -137,7 +118,6 @@ class MainActivity : FragmentActivity() {
             Log.i("TetherActivity", "Battery optimization exemption granted.")
         }
     }
-
     private val lanStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == TetherLanService.ACTION_LAN_STATE_CHANGED) {
@@ -150,7 +130,6 @@ class MainActivity : FragmentActivity() {
                 val vol = intent.getIntExtra("extra_volume_level", -1)
                 val bri = intent.getIntExtra("extra_brightness_level", -1)
                 val hostAddr = intent.getStringExtra("extra_host_address") ?: ""
-
                 val laptopPowerStateStr = intent.getStringExtra(TetherLanService.EXTRA_LAPTOP_POWER_STATE)
                 val batPercent = intent.getIntExtra(TetherLanService.EXTRA_LAPTOP_BATTERY_PERCENT, -1)
                 val charging = intent.getBooleanExtra(TetherLanService.EXTRA_LAPTOP_IS_CHARGING, false)
@@ -158,14 +137,11 @@ class MainActivity : FragmentActivity() {
                 val lastSeenMs = intent.getLongExtra(TetherLanService.EXTRA_LAPTOP_LAST_SEEN_MS, 0L)
                 val lastPowerCmd = intent.getStringExtra(TetherLanService.EXTRA_LAPTOP_LAST_POWER_CMD)
                 val lastPowerCmdMs = intent.getLongExtra(TetherLanService.EXTRA_LAPTOP_LAST_POWER_CMD_MS, 0L)
-
                 val powerState = laptopPowerStateStr?.let {
                     runCatching { LaptopPowerState.valueOf(it) }.getOrNull()
                 } ?: LaptopPowerState.DISCONNECTED
-
                 val currentWp = laptopTelemetry.value.wallpaperPath
                 val effectiveWp = if (!wpPath.isNullOrEmpty()) wpPath else currentWp
-
                 Log.d("TetherActivity", "LAN transport state changed: $stateName ($count), trustState=$trustStateName, laptopPowerState=$powerState")
                 runOnUiThread {
                     isConnected.value = count > 0
@@ -175,7 +151,6 @@ class MainActivity : FragmentActivity() {
                     phoneFingerprint.value = phoneFp
                     windowsFingerprint.value = winFp
                     connectedHostAddress.value = hostAddr
-
                     laptopTelemetry.value = LaptopTelemetry(
                         powerState = powerState,
                         batteryPercent = batPercent,
@@ -185,21 +160,17 @@ class MainActivity : FragmentActivity() {
                         lastPowerCommand = if (lastPowerCmd.isNullOrEmpty()) null else lastPowerCmd,
                         lastPowerCommandAtMs = lastPowerCmdMs,
                     )
-
                     if (vol in 0..100) {
                         updateVolumeFromRemote(vol)
                     }
                     if (bri in 0..100) {
                         updateBrightnessFromRemote(bri)
                     }
-
                     val caps = if (capsStr.isBlank()) emptySet() else capsStr.split(",").map { it.trim().uppercase() }.toSet()
                     grantedCapabilities.value = caps
-
                     try {
                         trustState.value = TrustState.valueOf(trustStateName)
                     } catch (_: Exception) {}
-
                     when (trustState.value) {
                         TrustState.KEY_MISMATCH -> {
                             uiStatusText.value = "KEY MISMATCH"
@@ -245,7 +216,6 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     private val commandConfirmedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == TetherLanService.ACTION_COMMAND_CONFIRMED) {
@@ -254,7 +224,6 @@ class MainActivity : FragmentActivity() {
                 val reason = intent.getStringExtra("reason") ?: "OK"
                 val vol = intent.getIntExtra("volume_level", -1)
                 val bri = intent.getIntExtra("brightness_level", -1)
-
                 runOnUiThread {
                     if (vol in 0..100) {
                         updateVolumeFromRemote(vol)
@@ -271,7 +240,6 @@ class MainActivity : FragmentActivity() {
                         lastCommandSuccess.value = success
                         lastCommandReason.value = reason
                         isCommandConfirmed.value = true
-
                         dismissalJob?.cancel()
                         dismissalJob = lifecycleScope.launch {
                             delay(2.seconds)
@@ -285,7 +253,6 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     private val hardwareMetricsReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == "com.tether.phone.ACTION_SYNC_HARDWARE_METRICS") {
@@ -302,18 +269,14 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         executor = Executors.newSingleThreadExecutor()
-
         uiStatusText.value = getString(R.string.status_scanning)
         uiConnectionStatusText.value = getString(R.string.status_initializing_stack)
-
         val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
         isPanicActive.value = prefs.getBoolean(panicStateKey, false)
-
         val persistedCmd = prefs.getString("last_power_command", null)
         val persistedCmdAtMs = prefs.getLong("last_power_command_at_ms", 0L)
         val savedPowerStateStr = prefs.getString("laptop_power_state", null)
@@ -324,14 +287,11 @@ class MainActivity : FragmentActivity() {
             "reboot" -> LaptopPowerState.RESTARTING
             else -> LaptopPowerState.DISCONNECTED
         }
-
         lifecycleScope.launch(Dispatchers.IO) {
             val oldPng = java.io.File(filesDir, "laptop_wallpaper.png")
             if (oldPng.exists()) try { oldPng.delete() } catch (_: Exception) {}
-
             val wpFile = java.io.File(filesDir, "laptop_wallpaper.jpg")
             val wpPath = if (wpFile.exists() && wpFile.length() > 0) wpFile.absolutePath else null
-            
             withContext(Dispatchers.Main) {
                 laptopTelemetry.value = LaptopTelemetry(
                     powerState = initialPowerState,
@@ -341,28 +301,21 @@ class MainActivity : FragmentActivity() {
                 )
             }
         }
-
         isBiometricSettingEnabled.value = true
         selectedTimeoutMs.longValue = 60_000L
         isAppLocked.value = true
-
         isPrivacyMaskEnabled.value = false
         isBlockScreenReadingEnabled.value = false
         isHideInRecentsEnabled.value = false
-
         if (isPanicActive.value) {
             setPanicUiState()
         }
-
         updatePermissionStates()
-
         // Process any incoming Share intent
         handleShareIntent(intent)
-
         // Show biometric authentication prompt IMMEDIATELY on app launch
         isLoading.value = false
         authenticateForAppUnlock()
-
         lifecycleScope.launch(Dispatchers.IO) {
             val powerManager = getSystemService(POWER_SERVICE) as PowerManager
             if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
@@ -371,7 +324,6 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
-
         setContent {
             LaunchedEffect(isPrivacyMaskEnabled.value, isBlockScreenReadingEnabled.value, isHideInRecentsEnabled.value) {
             }
@@ -404,7 +356,6 @@ class MainActivity : FragmentActivity() {
                             val ungrantedHigh = permissionStates.value.count { it.level == PermissionLevel.HIGH && !it.isGranted }
                             val missingTotal = ungrantedCritical + ungrantedHigh
                             val showBanner = !isPermissionsBannerDismissed.value && missingTotal > 0
-
                             TetherNavigationShell(
                                 laptopTelemetry = laptopTelemetry.value,
                                 onLaptopCardClick = ::showLaptopHostDetailsDialog,
@@ -467,7 +418,6 @@ class MainActivity : FragmentActivity() {
                                         "BRIGHT_DOWN" -> "brightness_down"
                                         else -> action.lowercase()
                                     }
-
                                     when (command) {
                                         "shutdown", "sleep", "reboot" -> {
                                             pendingPowerAction.value = PowerAction(
@@ -486,7 +436,6 @@ class MainActivity : FragmentActivity() {
                                 onConfirmPairing = ::confirmPairing,
                                 onForgetTrust = ::forgetTrust,
                             )
-
                             pendingPowerAction.value?.let { action: PowerAction ->
                                 CyberConfirmationDialog(
                                     title = action.title,
@@ -499,7 +448,6 @@ class MainActivity : FragmentActivity() {
                                     pendingPowerAction.value = null
                                 }
                             }
-
                             AnimatedVisibility(
                                 visible = activePendingCommand.value != null,
                                 enter = fadeIn(tween(400)),
@@ -514,10 +462,8 @@ class MainActivity : FragmentActivity() {
                                     }
                                 }
                             }
-
                             val dialogVisible by updateViewModel.dialogVisible.collectAsStateWithLifecycle()
                             val updateInfo by updateViewModel.updateInfo.collectAsStateWithLifecycle()
-
                             val currentUpdateInfo = updateInfo
                             if (dialogVisible && currentUpdateInfo != null) {
                                 UpdateDialog(
@@ -542,7 +488,6 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
-
         ContextCompat.registerReceiver(
             this,
             lanStateReceiver,
@@ -561,14 +506,12 @@ class MainActivity : FragmentActivity() {
             IntentFilter("com.tether.phone.ACTION_SYNC_HARDWARE_METRICS"),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
-
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 securityEngine.getPublicKeyBytes()
             } catch (_: Exception) {}
         }
     }
-
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -578,14 +521,11 @@ class MainActivity : FragmentActivity() {
             processPendingSharedUris()
         }
     }
-
     private fun handleShareIntent(intent: Intent?) {
         if (intent == null) return
         val action = intent.action
         if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return
-
         val uris = mutableListOf<Uri>()
-
         if (action == Intent.ACTION_SEND) {
             val streamUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
@@ -593,7 +533,6 @@ class MainActivity : FragmentActivity() {
                 @Suppress("DEPRECATION")
                 intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
             }
-
             if (streamUri != null) {
                 uris.add(streamUri)
             } else {
@@ -617,7 +556,6 @@ class MainActivity : FragmentActivity() {
                 uris.addAll(streamUris)
             }
         }
-
         if (uris.isEmpty() && intent.clipData != null) {
             val clipData = intent.clipData!!
             for (i in 0 until clipData.itemCount) {
@@ -630,7 +568,6 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
-
         if (uris.isNotEmpty()) {
             synchronized(pendingSharedUris) {
                 pendingSharedUris.addAll(uris)
@@ -640,7 +577,6 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     private fun createTempTextFileUri(text: String): Uri? {
         return try {
             val prefix = if (text.startsWith("http://") || text.startsWith("https://")) "shared_link" else "shared_text"
@@ -652,7 +588,6 @@ class MainActivity : FragmentActivity() {
             null
         }
     }
-
     private fun processPendingSharedUris() {
         val toSend = synchronized(pendingSharedUris) {
             val list = ArrayList(pendingSharedUris)
@@ -660,14 +595,12 @@ class MainActivity : FragmentActivity() {
             list
         }
         if (toSend.isEmpty()) return
-
         lifecycleScope.launch(Dispatchers.Main) {
             if (checkPermissions()) {
                 startLanService()
             }
             var count = 0
             val remaining = mutableListOf<Uri>()
-
             toSend.forEach { uri ->
                 val service = TetherLanService.instance
                 if (service != null) {
@@ -677,13 +610,11 @@ class MainActivity : FragmentActivity() {
                     remaining.add(uri)
                 }
             }
-
             if (remaining.isNotEmpty()) {
                 synchronized(pendingSharedUris) {
                     pendingSharedUris.addAll(remaining)
                 }
             }
-
             if (count > 0) {
                 val msg = if (count == 1) {
                     getString(R.string.toast_sharing_to_pc)
@@ -694,12 +625,10 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     private fun handleVoiceIntent(intent: Intent?) {
         if (intent == null) return
         val commandType = intent.getStringExtra("command_type") ?: intent.getStringExtra("action_command")
         val action = intent.action
-
         if ((commandType != null) || (action == "com.tether.phone.ACTION_VOICE_COMMAND")) {
             val permission = "com.tether.phone.permission.VOICE_COMMAND"
             if (checkCallingOrSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
@@ -721,11 +650,9 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     override fun onStart() {
         super.onStart()
         if (isEnvironmentRestricted.value) return
-
         if (!isAppLocked.value && checkPermissions()) {
             startLanService()
             syncLanState()
@@ -733,7 +660,6 @@ class MainActivity : FragmentActivity() {
             requestPermissions()
             return
         }
-
         if (isBiometricSettingEnabled.value && !isAppLocked.value) {
             val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
             val leftBackgroundAt = prefs.getLong(appLockBackgroundTimestampKey, 0L)
@@ -749,7 +675,6 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     override fun onResume() {
         super.onResume()
         updatePermissionStates()
@@ -760,7 +685,6 @@ class MainActivity : FragmentActivity() {
             syncLanState()
         }
     }
-
     override fun onStop() {
         super.onStop()
         updateViewModel.onAppBackgrounded()
@@ -770,16 +694,13 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     override fun onDestroy() {
         try { unregisterReceiver(lanStateReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(commandConfirmedReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(hardwareMetricsReceiver) } catch (_: Exception) {}
-
         executor.shutdown()
         super.onDestroy()
     }
-
     private fun authenticateForAppUnlock() {
         authenticateViaSystem(
             title = getString(R.string.auth_title),
@@ -794,7 +715,6 @@ class MainActivity : FragmentActivity() {
                         putBoolean("has_unlocked_app_once", true)
                         putLong(appLockBackgroundTimestampKey, 0L)
                     }
-
                     lifecycleScope.launch(Dispatchers.IO) {
                         val report = DeviceIntegrityRegistry(this@MainActivity).getCachedOrFastReport()
                         withContext(Dispatchers.Main) {
@@ -813,7 +733,6 @@ class MainActivity : FragmentActivity() {
                                 handleVoiceIntent(intent)
                                 handleShareIntent(intent)
                                 processPendingSharedUris()
-                                
                                 // Background evaluation of slow integrity checks
                                 lifecycleScope.launch(Dispatchers.IO) {
                                     DeviceIntegrityRegistry(this@MainActivity).runAttestationPipelineAsync()
@@ -829,7 +748,6 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     private fun persistPanicState(active: Boolean) {
         isPanicActive.value = active
         getSharedPreferences(preferenceName, MODE_PRIVATE).edit(commit = true) {
@@ -844,7 +762,6 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     private fun requestBatteryOptimizationExemption() {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
@@ -862,21 +779,18 @@ class MainActivity : FragmentActivity() {
             Toast.makeText(this, "Battery optimization exemption already active.", Toast.LENGTH_SHORT).show()
         }
     }
-
     private fun setPanicUiState() {
         uiStatusText.value = getString(R.string.status_lockdown_active)
         uiStatusColor.value = AlertRed
         uiConnectionStatusText.value = getString(R.string.status_trust_revoked)
         isConnected.value = false
     }
-
     private fun executeVerificationPipeline(nextStep: TrustVerificationStep) {
         currentVerificationStep.value = nextStep
         if (nextStep == TrustVerificationStep.DEVICE_CREDENTIAL) {
             triggerSystemBiometricPrompt(nextStep)
         }
     }
-
     private fun triggerSystemBiometricPrompt(step: TrustVerificationStep) {
         when (step) {
             TrustVerificationStep.DEVICE_CREDENTIAL -> {
@@ -908,7 +822,6 @@ class MainActivity : FragmentActivity() {
             else -> {}
         }
     }
-
     private fun authenticateViaSystem(title: String, subtitle: String, allowedAuthenticators: Int, callback: (Boolean) -> Unit) {
         runOnUiThread {
             val promptBuilder = BiometricPrompt.PromptInfo.Builder()
@@ -919,7 +832,6 @@ class MainActivity : FragmentActivity() {
             if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
                 promptBuilder.setNegativeButtonText(getString(R.string.btn_abort))
             }
-
             val biometricPrompt = BiometricPrompt(
                 this,
                 ContextCompat.getMainExecutor(this),
@@ -929,38 +841,32 @@ class MainActivity : FragmentActivity() {
                         Log.i("TetherActivity", "Authenticated via biometric prompt.")
                         callback(true)
                     }
-
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                         super.onAuthenticationError(errorCode, errString)
                         callback(false)
                     }
                 },
             )
-
             val promptInfo = promptBuilder.build()
             biometricPrompt.authenticate(promptInfo)
         }
     }
-
     private fun handleVerificationFailure() {
         runOnUiThread {
             currentVerificationStep.value = TrustVerificationStep.NOT_IN_PANIC
             setPanicUiState()
         }
     }
-
     private fun showLaptopSelectionDialog() {
         runOnUiThread {
             val prefs = getSharedPreferences(preferenceName, MODE_PRIVATE)
             val currentSavedIp = prefs.getString("saved_host_ip", "") ?: ""
-
             val input = EditText(this).apply {
                 hint = "e.g. 192.168.1.100"
                 setText(currentSavedIp)
                 inputType = InputType.TYPE_CLASS_TEXT
                 setPadding(50, 30, 50, 30)
             }
-
             AlertDialog.Builder(this)
                 .setTitle("Target Host IP")
                 .setMessage("Tether automatically discovers Windows hosts on local network.\n\nOptionally enter Windows PC IP address below:")
@@ -984,14 +890,12 @@ class MainActivity : FragmentActivity() {
                 .show()
         }
     }
-
     private fun showLaptopHostDetailsDialog() {
         val telemetry = laptopTelemetry.value
         val msg = "Power State: ${telemetry.powerState.name}\n" +
                 "Battery: ${if (telemetry.batteryPercent >= 0) "${telemetry.batteryPercent}%" else "Unknown"}\n" +
                 "Charging: ${telemetry.isCharging}\n" +
                 "Windows Fingerprint: ${if (windowsFingerprint.value.isNotEmpty()) windowsFingerprint.value.takeLast(16) else "N/A"}"
-
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.laptop_details_title))
             .setMessage(msg)
@@ -1004,13 +908,10 @@ class MainActivity : FragmentActivity() {
             }
             .show()
     }
-
     private fun triggerLanAction(action: String) {
         if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
-
         Log.d("TetherActivity", "Triggering LAN action: $action")
         dismissalJob?.cancel()
-
         val actionLower = action.lowercase()
         when {
             actionLower == "volume_up" || actionLower == "vol_up" -> {
@@ -1069,14 +970,12 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
-
         val isVolumeOrBrightnessCmd = actionLower.startsWith("volume_") || actionLower.startsWith("set_volume:") || actionLower.startsWith("vol_") ||
                 actionLower.startsWith("brightness_") || actionLower.startsWith("set_brightness:") || actionLower.startsWith("bright_")
         if (!isVolumeOrBrightnessCmd) {
             activePendingCommand.value = action
             isCommandConfirmed.value = false
         }
-
         val serviceIntent = Intent(this, TetherLanService::class.java).apply {
             this.action = action
         }
@@ -1086,11 +985,9 @@ class MainActivity : FragmentActivity() {
             Log.e("TetherActivity", "Failed to start LAN service for action: $action", e)
         }
     }
-
     private fun checkPermissions(): Boolean {
         val required = mutableListOf<String>()
         required.add(Manifest.permission.ACCESS_FINE_LOCATION)
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             required.add(Manifest.permission.POST_NOTIFICATIONS)
             required.add(Manifest.permission.NEARBY_WIFI_DEVICES)
@@ -1100,7 +997,6 @@ class MainActivity : FragmentActivity() {
         }
         return required.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
-
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         updatePermissionStates()
@@ -1115,11 +1011,9 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     private fun requestPermissions() {
         val required = mutableListOf<String>()
         required.add(Manifest.permission.ACCESS_FINE_LOCATION)
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             required.add(Manifest.permission.POST_NOTIFICATIONS)
             required.add(Manifest.permission.NEARBY_WIFI_DEVICES)
@@ -1129,7 +1023,6 @@ class MainActivity : FragmentActivity() {
         }
         ActivityCompat.requestPermissions(this, required.toTypedArray(), requestPermissionsCode)
     }
-
     private fun openAppSettings() {
         try {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -1140,7 +1033,6 @@ class MainActivity : FragmentActivity() {
             Log.e("TetherUI", "Failed to open app details settings: ${e.message}")
         }
     }
-
     private fun grantAllCriticalPermissions() {
         val ungranted = mutableListOf<String>()
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -1159,7 +1051,6 @@ class MainActivity : FragmentActivity() {
                 ungranted.add("android.permission.ACCESS_LOCAL_NETWORK")
             }
         }
-
         if (ungranted.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, ungranted.toTypedArray(), requestPermissionsCode)
         } else {
@@ -1169,14 +1060,11 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
-
     private fun updatePermissionStates() {
         val context = this
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         val nm = getSystemService(android.app.NotificationManager::class.java)
-
         val list = mutableListOf<PermissionItemState>()
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val isGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
             list.add(
@@ -1195,7 +1083,6 @@ class MainActivity : FragmentActivity() {
                 )
             )
         }
-
         val isLocGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         list.add(
             PermissionItemState(
@@ -1212,7 +1099,6 @@ class MainActivity : FragmentActivity() {
                 }
             )
         )
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val isNotifGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             list.add(
@@ -1231,7 +1117,6 @@ class MainActivity : FragmentActivity() {
                 )
             )
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val isAllFilesGranted = Environment.isExternalStorageManager()
             list.add(
@@ -1258,7 +1143,6 @@ class MainActivity : FragmentActivity() {
                 )
             )
         }
-
         val isBatteryIgnored = powerManager.isIgnoringBatteryOptimizations(packageName)
         list.add(
             PermissionItemState(
@@ -1273,7 +1157,6 @@ class MainActivity : FragmentActivity() {
                 }
             )
         )
-
         val canOverlay = Settings.canDrawOverlays(context)
         list.add(
             PermissionItemState(
@@ -1293,7 +1176,6 @@ class MainActivity : FragmentActivity() {
                 }
             )
         )
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val canFullScreen = nm?.canUseFullScreenIntent() ?: true
             list.add(
@@ -1315,10 +1197,8 @@ class MainActivity : FragmentActivity() {
                 )
             )
         }
-
         permissionStates.value = list
     }
-
     private fun startLanService() {
         if (isPanicActive.value || isEnvironmentRestricted.value) return
         getSharedPreferences(preferenceName, MODE_PRIVATE).edit(commit = true) {
@@ -1333,7 +1213,6 @@ class MainActivity : FragmentActivity() {
             Log.e("TetherActivity", "Failed to start LAN service", e)
         }
     }
-
     private fun initiatePairing() {
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_INITIATE_PAIRING
@@ -1344,7 +1223,6 @@ class MainActivity : FragmentActivity() {
             Log.e("TetherActivity", "Failed to send initiate pairing action", e)
         }
     }
-
     private fun confirmPairing(pin: String) {
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_CONFIRM_PAIRING
@@ -1356,7 +1234,6 @@ class MainActivity : FragmentActivity() {
             Log.e("TetherActivity", "Failed to send confirm pairing action", e)
         }
     }
-
     private fun cancelPairing() {
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_CANCEL_PAIRING
@@ -1367,7 +1244,6 @@ class MainActivity : FragmentActivity() {
             Log.e("TetherActivity", "Failed to send cancel pairing action", e)
         }
     }
-
     private fun forgetTrust() {
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_FORGET_TRUST
@@ -1378,7 +1254,6 @@ class MainActivity : FragmentActivity() {
             Log.e("TetherActivity", "Failed to send forget trust action", e)
         }
     }
-
     private fun restartLanServer() {
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_RESTART_SERVER
@@ -1390,7 +1265,6 @@ class MainActivity : FragmentActivity() {
             Log.e("TetherActivity", "Failed to restart LAN transport", e)
         }
     }
-
     private fun syncLanState() {
         if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
         val serviceIntent = Intent(this, TetherLanService::class.java).apply {

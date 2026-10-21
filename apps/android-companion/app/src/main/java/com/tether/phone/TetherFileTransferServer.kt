@@ -1,5 +1,4 @@
 package com.tether.phone
-
 import android.content.Context
 import android.os.Environment
 import android.util.Log
@@ -27,28 +26,23 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLServerSocket
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509ExtendedKeyManager
-
 class TetherFileTransferServer(
     private val appContext: Context,
     private val securityEngine: ProductionSecurityEngine,
     private val fileTransferManager: TetherFileTransferManager,
     private val coroutineScope: CoroutineScope,
 ) {
-
     companion object {
         private const val TAG = "TetherFileTransferServer"
         const val SERVER_PORT = 37125
         private const val MAX_CONTROL_FRAME_SIZE = 65536
     }
-
     private var serverSocket: ServerSocket? = null
     private var serverJob: Job? = null
     @Volatile private var isRunning = false
-
     fun start() {
         if (isRunning) return
         isRunning = true
-
         serverJob = coroutineScope.launch(Dispatchers.IO) {
             try {
                 val sslContext = createServerSslContext()
@@ -57,9 +51,7 @@ class TetherFileTransferServer(
                 sslServer.reuseAddress = true
                 sslServer.enabledProtocols = arrayOf("TLSv1.3")
                 serverSocket = sslServer
-
                 Log.i(TAG, "Tether File Transfer Server listening on TCP port $SERVER_PORT (TLS 1.3)...")
-
                 while (isActive && isRunning) {
                     try {
                         val clientSocket = sslServer.accept()
@@ -80,7 +72,6 @@ class TetherFileTransferServer(
             }
         }
     }
-
     fun stop() {
         isRunning = false
         try { serverSocket?.close() } catch (_: Exception) {}
@@ -89,13 +80,11 @@ class TetherFileTransferServer(
         serverJob = null
         Log.i(TAG, "Tether File Transfer Server stopped.")
     }
-
     private suspend fun handleClientSocket(socket: Socket) = withContext(Dispatchers.IO) {
         val dis = DataInputStream(socket.inputStream)
         val dos = DataOutputStream(socket.outputStream)
         var isAuthenticated = false
         var peerFingerprint = ""
-
         try {
             while (socket.isConnected && !socket.isClosed) {
                 val len = try {
@@ -103,27 +92,22 @@ class TetherFileTransferServer(
                 } catch (_: Exception) {
                     break
                 }
-
                 if (len <= 0 || len > MAX_CONTROL_FRAME_SIZE) {
                     Log.w(TAG, "Invalid control frame size $len. Closing socket.")
                     break
                 }
-
                 val frameBytes = ByteArray(len)
                 dis.readFully(frameBytes)
                 val jsonStr = String(frameBytes, StandardCharsets.UTF_8)
                 val type = JsonParserUtils.getString(jsonStr, "type", "")
-
                 when (type) {
                     ControlMessageType.CONTROL_INIT -> {
                         val deviceId = JsonParserUtils.getString(jsonStr, "deviceId", "")
                         val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(appContext)
                         val pinnedFingerprint = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
-
                         if (deviceId.isNotBlank() && deviceId == pinnedFingerprint && pinnedFingerprint != "NONE" && pinnedFingerprint != "INVALID") {
                             isAuthenticated = true
                             peerFingerprint = deviceId
-
                             val ackJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"OK\",\"grantedCapabilities\":\"CLIPBOARD,FILES,NOTIFICATIONS,MEDIA\"}"
                             sendFrame(dos, ackJson.toByteArray(StandardCharsets.UTF_8))
                             Log.i(TAG, "Authenticated incoming file connection from ${sanitizeLogInput(deviceId)}")
@@ -135,17 +119,14 @@ class TetherFileTransferServer(
                             break
                         }
                     }
-
                     ControlMessageType.FS_DB_SYNC_REQUEST -> {
                         if (!isAuthenticated) break
                         val reqId = JsonParserUtils.getString(jsonStr, "requestId", "")
-                        
                         coroutineScope.launch {
                             try {
                                 val indexer = AndroidFilesystemIndexer(appContext)
                                 val dbFile = indexer.buildDatabase()
                                 val checksum = TetherFileTransferManager.computeFileSha512Hex(dbFile)
-                                
                                 val resp = FsDbSyncResponseFrame(
                                     requestId = reqId,
                                     status = "OK",
@@ -153,7 +134,6 @@ class TetherFileTransferServer(
                                     checksum = checksum
                                 )
                                 sendFrame(dos, resp.toJsonString().toByteArray(StandardCharsets.UTF_8))
-                                
                                 // Send the DB file
                                 fileTransferManager.sendFile(
                                     securityEngine,
@@ -168,7 +148,6 @@ class TetherFileTransferServer(
                             }
                         }
                     }
-
                     ControlMessageType.BROWSE_ROOTS_REQUEST -> {
                         if (!isAuthenticated) break
                         val reqId = JsonParserUtils.getString(jsonStr, "requestId", "")
@@ -190,13 +169,11 @@ class TetherFileTransferServer(
                         }
                         sendFrame(dos, respObj.toString().toByteArray(StandardCharsets.UTF_8))
                     }
-
                     ControlMessageType.LIST_DIR_REQUEST -> {
                         if (!isAuthenticated) break
                         val reqId = JsonParserUtils.getString(jsonStr, "requestId", "")
                         val requestedPath = JsonParserUtils.getString(jsonStr, "path", "")
                         val items = listAndroidDirectory(requestedPath)
-
                         val respObj = JSONObject().apply {
                             put("type", ControlMessageType.LIST_DIR_RESPONSE)
                             put("requestId", reqId)
@@ -217,7 +194,6 @@ class TetherFileTransferServer(
                         }
                         sendFrame(dos, respObj.toString().toByteArray(StandardCharsets.UTF_8))
                     }
-
                     ControlMessageType.TRANSFER_REQUEST -> {
                         if (!isAuthenticated) break
                         val reqFrame = TransferRequestFrame.parseJsonString(jsonStr)
@@ -240,7 +216,6 @@ class TetherFileTransferServer(
                             override fun getPeerCertificate(): X509Certificate? = null
                             override fun getPeerIdentityFingerprint(): String? = peerFingerprint
                         }
-
                         fileTransferManager.handleIncomingTransfer(dummyTransport, reqFrame, "Windows PC")
                     }
                 }
@@ -251,7 +226,6 @@ class TetherFileTransferServer(
             try { socket.close() } catch (_: Exception) {}
         }
     }
-
     private fun sendFrame(dos: DataOutputStream, data: ByteArray) {
         synchronized(dos) {
             dos.writeInt(data.size)
@@ -259,25 +233,20 @@ class TetherFileTransferServer(
             dos.flush()
         }
     }
-
     private fun getAndroidStorageRoots(): List<FilesystemRootItem> {
         val list = mutableListOf<FilesystemRootItem>()
         val extDir = Environment.getExternalStorageDirectory()
         if (extDir != null && extDir.exists()) {
             list.add(FilesystemRootItem("Internal Storage", extDir.absolutePath, "ROOT", true))
-
             val downloads = File(extDir, "Download")
             if (downloads.exists()) list.add(FilesystemRootItem("Downloads", downloads.absolutePath, "DOWNLOADS", true))
-
             val dcim = File(extDir, "DCIM")
             if (dcim.exists()) list.add(FilesystemRootItem("Pictures / Camera", dcim.absolutePath, "PICTURES", true))
-
             val docs = File(extDir, "Documents")
             if (docs.exists()) list.add(FilesystemRootItem("Documents", docs.absolutePath, "DOCUMENTS", true))
         }
         return list
     }
-
     private fun listAndroidDirectory(requestedPath: String): List<DirectoryListingItem> {
         val baseDir = Environment.getExternalStorageDirectory() ?: return emptyList()
         val baseCanonical = try {
@@ -285,7 +254,6 @@ class TetherFileTransferServer(
         } catch (_: Exception) {
             return emptyList()
         }
-
         val targetFile = if (requestedPath.isBlank()) {
             baseCanonical
         } else {
@@ -295,19 +263,15 @@ class TetherFileTransferServer(
                 return emptyList()
             }
         }
-
         val baseCanonicalPath = baseCanonical.canonicalPath
         val targetCanonicalPath = targetFile.canonicalPath
         val isSubpath = targetCanonicalPath == baseCanonicalPath ||
                 targetCanonicalPath.startsWith(baseCanonicalPath + File.separator)
-
         if (!isSubpath) {
             Log.w(TAG, "Access denied: requested directory path outside storage bounds")
             return emptyList()
         }
-
         if (!targetFile.exists() || !targetFile.isDirectory) return emptyList()
-
         val results = mutableListOf<DirectoryListingItem>()
         targetFile.listFiles()?.forEach { file ->
             if (!file.name.startsWith(".")) {
@@ -325,11 +289,9 @@ class TetherFileTransferServer(
         }
         return results.sortedWith(compareByDescending<DirectoryListingItem> { it.isDirectory }.thenBy { it.name })
     }
-
     private fun sanitizeLogInput(input: String): String {
         return input.replace("\r", "_").replace("\n", "_").replace(Regex("[\\r\\n\\t\\p{Cntrl}]"), "_")
     }
-
     private fun createServerSslContext(): SSLContext {
         val customKeyManager = object : X509ExtendedKeyManager() {
             override fun getClientAliases(keyType: String?, issuers: Array<out Principal>?): Array<String> = emptyArray()
@@ -355,10 +317,8 @@ class TetherFileTransferServer(
                 }
             }
         }
-
         val trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
         trustManagerFactory.init(null as KeyStore?)
-
         val sslContext = SSLContext.getInstance("TLSv1.3")
         sslContext.init(arrayOf(customKeyManager), trustManagerFactory.trustManagers, SecureRandom())
         return sslContext

@@ -1,5 +1,4 @@
 package com.tether.phone
-
 import android.content.Context
 import android.util.Log
 import java.io.DataInputStream
@@ -22,8 +21,6 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509ExtendedKeyManager
-
-
 interface TetherTransport {
     val generationId: Long
     fun connect(host: String, port: Int, timeoutMs: Int = 10000)
@@ -34,113 +31,87 @@ interface TetherTransport {
     fun getPeerCertificate(): X509Certificate?
     fun getPeerIdentityFingerprint(): String?
 }
-
 class TetherTlsTransport(
     private val appContext: Context,
     private val securityEngine: ProductionSecurityEngine,
 ) : TetherTransport {
-
     companion object {
         private const val TAG = "TetherTlsTransport"
         private const val MAX_FRAME_SIZE = 1024 * 1024
-
         private fun sanitizeLog(input: String?): String {
             if (input == null) return "null"
             return input.replace("\r", "\\r").replace("\n", "\\n").take(256)
         }
     }
-
     override val generationId: Long = System.nanoTime()
-
     private var sslSocket: SSLSocket? = null
     private var dataInputStream: DataInputStream? = null
     private var dataOutputStream: DataOutputStream? = null
     private var peerCertificate: X509Certificate? = null
     private var peerFingerprint: String? = null
-
     @Volatile
     private var connected = false
-
     override fun connect(host: String, port: Int, timeoutMs: Int) {
         if (connected) disconnect("Reconnecting")
         val safeHost = sanitizeLog(host)
         Log.i(TAG, "Initiating secure TLS 1.3 connection to $safeHost:$port (gen=$generationId)...")
-
         val sslContext = createSslContext()
         val factory: SSLSocketFactory = sslContext.socketFactory
-
         val rawSocket = java.net.Socket()
         rawSocket.tcpNoDelay = true
         rawSocket.connect(InetSocketAddress(host, port), timeoutMs)
         rawSocket.soTimeout = 15000
-
         val sslSock = factory.createSocket(rawSocket, host, port, true) as SSLSocket
         sslSock.tcpNoDelay = true
         sslSock.useClientMode = true
-
         val sslParams = sslSock.sslParameters
         sslParams.endpointIdentificationAlgorithm = null
         sslSock.sslParameters = sslParams
-
         sslSock.enabledProtocols = arrayOf("TLSv1.3")
-
         sslSock.startHandshake()
         val session = sslSock.session
         Log.i(TAG, "TLS 1.3 Handshake complete! Protocol=${session.protocol}, CipherSuite=${session.cipherSuite}")
-
         val peerCerts = session.peerCertificates
         if (peerCerts.isEmpty() || (peerCerts[0] !is X509Certificate)) {
             sslSock.close()
             throw SSLException("No valid X.509 peer certificate presented during TLS handshake")
         }
-
         val cert = peerCerts[0] as X509Certificate
-
         peerCertificate = cert
         peerFingerprint = securityEngine.computePublicKeyFingerprint(cert.publicKey.encoded)
         val safeFp = sanitizeLog(peerFingerprint)
         Log.i(TAG, "Peer TLS Identity SHA-256 Fingerprint: $safeFp")
-
         this.sslSocket = sslSock
         this.dataInputStream = DataInputStream(sslSock.inputStream)
         this.dataOutputStream = DataOutputStream(sslSock.outputStream)
         this.connected = true
     }
-
     private fun createSslContext(): SSLContext {
         val tmf = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
         tmf.init(null as java.security.KeyStore?)
         val defaultTrustManager = tmf.trustManagers.filterIsInstance<javax.net.ssl.X509ExtendedTrustManager>().firstOrNull()
-
         val pinningTrustManager = object : javax.net.ssl.X509ExtendedTrustManager() {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
                 throw CertificateException("Client certificates are not supported by this transport")
             }
-
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
                 checkPinning(chain)
             }
-
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
                 throw CertificateException("Client certificates are not supported by this transport")
             }
-
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
                 checkPinning(chain)
             }
-
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
                 throw CertificateException("Client certificates are not supported by this transport")
             }
-
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
                 checkPinning(chain)
             }
-
             override fun getAcceptedIssuers(): Array<X509Certificate> {
                 return defaultTrustManager?.acceptedIssuers ?: arrayOf()
             }
-
             private fun checkPinning(
                 chain: Array<out X509Certificate>?,
             ) {
@@ -149,7 +120,6 @@ class TetherTlsTransport(
                 }
                 val leaf = chain[0]
                 leaf.checkValidity()
-
                 val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
                 if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
                     if (!MessageDigest.isEqual(pinnedBytes, leaf.publicKey.encoded)) {
@@ -164,7 +134,6 @@ class TetherTlsTransport(
                 }
             }
         }
-
         val customKeyManager = object : X509ExtendedKeyManager() {
             override fun getClientAliases(keyType: String?, issuers: Array<out Principal>?): Array<String> = arrayOf("TetherIdentity")
             override fun chooseClientAlias(keyType: Array<out String>?, issuers: Array<out Principal>?, socket: java.net.Socket?): String = "TetherIdentity"
@@ -189,12 +158,10 @@ class TetherTlsTransport(
                 }
             }
         }
-
         val sslContext = SSLContext.getInstance("TLSv1.3")
         sslContext.init(arrayOf(customKeyManager), arrayOf<TrustManager>(pinningTrustManager), SecureRandom())
         return sslContext
     }
-
     @Synchronized
     override fun disconnect(reason: String) {
         if (!connected && (sslSocket == null)) return
@@ -210,9 +177,7 @@ class TetherTlsTransport(
         peerCertificate = null
         peerFingerprint = null
     }
-
     override fun isConnected(): Boolean = connected && (sslSocket?.isConnected == true)
-
     override fun sendFrame(data: ByteArray) {
         if (!isConnected()) throw IllegalStateException("Transport disconnected")
         if (data.size > MAX_FRAME_SIZE) throw IllegalArgumentException("Frame size ${data.size} exceeds maximum limit of $MAX_FRAME_SIZE bytes")
@@ -223,11 +188,9 @@ class TetherTlsTransport(
             dos.flush()
         }
     }
-
     override fun readFrame(maxSizeBytes: Int): ByteArray? {
         if (!isConnected()) return null
         val dis = dataInputStream ?: return null
-
         val length = try {
             dis.readInt()
         } catch (_: EOFException) {
@@ -249,13 +212,11 @@ class TetherTlsTransport(
             disconnect("IOException: ${e.message}")
             return null
         }
-
         if ((length < 1) || (length > maxSizeBytes)) {
             Log.e(TAG, "Invalid frame length received: $length bytes (limit: $maxSizeBytes)")
             disconnect("Oversized or invalid frame length: $length")
             return null
         }
-
         val buffer = ByteArray(length)
         try {
             dis.readFully(buffer)
@@ -264,11 +225,8 @@ class TetherTlsTransport(
             disconnect("Frame readFully error: ${e.message}")
             return null
         }
-
         return buffer
     }
-
     override fun getPeerCertificate(): X509Certificate? = peerCertificate
-
     override fun getPeerIdentityFingerprint(): String? = peerFingerprint
 }

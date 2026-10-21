@@ -1,3 +1,2 @@
 package com.tether.phone.ui.screens
-
 // ... imports...

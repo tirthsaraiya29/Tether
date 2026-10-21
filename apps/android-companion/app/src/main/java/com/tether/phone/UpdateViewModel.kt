@@ -1,5 +1,4 @@
 package com.tether.phone
-
 import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
@@ -8,21 +7,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-
 class UpdateViewModel : ViewModel() {
-
     private val _updateInfo = MutableStateFlow<UpdateInfo?>(null)
     val updateInfo: StateFlow<UpdateInfo?> = _updateInfo.asStateFlow()
-
     private val _dialogVisible = MutableStateFlow(false)
     val dialogVisible: StateFlow<Boolean> = _dialogVisible.asStateFlow()
-
     private var lastCheckTimestamp = 0L
-
     fun onAppBackgrounded() {
         lastCheckTimestamp = 0L
     }
-
     /**
      * Call this on every app launch and every foreground entry.
      * [currentVersion] should come from BuildConfig.VERSION_NAME.
@@ -32,7 +25,6 @@ class UpdateViewModel : ViewModel() {
         // 1-second guard against rapid duplicate triggers during config changes
         if (now - lastCheckTimestamp < 1_000L) return
         lastCheckTimestamp = now
-
         // First check cached update info for instant popup on launch
         if (context != null) {
             val cached = UpdateChecker.getCachedUpdateInfo(context)
@@ -41,7 +33,6 @@ class UpdateViewModel : ViewModel() {
                 _dialogVisible.value = true
             }
         }
-
         viewModelScope.launch {
             val latest = UpdateChecker.fetchLatestRelease() ?: return@launch
             if (context != null) {
@@ -56,7 +47,6 @@ class UpdateViewModel : ViewModel() {
             }
         }
     }
-
     fun dismissDialog() {
         _dialogVisible.value = false
     }

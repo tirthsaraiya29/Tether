@@ -1,6 +1,4 @@
-// CSampleCredentialGlobals.cpp
 #include "TetherCredentialGlobals.h"
-
 std::atomic<DWORD> g_dwSelectedMethod{ 0 };
 std::atomic<bool> g_fBypassTriggered{ false };
 std::atomic<bool> g_fPhoneAppTriggered{ false };

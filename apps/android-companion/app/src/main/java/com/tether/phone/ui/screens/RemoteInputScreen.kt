@@ -1,5 +1,4 @@
 package com.tether.phone.ui.screens
-
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -104,9 +103,7 @@ import com.tether.phone.ui.theme.TextPrimary
 import com.tether.phone.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
 data class TouchPoint(val id: Long, val position: Offset)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RemoteInputScreen(
@@ -117,33 +114,26 @@ fun RemoteInputScreen(
     val haptic = LocalHapticFeedback.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
-
     val inputEngine = remember { RemoteInputEngine(context) }
     val isConnected = transportState == TransportState.READY || transportState == TransportState.AUTHENTICATED
-
     var isKeyboardVisible by remember { mutableStateOf(false) }
     var textBuffer by remember { mutableStateOf(TextFieldValue("")) }
     var showSensitivitySheet by remember { mutableStateOf(false) }
-
     val activeTouchPoints = remember { mutableStateListOf<TouchPoint>() }
-
     DisposableEffect(Unit) {
         onDispose {
             inputEngine.stopAirMouse()
             inputEngine.releaseAllModifiers()
         }
     }
-
     Box(modifier = Modifier.fillMaxSize()) {
         DeepSpaceCanvasVisualizer()
-
         // Hidden BasicTextField for Soft Keyboard IME Capture
         BasicTextField(
             value = textBuffer,
             onValueChange = { newValue ->
                 val newText = newValue.text
                 val oldText = textBuffer.text
-
                 if (newText.length > oldText.length) {
                     val typedChar = newText.substring(oldText.length)
                     inputEngine.sendUnicodeText(typedChar)
@@ -207,7 +197,6 @@ fun RemoteInputScreen(
                     } else false
                 }
         )
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -237,9 +226,7 @@ fun RemoteInputScreen(
                     showSensitivitySheet = true
                 }
             )
-
             Spacer(modifier = Modifier.height(12.dp))
-
             // Quick Modifier Key Strip
             QuickModifierStrip(
                 inputEngine = inputEngine,
@@ -248,9 +235,7 @@ fun RemoteInputScreen(
                     inputEngine.toggleModifier(vkCode)
                 }
             )
-
             Spacer(modifier = Modifier.height(12.dp))
-
             // Main Trackpad Touch Canvas Area
             Box(
                 modifier = Modifier
@@ -267,19 +252,15 @@ fun RemoteInputScreen(
                             .clip(RoundedCornerShape(28.dp))
                             .pointerInput(isConnected) {
                                 if (!isConnected) return@pointerInput
-
                                 awaitPointerEventScope {
                                     while (true) {
                                         val event = awaitPointerEvent(PointerEventPass.Main)
                                         val changes = event.changes
-
                                         activeTouchPoints.clear()
                                         changes.filter { it.pressed }.forEach {
                                             activeTouchPoints.add(TouchPoint(it.id.value, it.position))
                                         }
-
                                         val pointerCount = changes.count { it.pressed }
-
                                         if (pointerCount == 1) {
                                             val change = changes.firstOrNull { it.pressed }
                                             if (change != null) {
@@ -299,14 +280,12 @@ fun RemoteInputScreen(
                                             val drag1 = change1.position - change1.previousPosition
                                             val drag2 = change2.position - change2.previousPosition
                                             val avgDy = (drag1.y + drag2.y) / 2f
-
                                             if (kotlin.math.abs(avgDy) > 0.5f) {
                                                 inputEngine.processScrollDrag(avgDy)
                                                 change1.consume()
                                                 change2.consume()
                                             }
                                         }
-
                                         if (changes.all { !it.pressed }) {
                                             activeTouchPoints.clear()
                                             if (inputEngine.isTapAndHoldActive) {
@@ -355,7 +334,6 @@ fun RemoteInputScreen(
                                 )
                             }
                         }
-
                         // Air Mouse Active Badge Indicator
                         if (inputEngine.isAirMouseActive) {
                             Box(
@@ -384,7 +362,6 @@ fun RemoteInputScreen(
                                 }
                             }
                         }
-
                         // Disconnected / Offline Overlay
                         if (!isConnected) {
                             Box(
@@ -419,9 +396,7 @@ fun RemoteInputScreen(
                     }
                 }
             }
-
             Spacer(modifier = Modifier.height(16.dp))
-
             // Lower Control Deck (Tactile Physical Target Buttons)
             LowerControlDeck(
                 inputEngine = inputEngine,
@@ -429,7 +404,6 @@ fun RemoteInputScreen(
                 onHaptic = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
             )
         }
-
         // Sensitivity Settings Bottom Sheet
         if (showSensitivitySheet) {
             SensitivityBottomSheet(
@@ -439,7 +413,6 @@ fun RemoteInputScreen(
         }
     }
 }
-
 @Composable
 fun RemoteInputTopBar(
     transportState: TransportState,
@@ -460,7 +433,6 @@ fun RemoteInputTopBar(
             TransportState.CONNECTING, TransportState.TLS_HANDSHAKE, TransportState.AUTHENTICATING -> MatrixGold to "CONNECTING..."
             else -> AlertRed to "DISCONNECTED"
         }
-
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(16.dp))
@@ -484,7 +456,6 @@ fun RemoteInputTopBar(
                 )
             }
         }
-
         // Action Buttons Row
         Row {
             // Air Mouse Toggle Button
@@ -501,9 +472,7 @@ fun RemoteInputTopBar(
                     tint = if (isAirMouseActive) LiquidCyan else TextSecondary
                 )
             }
-
             Spacer(modifier = Modifier.width(8.dp))
-
             // Soft Keyboard Toggle Button
             IconButton(
                 onClick = onToggleKeyboard,
@@ -518,9 +487,7 @@ fun RemoteInputTopBar(
                     tint = if (isKeyboardVisible) LiquidCyan else TextSecondary
                 )
             }
-
             Spacer(modifier = Modifier.width(8.dp))
-
             // Sensitivity Settings Button
             IconButton(
                 onClick = onOpenSensitivity,
@@ -538,7 +505,6 @@ fun RemoteInputTopBar(
         }
     }
 }
-
 @Composable
 fun QuickModifierStrip(
     inputEngine: RemoteInputEngine,
@@ -591,7 +557,6 @@ fun QuickModifierStrip(
         )
     }
 }
-
 @Composable
 fun ModifierKeyChip(
     label: String,
@@ -619,7 +584,6 @@ fun ModifierKeyChip(
         )
     }
 }
-
 @Composable
 fun LowerControlDeck(
     inputEngine: RemoteInputEngine,
@@ -645,7 +609,6 @@ fun LowerControlDeck(
                 inputEngine.setButtonState(MOUSE_BUTTON_LEFT, false)
             }
         )
-
         // Middle / Scroll Button (20% width)
         TactileDeckButton(
             label = "SCROLL",
@@ -659,7 +622,6 @@ fun LowerControlDeck(
                 inputEngine.setButtonState(MOUSE_BUTTON_MIDDLE, false)
             }
         )
-
         // Right Click Button (40% width)
         TactileDeckButton(
             label = "RIGHT CLICK",
@@ -675,7 +637,6 @@ fun LowerControlDeck(
         )
     }
 }
-
 @Composable
 fun TactileDeckButton(
     label: String,
@@ -686,11 +647,9 @@ fun TactileDeckButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-
     LaunchedEffect(isPressed) {
         if (isPressed) onPressDown() else onPressUp()
     }
-
     Box(
         modifier = modifier
             .fillMaxHeight()
@@ -719,7 +678,6 @@ fun TactileDeckButton(
         )
     }
 }
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SensitivityBottomSheet(
@@ -728,7 +686,6 @@ fun SensitivityBottomSheet(
 ) {
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -747,7 +704,6 @@ fun SensitivityBottomSheet(
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(16.dp))
-
             // Pointer Sensitivity
             Text(
                 text = "Pointer Speed: ${String.format(java.util.Locale.US, "%.1f", inputEngine.pointerSensitivity)}x",
@@ -765,9 +721,7 @@ fun SensitivityBottomSheet(
                     inactiveTrackColor = GlassBorder
                 )
             )
-
             Spacer(modifier = Modifier.height(12.dp))
-
             // Scroll Sensitivity
             Text(
                 text = "Scroll Speed: ${String.format("%.1f", inputEngine.scrollSensitivity)}x",
@@ -785,9 +739,7 @@ fun SensitivityBottomSheet(
                     inactiveTrackColor = GlassBorder
                 )
             )
-
             Spacer(modifier = Modifier.height(12.dp))
-
             // Air Mouse Sensitivity
             Text(
                 text = "Air Mouse Sensitivity: ${String.format("%.1f", inputEngine.airMouseSensitivity)}x",
@@ -805,9 +757,7 @@ fun SensitivityBottomSheet(
                     inactiveTrackColor = GlassBorder
                 )
             )
-
             Spacer(modifier = Modifier.height(20.dp))
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End

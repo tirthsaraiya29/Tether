@@ -1,5 +1,4 @@
 package com.tether.phone.ui.screens
-
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,13 +20,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tether.phone.ui.components.ProfessionalGlassSurface
 import com.tether.phone.ui.theme.*
-
 enum class PermissionLevel(val label: String, val badgeColor: Color) {
     CRITICAL("CRITICAL / REQUIRED", AlertRed),
     HIGH("RECOMMENDED", MatrixGold),
     OPTIONAL("OPTIONAL / ADVANCED", LiquidCyan)
 }
-
 data class PermissionItemState(
     val id: String,
     val title: String,
@@ -37,7 +34,6 @@ data class PermissionItemState(
     val actionText: String,
     val onClick: () -> Unit
 )
-
 @Composable
 fun PermissionsScreen(
     items: List<PermissionItemState>,
@@ -45,11 +41,9 @@ fun PermissionsScreen(
     onGrantAllMissing: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
-
     val criticalGranted = items.filter { it.level == PermissionLevel.CRITICAL }.all { it.isGranted }
     val totalGranted = items.count { it.isGranted }
     val totalCount = items.size
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -104,7 +98,6 @@ fun PermissionsScreen(
                             )
                         }
                     }
-
                     Surface(
                         color = (if (criticalGranted) IntegrityGreen else AlertRed).copy(alpha = 0.15f),
                         shape = RoundedCornerShape(8.dp),
@@ -119,13 +112,11 @@ fun PermissionsScreen(
                         )
                     }
                 }
-
                 Text(
                     text = "Tether requires specific local network and system privileges to maintain high-speed, secure P2P communication with your host PC without background interruption.",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextMuted
                 )
-
                 if (!criticalGranted) {
                     Button(
                         onClick = onGrantAllMissing,
@@ -143,7 +134,6 @@ fun PermissionsScreen(
                 }
             }
         }
-
         // Group items by PermissionLevel
         PermissionLevel.entries.forEach { level ->
             val levelItems = items.filter { it.level == level }
@@ -170,14 +160,12 @@ fun PermissionsScreen(
                             letterSpacing = 1.sp
                         )
                     }
-
                     levelItems.forEach { item ->
                         PermissionCard(item = item)
                     }
                 }
             }
         }
-
         // Open App Details Settings Button
         OutlinedButton(
             onClick = onOpenAppSettings,
@@ -190,11 +178,9 @@ fun PermissionsScreen(
             Spacer(modifier = Modifier.width(8.dp))
             Text("OPEN SYSTEM APP SETTINGS", style = MaterialTheme.typography.labelMedium)
         }
-
         Spacer(modifier = Modifier.height(24.dp))
     }
 }
-
 @Composable
 private fun PermissionCard(item: PermissionItemState) {
     ProfessionalGlassSurface(
@@ -217,9 +203,7 @@ private fun PermissionCard(item: PermissionItemState) {
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
-
                 Spacer(modifier = Modifier.height(4.dp))
-
                 Text(
                     text = item.description,
                     style = MaterialTheme.typography.bodySmall,
@@ -227,7 +211,6 @@ private fun PermissionCard(item: PermissionItemState) {
                     lineHeight = 16.sp
                 )
             }
-
             Surface(
                 color = if (item.isGranted) IntegrityGreen.copy(alpha = 0.15f) else item.level.badgeColor.copy(alpha = 0.15f),
                 shape = RoundedCornerShape(10.dp),
@@ -255,7 +238,6 @@ private fun PermissionCard(item: PermissionItemState) {
         }
     }
 }
-
 @Composable
 fun PermissionsChecklistBanner(
     missingCount: Int,
@@ -294,7 +276,6 @@ fun PermissionsChecklistBanner(
                         modifier = Modifier.size(20.dp)
                     )
                 }
-
                 Column {
                     Text(
                         text = "PERMISSIONS CHECKLIST",
@@ -312,7 +293,6 @@ fun PermissionsChecklistBanner(
                     )
                 }
             }
-
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -331,7 +311,6 @@ fun PermissionsChecklistBanner(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                     )
                 }
-
                 IconButton(
                     onClick = onDismiss,
                     modifier = Modifier.size(28.dp)

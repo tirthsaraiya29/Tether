@@ -1,5 +1,4 @@
 package com.tether.phone.ui
-
 import android.database.sqlite.SQLiteDatabase
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,9 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.tether.phone.TetherLanService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-
 data class FsNode(val name: String, val path: String, val isDir: Boolean, val size: Long)
-
 @Composable
 fun DesktopFilePicker() {
     val context = LocalContext.current
@@ -28,7 +25,6 @@ fun DesktopFilePicker() {
     var files by remember { mutableStateOf(emptyList<FsNode>()) }
     var dbExists by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
-
     val reloadDb = {
         isLoading = true
         val dbFile = context.getDatabasePath("windows_fs.db")
@@ -55,13 +51,11 @@ fun DesktopFilePicker() {
         }
         isLoading = false
     }
-
     LaunchedEffect(currentPath) {
         withContext(Dispatchers.IO) {
             reloadDb()
         }
     }
-
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -79,18 +73,16 @@ fun DesktopFilePicker() {
                 Icon(Icons.Default.Refresh, contentDescription = "Sync PC Files")
             }
         }
-
         if (isLoading) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
         }
-
         if (!dbExists) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("Auto-syncing Windows filesystem... Please wait.")
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = { 
+                Button(onClick = {
                     val lastSlash = maxOf(currentPath.lastIndexOf('/'), currentPath.lastIndexOf('\\'))
                     if (lastSlash > 0) {
                         currentPath = currentPath.substring(0, lastSlash)

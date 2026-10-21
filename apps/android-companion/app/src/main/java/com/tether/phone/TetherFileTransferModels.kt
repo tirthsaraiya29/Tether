@@ -1,10 +1,8 @@
 package com.tether.phone
-
 import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.util.UUID
-
 /**
  * QUIC Transport Layer Error Codes (RFC 9000)
  */
@@ -16,7 +14,6 @@ object QuicTransportErrorCode {
     const val PROTOCOL_VIOLATION: Long = 0x0A
     const val CRYPTO_ERROR_BASE: Long = 0x0100
 }
-
 /**
  * Application-Level Protocol Error Codes for Tether File Sharing
  */
@@ -30,14 +27,12 @@ enum class FileTransferErrorCode(val code: Int, val description: String) {
     SOURCE_FILE_CHANGED(0x16, "Sender source file length or modification timestamp changed mid-transfer"),
     USER_CANCELLED(0x17, "File transfer explicitly cancelled by user"),
     SERVICE_TIMEOUT(0x18, "Foreground service execution time limit reached");
-
     companion object {
         fun fromCode(code: Int): FileTransferErrorCode? {
             return entries.firstOrNull { it.code == code }
         }
     }
 }
-
 /**
  * State of an active or queued file transfer operation
  */
@@ -52,7 +47,6 @@ enum class FileTransferState {
     FAILED,
     CANCELLED
 }
-
 /**
  * Control Stream Message Type Constants
  */
@@ -77,7 +71,6 @@ object ControlMessageType {
     const val FS_DELTA_UPDATE = "FS_DELTA_UPDATE"
     const val FS_ON_DEMAND_SCAN = "FS_ON_DEMAND_SCAN"
 }
-
 /**
  * Data Stream Chunk Message Constants
  */
@@ -85,24 +78,20 @@ object DataChunkMessageType {
     const val MSG_DATA_CHUNK: Byte = 0x01
     const val MSG_DATA_END: Byte = 0x02
 }
-
 internal object JsonParserUtils {
     fun getString(jsonStr: String, key: String, default: String): String {
         val regex = Regex("\"$key\"\\s*:\\s*\"([^\"]*)\"")
         return regex.find(jsonStr)?.groupValues?.get(1) ?: default
     }
-
     fun getLong(jsonStr: String, key: String, default: Long): Long {
         val regex = Regex("\"$key\"\\s*:\\s*(\\d+)")
         return regex.find(jsonStr)?.groupValues?.get(1)?.toLongOrNull() ?: default
     }
-
     fun getInt(jsonStr: String, key: String, default: Int): Int {
         val regex = Regex("\"$key\"\\s*:\\s*(\\d+)")
         return regex.find(jsonStr)?.groupValues?.get(1)?.toIntOrNull() ?: default
     }
 }
-
 /**
  * Transfer Request Metadata Frame
  */
@@ -118,9 +107,7 @@ data class TransferRequestFrame(
     val sourceLastModified: Long = System.currentTimeMillis(),
 ) {
     fun toJsonString(): String = "{\"type\":\"${ControlMessageType.TRANSFER_REQUEST}\",\"version\":\"$version\",\"transferId\":\"$transferId\",\"fileName\":\"$fileName\",\"fileSize\":$fileSize,\"mimeType\":\"$mimeType\",\"expectedSha512\":\"$expectedSha512\",\"chunkSize\":$chunkSize,\"totalChunks\":$totalChunks,\"sourceLastModified\":$sourceLastModified}"
-
     fun toJson(): JSONObject = try { JSONObject(toJsonString()) } catch (_: Exception) { JSONObject() }
-
     companion object {
         fun parseJsonString(jsonStr: String): TransferRequestFrame {
             return TransferRequestFrame(
@@ -135,11 +122,9 @@ data class TransferRequestFrame(
                 sourceLastModified = JsonParserUtils.getLong(jsonStr, "sourceLastModified", 0L),
             )
         }
-
         fun parseJson(json: JSONObject): TransferRequestFrame = parseJsonString(json.toString())
     }
 }
-
 /**
  * Response Frame for Transfer Acceptance or Rejection
  */
@@ -151,9 +136,7 @@ data class TransferResponseFrame(
     val reason: String = "",
 ) {
     fun toJsonString(): String = "{\"type\":\"${ControlMessageType.TRANSFER_RESPONSE}\",\"transferId\":\"$transferId\",\"status\":\"$status\",\"resumeOffset\":$resumeOffset,\"errorCode\":$errorCode,\"reason\":\"$reason\"}"
-
     fun toJson(): JSONObject = try { JSONObject(toJsonString()) } catch (_: Exception) { JSONObject() }
-
     companion object {
         fun parseJsonString(jsonStr: String): TransferResponseFrame {
             return TransferResponseFrame(
@@ -164,11 +147,9 @@ data class TransferResponseFrame(
                 reason = JsonParserUtils.getString(jsonStr, "reason", ""),
             )
         }
-
         fun parseJson(json: JSONObject): TransferResponseFrame = parseJsonString(json.toString())
     }
 }
-
 /**
  * Resumable Transfer Request Frame
  */
@@ -179,9 +160,7 @@ data class TransferResumeRequestFrame(
     val sourceSize: Long,
 ) {
     fun toJsonString(): String = "{\"type\":\"${ControlMessageType.TRANSFER_RESUME_REQUEST}\",\"transferId\":\"$transferId\",\"requestedOffset\":$requestedOffset,\"sourceLastModified\":$sourceLastModified,\"sourceSize\":$sourceSize}"
-
     fun toJson(): JSONObject = try { JSONObject(toJsonString()) } catch (_: Exception) { JSONObject() }
-
     companion object {
         fun parseJsonString(jsonStr: String): TransferResumeRequestFrame {
             return TransferResumeRequestFrame(
@@ -191,11 +170,9 @@ data class TransferResumeRequestFrame(
                 sourceSize = JsonParserUtils.getLong(jsonStr, "sourceSize", 0L),
             )
         }
-
         fun parseJson(json: JSONObject): TransferResumeRequestFrame = parseJsonString(json.toString())
     }
 }
-
 /**
  * Resumable Transfer Acknowledgement Frame with Partial SHA-512 Prefix Verification
  */
@@ -208,9 +185,7 @@ data class TransferResumeAckFrame(
     val reason: String = "",
 ) {
     fun toJsonString(): String = "{\"type\":\"${ControlMessageType.TRANSFER_RESUME_ACK}\",\"transferId\":\"$transferId\",\"status\":\"$status\",\"resumeOffset\":$resumeOffset,\"partialSha512\":\"$partialSha512\",\"errorCode\":$errorCode,\"reason\":\"$reason\"}"
-
     fun toJson(): JSONObject = try { JSONObject(toJsonString()) } catch (_: Exception) { JSONObject() }
-
     companion object {
         fun parseJsonString(jsonStr: String): TransferResumeAckFrame {
             return TransferResumeAckFrame(
@@ -222,7 +197,6 @@ data class TransferResumeAckFrame(
                 reason = JsonParserUtils.getString(jsonStr, "reason", ""),
             )
         }
-
         fun parseJson(json: JSONObject): TransferResumeAckFrame = parseJsonString(json.toString())
     }
 }
@@ -239,7 +213,6 @@ data class TransferResumeAckFrame(
  */
 object DataChunkFraming {
     const val HEADER_SIZE_BYTES = 41 // 4 + 1 + 16 + 8 + 8 + 4
-
     fun serializeChunk(
         transferIdUuid: UUID,
         chunkIndex: Long,
@@ -260,7 +233,6 @@ object DataChunkFraming {
         buffer.put(payload, payloadOffset, payloadLength)
         return buffer.array()
     }
-
     fun serializeEndSignal(transferIdUuid: UUID): ByteArray {
         val totalFrameLength = HEADER_SIZE_BYTES - 4
         val buffer = ByteBuffer.allocate(HEADER_SIZE_BYTES)
@@ -273,7 +245,6 @@ object DataChunkFraming {
         buffer.putInt(0)  // payloadLength
         return buffer.array()
     }
-
     data class ParsedChunkHeader(
         val msgType: Byte,
         val transferId: UUID,
@@ -281,7 +252,6 @@ object DataChunkFraming {
         val offset: Long,
         val payloadLength: Int,
     )
-
     fun parseHeader(headerBytes: ByteArray): ParsedChunkHeader {
         require(headerBytes.size >= HEADER_SIZE_BYTES - 4) { "Header bytes smaller than minimum header size" }
         val buffer = ByteBuffer.wrap(headerBytes)
@@ -301,7 +271,6 @@ object DataChunkFraming {
         )
     }
 }
-
 /**
  * Active Transfer UI Progress Model
  */
@@ -318,13 +287,10 @@ data class TransferProgress(
 ) {
     val progressFraction: Float
         get() = if (fileSize > 0) (bytesTransferred.toFloat() / fileSize.toFloat()).coerceIn(0f, 1f) else 0f
-
     val progressPercentage: Int
         get() = (progressFraction * 100).toInt()
-
     val speedMbPerSec: Double
         get() = speedBytesPerSec / (1024.0 * 1024.0)
-
     val etaSeconds: Long
         get() = if (speedBytesPerSec > 0 && fileSize > bytesTransferred) {
             ((fileSize - bytesTransferred) / speedBytesPerSec).toLong()
@@ -332,14 +298,12 @@ data class TransferProgress(
             0L
         }
 }
-
 data class FilesystemRootItem(
     val name: String,
     val path: String,
     val rootType: String,
     val isReadable: Boolean = true,
 )
-
 data class DirectoryListingItem(
     val name: String,
     val relativePath: String,
@@ -348,27 +312,23 @@ data class DirectoryListingItem(
     val lastModifiedMs: Long = 0L,
     val isReadable: Boolean = true,
 )
-
 data class BrowseRootsRequestFrame(
     val requestId: String = UUID.randomUUID().toString(),
 ) {
     fun toJsonString(): String = "{\"type\":\"${ControlMessageType.BROWSE_ROOTS_REQUEST}\",\"requestId\":\"$requestId\"}"
 }
-
 data class ListDirRequestFrame(
     val requestId: String = UUID.randomUUID().toString(),
     val path: String,
 ) {
     fun toJsonString(): String = "{\"type\":\"${ControlMessageType.LIST_DIR_REQUEST}\",\"requestId\":\"$requestId\",\"path\":\"$path\"}"
 }
-
 data class FsDbSyncRequestFrame(
     val requestId: String = UUID.randomUUID().toString(),
     val platform: String = "ANDROID"
 ) {
     fun toJsonString(): String = "{\"type\":\"${ControlMessageType.FS_DB_SYNC_REQUEST}\",\"requestId\":\"$requestId\",\"platform\":\"$platform\"}"
 }
-
 data class FsDbSyncResponseFrame(
     val requestId: String,
     val status: String,
@@ -377,7 +337,6 @@ data class FsDbSyncResponseFrame(
 ) {
     fun toJsonString(): String = "{\"type\":\"${ControlMessageType.FS_DB_SYNC_RESPONSE}\",\"requestId\":\"$requestId\",\"status\":\"$status\",\"dbSize\":$dbSize,\"checksum\":\"$checksum\"}"
 }
-
 data class FsOnDemandScanFrame(
     val requestId: String = UUID.randomUUID().toString(),
     val targetPath: String

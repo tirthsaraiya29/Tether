@@ -1,5 +1,4 @@
 package com.tether.phone
-
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -10,27 +9,21 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.milliseconds
-
 class UnlockActionReceiver : BroadcastReceiver() {
-
     companion object {
         const val TAG = "UnlockActionReceiver"
         const val ACTION_UNLOCK = "com.tether.phone.ACTION_UNLOCK"
         const val ACTION_DISMISS = "com.tether.phone.ACTION_DISMISS"
         const val EXTRA_PEER_NAME = "extra_peer_name"
-
         private val receiverScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     }
-
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: return
         Log.i(TAG, "Received notification action: $action")
-
         when (action) {
             ACTION_UNLOCK -> {
                 // Instantly dismiss notification UI to provide snappy feedback
                 UnlockPromptNotifier.cancelUnlockPrompt(context)
-
                 // Use goAsync() to keep the receiver process alive while dispatching
                 // the network payload over TLS 1.3 asynchronously.
                 val pendingResult = goAsync()

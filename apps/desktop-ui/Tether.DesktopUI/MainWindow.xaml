@@ -13,7 +13,6 @@
         TextOptions.TextFormattingMode="Display"
         TextOptions.TextRenderingMode="ClearType"
         Loaded="MainWindow_Loaded">
-
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="44"
                       ResizeBorderThickness="6"
@@ -21,7 +20,6 @@
                       CornerRadius="0"
                       UseAeroCaptionButtons="False"/>
     </WindowChrome.WindowChrome>
-
     <Border BorderBrush="{StaticResource GlassSpecularBorderBrush}"
             BorderThickness="1">
         <Grid x:Name="LayoutRoot">
@@ -29,12 +27,10 @@
                 <RowDefinition Height="44"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="248"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
-
             <!-- ============================================================= -->
             <!-- TOP FLUSH TITLEBAR (ROW 0)                                    -->
             <!-- ============================================================= -->
@@ -50,7 +46,6 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-
                     <Border Grid.Column="0"
                             Width="26" Height="26"
                             CornerRadius="6"
@@ -64,7 +59,6 @@
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"/>
                     </Border>
-
                     <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
                         <TextBlock Text="TETHER"
                                    FontFamily="{StaticResource FluentDisplayFontFamily}"
@@ -72,7 +66,6 @@
                                    FontWeight="Bold"
                                    Foreground="{StaticResource TextPrimaryBrush}"/>
                     </StackPanel>
-
                     <Border Grid.Column="2"
                             Style="{StaticResource BadgePillBorderStyle}"
                             Padding="6,2">
@@ -84,7 +77,6 @@
                     </Border>
                 </Grid>
             </Border>
-
             <!-- Right Header: Drag Area & Window Buttons -->
             <Border Grid.Row="0"
                     Grid.Column="1"
@@ -96,7 +88,6 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-
                     <StackPanel Grid.Column="0"
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center"
@@ -109,7 +100,6 @@
                                    Foreground="{StaticResource TextSecondaryBrush}"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
-
                     <StackPanel Grid.Column="1"
                                 Orientation="Horizontal"
                                 HorizontalAlignment="Right"
@@ -145,7 +135,6 @@
                     </StackPanel>
                 </Grid>
             </Border>
-
             <!-- ============================================================= -->
             <!-- LEFT NAVIGATION RAIL (ROW 1)                                  -->
             <!-- ============================================================= -->
@@ -159,7 +148,6 @@
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-
                     <ListBox x:Name="NavRailList"
                              Grid.Row="0"
                              Background="Transparent"
@@ -184,7 +172,6 @@
                             </StackPanel>
                         </ListBoxItem>
                     </ListBox>
-
                     <!-- User Account Card -->
                     <Border Grid.Row="1"
                             Margin="12,0,12,12"
@@ -198,7 +185,6 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-
                             <Border Grid.Column="0"
                                     Width="28" Height="28"
                                     CornerRadius="14"
@@ -213,7 +199,6 @@
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"/>
                             </Border>
-
                             <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="User Account"
                                            FontFamily="{StaticResource FluentFontFamily}"
@@ -233,7 +218,6 @@
                     </Border>
                 </Grid>
             </Border>
-
             <!-- ============================================================= -->
             <!-- MAIN CONTENT CANVAS (ROW 1)                                   -->
             <!-- ============================================================= -->
@@ -245,7 +229,6 @@
                     <ColumnDefinition Width="20"/>
                     <ColumnDefinition Width="0.92*"/>
                 </Grid.ColumnDefinitions>
-
                 <!-- LEFT COLUMN -->
                 <ScrollViewer x:Name="LeftScrollViewer"
                               Grid.Column="0"
@@ -253,7 +236,6 @@
                               HorizontalScrollBarVisibility="Disabled"
                               Padding="0,0,4,0">
                     <StackPanel>
-
                         <!-- File Transfers Card -->
                         <Border x:Name="CardFileTransfer" Style="{StaticResource GlassPanel}" Margin="0,0,0,18">
                             <Grid>
@@ -261,20 +243,17 @@
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
-
                                 <Grid Grid.Row="0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-
                                     <StackPanel Grid.Column="0">
                                         <TextBlock Text="FILE TRANSFER"
                                                    Style="{StaticResource SectionEyebrowTextStyle}"/>
                                         <TextBlock Text="Send &amp; Receive Files"
                                                    Style="{StaticResource CardTitleTextStyle}"/>
                                     </StackPanel>
-
                                     <StackPanel Grid.Column="1" Orientation="Horizontal">
                                         <Button x:Name="BtnEnqueueFiles"
                                                 Height="32"
@@ -295,7 +274,6 @@
                                                            VerticalAlignment="Center"/>
                                             </StackPanel>
                                         </Button>
-
                                         <Button x:Name="BtnOpenDownloadsFolder"
                                                 Height="32"
                                                 Padding="12,0"
@@ -322,7 +300,6 @@
                                         </Button>
                                     </StackPanel>
                                 </Grid>
-
                                 <Border Grid.Row="1"
                                         Margin="0,14,0,0"
                                         Padding="14,12"
@@ -349,7 +326,6 @@
                                                        FontSize="11"
                                                        Foreground="{StaticResource TextSecondaryBrush}"/>
                                         </Grid>
-
                                         <ProgressBar x:Name="TransferProgressBar"
                                                      Height="6"
                                                      Margin="0,10,0,8"
@@ -359,7 +335,6 @@
                                                      Foreground="{StaticResource SystemAccentBrush}"
                                                      Background="#33FFFFFF"
                                                      BorderThickness="0"/>
-
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -380,7 +355,6 @@
                                                 <TextBlock Text="Cancel" FontSize="10" FontWeight="SemiBold"/>
                                             </Button>
                                         </Grid>
-
                                         <!-- File Explorer Panel -->
                                         <Border Margin="0,12,0,0" Padding="12" CornerRadius="8" Background="#0DFFFFFF" BorderBrush="#22FFFFFF" BorderThickness="1">
                                             <StackPanel>
@@ -394,7 +368,6 @@
                                                     <TextBox x:Name="TxtCurrentExplorerPath" Grid.Column="1" Height="26" Padding="6,2" VerticalContentAlignment="Center" Background="#11FFFFFF" Foreground="#E1E1E1" BorderThickness="1" BorderBrush="#33FFFFFF" IsReadOnly="True"/>
                                                     <Button x:Name="BtnSyncAndroidFs" Grid.Column="2" Content="🔄 Sync Android Files" Height="26" Padding="10,0" Margin="8,0,0,0" Click="BtnSyncAndroidFs_Click" Style="{StaticResource {x:Type Button}}"/>
                                                 </Grid>
-
                                                 <ListView x:Name="LstFileExplorer" Height="140" Background="#0A000000" BorderThickness="1" BorderBrush="#1AFFFFFF" Foreground="#E1E1E1" MouseDoubleClick="LstFileExplorer_MouseDoubleClick">
                                                     <ListView.View>
                                                         <GridView>
@@ -410,7 +383,6 @@
                                 </Border>
                             </Grid>
                         </Border>
-
                         <!-- Connection Pipeline Card -->
                         <Border x:Name="CardPipeline" Style="{StaticResource GlassPanel}">
                             <Grid>
@@ -418,20 +390,17 @@
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
-
                                 <Grid Grid.Row="0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-
                                     <StackPanel Grid.Column="0">
                                         <TextBlock Text="CONNECTION STATUS"
                                                    Style="{StaticResource SectionEyebrowTextStyle}"/>
                                         <TextBlock Text="Phone Connection"
                                                    Style="{StaticResource CardTitleTextStyle}"/>
                                     </StackPanel>
-
                                     <Border Grid.Column="1"
                                             Background="#14FFFFFF"
                                             BorderBrush="{StaticResource GlassSpecularBorderBrush}"
@@ -460,7 +429,6 @@
                                         </StackPanel>
                                     </Border>
                                 </Grid>
-
                                 <Border Grid.Row="1"
                                         Margin="0,16,0,0"
                                         Padding="14,12"
@@ -472,7 +440,6 @@
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-
                                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                             <TextBlock Text="Status"
                                                        FontFamily="{StaticResource MonoFontFamily}"
@@ -490,7 +457,6 @@
                                 </Border>
                             </Grid>
                         </Border>
-
                         <!-- Hardware Layer Card -->
                         <Border x:Name="CardHardware" Style="{StaticResource GlassPanel}">
                             <StackPanel>
@@ -499,7 +465,6 @@
                                 <TextBlock Text="Volume &amp; Brightness"
                                            Style="{StaticResource CardTitleTextStyle}"
                                            Margin="0,0,0,18"/>
-
                                 <!-- Volume -->
                                 <Border Padding="14,12"
                                         CornerRadius="8"
@@ -517,7 +482,6 @@
                                                            Foreground="{StaticResource TextPrimaryBrush}"
                                                            VerticalAlignment="Center"/>
                                             </StackPanel>
-
                                             <Border Style="{StaticResource BadgePillBorderStyle}"
                                                     HorizontalAlignment="Right">
                                                 <TextBlock x:Name="TxtVolumeValue"
@@ -534,7 +498,6 @@
                                                 ValueChanged="SliderVolume_ValueChanged"/>
                                     </StackPanel>
                                 </Border>
-
                                 <!-- Brightness -->
                                 <Border Padding="14,12"
                                         CornerRadius="8"
@@ -551,7 +514,6 @@
                                                            Foreground="{StaticResource TextPrimaryBrush}"
                                                            VerticalAlignment="Center"/>
                                             </StackPanel>
-
                                             <Border Style="{StaticResource BadgePillBorderStyle}"
                                                     HorizontalAlignment="Right">
                                                 <TextBlock x:Name="TxtBrightnessValue"
@@ -570,7 +532,6 @@
                                 </Border>
                             </StackPanel>
                         </Border>
-
                         <!-- Password / Security Vault Card -->
                         <Border x:Name="CardVault" Style="{StaticResource GlassPanel}" Margin="0">
                             <StackPanel>
@@ -591,17 +552,14 @@
                                                    Foreground="{StaticResource TextAccentBrush}"/>
                                     </Border>
                                 </Grid>
-
                                 <TextBlock Text="Store your Windows password securely so Tether can authenticate unlock requests."
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="12.5"
                                            Foreground="{StaticResource TextSecondaryBrush}"
                                            Margin="0,0,0,14"
                                            TextWrapping="Wrap"/>
-
                                 <PasswordBox x:Name="TxtPassword"
                                              Margin="0,0,0,14"/>
-
                                 <Button x:Name="BtnCommitVault"
                                         Style="{StaticResource AccentButton}"
                                         HorizontalAlignment="Stretch"
@@ -618,10 +576,8 @@
                                 </Button>
                             </StackPanel>
                         </Border>
-
                     </StackPanel>
                 </ScrollViewer>
-
                 <!-- RIGHT COLUMN -->
                 <Grid Grid.Column="2">
                     <Grid.RowDefinitions>
@@ -629,7 +585,6 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-
                     <Border Grid.Row="0"
                             Style="{StaticResource GlassPanel}"
                             Padding="20"
@@ -639,7 +594,6 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
-
                             <Grid Grid.Row="0" Margin="0,0,0,14">
                                 <StackPanel>
                                     <TextBlock Text="ACTIVITY LOG"
@@ -647,7 +601,6 @@
                                     <TextBlock Text="Recent Activity"
                                                Style="{StaticResource CardTitleTextStyle}"/>
                                 </StackPanel>
-
                                 <StackPanel Orientation="Horizontal"
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Center">
@@ -688,7 +641,6 @@
                                     </Border>
                                 </StackPanel>
                             </Grid>
-
                             <!-- UI-Virtualized Ring-Buffer Terminal -->
                             <Border Grid.Row="1"
                                     Background="{StaticResource TerminalBackgroundBrush}"
@@ -734,7 +686,6 @@
                             </Border>
                         </Grid>
                     </Border>
-
                     <!-- Action Buttons -->
                     <Grid Grid.Row="1" Margin="0,14,0,0">
                         <Grid.ColumnDefinitions>
@@ -742,7 +693,6 @@
                             <ColumnDefinition Width="12"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-
                         <Button x:Name="BtnRestartService"
                                 Grid.Column="0"
                                 Height="44"
@@ -761,7 +711,6 @@
                                            VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-
                         <Button x:Name="BtnLockdownOverride"
                                 Grid.Column="2"
                                 Height="44"

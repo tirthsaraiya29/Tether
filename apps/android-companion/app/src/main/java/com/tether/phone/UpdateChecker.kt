@@ -1,5 +1,4 @@
 package com.tether.phone
-
 import android.content.Context
 import android.util.Log
 import androidx.core.content.edit
@@ -8,27 +7,22 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
-
 data class UpdateInfo(
     val latestVersion: String,
     val releaseUrl: String,
     val releaseNotes: String,
     val apkDownloadUrl: String?,
 )
-
 object UpdateChecker {
-
     private const val TAG = "UpdateChecker"
     private const val OWNER = "tirthsaraiya29"
     private const val REPO = "Tether"
     private const val LATEST_RELEASE_API = "https://api.github.com/repos/$OWNER/$REPO/releases/latest"
-
     private const val PREFS_NAME = "tether_update_prefs"
     private const val KEY_CACHED_VERSION = "cached_latest_version"
     private const val KEY_CACHED_RELEASE_URL = "cached_release_url"
     private const val KEY_CACHED_RELEASE_NOTES = "cached_release_notes"
     private const val KEY_CACHED_APK_URL = "cached_apk_url"
-
     suspend fun fetchLatestRelease(): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
             // nosemgrep: kotlin.lang.security.android.missing-certificate-pinning, java.android.security.certificate-pinning
@@ -39,19 +33,15 @@ object UpdateChecker {
                 connectTimeout = 10_000
                 readTimeout = 10_000
             }
-
             if (conn.responseCode != HttpsURLConnection.HTTP_OK) {
                 Log.w(TAG, "GitHub API returned ${conn.responseCode}")
                 return@withContext null
             }
-
             val body = conn.inputStream.bufferedReader().use { it.readText() }
             val json = JSONObject(body)
-
             val tagName = json.optString("tag_name", "").trimStart('v', 'V')
             val htmlUrl = json.optString("html_url", "")
             val bodyText = json.optString("body", "")
-
             // Find the first .apk asset
             val assets = json.optJSONArray("assets")
             var apkUrl: String? = null
@@ -65,7 +55,6 @@ object UpdateChecker {
                     }
                 }
             }
-
             UpdateInfo(
                 latestVersion = tagName,
                 releaseUrl = htmlUrl,
@@ -77,7 +66,6 @@ object UpdateChecker {
             null
         }
     }
-
     /**
      * Compares dotted version strings (e.g. "2.0.1" vs "2.1.0").
      * Returns true when [remote] is strictly newer than [local].
@@ -96,7 +84,6 @@ object UpdateChecker {
         }
         return false
     }
-
     fun cacheUpdateInfo(context: Context, info: UpdateInfo) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit {
@@ -106,7 +93,6 @@ object UpdateChecker {
             putString(KEY_CACHED_APK_URL, info.apkDownloadUrl)
         }
     }
-
     fun getCachedUpdateInfo(context: Context): UpdateInfo? {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val version = prefs.getString(KEY_CACHED_VERSION, null) ?: return null

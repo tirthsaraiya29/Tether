@@ -1,15 +1,12 @@
 package com.tether.phone
-
 import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
 import com.tether.phone.ui.theme.*
-
 enum class TrustVerificationStep {
     NOT_IN_PANIC,
     DEVICE_CREDENTIAL,
     BIOMETRIC_FINGERPRINT
 }
-
 enum class TrustState {
     UNPAIRED,
     PAIRING_REQUESTED,
@@ -18,7 +15,6 @@ enum class TrustState {
     PAIRING_DENIED,
     KEY_MISMATCH
 }
-
 enum class AppScreen {
     TELEMETRY_DASHBOARD,
     FILE_TRANSFER,
@@ -29,13 +25,11 @@ enum class AppScreen {
     REMOTE_INPUT,
     PERMISSIONS
 }
-
 enum class TrustTier(@param:StringRes val labelRes: Int, val color: Color) {
     TRUSTED(R.string.tier_trusted, IntegrityGreen),
     ELEVATED_RISK(R.string.tier_elevated_risk, MatrixGold),
     RESTRICTED(R.string.tier_restricted, AlertRed)
 }
-
 data class IntegrityReport(
     val score: Int,
     val tier: TrustTier,

@@ -1,7 +1,5 @@
-// common.h
 #pragma once
 #include "helpers.h"
-
 enum SAMPLE_FIELD_ID
 {
     SFI_TILEIMAGE = 0,
@@ -14,25 +12,22 @@ enum SAMPLE_FIELD_ID
     SFI_LOGONSTATUS_TEXT = 7,
     SFI_NUM_FIELDS = 8
 };
-
 struct FIELD_STATE_PAIR
 {
     CREDENTIAL_PROVIDER_FIELD_STATE cpfs;
     CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE cpfis;
 };
-
 static const FIELD_STATE_PAIR s_rgFieldStatePairs[] =
 {
-    { CPFS_DISPLAY_IN_BOTH,          CPFIS_NONE }, // SFI_TILEIMAGE
-    { CPFS_DISPLAY_IN_BOTH,          CPFIS_NONE }, // SFI_LABEL
-    { CPFS_DISPLAY_IN_BOTH,          CPFIS_NONE }, // SFI_LARGE_TEXT
-    { CPFS_DISPLAY_IN_SELECTED_TILE, CPFIS_NONE }, // SFI_METHOD_LABEL   <- now an instruction line
-    { CPFS_HIDDEN,                   CPFIS_NONE }, // SFI_METHOD_COMBOBOX (removed)
-    { CPFS_HIDDEN,                   CPFIS_NONE }, // SFI_PASSWORD        (removed)
-    { CPFS_DISPLAY_IN_SELECTED_TILE, CPFIS_NONE }, // SFI_SUBMIT_BUTTON
-    { CPFS_DISPLAY_IN_SELECTED_TILE, CPFIS_NONE }, // SFI_LOGONSTATUS_TEXT
+    { CPFS_DISPLAY_IN_BOTH,          CPFIS_NONE },
+    { CPFS_DISPLAY_IN_BOTH,          CPFIS_NONE },
+    { CPFS_DISPLAY_IN_BOTH,          CPFIS_NONE },
+    { CPFS_DISPLAY_IN_SELECTED_TILE, CPFIS_NONE },
+    { CPFS_HIDDEN,                   CPFIS_NONE },
+    { CPFS_HIDDEN,                   CPFIS_NONE },
+    { CPFS_DISPLAY_IN_SELECTED_TILE, CPFIS_NONE },
+    { CPFS_DISPLAY_IN_SELECTED_TILE, CPFIS_NONE },
 };
-
 static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgCredProvFieldDescriptors[] =
 {
     { SFI_TILEIMAGE,        CPFT_TILE_IMAGE,    const_cast<PWSTR>(L"Logo") },
@@ -44,7 +39,6 @@ static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgCredProvFieldDescriptors[]
     { SFI_SUBMIT_BUTTON,    CPFT_SUBMIT_BUTTON, const_cast<PWSTR>(L"Unlock") },
     { SFI_LOGONSTATUS_TEXT, CPFT_SMALL_TEXT,    const_cast<PWSTR>(L"Status Context") },
 };
-
 static const PWSTR s_rgUnlockMethodStrings[] =
 {
     const_cast<PWSTR>(L"Unlock via Phone App"),

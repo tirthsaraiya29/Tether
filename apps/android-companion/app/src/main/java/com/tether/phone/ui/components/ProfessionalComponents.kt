@@ -1,5 +1,4 @@
 package com.tether.phone.ui.components
-
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
@@ -92,7 +91,6 @@ import com.tether.phone.ui.theme.TetherEase
 import com.tether.phone.ui.theme.TextMuted
 import com.tether.phone.ui.theme.TextPrimary
 import com.tether.phone.ui.theme.TextSecondary
-
 @Composable
 fun ProfessionalGlassSurface(
     modifier: Modifier = Modifier,
@@ -120,7 +118,6 @@ fun ProfessionalGlassSurface(
         ),
         label = "TiltY",
     )
-
     Box(
         modifier = modifier
             .graphicsLayer {
@@ -201,7 +198,6 @@ fun ProfessionalGlassSurface(
                         ),
                         style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
                     )
-
                     drawArc(
                         color = Color.White.copy(alpha = 0.08f),
                         startAngle = 0f,
@@ -211,7 +207,6 @@ fun ProfessionalGlassSurface(
                         size = size.copy(width = size.width - 16.dp.toPx(), height = size.height - 16.dp.toPx()),
                         style = Stroke(width = 0.5.dp.toPx()),
                     )
-
                     val noiseStep = 3f
                     for (x in 0 until size.width.toInt() step (noiseStep.toInt() * 4)) {
                         for (y in 0 until size.height.toInt() step (noiseStep.toInt() * 4)) {
@@ -232,7 +227,6 @@ fun ProfessionalGlassSurface(
         )
     }
 }
-
 @Composable
 fun LiquidGlassVolumeControl(
     volumeLevel: Int,
@@ -245,13 +239,11 @@ fun LiquidGlassVolumeControl(
 ) {
     var isDragging by remember { mutableStateOf(false) }
     var localVolume by remember(volumeLevel) { mutableIntStateOf(volumeLevel) }
-
     LaunchedEffect(volumeLevel) {
         if (!isDragging) {
             localVolume = volumeLevel
         }
     }
-
     ProfessionalGlassSurface(
         tint = LiquidCyan,
         alpha = 0.15f,
@@ -277,7 +269,6 @@ fun LiquidGlassVolumeControl(
                         fontWeight = FontWeight.Bold,
                     )
                 }
-
                 Box(
                     modifier = Modifier
                         .size(48.dp)
@@ -297,9 +288,7 @@ fun LiquidGlassVolumeControl(
                     )
                 }
             }
-
             Spacer(modifier = Modifier.height(16.dp))
-
             Slider(
                 value = localVolume.toFloat(),
                 onValueChange = { newValue ->
@@ -319,9 +308,7 @@ fun LiquidGlassVolumeControl(
                 ),
                 modifier = Modifier.fillMaxWidth()
             )
-
             Spacer(modifier = Modifier.height(12.dp))
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -352,7 +339,6 @@ fun LiquidGlassVolumeControl(
         }
     }
 }
-
 @Composable
 fun LiquidGlassBrightnessControl(
     brightnessLevel: Int,
@@ -363,13 +349,11 @@ fun LiquidGlassBrightnessControl(
 ) {
     var isDragging by remember { mutableStateOf(false) }
     var localBrightness by remember(brightnessLevel) { mutableIntStateOf(brightnessLevel) }
-
     LaunchedEffect(brightnessLevel) {
         if (!isDragging) {
             localBrightness = brightnessLevel
         }
     }
-
     ProfessionalGlassSurface(
         tint = LiquidCyan,
         alpha = 0.15f,
@@ -395,7 +379,6 @@ fun LiquidGlassBrightnessControl(
                         fontWeight = FontWeight.Bold,
                     )
                 }
-
                 Box(
                     modifier = Modifier
                         .size(48.dp)
@@ -414,9 +397,7 @@ fun LiquidGlassBrightnessControl(
                     )
                 }
             }
-
             Spacer(modifier = Modifier.height(16.dp))
-
             Slider(
                 value = localBrightness.toFloat(),
                 onValueChange = { newValue ->
@@ -436,9 +417,7 @@ fun LiquidGlassBrightnessControl(
                 ),
                 modifier = Modifier.fillMaxWidth()
             )
-
             Spacer(modifier = Modifier.height(12.dp))
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -469,7 +448,6 @@ fun LiquidGlassBrightnessControl(
         }
     }
 }
-
 @Composable
 fun LiquidGlassAppLauncher(
     onLaunchApp: (String) -> Unit,
@@ -482,7 +460,6 @@ fun LiquidGlassAppLauncher(
         Triple("Settings", "⚙️", "launch_settings"),
         Triple("Lock PC", "🔒", "lock_now"),
     )
-
     ProfessionalGlassSurface(
         tint = TextPrimary,
         alpha = 0.12f,
@@ -496,7 +473,6 @@ fun LiquidGlassAppLauncher(
                 letterSpacing = 2.sp,
             )
             Spacer(modifier = Modifier.height(16.dp))
-
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 apps.chunked(2).forEach { rowApps ->
                     Row(
@@ -544,7 +520,6 @@ fun LiquidGlassAppLauncher(
         }
     }
 }
-
 @Composable
 fun TacticalAction(
     label: String,
@@ -557,11 +532,9 @@ fun TacticalAction(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val haptic = LocalHapticFeedback.current
-
     LaunchedEffect(isPressed) {
         if (isPressed) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
     }
-
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.94f else 1f,
         animationSpec = spring(dampingRatio = 0.5f, stiffness = 500f),
@@ -577,7 +550,6 @@ fun TacticalAction(
         animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
         label = "Tilt",
     )
-
     Box(
         modifier = modifier
             .graphicsLayer {
@@ -650,7 +622,6 @@ fun TacticalAction(
         }
     }
 }
-
 @Composable
 fun CyberConfirmationDialog(
     title: String,
@@ -705,7 +676,6 @@ fun CyberConfirmationDialog(
         },
     )
 }
-
 @Composable
 fun LinkServiceDialog(
     onRestartService: () -> Unit,
@@ -752,7 +722,6 @@ fun LinkServiceDialog(
                     color = TextSecondary,
                     style = MaterialTheme.typography.bodyMedium,
                 )
-
                 Surface(
                     color = DeepSpace.copy(alpha = 0.6f),
                     shape = RoundedCornerShape(16.dp),
@@ -792,7 +761,6 @@ fun LinkServiceDialog(
                                 )
                             }
                         }
-
                         OutlinedButton(
                             onClick = {
                                 onConfigureHost()
@@ -835,7 +803,6 @@ fun LinkServiceDialog(
         },
     )
 }
-
 @Composable
 fun CompromisedEnvironmentOverlay(score: Int) {
     Box(
@@ -867,7 +834,6 @@ fun CompromisedEnvironmentOverlay(score: Int) {
         }
     }
 }
-
 @Composable
 fun CommandConfirmationDialog(
     command: String,
@@ -909,9 +875,7 @@ fun CommandConfirmationDialog(
                         )
                     }
                 }
-
                 Spacer(modifier = Modifier.height(32.dp))
-
                 Text(
                     text = if (isConfirmed) "Handshake Verified" else "Transmitting Cryptographic Token...",
                     style = MaterialTheme.typography.titleLarge,
@@ -919,9 +883,7 @@ fun CommandConfirmationDialog(
                     textAlign = TextAlign.Center,
                     fontWeight = FontWeight.ExtraBold,
                 )
-
                 Spacer(modifier = Modifier.height(18.dp))
-
                 val displayName = command.uppercase().replace("_", " ")
                 Text(
                     text = if (isConfirmed)
@@ -932,9 +894,7 @@ fun CommandConfirmationDialog(
                     color = TextSecondary,
                     textAlign = TextAlign.Center,
                 )
-
                 Spacer(modifier = Modifier.height(40.dp))
-
                 TacticalAction(
                     label = "Dismiss",
                     accentColor = TextSecondary,
@@ -944,12 +904,10 @@ fun CommandConfirmationDialog(
         }
     }
 }
-
 @Composable
 fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
     var visible by remember { mutableStateOf(value = false) }
     LaunchedEffect(Unit) { visible = true }
-
     val infiniteTransition = rememberInfiniteTransition(label = "LockPulse")
     val pulse by infiniteTransition.animateFloat(
         initialValue = 0.8f,
@@ -960,7 +918,6 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
         ),
         label = "Pulse",
     )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -979,7 +936,6 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                     }
                 },
         )
-
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 1000)) +
@@ -1014,7 +970,6 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                     color = TextMuted,
                     style = MaterialTheme.typography.labelMedium,
                 )
-
                 val scanLinePos by infiniteTransition.animateFloat(
                     initialValue = 0f,
                     targetValue = 1f,
@@ -1024,7 +979,6 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
                     ),
                     label = "Scan",
                 )
-
                 Canvas(
                     modifier = Modifier
                         .padding(top = 40.dp)

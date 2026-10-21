@@ -1,5 +1,4 @@
 package com.tether.phone.ui.screens
-
 import android.net.Uri
 import android.os.Environment
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -68,7 +67,6 @@ import com.tether.phone.TetherFileTransferManager
 import com.tether.phone.TransferProgress
 import java.io.File
 import java.util.Locale
-
 @Composable
 fun FileTransferScreen(
     fileTransferManager: TetherFileTransferManager?,
@@ -77,15 +75,12 @@ fun FileTransferScreen(
 ) {
     val transferList by fileTransferManager?.transferListFlow?.collectAsState(initial = emptyList())
         ?: remember { mutableStateOf(emptyList()) }
-
     var selectedTabIndex by remember { mutableIntStateOf(0) }
-
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri: Uri? ->
         uri?.let { onSendFileSelected(it) }
     }
-
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -126,9 +121,7 @@ fun FileTransferScreen(
                         )
                     }
                 }
-
                 Spacer(modifier = Modifier.height(12.dp))
-
                 Button(
                     onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
                     modifier = Modifier.fillMaxWidth(),
@@ -144,9 +137,7 @@ fun FileTransferScreen(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(16.dp))
-
         // Tab Row
         TabRow(
             selectedTabIndex = selectedTabIndex,
@@ -165,9 +156,7 @@ fun FileTransferScreen(
                 icon = { Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp)) },
             )
         }
-
         Spacer(modifier = Modifier.height(12.dp))
-
         when (selectedTabIndex) {
             0 -> com.tether.phone.ui.DesktopFilePicker()
             1 -> TransferQueueView(
@@ -178,7 +167,6 @@ fun FileTransferScreen(
         }
     }
 }
-
 @Composable
 fun TransferQueueView(
     transferList: List<TransferProgress>,
@@ -197,7 +185,6 @@ fun TransferQueueView(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-
             if (transferList.isNotEmpty()) {
                 OutlinedButton(
                     onClick = onClearClick,
@@ -209,9 +196,7 @@ fun TransferQueueView(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(8.dp))
-
         if (transferList.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -249,7 +234,6 @@ fun TransferQueueView(
         }
     }
 }
-
 @Composable
 fun TransferItemCard(
     item: TransferProgress,
@@ -293,7 +277,6 @@ fun TransferItemCard(
                         )
                     }
                 }
-
                 if (item.state == FileTransferState.TRANSFERRING || item.state == FileTransferState.VERIFYING) {
                     IconButton(onClick = onCancelClick) {
                         Icon(
@@ -304,7 +287,6 @@ fun TransferItemCard(
                     }
                 }
             }
-
             if (item.state == FileTransferState.TRANSFERRING || item.state == FileTransferState.VERIFYING) {
                 Spacer(modifier = Modifier.height(8.dp))
                 LinearProgressIndicator(
@@ -329,7 +311,6 @@ fun TransferItemCard(
                     )
                 }
             }
-
             if (item.state == FileTransferState.FAILED && !item.errorMessage.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
@@ -341,7 +322,6 @@ fun TransferItemCard(
         }
     }
 }
-
 @Composable
 fun StateBadgeIcon(state: FileTransferState) {
     val (icon, color) = when (state) {
@@ -351,7 +331,6 @@ fun StateBadgeIcon(state: FileTransferState) {
         FileTransferState.TRANSFERRING, FileTransferState.VERIFYING -> Icons.Default.Speed to Color(0xFF2196F3)
         else -> Icons.Default.FolderOpen to Color.Gray
     }
-
     Box(
         modifier = Modifier
             .size(32.dp)
@@ -367,7 +346,6 @@ fun StateBadgeIcon(state: FileTransferState) {
         )
     }
 }
-
 private fun formatFileSize(bytes: Long): String {
     if (bytes <= 0) return "0 B"
     val units = arrayOf("B", "KB", "MB", "GB", "TB")

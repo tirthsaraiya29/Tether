@@ -1,5 +1,4 @@
 package com.tether.phone
-
 enum class LaptopPowerState {
     UNKNOWN,
     CONNECTED_UNLOCKED,
@@ -9,7 +8,6 @@ enum class LaptopPowerState {
     SHUTTING_DOWN,
     POWERED_OFF,
 }
-
 data class LaptopTelemetry(
     val powerState: LaptopPowerState = LaptopPowerState.UNKNOWN,
     val batteryPercent: Int = -1,

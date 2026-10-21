@@ -1,5 +1,4 @@
 package com.tether.phone
-
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -20,9 +19,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.security.auth.x500.X500Principal
-
 class ProductionSecurityEngine {
-
     companion object {
         private const val TAG = "ProductionSecurityEngine"
         private const val EC_IDENTITY_ALIAS = "TetherIdentityKey_v1"
@@ -30,20 +27,15 @@ class ProductionSecurityEngine {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val PREFS_NAME = "tether_secure_prefs"
         private const val PINNED_WINDOWS_KEY_PREF = "pinned_windows_public_key_enc"
-
         private const val GCM_IV_LENGTH_BYTES = 12
         private const val GCM_TAG_LENGTH_BITS = 128
-
         private val secureRandom = SecureRandom()
-
         @Volatile
         private var cachedPublicKeyBytes: ByteArray? = null
     }
-
     private val keyStore: KeyStore by lazy {
         KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
     }
-
     @Synchronized
     private fun ensureIdentityKeyPairExists() {
         if (!keyStore.containsAlias(EC_IDENTITY_ALIAS)) {
@@ -52,7 +44,6 @@ class ProductionSecurityEngine {
                 KeyProperties.KEY_ALGORITHM_EC,
                 ANDROID_KEYSTORE,
             )
-
             val parameterSpec = KeyGenParameterSpec.Builder(
                 EC_IDENTITY_ALIAS,
                 KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
@@ -61,13 +52,11 @@ class ProductionSecurityEngine {
                 .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
                 .setKeySize(256)
                 .build()
-
             kpg.initialize(parameterSpec)
             kpg.generateKeyPair()
             Log.i(TAG, "EC identity key pair successfully created.")
         }
     }
-
     @Synchronized
     private fun ensureStorageKeyExists() {
         if (!keyStore.containsAlias(STORAGE_KEY_ALIAS)) {
@@ -84,37 +73,30 @@ class ProductionSecurityEngine {
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)
                 .build()
-
             keyGenerator.init(parameterSpec)
             keyGenerator.generateKey()
         }
     }
-
     private fun newRandomGcmIv(): ByteArray {
         val iv = ByteArray(GCM_IV_LENGTH_BYTES)
         secureRandom.nextBytes(iv)
         return iv
     }
-
     // nosemgrep: kotlin.lang.security.gcm-detection.gcm-detection, kotlin.lang.security.ecb-cipher.ecb-cipher
     private fun newGcmCipher(): Cipher =
         Cipher.getInstance("AES/GCM/NoPadding")
-
     private fun loadStorageKey(): SecretKey {
         ensureStorageKeyExists()
         return keyStore.getKey(STORAGE_KEY_ALIAS, null) as SecretKey
     }
-
     fun getIdentityPrivateKey(): PrivateKey {
         ensureIdentityKeyPairExists()
         return keyStore.getKey(EC_IDENTITY_ALIAS, null) as PrivateKey
     }
-
     fun createCryptoObjectForAuthentication(): BiometricPrompt.CryptoObject? {
         return try {
             val secretKey = loadStorageKey()
             val iv = newRandomGcmIv()
-
             val cipher = newGcmCipher()
             val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
             cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
@@ -124,7 +106,6 @@ class ProductionSecurityEngine {
             null
         }
     }
-
     fun signWithIdentityKey(data: ByteArray): ByteArray {
         val privateKey = getIdentityPrivateKey()
         val signature = Signature.getInstance("SHA256withECDSA")
@@ -132,37 +113,30 @@ class ProductionSecurityEngine {
         signature.update(data)
         return signature.sign()
     }
-
     fun getIdentityCertificate(): X509Certificate {
         ensureIdentityKeyPairExists()
         val cert = keyStore.getCertificate(EC_IDENTITY_ALIAS)
         return (cert as? X509Certificate)
             ?: throw IllegalStateException("Failed to load X509Certificate for alias $EC_IDENTITY_ALIAS")
     }
-
     fun getIdentityPublicKeyBytes(): ByteArray {
         cachedPublicKeyBytes?.let { return it }
         val bytes = getIdentityCertificate().publicKey.encoded
         cachedPublicKeyBytes = bytes
         return bytes
     }
-
     private fun encryptBytes(data: ByteArray): String {
         val secretKey = loadStorageKey()
         val iv = newRandomGcmIv()
-
         val cipher = newGcmCipher()
         val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
         cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
         val encryptedBytes = cipher.doFinal(data)
-
         val combined = ByteArray(iv.size + encryptedBytes.size)
         System.arraycopy(iv, 0, combined, 0, iv.size)
         System.arraycopy(encryptedBytes, 0, combined, iv.size, encryptedBytes.size)
-
         return Base64.encodeToString(combined, Base64.NO_WRAP)
     }
-
     private fun decryptString(encodedStr: String?): ByteArray? {
         if (encodedStr.isNullOrBlank()) return null
         return try {
@@ -170,9 +144,7 @@ class ProductionSecurityEngine {
             if (combined.size <= GCM_IV_LENGTH_BYTES) return null
             val iv = combined.copyOfRange(0, GCM_IV_LENGTH_BYTES)
             val ciphertext = combined.copyOfRange(GCM_IV_LENGTH_BYTES, combined.size)
-
             val secretKey = loadStorageKey()
-
             val cipher = newGcmCipher()
             val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
             cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
@@ -182,7 +154,6 @@ class ProductionSecurityEngine {
             null
         }
     }
-
     fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray) {
         try {
             val encodedStr = encryptBytes(publicKeyBytes)
@@ -193,13 +164,11 @@ class ProductionSecurityEngine {
             Log.e(TAG, "Failed to store pinned key securely: ${e.message}", e)
         }
     }
-
     fun getPinnedKeyDecrypted(context: Context): ByteArray? {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val encodedStr = prefs.getString(PINNED_WINDOWS_KEY_PREF, null)
         return decryptString(encodedStr)
     }
-
     fun clearPinnedKey(context: Context) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -211,7 +180,6 @@ class ProductionSecurityEngine {
             Log.e(TAG, "Failed to clear pinned keys: ${e.message}", e)
         }
     }
-
     fun computePublicKeyFingerprint(publicKeyBytes: ByteArray?): String {
         if ((publicKeyBytes == null) || publicKeyBytes.isEmpty()) return "NONE"
         return try {
@@ -222,7 +190,6 @@ class ProductionSecurityEngine {
             "INVALID"
         }
     }
-
     fun getPublicKeyBytes(): ByteArray {
         return getIdentityPublicKeyBytes()
     }

@@ -1,22 +1,17 @@
 package com.tether.phone
-
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-
 object TetherNotificationChannels {
     const val CHANNEL_LAN_SERVICE = "tether_lan_channel"
     const val CHANNEL_UNLOCK_PROMPT = "tether_unlock_prompt"
     const val CHANNEL_POWER_EVENTS = "tether_power_events"
     const val CHANNEL_PAIRING_PROMPT = "tether_pairing_prompt"
     const val CHANNEL_UPDATES = "tether_updates"
-
     fun createAllChannels(context: Context) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
         val channelsToCreate = mutableListOf<NotificationChannel>()
-
         if (notificationManager.getNotificationChannel(CHANNEL_LAN_SERVICE) == null) {
             channelsToCreate.add(
                 NotificationChannel(
@@ -29,7 +24,6 @@ object TetherNotificationChannels {
                 }
             )
         }
-
         if (notificationManager.getNotificationChannel(CHANNEL_UNLOCK_PROMPT) == null) {
             channelsToCreate.add(
                 NotificationChannel(
@@ -45,7 +39,6 @@ object TetherNotificationChannels {
                 }
             )
         }
-
         if (notificationManager.getNotificationChannel(CHANNEL_POWER_EVENTS) == null) {
             channelsToCreate.add(
                 NotificationChannel(
@@ -59,7 +52,6 @@ object TetherNotificationChannels {
                 }
             )
         }
-
         if (notificationManager.getNotificationChannel(CHANNEL_PAIRING_PROMPT) == null) {
             channelsToCreate.add(
                 NotificationChannel(
@@ -75,7 +67,6 @@ object TetherNotificationChannels {
                 }
             )
         }
-
         if (notificationManager.getNotificationChannel(CHANNEL_UPDATES) == null) {
             channelsToCreate.add(
                 NotificationChannel(
@@ -88,7 +79,6 @@ object TetherNotificationChannels {
                 }
             )
         }
-
         if (channelsToCreate.isNotEmpty()) {
             notificationManager.createNotificationChannels(channelsToCreate)
         }

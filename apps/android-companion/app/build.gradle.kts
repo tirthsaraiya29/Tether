@@ -2,21 +2,17 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
-
 android {
     namespace = "com.tether.phone"
     compileSdk = 37
-
     defaultConfig {
         applicationId = "com.tether.phone"
         minSdk = 27
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -39,7 +35,6 @@ android {
         unitTests.isReturnDefaultValues = true
     }
 }
-
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation("com.google.zxing:core:3.5.3")

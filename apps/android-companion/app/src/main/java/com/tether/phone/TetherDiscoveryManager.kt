@@ -1,5 +1,4 @@
 package com.tether.phone
-
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
@@ -18,7 +17,6 @@ import java.net.SocketTimeoutException
 import java.nio.charset.StandardCharsets
 import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
-
 data class DiscoveredDevice(
     val deviceId: String,
     val name: String,
@@ -30,13 +28,11 @@ data class DiscoveredDevice(
     val pqcSupported: Boolean = false,
     val lastSeenTimestamp: Long = System.currentTimeMillis(),
 )
-
 interface TetherDiscoveryListener {
     fun onDeviceDiscovered(device: DiscoveredDevice)
     fun onDeviceLost(deviceId: String)
     fun onDiscoveryError(errorCode: Int, message: String)
 }
-
 fun isPrivateAddress(address: InetAddress): Boolean {
     if (address.isLoopbackAddress || address.isSiteLocalAddress || address.isLinkLocalAddress) {
         return true
@@ -53,22 +49,18 @@ fun isPrivateAddress(address: InetAddress): Boolean {
     }
     return false
 }
-
 class NsdResolveQueue(
     private val context: Context,
     private val nsdManager: NsdManager,
 ) {
     private val lock = Any()
-
     private data class PendingResolve(
         val serviceInfo: NsdServiceInfo,
         val onResolved: (NsdServiceInfo) -> Unit,
         val onError: (NsdServiceInfo?, Int) -> Unit,
     )
-
     private val queue = ArrayDeque<PendingResolve>()
     private var isResolving = false
-
     fun resolveOrEnqueue(
         serviceInfo: NsdServiceInfo,
         onResolved: (NsdServiceInfo) -> Unit,
@@ -86,14 +78,12 @@ class NsdResolveQueue(
             }
         }
     }
-
     fun clear() {
         synchronized(lock) {
             queue.clear()
             isResolving = false
         }
     }
-
     private fun processNextLocked() {
         if (queue.isEmpty()) {
             isResolving = false
@@ -101,7 +91,6 @@ class NsdResolveQueue(
         }
         isResolving = true
         val item = queue.first()
-
         val resolveListener = object : NsdManager.ResolveListener {
             override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
                 try {
@@ -110,7 +99,6 @@ class NsdResolveQueue(
                     onComplete()
                 }
             }
-
             override fun onServiceResolved(resolvedInfo: NsdServiceInfo?) {
                 try {
                     resolvedInfo?.let { item.onResolved(it) }
@@ -118,7 +106,6 @@ class NsdResolveQueue(
                     onComplete()
                 }
             }
-
             private fun onComplete() {
                 synchronized(lock) {
                     if (queue.isNotEmpty()) {
@@ -128,7 +115,6 @@ class NsdResolveQueue(
                 }
             }
         }
-
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 val executor = androidx.core.content.ContextCompat.getMainExecutor(context)
@@ -136,16 +122,13 @@ class NsdResolveQueue(
                     override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
                         resolveListener.onResolveFailed(item.serviceInfo, errorCode)
                     }
-
                     override fun onServiceUpdated(serviceInfo: NsdServiceInfo) {
                         resolveListener.onServiceResolved(serviceInfo)
                         try {
                             nsdManager.unregisterServiceInfoCallback(this)
                         } catch (_: Exception) {}
                     }
-
                     override fun onServiceLost() {}
-
                     override fun onServiceInfoCallbackUnregistered() {}
                 }
                 nsdManager.registerServiceInfoCallback(item.serviceInfo, executor, callback)
@@ -167,12 +150,10 @@ class NsdResolveQueue(
         }
     }
 }
-
 class TetherDiscoveryManager(
     context: Context,
     private val securityEngine: ProductionSecurityEngine,
 ) {
-
     companion object {
         private const val TAG = "TetherDiscoveryManager"
         const val SERVICE_TYPE = "_tether._tcp"
@@ -180,46 +161,35 @@ class TetherDiscoveryManager(
         const val UDP_DISCOVERY_PORT = 37124
         private const val MULTICAST_LOCK_TAG = "TetherMdnsMulticastLock"
     }
-
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
     private val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
     private val multicastLock: WifiManager.MulticastLock = wifiManager.createMulticastLock(MULTICAST_LOCK_TAG).apply {
         setReferenceCounted(false)
     }
-
     private val nsdResolveQueue = NsdResolveQueue(context, nsdManager)
     private val mainHandler = Handler(Looper.getMainLooper())
-
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     private var registrationListener: NsdManager.RegistrationListener? = null
-
     private var udpSocket: DatagramSocket? = null
     private var udpWorkerThread: Thread? = null
-
     private val discoveredDevices = ConcurrentHashMap<String, DiscoveredDevice>()
     private var externalListener: TetherDiscoveryListener? = null
-
     @Volatile
     var isSearching = false
         private set
-
     @Volatile
     var isAdvertising = false
         private set
-
     fun setDiscoveryListener(listener: TetherDiscoveryListener?) {
         this.externalListener = listener
     }
-
     @Synchronized
     fun startDiscovery() {
         stopDiscovery()
         discoveredDevices.clear()
         Log.i(TAG, "Starting mDNS & UDP Broadcast discovery for service type $SERVICE_TYPE / UDP $UDP_DISCOVERY_PORT")
-
         acquireMulticastLock()
         startUdpBroadcastDiscovery()
-
         val listener = object : NsdManager.DiscoveryListener {
             override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {
                 Log.e(TAG, "mDNS Discovery start failed: errorCode=$errorCode")
@@ -227,35 +197,29 @@ class TetherDiscoveryManager(
                 releaseMulticastLock()
                 discoveryListener = null
             }
-
             override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {
                 Log.e(TAG, "mDNS Discovery stop failed: errorCode=$errorCode")
                 isSearching = false
                 releaseMulticastLock()
                 discoveryListener = null
             }
-
             override fun onDiscoveryStarted(serviceType: String?) {
                 Log.i(TAG, "mDNS discovery started successfully for $serviceType")
                 isSearching = true
             }
-
             override fun onDiscoveryStopped(serviceType: String?) {
                 Log.i(TAG, "mDNS discovery stopped")
                 isSearching = false
                 releaseMulticastLock()
                 discoveryListener = null
             }
-
             override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
                 if (serviceInfo == null) return
                 Log.d(TAG, "Service found: ${serviceInfo.serviceName}, type=${serviceInfo.serviceType}")
-
                 if (serviceInfo.serviceType.contains("_tether")) {
                     resolveService(serviceInfo)
                 }
             }
-
             override fun onServiceLost(serviceInfo: NsdServiceInfo?) {
                 if (serviceInfo == null) return
                 Log.i(TAG, "Service lost: ${serviceInfo.serviceName}")
@@ -266,7 +230,6 @@ class TetherDiscoveryManager(
                 mainHandler.post { externalListener?.onDeviceLost(deviceId) }
             }
         }
-
         this.discoveryListener = listener
         try {
             nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener)
@@ -277,13 +240,11 @@ class TetherDiscoveryManager(
             discoveryListener = null
         }
     }
-
     private fun startUdpBroadcastDiscovery() {
         isSearching = true
         val phonePublicKey = securityEngine.getPublicKeyBytes()
         val phoneId = securityEngine.computePublicKeyFingerprint(phonePublicKey)
         val deviceName = "Tether-Android-${Build.MODEL}"
-
         val probeJson = JSONObject().apply {
             put("type", "TETHER_DISCOVERY_PROBE")
             put("deviceId", phoneId)
@@ -291,7 +252,6 @@ class TetherDiscoveryManager(
             put("tcpPort", DEFAULT_PORT)
         }
         val probeBytes = probeJson.toString().toByteArray(StandardCharsets.UTF_8)
-
         udpWorkerThread = Thread {
             val socket = try {
                 DatagramSocket(null).apply {
@@ -313,12 +273,10 @@ class TetherDiscoveryManager(
                 }
             }
             udpSocket = socket
-
             val broadcastAddrs = mutableListOf<InetAddress>()
             try {
                 broadcastAddrs.add(InetAddress.getByName("255.255.255.255"))
             } catch (_: Exception) {}
-
             val probeThread = Thread {
                 while (isSearching && !Thread.currentThread().isInterrupted) {
                     try {
@@ -330,34 +288,26 @@ class TetherDiscoveryManager(
                     try { Thread.sleep(2000) } catch (_: InterruptedException) { break }
                 }
             }.apply { start() }
-
             val buffer = ByteArray(2048)
-
             while (isSearching && !Thread.currentThread().isInterrupted) {
                 try {
                     val recvPacket = DatagramPacket(buffer, buffer.size)
                     socket.receive(recvPacket)
-
                     val responseStr = String(recvPacket.data, 0, recvPacket.length, StandardCharsets.UTF_8)
                     val json = JSONObject(responseStr)
                     val type = json.optString("type", "")
-
                     if (type == "TETHER_DISCOVERY_RESPONSE") {
                         val hostAddr = recvPacket.address.hostAddress ?: continue
                         val devId = json.optString("deviceId", hostAddr)
-
                         if (devId == phoneId) continue
-
                         val devName = json.optString("deviceName", "Tether Windows PC")
                         val tcpPort = json.optInt("tcpPort", DEFAULT_PORT)
-
                         val device = DiscoveredDevice(
                             deviceId = devId,
                             name = devName,
                             hostAddress = hostAddr,
                             port = tcpPort,
                         )
-
                         Log.i(TAG, "UDP Broadcast Discovered Tether device: $device")
                         discoveredDevices[devId] = device
                         mainHandler.post { externalListener?.onDeviceDiscovered(device) }
@@ -369,11 +319,9 @@ class TetherDiscoveryManager(
                     Log.d(TAG, "UDP receive exception: ${e.message}")
                 }
             }
-
             try { probeThread.interrupt() } catch (_: Exception) {}
         }.apply { start() }
     }
-
     private fun resolveService(serviceInfo: NsdServiceInfo) {
         nsdResolveQueue.resolveOrEnqueue(
             serviceInfo,
@@ -392,19 +340,16 @@ class TetherDiscoveryManager(
                 }
                 val port: Int = resolvedInfo.port
                 val hostAddr = host?.hostAddress ?: return@resolveOrEnqueue
-
                 if (!isPrivateAddress(host)) {
                     Log.w(TAG, "Discarding resolved mDNS address $hostAddr: Not a private LAN IP")
                     return@resolveOrEnqueue
                 }
-
                 val txtAttributes = parseAttributes(resolvedInfo)
                 val deviceId = txtAttributes["id"] ?: resolvedInfo.serviceName
                 val name = txtAttributes["name"] ?: resolvedInfo.serviceName
                 val version = txtAttributes["v"] ?: "1.0"
                 val caps = txtAttributes["caps"] ?: ""
                 val pqc = txtAttributes["pqc"] == "true"
-
                 val device = DiscoveredDevice(
                     deviceId = deviceId,
                     name = name,
@@ -414,7 +359,6 @@ class TetherDiscoveryManager(
                     capabilities = caps,
                     pqcSupported = pqc,
                 )
-
                 Log.i(TAG, "Resolved Tether device: $device")
                 discoveredDevices[deviceId] = device
                 mainHandler.post { externalListener?.onDeviceDiscovered(device) }
@@ -423,7 +367,6 @@ class TetherDiscoveryManager(
             Log.w(TAG, "Service resolve failed for ${info?.serviceName}, error=$errorCode")
         }
     }
-
     private fun parseAttributes(info: NsdServiceInfo): Map<String, String> {
         val map = mutableMapOf<String, String>()
         try {
@@ -437,14 +380,11 @@ class TetherDiscoveryManager(
         }
         return map
     }
-
     fun advertiseService(port: Int = DEFAULT_PORT) {
         if (isAdvertising) return
-
         val phonePublicKey = securityEngine.getPublicKeyBytes()
         val phoneId = securityEngine.computePublicKeyFingerprint(phonePublicKey)
         val deviceName = "Tether-Android-${Build.MODEL}"
-
         val serviceInfo = NsdServiceInfo().apply {
             serviceName = deviceName
             serviceType = SERVICE_TYPE
@@ -456,31 +396,26 @@ class TetherDiscoveryManager(
             setAttribute("quicPort", "37125")
             setAttribute("pqc", "false")
         }
-
         val listener = object : NsdManager.RegistrationListener {
             override fun onRegistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
                 Log.e(TAG, "mDNS Service registration failed: errorCode=$errorCode")
                 isAdvertising = false
                 registrationListener = null
             }
-
             override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
                 Log.e(TAG, "mDNS Service unregistration failed: errorCode=$errorCode")
                 isAdvertising = false
             }
-
             override fun onServiceRegistered(registeredInfo: NsdServiceInfo?) {
                 Log.i(TAG, "mDNS Service registered successfully as ${registeredInfo?.serviceName}")
                 isAdvertising = true
             }
-
             override fun onServiceUnregistered(serviceInfo: NsdServiceInfo?) {
                 Log.i(TAG, "mDNS Service unregistered")
                 isAdvertising = false
                 registrationListener = null
             }
         }
-
         this.registrationListener = listener
         try {
             nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, listener)
@@ -490,28 +425,23 @@ class TetherDiscoveryManager(
             registrationListener = null
         }
     }
-
     @Synchronized
     fun stopDiscovery() {
         isSearching = false
         nsdResolveQueue.clear()
         discoveredDevices.clear()
-
         try {
             udpSocket?.close()
         } catch (_: Exception) {}
         udpSocket = null
-
         udpWorkerThread?.interrupt()
         udpWorkerThread = null
-
         discoveryListener?.let { listener ->
             try { nsdManager.stopServiceDiscovery(listener) } catch (_: Exception) {}
         }
         discoveryListener = null
         releaseMulticastLock()
     }
-
     fun stopAdvertising() {
         registrationListener?.let { listener ->
             try { nsdManager.unregisterService(listener) } catch (_: Exception) {}
@@ -519,7 +449,6 @@ class TetherDiscoveryManager(
         registrationListener = null
         isAdvertising = false
     }
-
     private fun acquireMulticastLock() {
         try {
             if (!multicastLock.isHeld) {
@@ -530,7 +459,6 @@ class TetherDiscoveryManager(
             Log.w(TAG, "Failed acquiring MulticastLock: ${e.message}")
         }
     }
-
     private fun releaseMulticastLock() {
         try {
             if (multicastLock.isHeld) {
@@ -541,7 +469,6 @@ class TetherDiscoveryManager(
             Log.w(TAG, "Failed releasing MulticastLock: ${e.message}")
         }
     }
-
     fun getDiscoveredDevices(): List<DiscoveredDevice> {
         return discoveredDevices.values.toList()
     }

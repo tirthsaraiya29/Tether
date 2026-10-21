@@ -1,5 +1,4 @@
 package com.tether.phone
-
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -57,18 +56,14 @@ import com.tether.phone.ui.theme.LiquidCyan
 import com.tether.phone.ui.theme.TetherTheme
 import com.tether.phone.ui.theme.TextPrimary
 import com.tether.phone.ui.theme.TextSecondary
-
 class PowerEventActivity : FragmentActivity() {
-
     companion object {
         const val TAG = "PowerEventActivity"
         const val EXTRA_POWER_EVENT_TYPE = "eventType"
         const val EXTRA_POWER_EVENT_TIMESTAMP = "eventTimestamp"
     }
-
     private var eventType: String = "LOCK"
     private var eventTimestamp: Long = 0L
-
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -79,7 +74,6 @@ class PowerEventActivity : FragmentActivity() {
             android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
             android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         )
-
         try {
             val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
             val screenWakeLock = pm.newWakeLock(
@@ -92,15 +86,12 @@ class PowerEventActivity : FragmentActivity() {
         } catch (e: Exception) {
             Log.w(TAG, "Failed acquiring screen wakeup lock: ${e.message}")
         }
-
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
         }
-
         eventType = intent.getStringExtra(EXTRA_POWER_EVENT_TYPE) ?: "LOCK"
         eventTimestamp = intent.getLongExtra(EXTRA_POWER_EVENT_TIMESTAMP, 0L)
-
         setContent {
             TetherTheme {
                 PowerEventScreen(
@@ -111,19 +102,16 @@ class PowerEventActivity : FragmentActivity() {
             }
         }
     }
-
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         eventType = intent.getStringExtra(EXTRA_POWER_EVENT_TYPE) ?: "LOCK"
         eventTimestamp = intent.getLongExtra(EXTRA_POWER_EVENT_TIMESTAMP, 0L)
     }
-
     private fun triggerBiometricUnlock() {
         val executor = ContextCompat.getMainExecutor(this)
         val securityEngine = ProductionSecurityEngine()
         val cryptoObject = securityEngine.createCryptoObjectForAuthentication()
-
         val biometricPrompt = BiometricPrompt(
             this,
             executor,
@@ -133,7 +121,6 @@ class PowerEventActivity : FragmentActivity() {
                     val authenticatedCrypto = result.cryptoObject
                     val cipher = authenticatedCrypto?.cipher
                     Log.i(TAG, "Biometric authentication succeeded (cryptoCipher=${cipher != null})")
-
                     val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
                     prefs.edit {
                         putString("last_answered_power_event_type", eventType)
@@ -149,24 +136,20 @@ class PowerEventActivity : FragmentActivity() {
                     nm.cancel(UnlockPromptNotifier.UNLOCK_NOTIFICATION_ID)
                     finish()
                 }
-
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     super.onAuthenticationError(errorCode, errString)
                     Log.w(TAG, "Biometric authentication error ($errorCode): $errString")
                 }
-
                 override fun onAuthenticationFailed() {
                     super.onAuthenticationFailed()
                     Log.w(TAG, "Biometric authentication failed")
                 }
             },
         )
-
         val promptBuilder = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Unlock PC")
             .setSubtitle("Confirm biometric authentication to unlock your PC")
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
-
         try {
             val promptInfo = promptBuilder.build()
             if (cryptoObject != null) {
@@ -178,7 +161,6 @@ class PowerEventActivity : FragmentActivity() {
             Log.e(TAG, "Failed launching BiometricPrompt: ${e.message}")
         }
     }
-
     private fun dismissAndFinish() {
         val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
         prefs.edit {
@@ -192,7 +174,6 @@ class PowerEventActivity : FragmentActivity() {
         finish()
     }
 }
-
 @Composable
 fun PowerEventScreen(
     eventType: String,
@@ -203,19 +184,16 @@ fun PowerEventScreen(
     LaunchedEffect(Unit) {
         isVisible = true
     }
-
     val alphaAnim by animateFloatAsState(
         targetValue = if (isVisible) 1f else 0f,
         animationSpec = tween(400, easing = FastOutSlowInEasing),
         label = "Alpha"
     )
-
     val scaleAnim by animateFloatAsState(
         targetValue = if (isVisible) 1f else 0.92f,
         animationSpec = tween(400, easing = FastOutSlowInEasing),
         label = "Scale"
     )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -234,7 +212,6 @@ fun PowerEventScreen(
         ) {
             DeepSpaceCanvasVisualizer()
         }
-
         ProfessionalGlassSurface(
             modifier = Modifier
                 .fillMaxWidth(0.88f)
@@ -268,9 +245,7 @@ fun PowerEventScreen(
                     letterSpacing = 3.sp,
                     color = LiquidCyan
                 )
-
                 Spacer(modifier = Modifier.height(20.dp))
-
                 // Cyan Icon Container
                 Box(
                     modifier = Modifier
@@ -287,9 +262,7 @@ fun PowerEventScreen(
                         tint = LiquidCyan
                     )
                 }
-
                 Spacer(modifier = Modifier.height(20.dp))
-
                 Text(
                     text = "UNLOCK PC?",
                     fontFamily = FontFamily.Monospace,
@@ -298,9 +271,7 @@ fun PowerEventScreen(
                     letterSpacing = 2.sp,
                     color = TextPrimary
                 )
-
                 Spacer(modifier = Modifier.height(10.dp))
-
                 Text(
                     text = "Your PC generated a ${eventType.uppercase()} directive.\nAuthorize unlock payload dispatch?",
                     fontFamily = FontFamily.SansSerif,
@@ -310,9 +281,7 @@ fun PowerEventScreen(
                     color = TextSecondary,
                     textAlign = TextAlign.Center
                 )
-
                 Spacer(modifier = Modifier.height(28.dp))
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -324,7 +293,6 @@ fun PowerEventScreen(
                         onClick = onReject,
                         modifier = Modifier.weight(1f)
                     )
-
                     TacticalAction(
                         label = "AUTHORIZE",
                         subLabel = "BIOMETRIC",

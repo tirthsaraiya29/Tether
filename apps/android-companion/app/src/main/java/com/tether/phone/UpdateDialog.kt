@@ -1,5 +1,4 @@
 package com.tether.phone
-
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,7 +18,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tether.phone.ui.theme.*
-
 @Composable
 fun UpdateDialog(
     updateInfo: UpdateInfo,

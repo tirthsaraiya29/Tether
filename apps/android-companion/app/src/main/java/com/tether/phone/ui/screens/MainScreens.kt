@@ -1,5 +1,4 @@
 package com.tether.phone.ui.screens
-
 import android.content.Context
 import android.content.Intent
 import android.graphics.RenderEffect
@@ -49,7 +48,6 @@ import com.tether.phone.ui.components.*
 import com.tether.phone.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-
 @Composable
 fun TetherAppScreen(
     laptopTelemetry: LaptopTelemetry = LaptopTelemetry(),
@@ -81,7 +79,6 @@ fun TetherAppScreen(
     val scrollState = rememberScrollState()
     var visible by remember { mutableStateOf(value = false) }
     LaunchedEffect(Unit) { visible = true }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -98,7 +95,7 @@ fun TetherAppScreen(
         }
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 1000)) + 
+            enter = fadeIn(animationSpec = tween(durationMillis = 1000)) +
                     expandVertically(animationSpec = tween(durationMillis = 800, easing = TetherEase)),
         ) {
             Box(
@@ -115,9 +112,7 @@ fun TetherAppScreen(
                 )
             }
         }
-
         Spacer(modifier = Modifier.height(16.dp))
-
         AnimatedContent(
             targetState = verificationStep,
             label = "SecurityActions",
@@ -135,7 +130,7 @@ fun TetherAppScreen(
                         } else {
                             AnimatedVisibility(
                                 visible = visible,
-                                enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 200)) + 
+                                enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 200)) +
                                         slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 200)) { it / 2 },
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -184,12 +179,10 @@ fun TetherAppScreen(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(20.dp))
-
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 300)) + 
+            enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 300)) +
                     slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 300)) { it / 2 },
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -202,7 +195,6 @@ fun TetherAppScreen(
                     onToggleMute = { onLanActionRequested("volume_mute") },
                     enabled = isConnected,
                 )
-
                 LiquidGlassBrightnessControl(
                     brightnessLevel = brightnessLevel,
                     onBrightnessChange = { level -> onLanActionRequested("brightness_set:$level") },
@@ -210,7 +202,6 @@ fun TetherAppScreen(
                     onBrightnessDown = { onLanActionRequested("BRIGHT_DOWN") },
                     enabled = isConnected,
                 )
-
                 // File Explorer & Sharing Quick Access Card
                 ProfessionalGlassSurface(
                     modifier = Modifier
@@ -253,7 +244,6 @@ fun TetherAppScreen(
                                 )
                             }
                         }
-
                         Icon(
                             imageVector = Icons.Default.ArrowForward,
                             contentDescription = "Open File Explorer",
@@ -261,7 +251,6 @@ fun TetherAppScreen(
                         )
                     }
                 }
-
                 ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = stringResource(R.string.header_hardware_directives),
@@ -298,16 +287,13 @@ fun TetherAppScreen(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(64.dp))
     }
 }
-
 @Composable
 fun ScanningVisualizer(color: Color) {
     val density = LocalDensity.current
     val radiusTargetPx = remember(density) { with(density) { 160.dp.toPx() } }
-
     val infiniteTransition = rememberInfiniteTransition(label = "Scanning")
     val radius by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -330,7 +316,6 @@ fun ScanningVisualizer(color: Color) {
         ),
         label = "P",
     )
-
     Box(contentAlignment = Alignment.Center) {
         Canvas(
             modifier = Modifier
@@ -350,7 +335,6 @@ fun ScanningVisualizer(color: Color) {
                 radius = radius * 0.7f,
                 style = Stroke(width = 1.5.dp.toPx()),
             )
-
             drawArc(
                 color = Color.White.copy(alpha = alpha * 0.2f),
                 startAngle = -45f,
@@ -382,7 +366,6 @@ fun ScanningVisualizer(color: Color) {
         }
     }
 }
-
 @Composable
 fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
     val infiniteTransition = rememberInfiniteTransition(label = "Active")
@@ -407,7 +390,6 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
         ),
         label = "Glow",
     )
-
     Box(contentAlignment = Alignment.Center) {
         Canvas(
             modifier = Modifier
@@ -421,7 +403,6 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
                 ),
             )
         }
-
         Canvas(
             modifier = Modifier
                 .size(280.dp)
@@ -442,7 +423,6 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
                 style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
             )
         }
-
         Canvas(
             modifier = Modifier
                 .size(240.dp)
@@ -459,7 +439,6 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
                 radius = 14.dp.toPx() * glowPulse,
                 center = nodeCenter,
             )
-
             val mirrorCenter = Offset(x = 0f, y = size.height / 2)
             drawCircle(
                 color = color.copy(alpha = 0.6f),
@@ -472,7 +451,6 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
                 center = mirrorCenter,
             )
         }
-
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
@@ -499,7 +477,6 @@ fun ActiveLinkVisualizer(color: Color, status: String, subStatus: String) {
         }
     }
 }
-
 @Composable
 fun PanicRestoreCard(onSideRestore: () -> Unit) {
     ProfessionalGlassSurface(tint = IntegrityGreen, alpha = 0.12f) {
@@ -522,7 +499,6 @@ fun PanicRestoreCard(onSideRestore: () -> Unit) {
         )
     }
 }
-
 @Composable
 fun LoadingSecurityStep(msg: String) {
     Column(
@@ -544,7 +520,6 @@ fun LoadingSecurityStep(msg: String) {
         )
     }
 }
-
 @Composable
 fun BiometricVerificationStep(onVerify: () -> Unit) {
     ProfessionalGlassSurface(tint = LiquidCyan, alpha = 0.12f) {
@@ -567,7 +542,6 @@ fun BiometricVerificationStep(onVerify: () -> Unit) {
         )
     }
 }
-
 @Composable
 fun SettingsScreen(
     trustState: TrustState = TrustState.UNPAIRED,
@@ -579,11 +553,9 @@ fun SettingsScreen(
     val context = LocalContext.current
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
     var isBatteryOptimized by remember { mutableStateOf(value = !powerManager.isIgnoringBatteryOptimizations(context.packageName)) }
-
     val scrollState = rememberScrollState()
     var visible by remember { mutableStateOf(value = false) }
     LaunchedEffect(Unit) { visible = true }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -592,7 +564,7 @@ fun SettingsScreen(
     ) {
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 600)) + 
+            enter = fadeIn(animationSpec = tween(durationMillis = 600)) +
                     slideInVertically(animationSpec = tween(durationMillis = 600)) { -it / 4 }
         ) {
             Text(
@@ -603,10 +575,9 @@ fun SettingsScreen(
             )
         }
         Spacer(modifier = Modifier.height(28.dp))
-
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 150)) + 
+            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 150)) +
                     slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 150)) { it / 3 }
         ) {
             ProfessionalGlassSurface {
@@ -633,7 +604,6 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.labelSmall,
                         color = LiquidCyan
                     )
-
                     val (fpText, fpColor) = when {
                         (trustState == TrustState.PAIRED) && windowsFingerprint.isNotBlank() && (windowsFingerprint != "NONE") ->
                             windowsFingerprint to IntegrityGreen
@@ -648,7 +618,6 @@ fun SettingsScreen(
                         color = fpColor,
                         fontSize = 11.sp
                     )
-
                     if (trustState == TrustState.PAIRED) {
                         Spacer(modifier = Modifier.height(8.dp))
                         TacticalAction(
@@ -660,11 +629,10 @@ fun SettingsScreen(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(28.dp))
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 300)) + 
+            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 300)) +
                     slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 300)) { it / 3 }
         ) {
             ProfessionalGlassSurface {
@@ -704,11 +672,10 @@ fun SettingsScreen(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(28.dp))
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 400)) + 
+            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 400)) +
                     slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 400)) { it / 3 }
         ) {
             ProfessionalGlassSurface {
@@ -744,18 +711,16 @@ fun SettingsScreen(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(28.dp))
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 500)) + 
+            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 500)) +
                     slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 500)) { it / 3 }
         ) {
             DeviceAttestationCard(context = LocalContext.current)
         }
     }
 }
-
 @Composable
 fun DeviceAttestationCard(context: Context) {
     val evaluator = remember { DeviceIntegrityRegistry(context = context) }
@@ -773,7 +738,6 @@ fun DeviceAttestationCard(context: Context) {
     ) {
         withContext(Dispatchers.IO) { value = evaluator.runAttestationPipeline() }
     }
-
     ProfessionalGlassSurface(tint = if (report.score >= 85) IntegrityGreen else AlertRed, blur = 20f) {
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -808,7 +772,6 @@ fun DeviceAttestationCard(context: Context) {
         }
     }
 }
-
 @Composable
 fun MetricRow(label: String, pass: Boolean) {
     Row(
@@ -828,7 +791,6 @@ fun MetricRow(label: String, pass: Boolean) {
         )
     }
 }
-
 @Composable
 fun PairingScreen(
     trustState: TrustState = TrustState.UNPAIRED,
@@ -841,9 +803,7 @@ fun PairingScreen(
 ) {
     var visible by remember { mutableStateOf(value = false) }
     LaunchedEffect(Unit) { visible = true }
-
     val scrollState = rememberScrollState()
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -853,7 +813,7 @@ fun PairingScreen(
     ) {
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 800)) + 
+            enter = fadeIn(animationSpec = tween(durationMillis = 800)) +
                     scaleIn(initialScale = 0.85f)
         ) {
             Text(
@@ -865,7 +825,6 @@ fun PairingScreen(
             )
         }
         Spacer(modifier = Modifier.height(20.dp))
-
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 200))
@@ -893,9 +852,7 @@ fun PairingScreen(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(24.dp))
-
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 300))
@@ -941,12 +898,10 @@ fun PairingScreen(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(32.dp))
-
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 400)) + 
+            enter = fadeIn(animationSpec = tween(durationMillis = 800, delayMillis = 400)) +
                     slideInVertically(animationSpec = tween(durationMillis = 800, delayMillis = 400)) { it / 2 }
         ) {
             Column(
@@ -1048,7 +1003,6 @@ fun PairingScreen(
         }
     }
 }
-
 @Composable
 fun LaptopControlScreen(
     isConnected: Boolean,
@@ -1060,7 +1014,6 @@ fun LaptopControlScreen(
     val scrollState = rememberScrollState()
     var visible by remember { mutableStateOf(value = false) }
     LaunchedEffect(Unit) { visible = true }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1079,7 +1032,6 @@ fun LaptopControlScreen(
                 letterSpacing = 4.sp
             )
         }
-
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(600, delayMillis = 100)) + slideInVertically(animationSpec = tween(600, delayMillis = 100)) { it / 3 }
@@ -1094,7 +1046,6 @@ fun LaptopControlScreen(
                     onToggleMute = { onLanActionRequested("volume_mute") },
                     enabled = isConnected
                 )
-
                 LiquidGlassBrightnessControl(
                     brightnessLevel = brightnessLevel,
                     onBrightnessChange = { level -> onLanActionRequested("brightness_set:$level") },
@@ -1106,7 +1057,6 @@ fun LaptopControlScreen(
         }
     }
 }
-
 @Composable
 fun SystemAppsScreen(
     isConnected: Boolean,
@@ -1115,7 +1065,6 @@ fun SystemAppsScreen(
     val scrollState = rememberScrollState()
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1134,7 +1083,6 @@ fun SystemAppsScreen(
                 letterSpacing = 4.sp
             )
         }
-
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(600, delayMillis = 100)) + slideInVertically(animationSpec = tween(600, delayMillis = 100)) { it / 3 }
@@ -1146,7 +1094,6 @@ fun SystemAppsScreen(
         }
     }
 }
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TetherNavigationShell(
@@ -1188,7 +1135,6 @@ fun TetherNavigationShell(
     val scope = rememberCoroutineScope()
     var currentScreen by remember { mutableStateOf(AppScreen.TELEMETRY_DASHBOARD) }
     var showLinkControlDialog by remember { mutableStateOf(false) }
-
     if (showLinkControlDialog) {
         LinkServiceDialog(
             onRestartService = onRestartServer,
@@ -1196,7 +1142,6 @@ fun TetherNavigationShell(
             onDismiss = { showLinkControlDialog = false }
         )
     }
-
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -1226,7 +1171,6 @@ fun TetherNavigationShell(
                             color = LiquidCyan
                         )
                         Spacer(modifier = Modifier.height(48.dp))
-
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
                             Triple("FILE SHARING", Icons.Default.Folder, AppScreen.FILE_TRANSFER),
@@ -1236,7 +1180,6 @@ fun TetherNavigationShell(
                             Triple(stringResource(R.string.nav_security), Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
                             Triple(stringResource(R.string.nav_pair), Icons.Default.QrCode, AppScreen.PAIRING),
                         )
-
                         navItems.forEach { (label, icon, screen) ->
                             NavigationDrawerItem(
                                 label = { Text(label, style = MaterialTheme.typography.labelLarge) },
@@ -1292,10 +1235,10 @@ fun TetherNavigationShell(
                 AnimatedContent(
                     targetState = currentScreen,
                     transitionSpec = {
-                        (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessLow)) + 
+                        (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessLow)) +
                          scaleIn(initialScale = 0.96f, animationSpec = spring(stiffness = Spring.StiffnessLow)))
                             .togetherWith(
-                                fadeOut(animationSpec = spring(stiffness = Spring.StiffnessLow)) + 
+                                fadeOut(animationSpec = spring(stiffness = Spring.StiffnessLow)) +
                                 scaleOut(targetScale = 1.04f, animationSpec = spring(stiffness = Spring.StiffnessLow)),
                             )
                     },

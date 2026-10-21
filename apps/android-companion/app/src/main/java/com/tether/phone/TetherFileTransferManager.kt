@@ -1,5 +1,4 @@
 package com.tether.phone
-
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
@@ -26,23 +25,19 @@ import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONObject
-
 class TetherFileTransferManager(
     private val appContext: Context,
     private val capabilityManager: TetherCapabilityManager,
     private val coroutineScope: CoroutineScope,
 ) {
-
     companion object {
         private const val TAG = "TetherFileTransferManager"
         private const val BUFFER_SIZE = 65536 // 64 KB
         private const val PROGRESS_EMIT_INTERVAL_MS = 100L
         private const val STAGING_DIR_NAME = "tether_staging"
-
         fun sanitizeLogInput(input: String): String {
             return input.replace("\r", "_").replace("\n", "_").replace(Regex("[\\r\\n\\t\\p{Cntrl}]"), "_")
         }
-
         fun sanitizeFilename(rawName: String?): String {
             if (rawName.isNullOrBlank()) return "tether_received_file"
             val basename = File(rawName).name
@@ -56,13 +51,11 @@ class TetherFileTransferManager(
                 sanitized
             }
         }
-
         fun computeFileSha512Hex(file: File, maxBytes: Long = Long.MAX_VALUE): String {
             if (!file.exists() || file.length() == 0L) return ""
             val digest = MessageDigest.getInstance("SHA-512")
             val buffer = ByteArray(BUFFER_SIZE)
             var bytesReadTotal = 0L
-
             FileInputStream(file).use { fis ->
                 while (bytesReadTotal < maxBytes) {
                     val toRead = minOf(buffer.size.toLong(), maxBytes - bytesReadTotal).toInt()
@@ -75,28 +68,22 @@ class TetherFileTransferManager(
             return digest.digest().joinToString("") { String.format(Locale.US, "%02X", it) }
         }
     }
-
     private val stagingDir: File by lazy {
         File(appContext.cacheDir, STAGING_DIR_NAME).apply {
             if (!exists()) mkdirs()
         }
     }
-
     private val activeTransfers = ConcurrentHashMap<String, TransferProgress>()
     private val _transferListFlow = MutableStateFlow<List<TransferProgress>>(emptyList())
     val transferListFlow: StateFlow<List<TransferProgress>> = _transferListFlow.asStateFlow()
-
     private val transferJobs = ConcurrentHashMap<String, Job>()
-
     private fun updateProgress(progress: TransferProgress) {
         activeTransfers[progress.transferId] = progress
         _transferListFlow.value = activeTransfers.values.toList()
     }
-
     fun getStagingFile(transferId: String): File {
         return File(stagingDir, "$transferId.tmp")
     }
-
     /**
      * Executes an incoming file transfer stream from transport into staging file
      */
@@ -108,7 +95,6 @@ class TetherFileTransferManager(
         val transferId = request.transferId
         val sanitizedName = sanitizeFilename(request.fileName)
         val expectedSha512 = request.expectedSha512.uppercase(Locale.US)
-
         if (!capabilityManager.isCapabilityGranted(TetherCapability.FILES)) {
             Log.w(TAG, "Incoming transfer $transferId denied: missing FILES capability")
             val resp = TransferResponseFrame(
@@ -120,12 +106,10 @@ class TetherFileTransferManager(
             transport.sendControlFrame(resp.toJson().toString().toByteArray(StandardCharsets.UTF_8))
             return@withContext false
         }
-
         val stagingFile = getStagingFile(transferId)
         if (stagingFile.exists()) {
             stagingFile.delete()
         }
-
         var progress = TransferProgress(
             transferId = transferId,
             fileName = sanitizedName,
@@ -137,39 +121,32 @@ class TetherFileTransferManager(
             peerName = peerName,
         )
         updateProgress(progress)
-
         val acceptResp = TransferResponseFrame(
             transferId = transferId,
             status = "ACCEPTED",
             resumeOffset = 0L,
         )
         transport.sendControlFrame(acceptResp.toJson().toString().toByteArray(StandardCharsets.UTF_8))
-
         val digest = MessageDigest.getInstance("SHA-512")
         val startTimeMs = System.currentTimeMillis()
         var lastEmitTimeMs = startTimeMs
         var bytesTransferred = 0L
-
         try {
             FileOutputStream(stagingFile).use { fos ->
                 while (bytesTransferred < request.fileSize) {
                     val chunkBytes = transport.readDataChunk() ?: break
                     if (chunkBytes.size < DataChunkFraming.HEADER_SIZE_BYTES - 4) break
-
                     val header = DataChunkFraming.parseHeader(chunkBytes)
                     if (header.msgType == DataChunkMessageType.MSG_DATA_END) {
                         Log.i(TAG, "Received DATA_END signal for transfer $transferId")
                         break
                     }
-
                     val payloadOffset = DataChunkFraming.HEADER_SIZE_BYTES - 4
                     val payloadLen = header.payloadLength
                     if (payloadLen <= 0 || payloadOffset + payloadLen > chunkBytes.size) break
-
                     fos.write(chunkBytes, payloadOffset, payloadLen)
                     digest.update(chunkBytes, payloadOffset, payloadLen)
                     bytesTransferred += payloadLen
-
                     val now = System.currentTimeMillis()
                     if (now - lastEmitTimeMs >= PROGRESS_EMIT_INTERVAL_MS) {
                         val elapsedSec = (now - startTimeMs) / 1000.0
@@ -184,17 +161,14 @@ class TetherFileTransferManager(
                     }
                 }
             }
-
             progress = progress.copy(
                 bytesTransferred = bytesTransferred,
                 state = FileTransferState.VERIFYING,
             )
             updateProgress(progress)
-
             val computedSha512Hex = computeFileSha512Hex(stagingFile).uppercase(Locale.US)
             val expectedSha512Bytes = expectedSha512.toByteArray(StandardCharsets.UTF_8)
             val computedSha512Bytes = computedSha512Hex.toByteArray(StandardCharsets.UTF_8)
-
             if (!MessageDigest.isEqual(expectedSha512Bytes, computedSha512Bytes)) {
                 Log.e(TAG, "SHA-512 integrity failure for $transferId! Expected: $expectedSha512, Computed: $computedSha512Hex")
                 stagingFile.delete()
@@ -205,9 +179,7 @@ class TetherFileTransferManager(
                 updateProgress(progress)
                 return@withContext false
             }
-
             Log.i(TAG, "SHA-512 integrity verified successfully for $sanitizedName ($bytesTransferred bytes)!")
-            
             val promoted = if (sanitizedName == "windows_fs.db") {
                 val dbPath = appContext.getDatabasePath("windows_fs.db")
                 dbPath.parentFile?.mkdirs()
@@ -226,7 +198,6 @@ class TetherFileTransferManager(
             } else {
                 promoteStagingFileToStorage(appContext, stagingFile, sanitizedName, request.mimeType)
             }
-
             progress = progress.copy(
                 bytesTransferred = bytesTransferred,
                 state = if (promoted) FileTransferState.COMPLETED else FileTransferState.FAILED,
@@ -234,7 +205,6 @@ class TetherFileTransferManager(
             )
             updateProgress(progress)
             return@withContext promoted
-
         } catch (e: Exception) {
             Log.e(TAG, "Error handling incoming transfer $transferId: ${e.message}", e)
             stagingFile.delete()
@@ -246,7 +216,6 @@ class TetherFileTransferManager(
             return@withContext false
         }
     }
-
     /**
      * Handles incoming resume request for interrupted transfer
      */
@@ -256,7 +225,6 @@ class TetherFileTransferManager(
     ): Boolean = withContext(Dispatchers.IO) {
         val transferId = resumeReq.transferId
         val stagingFile = getStagingFile(transferId)
-
         if (!stagingFile.exists()) {
             Log.w(TAG, "Resume failed for $transferId: Staging file does not exist")
             val rejectAck = TransferResumeAckFrame(
@@ -270,7 +238,6 @@ class TetherFileTransferManager(
             transport.sendControlFrame(rejectAck.toJson().toString().toByteArray(StandardCharsets.UTF_8))
             return@withContext false
         }
-
         val existingLen = stagingFile.length()
         if (existingLen != resumeReq.requestedOffset) {
             Log.w(TAG, "Resume failed for $transferId: Offset mismatch (Existing: $existingLen, Requested: ${resumeReq.requestedOffset})")
@@ -286,7 +253,6 @@ class TetherFileTransferManager(
             transport.sendControlFrame(rejectAck.toJson().toString().toByteArray(StandardCharsets.UTF_8))
             return@withContext false
         }
-
         val partialSha512Hex = computeFileSha512Hex(stagingFile, existingLen).uppercase(Locale.US)
         val acceptAck = TransferResumeAckFrame(
             transferId = transferId,
@@ -297,7 +263,6 @@ class TetherFileTransferManager(
         transport.sendControlFrame(acceptAck.toJson().toString().toByteArray(StandardCharsets.UTF_8))
         return@withContext true
     }
-
     /**
      * Promotes verified staging file to public Downloads directory / MediaStore
      */
@@ -315,13 +280,11 @@ class TetherFileTransferManager(
                     put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
                     put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Tether")
                 }
-
                 val uri: Uri? = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
                 if (uri == null) {
                     Log.e(TAG, "MediaStore insert returned null URI for $displayName")
                     return false
                 }
-
                 resolver.openOutputStream(uri)?.use { os ->
                     FileInputStream(stagingFile).use { fis ->
                         fis.copyTo(os, BUFFER_SIZE)
@@ -335,7 +298,6 @@ class TetherFileTransferManager(
                 val tetherDir = File(downloadsDir, "Tether").apply { if (!exists()) mkdirs() }
                 val destFile = File(tetherDir, displayName)
                 if (destFile.exists()) destFile.delete()
-
                 val moved = stagingFile.renameTo(destFile)
                 if (!moved) {
                     FileInputStream(stagingFile).use { fis ->
@@ -353,24 +315,20 @@ class TetherFileTransferManager(
             false
         }
     }
-
     fun cancelTransfer(transferId: String) {
         transferJobs[transferId]?.cancel()
         transferJobs.remove(transferId)
         val stagingFile = getStagingFile(transferId)
         if (stagingFile.exists()) stagingFile.delete()
-
         activeTransfers[transferId]?.let {
             val updated = it.copy(state = FileTransferState.CANCELLED, errorMessage = "Cancelled by user")
             updateProgress(updated)
         }
     }
-
     fun clearHistory() {
         activeTransfers.clear()
         _transferListFlow.value = emptyList()
     }
-
     fun sendFile(
         securityEngine: ProductionSecurityEngine,
         host: String,
@@ -384,7 +342,6 @@ class TetherFileTransferManager(
             var fileName = "tether_upload_file"
             var fileSize = 0L
             var mimeType = "application/octet-stream"
-
             try {
                 resolver.query(uri, null, null, null, null)?.use { cursor ->
                     if (cursor.moveToFirst()) {
@@ -401,9 +358,7 @@ class TetherFileTransferManager(
             if (fileName == "tether_upload_file" && uri.lastPathSegment != null) {
                 fileName = uri.lastPathSegment ?: "tether_upload_file"
             }
-
             fileName = sanitizeFilename(fileName)
-
             var progress = TransferProgress(
                 transferId = transferId,
                 fileName = fileName,
@@ -415,10 +370,8 @@ class TetherFileTransferManager(
                 peerName = peerName,
             )
             updateProgress(progress)
-
             val stagingFile = getStagingFile(transferId)
             if (stagingFile.exists()) stagingFile.delete()
-
             val digest = MessageDigest.getInstance("SHA-512")
             try {
                 val inputStream = if (uri.scheme == "file" && uri.path != null) {
@@ -426,7 +379,6 @@ class TetherFileTransferManager(
                 } else {
                     resolver.openInputStream(uri)
                 }
-
                 inputStream?.use { input ->
                     FileOutputStream(stagingFile).use { output ->
                         val buffer = ByteArray(BUFFER_SIZE)
@@ -439,24 +391,18 @@ class TetherFileTransferManager(
                 }
                 fileSize = stagingFile.length()
                 val expectedSha512Hex = digest.digest().joinToString("") { String.format(Locale.US, "%02X", it) }
-
                 progress = progress.copy(fileSize = fileSize, state = FileTransferState.CONNECTING)
                 updateProgress(progress)
-
                 val transport = TetherQuicTransportImpl(appContext, securityEngine)
                 try {
                     Log.i(TAG, "Connecting QUIC transport to $host:$port to send $fileName ($fileSize bytes)...")
                     transport.connect(host, port, timeoutMs = 5000)
-
                     val myPublicKeyBytes = securityEngine.getPublicKeyBytes()
                     val myFingerprint = securityEngine.computePublicKeyFingerprint(myPublicKeyBytes)
-
                     val initReqJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT}\",\"protocolVersion\":\"1.0\",\"deviceId\":\"$myFingerprint\"}"
                     transport.sendControlFrame(initReqJson.toByteArray(StandardCharsets.UTF_8))
-
                     val initAckRaw = transport.readControlFrame()
                         ?: throw IOException("No CONTROL_INIT_ACK received from server")
-
                     val reqFrame = TransferRequestFrame(
                         version = "1.0",
                         transferId = transferId,
@@ -469,30 +415,23 @@ class TetherFileTransferManager(
                         sourceLastModified = System.currentTimeMillis(),
                     )
                     transport.sendControlFrame(reqFrame.toJson().toString().toByteArray(StandardCharsets.UTF_8))
-
                     val respRaw = transport.readControlFrame()
                         ?: throw IOException("No TRANSFER_RESPONSE received from server")
-
                     val respStr = String(respRaw, StandardCharsets.UTF_8)
                     val respFrame = TransferResponseFrame.parseJsonString(respStr)
-
                     if (respFrame.status != "ACCEPTED") {
                         throw IOException("Transfer rejected by server: ${respFrame.reason} (code=${respFrame.errorCode})")
                     }
-
                     progress = progress.copy(state = FileTransferState.TRANSFERRING)
                     updateProgress(progress)
-
                     val startTimeMs = System.currentTimeMillis()
                     var lastEmitTimeMs = startTimeMs
                     var bytesSent = 0L
                     var chunkIndex = 0L
-
                     FileInputStream(stagingFile).use { fis ->
                         val chunkBuf = ByteArray(BUFFER_SIZE)
                         var readLen: Int
                         val uuid = UUID.fromString(transferId)
-
                         while (fis.read(chunkBuf).also { readLen = it } > 0) {
                             val frameBytes = DataChunkFraming.serializeChunk(
                                 transferIdUuid = uuid,
@@ -504,7 +443,6 @@ class TetherFileTransferManager(
                             )
                             transport.sendDataChunk(frameBytes)
                             bytesSent += readLen
-
                             val now = System.currentTimeMillis()
                             if (now - lastEmitTimeMs >= PROGRESS_EMIT_INTERVAL_MS) {
                                 val elapsedSec = (now - startTimeMs) / 1000.0
@@ -518,21 +456,16 @@ class TetherFileTransferManager(
                                 lastEmitTimeMs = now
                             }
                         }
-
                         val endSignal = DataChunkFraming.serializeEndSignal(uuid)
                         transport.sendDataChunk(endSignal)
                     }
-
                     progress = progress.copy(bytesTransferred = fileSize, state = FileTransferState.VERIFYING)
                     updateProgress(progress)
-
                     val completeRaw = transport.readControlFrame()
                         ?: throw IOException("No TRANSFER_COMPLETE received from server")
-
                     val completeStr = String(completeRaw, StandardCharsets.UTF_8)
                     val safeCompleteStr = sanitizeLogInput(completeStr)
                     Log.i(TAG, "Server completed transfer response: $safeCompleteStr")
-
                     val type = JsonParserUtils.getString(completeStr, "type", "")
                     val status = JsonParserUtils.getString(completeStr, "status", "OK")
                     if (type == ControlMessageType.TRANSFER_COMPLETE && status != "OK" && status != "SUCCESS") {
@@ -542,7 +475,6 @@ class TetherFileTransferManager(
                         val reason = JsonParserUtils.getString(completeStr, "reason", "Unknown error")
                         throw IOException("Receiver reported failure: $reason")
                     }
-
                     progress = progress.copy(
                         bytesTransferred = fileSize,
                         state = FileTransferState.COMPLETED,
@@ -550,11 +482,9 @@ class TetherFileTransferManager(
                     )
                     updateProgress(progress)
                     Log.i(TAG, "Successfully sent file $fileName ($fileSize bytes) to $peerName!")
-
                 } finally {
                     transport.disconnect("Transfer finished")
                 }
-
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending file $fileName ($transferId): ${e.message}", e)
                 progress = progress.copy(
@@ -569,7 +499,6 @@ class TetherFileTransferManager(
         }
         transferJobs[transferId] = job
     }
-
     fun requestWindowsDbSync(securityEngine: ProductionSecurityEngine, host: String, port: Int = 37125) {
         coroutineScope.launch(Dispatchers.IO) {
             val transport = TetherQuicTransportImpl(appContext, securityEngine)
@@ -580,7 +509,6 @@ class TetherFileTransferManager(
                 val initReqJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT}\",\"protocolVersion\":\"1.0\",\"deviceId\":\"$myFingerprint\"}"
                 transport.sendControlFrame(initReqJson.toByteArray(StandardCharsets.UTF_8))
                 transport.readControlFrame() // Wait for ACK
-                
                 val req = FsDbSyncRequestFrame()
                 transport.sendControlFrame(req.toJsonString().toByteArray(StandardCharsets.UTF_8))
             } catch (e: Exception) {
@@ -590,7 +518,6 @@ class TetherFileTransferManager(
             }
         }
     }
-
     /**
      * Sends BROWSE_ROOTS_REQUEST to Windows PC and returns permitted roots
      */
@@ -598,11 +525,9 @@ class TetherFileTransferManager(
         try {
             val req = BrowseRootsRequestFrame()
             transport.sendControlFrame(req.toJsonString().toByteArray(StandardCharsets.UTF_8))
-
             val respRaw = transport.readControlFrame() ?: return@withContext emptyList()
             val respStr = String(respRaw, StandardCharsets.UTF_8)
             val json = JSONObject(respStr)
-
             val rootsList = mutableListOf<FilesystemRootItem>()
             if (json.optString("status") == "OK" && json.has("roots")) {
                 val array = json.getJSONArray("roots")
@@ -624,7 +549,6 @@ class TetherFileTransferManager(
             return@withContext emptyList()
         }
     }
-
     /**
      * Sends LIST_DIR_REQUEST to Windows PC for a specific path
      */
@@ -632,11 +556,9 @@ class TetherFileTransferManager(
         try {
             val req = ListDirRequestFrame(path = path)
             transport.sendControlFrame(req.toJsonString().toByteArray(StandardCharsets.UTF_8))
-
             val respRaw = transport.readControlFrame() ?: return@withContext emptyList()
             val respStr = String(respRaw, StandardCharsets.UTF_8)
             val json = JSONObject(respStr)
-
             val itemsList = mutableListOf<DirectoryListingItem>()
             if (json.optString("status") == "OK" && json.has("items")) {
                 val array = json.getJSONArray("items")
