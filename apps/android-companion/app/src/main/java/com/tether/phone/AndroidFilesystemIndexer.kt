@@ -17,6 +17,11 @@ class AndroidFilesystemIndexer(private val context: Context) {
     }
 
     private val dbHelper = object : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
+        override fun onConfigure(db: SQLiteDatabase) {
+            super.onConfigure(db)
+            db.disableWriteAheadLogging()
+        }
+
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("""
                 CREATE TABLE files (

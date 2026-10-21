@@ -392,10 +392,10 @@
                                                     </Grid.ColumnDefinitions>
                                                     <Button x:Name="BtnNavUp" Content="⬆ Up" Height="26" Padding="8,0" Click="BtnNavUp_Click" Margin="0,0,8,0" Style="{StaticResource {x:Type Button}}"/>
                                                     <TextBox x:Name="TxtCurrentExplorerPath" Grid.Column="1" Height="26" Padding="6,2" VerticalContentAlignment="Center" Background="#11FFFFFF" Foreground="#E1E1E1" BorderThickness="1" BorderBrush="#33FFFFFF" IsReadOnly="True"/>
-                                                    <Button x:Name="BtnSendExplorerSelected" Grid.Column="2" Content="Send Selected to Phone" Height="26" Padding="10,0" Margin="8,0,0,0" Click="BtnSendExplorerSelected_Click" Style="{StaticResource {x:Type Button}}"/>
+                                                    <Button x:Name="BtnSyncAndroidFs" Grid.Column="2" Content="🔄 Sync Android Files" Height="26" Padding="10,0" Margin="8,0,0,0" Click="BtnSyncAndroidFs_Click" Style="{StaticResource {x:Type Button}}"/>
                                                 </Grid>
 
-                                                <ListView x:Name="LstFileExplorer" Height="140" Background="Transparent" BorderThickness="0" Foreground="#E1E1E1" MouseDoubleClick="LstFileExplorer_MouseDoubleClick">
+                                                <ListView x:Name="LstFileExplorer" Height="140" Background="#0A000000" BorderThickness="1" BorderBrush="#1AFFFFFF" Foreground="#E1E1E1" MouseDoubleClick="LstFileExplorer_MouseDoubleClick">
                                                     <ListView.View>
                                                         <GridView>
                                                             <GridViewColumn Header="Name" Width="220" DisplayMemberBinding="{Binding Name}"/>

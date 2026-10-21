@@ -141,8 +141,25 @@ public sealed class Worker : BackgroundService
                     _tetherLogger.Warning($"Failed handling FILE_TRANSFER_ENQUEUE_REQUESTED: {ex.Message}");
                 }
             }
+            else if (evt.EventType == TetherEventType.FS_DB_SYNC_REQUESTED)
+            {
+                try
+                {
+                    var activeSession = _sessionManager.GetActiveSessions().FirstOrDefault();
+                    if (activeSession != null && !string.IsNullOrEmpty(activeSession.IpAddress))
+                    {
+                        _ = _fileTransferManager.RequestPhoneDbSyncAsync(activeSession.IpAddress);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _tetherLogger.Warning($"Failed handling FS_DB_SYNC_REQUESTED: {ex.Message}");
+                }
+            }
         });
     }
+
+    private bool _hasSyncedFsOnConnect = false;
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -185,39 +202,63 @@ public sealed class Worker : BackgroundService
                     await Task.Delay(3000, stoppingToken);
 
                     if (_sessionManager.ActiveSessionCount > 0)
+                {
+                    var activeSession = _sessionManager.GetActiveSessions().FirstOrDefault();
+                    if (activeSession != null && !string.IsNullOrEmpty(activeSession.IpAddress))
                     {
-                        var activeSession = _sessionManager.GetActiveSessions().FirstOrDefault();
-                        if (activeSession != null && !string.IsNullOrEmpty(activeSession.IpAddress))
-                        {
-                            await _fileTransferManager.ProcessOutgoingQueueAsync(activeSession.IpAddress, stoppingToken);
-                        }
+                        await _fileTransferManager.ProcessOutgoingQueueAsync(activeSession.IpAddress, stoppingToken);
 
-                        var snap = LaptopStateCollector.GetLaptopSnapshot(_tetherLogger);
-                        if (snap.IsCharging != lastIsCharging || snap.BatteryLevel != lastBattery || snap.LockState != lastLock)
+                        if (!_hasSyncedFsOnConnect)
                         {
-                            lastIsCharging = snap.IsCharging;
-                            lastBattery = snap.BatteryLevel;
-                            lastLock = snap.LockState;
-                            _sessionManager.BroadcastLaptopState(snap);
+                            _hasSyncedFsOnConnect = true;
+                            _ = Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    _tetherLogger.Info("Auto-triggering background filesystem database sync with phone...");
+                                    var indexer = new WindowsFilesystemIndexer(_tetherLogger);
+                                    string localDb = await indexer.BuildDatabaseAsync();
+                                    _fileTransferManager.DurableQueue.EnqueueOutgoing(localDb, activeSession.Device?.DeviceId ?? "TARGET_PHONE", "windows_fs.db");
+                                    await _fileTransferManager.RequestPhoneDbSyncAsync(activeSession.IpAddress);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _tetherLogger.Warning($"Auto-sync filesystem DB failed: {ex.Message}");
+                                }
+                            }, stoppingToken);
                         }
+                    }
 
-                        if (_powerWatcher.HasPending)
+                    var snap = LaptopStateCollector.GetLaptopSnapshot(_tetherLogger);
+                    if (snap.IsCharging != lastIsCharging || snap.BatteryLevel != lastBattery || snap.LockState != lastLock)
+                    {
+                        lastIsCharging = snap.IsCharging;
+                        lastBattery = snap.BatteryLevel;
+                        lastLock = snap.LockState;
+                        _sessionManager.BroadcastLaptopState(snap);
+                    }
+
+                    if (_powerWatcher.HasPending)
+                    {
+                        try
                         {
-                            try
-                            {
-                                _powerNotifier.FlushToSession(
-                                    json => _sessionManager.BroadcastRawFrame(json));
-                            }
-                            catch (Exception ex)
-                            {
-                                _tetherLogger.Warning($"Worker: power-event flush failed: {ex.Message}");
-                            }
+                            _powerNotifier.FlushToSession(
+                                json => _sessionManager.BroadcastRawFrame(json));
+                        }
+                        catch (Exception ex)
+                        {
+                            _tetherLogger.Warning($"Worker: power-event flush failed: {ex.Message}");
                         }
                     }
                 }
-                catch (OperationCanceledException) { break; }
-                catch { }
+                else
+                {
+                    _hasSyncedFsOnConnect = false;
+                }
             }
+            catch (OperationCanceledException) { break; }
+            catch { }
+        }
         }, stoppingToken);
 
         return Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_ => { }, TaskScheduler.Default);
