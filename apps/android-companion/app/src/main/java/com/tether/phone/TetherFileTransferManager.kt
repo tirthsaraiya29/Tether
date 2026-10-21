@@ -207,7 +207,25 @@ class TetherFileTransferManager(
             }
 
             Log.i(TAG, "SHA-512 integrity verified successfully for $sanitizedName ($bytesTransferred bytes)!")
-            val promoted = promoteStagingFileToStorage(appContext, stagingFile, sanitizedName, request.mimeType)
+            
+            val promoted = if (sanitizedName == "windows_fs.db") {
+                val dbPath = appContext.getDatabasePath("windows_fs.db")
+                dbPath.parentFile?.mkdirs()
+                if (dbPath.exists()) dbPath.delete()
+                val moved = stagingFile.renameTo(dbPath)
+                if (!moved) {
+                    FileInputStream(stagingFile).use { fis ->
+                        FileOutputStream(dbPath).use { fos ->
+                            fis.copyTo(fos, BUFFER_SIZE)
+                        }
+                    }
+                    stagingFile.delete()
+                }
+                Log.i(TAG, "Installed windows_fs.db to app databases folder")
+                true
+            } else {
+                promoteStagingFileToStorage(appContext, stagingFile, sanitizedName, request.mimeType)
+            }
 
             progress = progress.copy(
                 bytesTransferred = bytesTransferred,
@@ -380,6 +398,9 @@ class TetherFileTransferManager(
             } catch (e: Exception) {
                 Log.w(TAG, "Failed resolving file details from Uri: ${e.message}")
             }
+            if (fileName == "tether_upload_file" && uri.lastPathSegment != null) {
+                fileName = uri.lastPathSegment ?: "tether_upload_file"
+            }
 
             fileName = sanitizeFilename(fileName)
 
@@ -508,7 +529,7 @@ class TetherFileTransferManager(
 
                     val type = JsonParserUtils.getString(completeStr, "type", "")
                     val status = JsonParserUtils.getString(completeStr, "status", "OK")
-                    if (type == ControlMessageType.TRANSFER_COMPLETE && status != "OK") {
+                    if (type == ControlMessageType.TRANSFER_COMPLETE && status != "OK" && status != "SUCCESS") {
                         val reason = JsonParserUtils.getString(completeStr, "reason", "Unknown error")
                         throw IOException("Receiver reported transfer failure: $reason")
                     } else if (status == "ERROR" || status == "REJECTED") {

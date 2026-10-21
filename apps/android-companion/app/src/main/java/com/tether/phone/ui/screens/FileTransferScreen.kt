@@ -161,12 +161,6 @@ fun FileTransferScreen(
             Tab(
                 selected = selectedTabIndex == 1,
                 onClick = { selectedTabIndex = 1 },
-                text = { Text("Phone Files", fontWeight = FontWeight.SemiBold) },
-                icon = { Icon(Icons.Default.PhoneAndroid, contentDescription = null, modifier = Modifier.size(18.dp)) },
-            )
-            Tab(
-                selected = selectedTabIndex == 2,
-                onClick = { selectedTabIndex = 2 },
                 text = { Text("Queue (${transferList.size})", fontWeight = FontWeight.SemiBold) },
                 icon = { Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp)) },
             )
@@ -175,9 +169,8 @@ fun FileTransferScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         when (selectedTabIndex) {
-            0 -> PcFilesExplorerView()
-            1 -> PhoneLocalExplorerView(onFilePicked = onSendFileSelected)
-            2 -> TransferQueueView(
+            0 -> com.tether.phone.ui.DesktopFilePicker()
+            1 -> TransferQueueView(
                 transferList = transferList,
                 onCancelClick = { id -> fileTransferManager?.cancelTransfer(id) },
                 onClearClick = { fileTransferManager?.clearHistory() },

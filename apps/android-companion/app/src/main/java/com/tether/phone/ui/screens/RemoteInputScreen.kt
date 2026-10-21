@@ -155,6 +155,10 @@ fun RemoteInputScreen(
                 }
                 textBuffer = newValue
             },
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+                autoCorrectEnabled = false
+            ),
             modifier = Modifier
                 .size(1.dp)
                 .focusRequester(focusRequester)
