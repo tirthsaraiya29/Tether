@@ -122,7 +122,7 @@ class TetherFileTransferServer(
 
                         val ackJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"OK\",\"grantedCapabilities\":\"CLIPBOARD,FILES,NOTIFICATIONS,MEDIA\"}"
                         sendFrame(dos, ackJson.toByteArray(StandardCharsets.UTF_8))
-                        Log.i(TAG, "Authenticated incoming file connection from $deviceId")
+                        Log.i(TAG, "Authenticated incoming file connection from ${sanitizeLogInput(deviceId)}")
                     }
 
                     ControlMessageType.BROWSE_ROOTS_REQUEST -> {
@@ -235,11 +235,37 @@ class TetherFileTransferServer(
     }
 
     private fun listAndroidDirectory(requestedPath: String): List<DirectoryListingItem> {
-        val target = if (requestedPath.isBlank()) Environment.getExternalStorageDirectory() else File(requestedPath)
-        if (target == null || !target.exists() || !target.isDirectory) return emptyList()
+        val baseDir = Environment.getExternalStorageDirectory() ?: return emptyList()
+        val baseCanonical = try {
+            baseDir.canonicalFile
+        } catch (_: Exception) {
+            return emptyList()
+        }
+
+        val targetFile = if (requestedPath.isBlank()) {
+            baseCanonical
+        } else {
+            try {
+                File(requestedPath).canonicalFile
+            } catch (_: Exception) {
+                return emptyList()
+            }
+        }
+
+        val baseCanonicalPath = baseCanonical.canonicalPath
+        val targetCanonicalPath = targetFile.canonicalPath
+        val isSubpath = targetCanonicalPath == baseCanonicalPath ||
+                targetCanonicalPath.startsWith(baseCanonicalPath + File.separator)
+
+        if (!isSubpath) {
+            Log.w(TAG, "Access denied: requested directory path outside storage bounds")
+            return emptyList()
+        }
+
+        if (!targetFile.exists() || !targetFile.isDirectory) return emptyList()
 
         val results = mutableListOf<DirectoryListingItem>()
-        target.listFiles()?.forEach { file ->
+        targetFile.listFiles()?.forEach { file ->
             if (!file.name.startsWith(".")) {
                 results.add(
                     DirectoryListingItem(
@@ -254,6 +280,10 @@ class TetherFileTransferServer(
             }
         }
         return results.sortedWith(compareByDescending<DirectoryListingItem> { it.isDirectory }.thenBy { it.name })
+    }
+
+    private fun sanitizeLogInput(input: String): String {
+        return input.replace("\r", "_").replace("\n", "_").replace(Regex("[\\r\\n\\t\\p{Cntrl}]"), "_")
     }
 
     private fun createServerSslContext(): SSLContext {
