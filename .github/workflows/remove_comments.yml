@@ -1,0 +1,249 @@
+name: Remove Comments and Blank Lines
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: comment-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Clean source files and open PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install syntax parsers
+        run: python -m pip install tree-sitter-language-pack
+
+      - name: Remove comments and blank lines
+        id: cleanup
+        shell: bash
+        run: |
+          cat > /tmp/clean.py <<'PY'
+          import os
+          import subprocess
+          from pathlib import Path
+
+          from tree_sitter_language_pack import get_parser
+
+          ROOT = Path.cwd()
+
+          LANGUAGES = {
+              ".kt": "kotlin",
+              ".kts": "kotlin",
+              ".c": "c",
+              ".cc": "cpp",
+              ".cpp": "cpp",
+              ".cxx": "cpp",
+              ".h": "cpp",
+              ".hh": "cpp",
+              ".hpp": "cpp",
+              ".hxx": "cpp",
+              ".cs": "c_sharp",
+              ".html": "html",
+              ".htm": "html",
+              ".py": "python",
+              ".yml": "yaml",
+              ".yaml": "yaml",
+              ".xaml": "xml",
+          }
+
+          EXCLUDED_DIRS = {
+              ".git", "bin", "obj", "build", "dist",
+              "node_modules", ".gradle"
+          }
+
+          def walk(node):
+              yield node
+              for child in node.children:
+                  yield from walk(child)
+
+          def remove_ranges(data, ranges):
+              data = bytearray(data)
+              for start, end in sorted(ranges, reverse=True):
+                  for i in range(start, end):
+                      if data[i] not in (10, 13):
+                          data[i] = 32
+              return bytes(data)
+
+          def transform(path):
+              try:
+                  original = path.read_bytes()
+                  original.decode("utf-8")
+              except (UnicodeDecodeError, OSError) as exc:
+                  print(f"SKIP unreadable/non-UTF-8: {path}: {exc}")
+                  return False
+
+              if b"\0" in original:
+                  print(f"SKIP binary: {path}")
+                  return False
+
+              suffix = path.suffix.lower()
+
+              if suffix in {".reg", ".iss"}:
+                  # Conservative handling for formats without a parser
+                  # in this workflow. Only remove full-line comments.
+                  output = []
+
+                  for line in original.decode("utf-8").splitlines():
+                      stripped = line.lstrip()
+
+                      if suffix == ".reg":
+                          if stripped.startswith(";"):
+                              continue
+                      else:
+                          if stripped.startswith(";"):
+                              continue
+
+                      if stripped:
+                          output.append(line.rstrip())
+
+                  result = "\n".join(output)
+                  if output:
+                      result += "\n"
+
+                  # Preserve CRLF if the original used it.
+                  if b"\r\n" in original:
+                      result = result.replace("\n", "\r\n")
+
+                  updated = result.encode("utf-8")
+
+              else:
+                  language = LANGUAGES.get(suffix)
+                  if not language:
+                      return False
+
+                  try:
+                      tree = get_parser(language).parse(original)
+                  except Exception as exc:
+                      print(f"SKIP parser failure: {path}: {exc}")
+                      return False
+
+                  if tree.root_node.has_error:
+                      print(f"SKIP syntax errors: {path}")
+                      return False
+
+                  # Remove only parser-recognized comment nodes.
+                  ranges = [
+                      (node.start_byte, node.end_byte)
+                      for node in walk(tree.root_node)
+                      if node.type == "comment"
+                  ]
+
+                  stripped = remove_ranges(original, ranges)
+
+                  try:
+                      text = stripped.decode("utf-8")
+                  except UnicodeDecodeError:
+                      print(f"SKIP invalid UTF-8: {path}")
+                      return False
+
+                  # Preserve blank lines inside multiline strings/scalars.
+                  protected_lines = set()
+
+                  for node in walk(tree.root_node):
+                      kind = node.type.lower()
+
+                      if (
+                          "string" in kind
+                          or "scalar" in kind
+                          or kind == "raw_string_literal"
+                      ) and node.start_point.row < node.end_point.row:
+                          protected_lines.update(
+                              range(
+                                  node.start_point.row,
+                                  node.end_point.row + 1
+                              )
+                          )
+
+                  output = []
+
+                  for number, line in enumerate(
+                      text.splitlines(keepends=True)
+                  ):
+                      content = line.rstrip("\r\n")
+
+                      if number in protected_lines:
+                          output.append(line)
+                      elif content.strip():
+                          output.append(content.rstrip() + "\n")
+
+                  result = "".join(output)
+
+                  if b"\r\n" in original:
+                      result = result.replace("\n", "\r\n")
+
+                  updated = result.encode("utf-8")
+
+              if updated == original:
+                  return False
+
+              path.write_bytes(updated)
+              print(f"CLEANED: {path}")
+              return True
+
+          tracked = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          ).decode().split("\0")
+
+          changed = 0
+
+          for name in filter(None, tracked):
+              path = ROOT / name
+
+              if not path.is_file():
+                  continue
+
+              if any(part in EXCLUDED_DIRS for part in path.parts):
+                  continue
+
+              if path.suffix.lower() in LANGUAGES or path.suffix.lower() in {
+                  ".reg", ".iss"
+              }:
+                  changed += transform(path)
+
+          print(f"Files changed: {changed}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"changed={changed}\n")
+          PY
+
+          python /tmp/clean.py
+
+      - name: Create pull request
+        if: steps.cleanup.outputs.changed != '0'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: main
+          branch: automation/remove-comments-and-blank-lines
+          delete-branch: true
+          commit-message: "style: remove comments and blank lines"
+          title: "style: remove comments and blank lines"
+          body: |
+            ## Summary
+            - Remove recognized source comments and blank lines.
+            - Preserve multiline string contents where recognized.
+            - Skip files that cannot be parsed safely.
+            - Keep all cleanup changes isolated in a reviewable PR.
+
+            ## Review required
+            Review the complete diff and run the project's
+            build and tests before merging.
