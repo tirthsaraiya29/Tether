@@ -117,12 +117,23 @@ class TetherFileTransferServer(
                 when (type) {
                     ControlMessageType.CONTROL_INIT -> {
                         val deviceId = JsonParserUtils.getString(jsonStr, "deviceId", "")
-                        isAuthenticated = deviceId.isNotBlank()
-                        peerFingerprint = deviceId
+                        val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(appContext)
+                        val pinnedFingerprint = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
 
-                        val ackJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"OK\",\"grantedCapabilities\":\"CLIPBOARD,FILES,NOTIFICATIONS,MEDIA\"}"
-                        sendFrame(dos, ackJson.toByteArray(StandardCharsets.UTF_8))
-                        Log.i(TAG, "Authenticated incoming file connection from ${sanitizeLogInput(deviceId)}")
+                        if (deviceId.isNotBlank() && deviceId == pinnedFingerprint && pinnedFingerprint != "NONE" && pinnedFingerprint != "INVALID") {
+                            isAuthenticated = true
+                            peerFingerprint = deviceId
+
+                            val ackJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"OK\",\"grantedCapabilities\":\"CLIPBOARD,FILES,NOTIFICATIONS,MEDIA\"}"
+                            sendFrame(dos, ackJson.toByteArray(StandardCharsets.UTF_8))
+                            Log.i(TAG, "Authenticated incoming file connection from ${sanitizeLogInput(deviceId)}")
+                        } else {
+                            isAuthenticated = false
+                            val errJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"ERROR\",\"reason\":\"Unauthorized peer\"}"
+                            sendFrame(dos, errJson.toByteArray(StandardCharsets.UTF_8))
+                            Log.w(TAG, "Rejected incoming file connection: unauthorized peer deviceId")
+                            break
+                        }
                     }
 
                     ControlMessageType.BROWSE_ROOTS_REQUEST -> {
