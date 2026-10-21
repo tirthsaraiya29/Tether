@@ -39,6 +39,10 @@ class TetherFileTransferManager(
         private const val PROGRESS_EMIT_INTERVAL_MS = 100L
         private const val STAGING_DIR_NAME = "tether_staging"
 
+        fun sanitizeLogInput(input: String): String {
+            return input.replace("\r", "_").replace("\n", "_").replace(Regex("[\\r\\n\\t\\p{Cntrl}]"), "_")
+        }
+
         fun sanitizeFilename(rawName: String?): String {
             if (rawName.isNullOrBlank()) return "tether_received_file"
             val basename = File(rawName).name
@@ -497,8 +501,9 @@ class TetherFileTransferManager(
 
                     val completeRaw = transport.readControlFrame()
                     if (completeRaw != null) {
-                        val completeStr = String(completeRaw, StandardCharsets.UTF_8).replace(Regex("[\r\n]"), " ")
-                        Log.i(TAG, "Server completed transfer response: $completeStr")
+                        val completeStr = String(completeRaw, StandardCharsets.UTF_8)
+                        val safeCompleteStr = sanitizeLogInput(completeStr)
+                        Log.i(TAG, "Server completed transfer response: $safeCompleteStr")
                     }
 
                     progress = progress.copy(
