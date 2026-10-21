@@ -643,8 +643,21 @@ public sealed class FileTransferReceiver : IDisposable
                 return;
             }
 
-            // Promote staging file to Downloads\Tether
-            string finalDestination = PromoteToDownloads(stagingFile, sanitizedFileName, _logger);
+            // Promote staging file
+            string finalDestination;
+            if (sanitizedFileName == "android_fs.db")
+            {
+                string commonData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                string destPath = Path.Combine(commonData, "Tether", "android_fs.db");
+                if (File.Exists(destPath)) File.Delete(destPath);
+                File.Move(stagingFile, destPath);
+                finalDestination = destPath;
+                _logger.Info($"Installed android_fs.db to {finalDestination}");
+            }
+            else
+            {
+                finalDestination = PromoteToDownloads(stagingFile, sanitizedFileName, _logger);
+            }
 
             progress = progress with
             {
