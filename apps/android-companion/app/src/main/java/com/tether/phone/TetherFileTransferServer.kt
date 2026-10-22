@@ -98,6 +98,14 @@ class TetherFileTransferServer(
         var isAuthenticated = false
         var peerFingerprint = ""
 
+        val sslSocket = socket as? javax.net.ssl.SSLSocket
+        val peerCert = try {
+            sslSocket?.session?.peerCertificates?.firstOrNull() as? X509Certificate
+        } catch (_: Exception) {
+            null
+        }
+        val peerPubKeyBytes = peerCert?.publicKey?.encoded
+
         try {
             while (socket.isConnected && !socket.isClosed) {
                 val len = try {
@@ -118,36 +126,35 @@ class TetherFileTransferServer(
 
                 when (type) {
                     ControlMessageType.CONTROL_INIT -> {
-                        val json = try { JSONObject(jsonStr) } catch (_: Exception) { JSONObject() }
-                        val deviceId = json.optString("deviceId", JsonParserUtils.getString(jsonStr, "deviceId", ""))
                         val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(appContext)
-                        val pinnedFingerprint = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
 
-                        val normDevId = deviceId.replace(":", "").replace("-", "").trim().uppercase(java.util.Locale.US)
-                        val normPinnedFp = pinnedFingerprint.replace(":", "").replace("-", "").trim().uppercase(java.util.Locale.US)
+                        val isTlsPeerValid = if (pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty()) {
+                            if (peerPubKeyBytes != null && peerPubKeyBytes.isNotEmpty()) {
+                                MessageDigest.isEqual(pinnedKeyBytes, peerPubKeyBytes) ||
+                                        securityEngine.computePublicKeyFingerprint(pinnedKeyBytes) == securityEngine.computePublicKeyFingerprint(peerPubKeyBytes)
+                            } else {
+                                val json = try { JSONObject(jsonStr) } catch (_: Exception) { JSONObject() }
+                                val devId = json.optString("deviceId", "").replace(":", "").replace("-", "").trim().uppercase(java.util.Locale.US)
+                                val pinnedFp = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes).replace(":", "").replace("-", "").trim().uppercase(java.util.Locale.US)
+                                devId.isNotBlank() && MessageDigest.isEqual(devId.toByteArray(StandardCharsets.UTF_8), pinnedFp.toByteArray(StandardCharsets.UTF_8))
+                            }
+                        } else {
+                            false
+                        }
 
-                        val isAuthorized = normDevId.isNotBlank() &&
-                                pinnedKeyBytes != null &&
-                                pinnedKeyBytes.isNotEmpty() &&
-                                normPinnedFp != "NONE" &&
-                                normPinnedFp != "INVALID" &&
-                                normDevId == normPinnedFp
-
-                        val safeDeviceId = sanitizeLogInput(deviceId)
-                        val safeNormDevId = sanitizeLogInput(normDevId)
-
-                        if (isAuthorized) {
+                        if (isTlsPeerValid) {
                             isAuthenticated = true
-                            peerFingerprint = deviceId
+                            peerFingerprint = securityEngine.computePublicKeyFingerprint(peerPubKeyBytes ?: pinnedKeyBytes)
+                            val safePeerFp = sanitizeLogInput(peerFingerprint)
 
                             val ackJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"OK\",\"grantedCapabilities\":\"CLIPBOARD,FILES,NOTIFICATIONS,MEDIA\"}"
                             sendFrame(dos, ackJson.toByteArray(StandardCharsets.UTF_8))
-                            Log.i(TAG, "Authenticated incoming file connection from $safeDeviceId")
+                            Log.i(TAG, "Authenticated incoming file connection from $safePeerFp")
                         } else {
                             isAuthenticated = false
                             val errJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"ERROR\",\"reason\":\"Unauthorized peer\"}"
                             sendFrame(dos, errJson.toByteArray(StandardCharsets.UTF_8))
-                            Log.w(TAG, "Rejected incoming file connection: unauthorized peer deviceId '$safeDeviceId' (normalized '$safeNormDevId')")
+                            Log.w(TAG, "Rejected incoming file connection: identity verification failed against pinned key")
                             break
                         }
                     }
