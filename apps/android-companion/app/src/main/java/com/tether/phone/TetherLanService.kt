@@ -700,7 +700,19 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val safeName = sanitizeLog(device.name)
         val safeAddr = sanitizeLog(device.hostAddress)
         Log.i(TAG, "mDNS/UDP Discovered Tether device ($activeCount active): $safeName at $safeAddr:${device.port}")
-        if ((currentState == TransportState.DISCOVERING) || (currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED)) {
+
+        val isConnectedToTarget = ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY))
+                && (connectedHostAddress == device.hostAddress)
+
+        if (!isConnectedToTarget) {
+            if ((currentState == TransportState.CONNECTING) || (currentState == TransportState.TLS_HANDSHAKE)) {
+                if (connectedHostAddress != device.hostAddress) {
+                    Log.i(TAG, "Discovered new host $safeAddr while connecting to $connectedHostAddress. Disconnecting stale connection...")
+                    disconnectActiveSession("Switching to newly discovered host $safeAddr")
+                } else {
+                    return
+                }
+            }
             currentState = TransportState.HOST_FOUND
             connectToHost(device.hostAddress, device.port)
         }
@@ -926,9 +938,11 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
                 if (frameBytes.isNotEmpty() && frameBytes[0] == 0x05.toByte()) {
                     processIncomingBinaryFrame(frameBytes, transport)
-                } else if (frameBytes.isNotEmpty() && frameBytes[0] == '{'.code.toByte()) {
-                    val jsonStr = String(frameBytes, StandardCharsets.UTF_8)
-                    processIncomingFrame(JSONObject(jsonStr), transport)
+                } else if (frameBytes.isNotEmpty()) {
+                    val jsonStr = String(frameBytes, StandardCharsets.UTF_8).trim()
+                    if (jsonStr.startsWith("{")) {
+                        processIncomingFrame(JSONObject(jsonStr), transport)
+                    }
                 }
             }
         } catch (e: Exception) {
