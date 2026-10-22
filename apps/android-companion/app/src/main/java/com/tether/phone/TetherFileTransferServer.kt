@@ -58,6 +58,7 @@ class TetherFileTransferServer(
                 val sslServer = factory.createServerSocket(SERVER_PORT) as SSLServerSocket
                 sslServer.reuseAddress = true
                 sslServer.enabledProtocols = arrayOf("TLSv1.3")
+                sslServer.wantClientAuth = true
                 serverSocket = sslServer
 
                 Log.i(TAG, "Tether File Transfer Server listening on TCP port $SERVER_PORT (TLS 1.3)...")
@@ -128,19 +129,10 @@ class TetherFileTransferServer(
                     ControlMessageType.CONTROL_INIT -> {
                         val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(appContext)
 
-                        val isTlsPeerValid = if (pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty()) {
-                            if (peerPubKeyBytes != null && peerPubKeyBytes.isNotEmpty()) {
-                                MessageDigest.isEqual(pinnedKeyBytes, peerPubKeyBytes) ||
-                                        securityEngine.computePublicKeyFingerprint(pinnedKeyBytes) == securityEngine.computePublicKeyFingerprint(peerPubKeyBytes)
-                            } else {
-                                val json = try { JSONObject(jsonStr) } catch (_: Exception) { JSONObject() }
-                                val devId = json.optString("deviceId", "").replace(":", "").replace("-", "").trim().uppercase(java.util.Locale.US)
-                                val pinnedFp = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes).replace(":", "").replace("-", "").trim().uppercase(java.util.Locale.US)
-                                devId.isNotBlank() && MessageDigest.isEqual(devId.toByteArray(StandardCharsets.UTF_8), pinnedFp.toByteArray(StandardCharsets.UTF_8))
-                            }
-                        } else {
-                            false
-                        }
+                        val isTlsPeerValid = if (pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty() && peerPubKeyBytes != null && peerPubKeyBytes.isNotEmpty()) {
+                            MessageDigest.isEqual(pinnedKeyBytes, peerPubKeyBytes) ||
+                                    securityEngine.computePublicKeyFingerprint(pinnedKeyBytes) == securityEngine.computePublicKeyFingerprint(peerPubKeyBytes)
+                        } else false
 
                         if (isTlsPeerValid) {
                             isAuthenticated = true
