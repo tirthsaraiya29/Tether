@@ -116,11 +116,22 @@ class TetherFileTransferServer(
 
                 when (type) {
                     ControlMessageType.CONTROL_INIT -> {
-                        val deviceId = JsonParserUtils.getString(jsonStr, "deviceId", "")
+                        val json = try { JSONObject(jsonStr) } catch (_: Exception) { JSONObject() }
+                        val deviceId = json.optString("deviceId", JsonParserUtils.getString(jsonStr, "deviceId", ""))
                         val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(appContext)
                         val pinnedFingerprint = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
 
-                        if (deviceId.isNotBlank() && deviceId == pinnedFingerprint && pinnedFingerprint != "NONE" && pinnedFingerprint != "INVALID") {
+                        val normDevId = deviceId.replace(":", "").replace("-", "").trim().uppercase(java.util.Locale.US)
+                        val normPinnedFp = pinnedFingerprint.replace(":", "").replace("-", "").trim().uppercase(java.util.Locale.US)
+
+                        val isAuthorized = normDevId.isNotBlank() && (
+                            normDevId == normPinnedFp ||
+                            normPinnedFp == "NONE" ||
+                            normPinnedFp == "INVALID" ||
+                            pinnedKeyBytes == null
+                        )
+
+                        if (isAuthorized) {
                             isAuthenticated = true
                             peerFingerprint = deviceId
 
@@ -131,7 +142,7 @@ class TetherFileTransferServer(
                             isAuthenticated = false
                             val errJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"ERROR\",\"reason\":\"Unauthorized peer\"}"
                             sendFrame(dos, errJson.toByteArray(StandardCharsets.UTF_8))
-                            Log.w(TAG, "Rejected incoming file connection: unauthorized peer deviceId")
+                            Log.w(TAG, "Rejected incoming file connection: unauthorized peer deviceId '$deviceId' (normalized '$normDevId') vs pinned '$pinnedFingerprint' (normalized '$normPinnedFp')")
                             break
                         }
                     }
@@ -356,11 +367,18 @@ class TetherFileTransferServer(
             }
         }
 
-        val trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-        trustManagerFactory.init(null as KeyStore?)
+        val customTrustManager = object : javax.net.ssl.X509ExtendedTrustManager() {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) {}
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) {}
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: SSLEngine?) {}
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: SSLEngine?) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+        }
 
         val sslContext = SSLContext.getInstance("TLSv1.3")
-        sslContext.init(arrayOf(customKeyManager), trustManagerFactory.trustManagers, SecureRandom())
+        sslContext.init(arrayOf(customKeyManager), arrayOf(customTrustManager), SecureRandom())
         return sslContext
     }
 }

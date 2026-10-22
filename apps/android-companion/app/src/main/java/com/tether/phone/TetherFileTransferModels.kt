@@ -89,17 +89,38 @@ object DataChunkMessageType {
 internal object JsonParserUtils {
     fun getString(jsonStr: String, key: String, default: String): String {
         val regex = Regex("\"$key\"\\s*:\\s*\"([^\"]*)\"")
-        return regex.find(jsonStr)?.groupValues?.get(1) ?: default
+        val match = regex.find(jsonStr)?.groupValues?.get(1)
+        if (match != null) return match
+        return try {
+            val json = JSONObject(jsonStr)
+            if (json.has(key)) json.optString(key, default) else default
+        } catch (_: Throwable) {
+            default
+        }
     }
 
     fun getLong(jsonStr: String, key: String, default: Long): Long {
-        val regex = Regex("\"$key\"\\s*:\\s*(\\d+)")
-        return regex.find(jsonStr)?.groupValues?.get(1)?.toLongOrNull() ?: default
+        val regex = Regex("\"$key\"\\s*:\\s*\"?(\\d+)\"?")
+        val match = regex.find(jsonStr)?.groupValues?.get(1)?.toLongOrNull()
+        if (match != null) return match
+        return try {
+            val json = JSONObject(jsonStr)
+            if (json.has(key)) json.optLong(key, default) else default
+        } catch (_: Throwable) {
+            default
+        }
     }
 
     fun getInt(jsonStr: String, key: String, default: Int): Int {
-        val regex = Regex("\"$key\"\\s*:\\s*(\\d+)")
-        return regex.find(jsonStr)?.groupValues?.get(1)?.toIntOrNull() ?: default
+        val regex = Regex("\"$key\"\\s*:\\s*\"?(\\d+)\"?")
+        val match = regex.find(jsonStr)?.groupValues?.get(1)?.toIntOrNull()
+        if (match != null) return match
+        return try {
+            val json = JSONObject(jsonStr)
+            if (json.has(key)) json.optInt(key, default) else default
+        } catch (_: Throwable) {
+            default
+        }
     }
 }
 

@@ -233,6 +233,21 @@ class TetherFileTransferManager(
                 errorMessage = if (promoted) null else "Failed promoting file to MediaStore storage",
             )
             updateProgress(progress)
+
+            if (promoted) {
+                val completeFrame = "{\"type\":\"${ControlMessageType.TRANSFER_COMPLETE}\",\"transferId\":\"$transferId\",\"status\":\"SUCCESS\",\"errorCode\":0}"
+                try {
+                    transport.sendControlFrame(completeFrame.toByteArray(StandardCharsets.UTF_8))
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed sending TRANSFER_COMPLETE: ${e.message}")
+                }
+            } else {
+                val failFrame = "{\"type\":\"${ControlMessageType.TRANSFER_COMPLETE}\",\"transferId\":\"$transferId\",\"status\":\"FAILED\",\"errorCode\":${FileTransferErrorCode.DISK_FULL.code},\"reason\":\"Failed promoting file to storage\"}"
+                try {
+                    transport.sendControlFrame(failFrame.toByteArray(StandardCharsets.UTF_8))
+                } catch (_: Exception) {}
+            }
+
             return@withContext promoted
 
         } catch (e: Exception) {
@@ -243,6 +258,12 @@ class TetherFileTransferManager(
                 errorMessage = e.message,
             )
             updateProgress(progress)
+
+            val failFrame = "{\"type\":\"${ControlMessageType.TRANSFER_COMPLETE}\",\"transferId\":\"$transferId\",\"status\":\"FAILED\",\"errorCode\":${FileTransferErrorCode.INTEGRITY_FAILED.code},\"reason\":\"${e.message}\"}"
+            try {
+                transport.sendControlFrame(failFrame.toByteArray(StandardCharsets.UTF_8))
+            } catch (_: Exception) {}
+
             return@withContext false
         }
     }
@@ -307,47 +328,45 @@ class TetherFileTransferManager(
         displayName: String,
         mimeType: String,
     ): Boolean {
+        val safeMimeType = if (mimeType.isBlank() || mimeType == "*/*") "application/octet-stream" else mimeType
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val resolver = context.contentResolver
                 val contentValues = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                    put(MediaStore.MediaColumns.MIME_TYPE, safeMimeType)
                     put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Tether")
                 }
 
                 val uri: Uri? = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                if (uri == null) {
-                    Log.e(TAG, "MediaStore insert returned null URI for $displayName")
-                    return false
-                }
-
-                resolver.openOutputStream(uri)?.use { os ->
-                    FileInputStream(stagingFile).use { fis ->
-                        fis.copyTo(os, BUFFER_SIZE)
-                    }
-                }
-                stagingFile.delete()
-                Log.i(TAG, "Promoted file to MediaStore: $uri")
-                true
-            } else {
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                val tetherDir = File(downloadsDir, "Tether").apply { if (!exists()) mkdirs() }
-                val destFile = File(tetherDir, displayName)
-                if (destFile.exists()) destFile.delete()
-
-                val moved = stagingFile.renameTo(destFile)
-                if (!moved) {
-                    FileInputStream(stagingFile).use { fis ->
-                        FileOutputStream(destFile).use { fos ->
-                            fis.copyTo(fos, BUFFER_SIZE)
+                if (uri != null) {
+                    resolver.openOutputStream(uri)?.use { os ->
+                        FileInputStream(stagingFile).use { fis ->
+                            fis.copyTo(os, BUFFER_SIZE)
                         }
                     }
                     stagingFile.delete()
+                    Log.i(TAG, "Promoted file to MediaStore: $uri")
+                    return true
                 }
-                Log.i(TAG, "Promoted file to filesystem: ${destFile.absolutePath}")
-                true
             }
+
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val tetherDir = File(downloadsDir, "Tether").apply { if (!exists()) mkdirs() }
+            val destFile = File(tetherDir, displayName)
+            if (destFile.exists()) destFile.delete()
+
+            val moved = stagingFile.renameTo(destFile)
+            if (!moved) {
+                FileInputStream(stagingFile).use { fis ->
+                    FileOutputStream(destFile).use { fos ->
+                        fis.copyTo(fos, BUFFER_SIZE)
+                    }
+                }
+                stagingFile.delete()
+            }
+            Log.i(TAG, "Promoted file to filesystem: ${destFile.absolutePath}")
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Failed promoting staging file to storage: ${e.message}", e)
             false
@@ -572,8 +591,9 @@ class TetherFileTransferManager(
 
     fun requestWindowsDbSync(securityEngine: ProductionSecurityEngine, host: String, port: Int = 37125) {
         coroutineScope.launch(Dispatchers.IO) {
-            val transport = TetherQuicTransportImpl(appContext, securityEngine)
+            var transport: TetherQuicTransportImpl? = null
             try {
+                transport = TetherQuicTransportImpl(appContext, securityEngine)
                 transport.connect(host, port, timeoutMs = 5000)
                 val myPublicKeyBytes = securityEngine.getPublicKeyBytes()
                 val myFingerprint = securityEngine.computePublicKeyFingerprint(myPublicKeyBytes)
@@ -583,10 +603,15 @@ class TetherFileTransferManager(
                 
                 val req = FsDbSyncRequestFrame()
                 transport.sendControlFrame(req.toJsonString().toByteArray(StandardCharsets.UTF_8))
+                
+                val respRaw = transport.readControlFrame()
+                if (respRaw != null) {
+                    Log.i(TAG, "Received FS_DB_SYNC_RESPONSE: ${String(respRaw, StandardCharsets.UTF_8)}")
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed requesting Windows DB Sync: ${e.message}")
             } finally {
-                transport.disconnect("Sync request sent")
+                transport?.disconnect("Sync request finished")
             }
         }
     }

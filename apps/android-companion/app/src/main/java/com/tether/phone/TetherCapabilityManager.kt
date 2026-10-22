@@ -32,7 +32,7 @@ class TetherCapabilityManager {
         )
     }
 
-    private var negotiatedCapabilities: Set<TetherCapability> = emptySet()
+    private var negotiatedCapabilities: Set<TetherCapability> = DEFAULT_ANDROID_CAPABILITIES
 
     fun negotiateCapabilities(peerCapsString: String): Set<TetherCapability> {
         if (peerCapsString.isBlank()) {
