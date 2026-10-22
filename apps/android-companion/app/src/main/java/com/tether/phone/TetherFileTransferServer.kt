@@ -18,9 +18,11 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
+import java.security.MessageDigest
 import java.security.Principal
 import java.security.PrivateKey
 import java.security.SecureRandom
+import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLContext
@@ -124,12 +126,15 @@ class TetherFileTransferServer(
                         val normDevId = deviceId.replace(":", "").replace("-", "").trim().uppercase(java.util.Locale.US)
                         val normPinnedFp = pinnedFingerprint.replace(":", "").replace("-", "").trim().uppercase(java.util.Locale.US)
 
-                        val isAuthorized = normDevId.isNotBlank() && (
-                            normDevId == normPinnedFp ||
-                            normPinnedFp == "NONE" ||
-                            normPinnedFp == "INVALID" ||
-                            pinnedKeyBytes == null
-                        )
+                        val isAuthorized = normDevId.isNotBlank() &&
+                                pinnedKeyBytes != null &&
+                                pinnedKeyBytes.isNotEmpty() &&
+                                normPinnedFp != "NONE" &&
+                                normPinnedFp != "INVALID" &&
+                                normDevId == normPinnedFp
+
+                        val safeDeviceId = sanitizeLogInput(deviceId)
+                        val safeNormDevId = sanitizeLogInput(normDevId)
 
                         if (isAuthorized) {
                             isAuthenticated = true
@@ -137,12 +142,12 @@ class TetherFileTransferServer(
 
                             val ackJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"OK\",\"grantedCapabilities\":\"CLIPBOARD,FILES,NOTIFICATIONS,MEDIA\"}"
                             sendFrame(dos, ackJson.toByteArray(StandardCharsets.UTF_8))
-                            Log.i(TAG, "Authenticated incoming file connection from ${sanitizeLogInput(deviceId)}")
+                            Log.i(TAG, "Authenticated incoming file connection from $safeDeviceId")
                         } else {
                             isAuthenticated = false
                             val errJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"ERROR\",\"reason\":\"Unauthorized peer\"}"
                             sendFrame(dos, errJson.toByteArray(StandardCharsets.UTF_8))
-                            Log.w(TAG, "Rejected incoming file connection: unauthorized peer deviceId '$deviceId' (normalized '$normDevId') vs pinned '$pinnedFingerprint' (normalized '$normPinnedFp')")
+                            Log.w(TAG, "Rejected incoming file connection: unauthorized peer deviceId '$safeDeviceId' (normalized '$safeNormDevId')")
                             break
                         }
                     }
@@ -368,12 +373,48 @@ class TetherFileTransferServer(
         }
 
         val customTrustManager = object : javax.net.ssl.X509ExtendedTrustManager() {
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) {}
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) {}
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: SSLEngine?) {}
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: SSLEngine?) {}
+            private fun verifyClientCertificate(chain: Array<out X509Certificate>?) {
+                if (chain.isNullOrEmpty()) {
+                    throw CertificateException("Client certificate chain is null or empty")
+                }
+                val leaf = chain[0]
+                leaf.checkValidity()
+
+                val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(appContext)
+                if (pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty()) {
+                    val leafPubKeyBytes = leaf.publicKey.encoded
+                    val pinnedFp = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
+                    val leafFp = securityEngine.computePublicKeyFingerprint(leafPubKeyBytes)
+                    if (!MessageDigest.isEqual(pinnedKeyBytes, leafPubKeyBytes) && pinnedFp != leafFp) {
+                        throw CertificateException("Client certificate public key fingerprint mismatch against pinned identity key")
+                    }
+                }
+            }
+
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                verifyClientCertificate(chain)
+            }
+
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                throw CertificateException("Server certificates are not checked by server trust manager")
+            }
+
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) {
+                verifyClientCertificate(chain)
+            }
+
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) {
+                throw CertificateException("Server certificates are not checked by server trust manager")
+            }
+
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: SSLEngine?) {
+                verifyClientCertificate(chain)
+            }
+
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: SSLEngine?) {
+                throw CertificateException("Server certificates are not checked by server trust manager")
+            }
+
             override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
         }
 
