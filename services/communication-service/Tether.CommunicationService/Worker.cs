@@ -209,6 +209,47 @@ public sealed class Worker : BackgroundService
                     _tetherLogger.Warning($"Failed handling FS_DB_SYNC_REQUESTED: {ex.Message}");
                 }
             }
+            else if (evt.EventType == TetherEventType.HARDWARE_SYNC_REQUESTED && !string.IsNullOrEmpty(evt.PayloadJson))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(evt.PayloadJson);
+                    var root = doc.RootElement;
+                    int vol = root.TryGetProperty("vol", out var vProp) ? vProp.GetInt32() : -1;
+                    int bri = root.TryGetProperty("bri", out var bProp) ? bProp.GetInt32() : -1;
+
+                    if (vol >= 0)
+                    {
+                        HardwareExecutor.ExecuteCommand($"volume_set:{vol}", _tetherLogger, out _);
+                        if (_sessionManager.ActiveSessionCount > 0)
+                        {
+                            _sessionManager.BroadcastRawFrame(System.Text.Json.JsonSerializer.Serialize(new
+                            {
+                                type = "COMMAND_EXECUTE",
+                                command = $"volume_set:{vol}",
+                                requestId = Guid.NewGuid().ToString()
+                            }));
+                        }
+                    }
+                    if (bri >= 0)
+                    {
+                        HardwareExecutor.ExecuteCommand($"brightness_set:{bri}", _tetherLogger, out _);
+                        if (_sessionManager.ActiveSessionCount > 0)
+                        {
+                            _sessionManager.BroadcastRawFrame(System.Text.Json.JsonSerializer.Serialize(new
+                            {
+                                type = "COMMAND_EXECUTE",
+                                command = $"brightness_set:{bri}",
+                                requestId = Guid.NewGuid().ToString()
+                            }));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _tetherLogger.Warning($"Failed handling HARDWARE_SYNC_REQUESTED: {ex.Message}");
+                }
+            }
         });
     }
 
@@ -261,7 +302,6 @@ public sealed class Worker : BackgroundService
 
                         if (!_hasSyncedFsOnConnect)
                         {
-                            _hasSyncedFsOnConnect = true;
                             _ = Task.Run(async () =>
                             {
                                 try
@@ -271,7 +311,8 @@ public sealed class Worker : BackgroundService
                                     string localDb = await indexer.BuildDatabaseAsync();
                                     var activeDev = _sessionManager.GetActiveSessions().FirstOrDefault()?.Device?.DeviceId ?? "TARGET_PHONE";
                                     _fileTransferManager.DurableQueue.EnqueueOutgoing(localDb, activeDev, "windows_fs.db");
-                                    await _fileTransferManager.RequestPhoneDbSyncAsync(activeIp);
+                                    await _fileTransferManager.RequestPhoneDbSyncAsync(activeIp, stoppingToken);
+                                    _hasSyncedFsOnConnect = true;
                                 }
                                 catch (Exception ex)
                                 {

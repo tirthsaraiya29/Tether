@@ -58,7 +58,7 @@ class TetherFileTransferManager(
         }
 
         fun computeFileSha512Hex(file: File, maxBytes: Long = Long.MAX_VALUE): String {
-            if (!file.exists() || file.length() == 0L) return ""
+            if (!file.exists()) return ""
             val digest = MessageDigest.getInstance("SHA-512")
             val buffer = ByteArray(BUFFER_SIZE)
             var bytesReadTotal = 0L
@@ -265,6 +265,18 @@ class TetherFileTransferManager(
                 }
             }
 
+            try {
+                val trailingChunk = transport.readDataChunk()
+                if (trailingChunk != null && trailingChunk.size >= DataChunkFraming.HEADER_SIZE_BYTES - 4) {
+                    val header = DataChunkFraming.parseHeader(trailingChunk)
+                    if (header.msgType == DataChunkMessageType.MSG_DATA_END) {
+                        Log.i(TAG, "Consumed trailing MSG_DATA_END for transfer $transferId")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Trailing MSG_DATA_END check: ${e.message}")
+            }
+
             progress = progress.copy(
                 bytesTransferred = bytesTransferred,
                 state = FileTransferState.VERIFYING,
@@ -418,21 +430,37 @@ class TetherFileTransferManager(
                     put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Tether")
                 }
 
-                val uri: Uri? = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                val uri: Uri? = try {
+                    resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                } catch (e: Exception) {
+                    Log.w(TAG, "MediaStore insert failed: ${e.message}")
+                    null
+                }
+
                 if (uri != null) {
-                    resolver.openOutputStream(uri)?.use { os ->
-                        FileInputStream(stagingFile).use { fis ->
-                            fis.copyTo(os, BUFFER_SIZE)
+                    try {
+                        resolver.openOutputStream(uri)?.use { os ->
+                            FileInputStream(stagingFile).use { fis ->
+                                fis.copyTo(os, BUFFER_SIZE)
+                            }
                         }
+                        stagingFile.delete()
+                        Log.i(TAG, "Promoted file to MediaStore: $uri")
+                        return true
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed writing to MediaStore OutputStream for $uri: ${e.message}")
+                        try { resolver.delete(uri, null, null) } catch (_: Exception) {}
                     }
-                    stagingFile.delete()
-                    Log.i(TAG, "Promoted file to MediaStore: $uri")
-                    return true
                 }
             }
 
             val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val tetherDir = File(downloadsDir, "Tether").apply { if (!exists()) mkdirs() }
+            val tetherDir = File(downloadsDir, "Tether")
+            if (!tetherDir.exists() && !tetherDir.mkdirs()) {
+                Log.e(TAG, "Failed creating target directory: ${tetherDir.absolutePath}")
+                return false
+            }
+
             val destFile = File(tetherDir, displayName)
             if (destFile.exists()) destFile.delete()
 

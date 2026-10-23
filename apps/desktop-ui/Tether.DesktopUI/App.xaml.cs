@@ -140,8 +140,11 @@ namespace Tether.DesktopUI
             }, _pipeCts.Token);
         }
 
-        public static void ProcessLaunchArgs(string[] args)
+        public static void ProcessLaunchArgs(string[] args) => ProcessLaunchArgs(args, out _);
+
+        public static bool ProcessLaunchArgs(string[] args, out string? errorMessage)
         {
+            errorMessage = null;
             try
             {
                 var sendPaths = new List<string>();
@@ -176,9 +179,15 @@ namespace Tether.DesktopUI
                     string json = JsonSerializer.Serialize(enqueueEvt);
                     byte[] bytes = Encoding.UTF8.GetBytes(json);
                     pipeClient.Write(bytes, 0, bytes.Length);
+                    return true;
                 }
+                return true;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                errorMessage = ex.Message;
+                return false;
+            }
         }
     }
 }

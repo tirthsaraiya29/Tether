@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.IO;
+using System.Linq;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -20,23 +21,41 @@ public sealed class FileTransferSender
     private readonly ITetherLogger _logger;
     private readonly X509Certificate2 _clientCertificate;
     private readonly ITrustValidator _trustValidator;
+    private readonly Action<TransferProgress>? _onProgressUpdate;
 
-    public FileTransferSender(ITetherLogger logger, X509Certificate2 clientCertificate, ITrustValidator trustValidator)
+    public FileTransferSender(
+        ITetherLogger logger,
+        X509Certificate2 clientCertificate,
+        ITrustValidator trustValidator,
+        Action<TransferProgress>? onProgressUpdate = null)
     {
         _logger = logger;
         _clientCertificate = clientCertificate;
         _trustValidator = trustValidator;
+        _onProgressUpdate = onProgressUpdate;
     }
 
     public async Task ProcessOutgoingQueueAsync(
         string targetIp,
         DurableTransferQueue queue,
         int port = FileTransferReceiver.DefaultPort,
+        Action<TransferProgress>? progressCallback = null,
         CancellationToken ct = default)
     {
-        var pendingItems = queue.GetAllItems()
-            .Where(i => !i.IsIncoming && (i.State == FileTransferState.REQUESTED || i.State == FileTransferState.FAILED))
-            .ToList();
+        var activeCallback = progressCallback ?? _onProgressUpdate;
+
+        var allItems = queue.GetAllItems().Where(i => !i.IsIncoming).ToList();
+        var pendingItems = allItems.Where(i =>
+        {
+            if (i.State == FileTransferState.REQUESTED) return true;
+            if (i.State == FileTransferState.FAILED && i.RetryCount < 5)
+            {
+                // Exponential backoff based on RetryCount (5s, 10s, 20s, 40s, 80s)
+                double backoffSec = Math.Pow(2, i.RetryCount) * 5.0;
+                return (DateTime.UtcNow - i.LastUpdatedUtc).TotalSeconds >= backoffSec;
+            }
+            return false;
+        }).ToList();
 
         if (pendingItems.Count == 0) return;
 
@@ -47,7 +66,9 @@ public sealed class FileTransferSender
             if (ct.IsCancellationRequested) return;
             if (!File.Exists(item.SourcePath) && !Directory.Exists(item.SourcePath))
             {
-                queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: "Source path missing");
+                string errMsg = "Source path missing";
+                queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: errMsg);
+                EmitProgress(activeCallback, item.TransferId, item.FileName, 0, 0, 0, FileTransferState.FAILED, errMsg);
                 continue;
             }
             try
@@ -58,7 +79,9 @@ public sealed class FileTransferSender
             }
             catch (Exception ex)
             {
-                 queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: $"Pre-processing failed: {ex.Message}");
+                string errMsg = $"Pre-processing failed: {ex.Message}";
+                queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: errMsg);
+                EmitProgress(activeCallback, item.TransferId, item.FileName, 0, 0, 0, FileTransferState.FAILED, errMsg);
             }
         }
 
@@ -88,9 +111,19 @@ public sealed class FileTransferSender
             var sslOptions = new SslClientAuthenticationOptions
             {
                 TargetHost = targetIp,
-                ClientCertificates = new X509CertificateCollection { _clientCertificate },
                 EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13
             };
+
+            // Workaround for ECDSA CNG key container issues
+            if (_clientCertificate.HasPrivateKey)
+            {
+                sslOptions.LocalCertificateSelectionCallback = (sender, targetHost, localCertificates, remoteCertificate, acceptableIssuers) => _clientCertificate;
+                sslOptions.ClientCertificates = new X509CertificateCollection();
+            }
+            else
+            {
+                sslOptions.ClientCertificates = new X509CertificateCollection { _clientCertificate };
+            }
 
             await sslStream.AuthenticateAsClientAsync(sslOptions, ct);
             _logger.Info($"FileTransferSender: TLS 1.3 authenticated to {targetIp}:{port}");
@@ -109,11 +142,14 @@ public sealed class FileTransferSender
                 if (ct.IsCancellationRequested) break;
                 if (!File.Exists(item.SourcePath) && !Directory.Exists(item.SourcePath))
                 {
-                    queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: "Source path missing");
+                    string errMsg = "Source path missing";
+                    queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: errMsg);
+                    EmitProgress(activeCallback, item.TransferId, item.FileName, prepared.Size, 0, 0, FileTransferState.FAILED, errMsg);
                     continue;
                 }
 
-                queue.UpdateState(item.TransferId, FileTransferState.TRANSFERRING);
+                queue.UpdateState(item.TransferId, FileTransferState.CONNECTING);
+                EmitProgress(activeCallback, item.TransferId, item.FileName, prepared.Size, 0, 0, FileTransferState.CONNECTING, null);
 
                 try
                 {
@@ -142,12 +178,17 @@ public sealed class FileTransferSender
 
                     if (resp == null || resp.Status != "ACCEPTED")
                     {
-                        _logger.Warning($"FileTransferSender: Transfer {item.TransferId} rejected by phone: {resp?.Reason}");
-                        queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: resp?.Reason ?? "Rejected");
+                        string reason = resp?.Reason ?? "Rejected by phone";
+                        _logger.Warning($"FileTransferSender: Transfer {item.TransferId} rejected by phone: {reason}");
+                        queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: reason);
+                        EmitProgress(activeCallback, item.TransferId, item.FileName, fileSize, 0, 0, FileTransferState.FAILED, reason);
                         continue;
                     }
 
                     // 2. Stream binary data chunks
+                    long startTimeMs = Environment.TickCount64;
+                    long lastEmitTimeMs = startTimeMs;
+
                     using (var fs = File.OpenRead(item.SourcePath))
                     {
                         byte[] buffer = new byte[chunkSize];
@@ -163,13 +204,24 @@ public sealed class FileTransferSender
                             await sslStream.FlushAsync(ct);
                             bytesSent += read;
 
-                            queue.UpdateState(item.TransferId, FileTransferState.TRANSFERRING, bytesTransferred: bytesSent);
+                            long nowMs = Environment.TickCount64;
+                            if (nowMs - lastEmitTimeMs >= 100 || bytesSent == fileSize)
+                            {
+                                double elapsedSec = Math.Max(0.001, (nowMs - startTimeMs) / 1000.0);
+                                double speed = bytesSent / elapsedSec;
+
+                                queue.UpdateState(item.TransferId, FileTransferState.TRANSFERRING, bytesTransferred: bytesSent);
+                                EmitProgress(activeCallback, item.TransferId, item.FileName, fileSize, bytesSent, speed, FileTransferState.TRANSFERRING, null);
+                                lastEmitTimeMs = nowMs;
+                            }
                         }
 
                         byte[] endFrame = DataChunkFraming.SerializeEndSignal(uuid);
                         await sslStream.WriteAsync(endFrame, 0, endFrame.Length, ct);
                         await sslStream.FlushAsync(ct);
                     }
+
+                    EmitProgress(activeCallback, item.TransferId, item.FileName, fileSize, fileSize, 0, FileTransferState.VERIFYING, null);
 
                     byte[] completeBytes = await ReadFrameAsync(sslStream, ct);
                     string completeJson = Encoding.UTF8.GetString(completeBytes);
@@ -179,12 +231,14 @@ public sealed class FileTransferSender
                     if (status == "SUCCESS" || status == "OK")
                     {
                         queue.UpdateState(item.TransferId, FileTransferState.COMPLETED, bytesTransferred: fileSize);
+                        EmitProgress(activeCallback, item.TransferId, item.FileName, fileSize, fileSize, 0, FileTransferState.COMPLETED, null);
                         _logger.Info($"FileTransferSender: Successfully completed transfer {item.FileName} ({fileSize} bytes)!");
                     }
                     else
                     {
                         string reason = completeDoc.RootElement.TryGetProperty("reason", out var rProp) ? rProp.GetString() ?? "Rejected" : "Rejected";
                         queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: reason);
+                        EmitProgress(activeCallback, item.TransferId, item.FileName, fileSize, fileSize, 0, FileTransferState.FAILED, reason);
                         _logger.Warning($"FileTransferSender: Transfer {item.TransferId} reported failure by receiver: {reason}");
                     }
                 }
@@ -192,13 +246,47 @@ public sealed class FileTransferSender
                 {
                     _logger.Error($"FileTransferSender: Exception sending transfer {item.TransferId}: {ex.Message}");
                     queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: ex.Message);
+                    EmitProgress(activeCallback, item.TransferId, item.FileName, prepared.Size, 0, 0, FileTransferState.FAILED, ex.Message);
                 }
             }
         }
         catch (Exception ex)
         {
             _logger.Warning($"FileTransferSender: Connection to {targetIp}:{port} failed: {ex.Message}");
+            foreach (var prepared in preparedItems)
+            {
+                EmitProgress(activeCallback, prepared.Item.TransferId, prepared.Item.FileName, prepared.Size, 0, 0, FileTransferState.FAILED, ex.Message);
+            }
         }
+    }
+
+    private static void EmitProgress(
+        Action<TransferProgress>? callback,
+        string transferId,
+        string fileName,
+        long fileSize,
+        long bytesTransferred,
+        double speedBytesPerSec,
+        FileTransferState state,
+        string? errorMessage)
+    {
+        if (callback == null) return;
+
+        var progress = new TransferProgress
+        {
+            TransferId = transferId,
+            FileName = fileName,
+            FileSize = fileSize,
+            BytesTransferred = bytesTransferred,
+            SpeedBytesPerSec = speedBytesPerSec,
+            State = state,
+            IsIncoming = false,
+            PeerName = "Phone",
+            ErrorMessage = errorMessage,
+            DestinationPath = null
+        };
+
+        callback(progress);
     }
 
     private static async Task SendFrameAsync(SslStream stream, string jsonStr, CancellationToken ct)
@@ -230,7 +318,7 @@ public sealed class FileTransferSender
         return payload;
     }
 
-    private static string ComputeSha512Hex(string path)
+    public static string ComputeSha512Hex(string path)
     {
         using var sha = SHA512.Create();
         using var fs = File.OpenRead(path);

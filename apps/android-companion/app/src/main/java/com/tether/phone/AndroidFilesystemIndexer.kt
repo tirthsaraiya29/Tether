@@ -20,7 +20,7 @@ class AndroidFilesystemIndexer(private val context: Context) {
     companion object {
         private const val TAG = "AndroidFsIndexer"
         const val DB_NAME = "android_fs.db"
-        private const val DB_VERSION = 2
+        private const val DB_VERSION = 3
         private const val HASH_BUFFER_SIZE = 65536 // 64 KB
         private const val MAX_HASH_SIZE_BYTES = 100 * 1024 * 1024L // Hash files up to 100MB directly
 
@@ -35,6 +35,14 @@ class AndroidFilesystemIndexer(private val context: Context) {
         }
 
         override fun onCreate(db: SQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE roots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    path TEXT UNIQUE,
+                    root_type TEXT
+                )
+            """)
             db.execSQL("""
                 CREATE TABLE files (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,6 +59,7 @@ class AndroidFilesystemIndexer(private val context: Context) {
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            db.execSQL("DROP TABLE IF EXISTS roots")
             db.execSQL("DROP TABLE IF EXISTS files")
             onCreate(db)
         }
@@ -61,9 +70,24 @@ class AndroidFilesystemIndexer(private val context: Context) {
         val db = dbHelper.writableDatabase
         db.beginTransaction()
         try {
+            db.execSQL("DELETE FROM roots")
             db.execSQL("DELETE FROM files")
 
             val roots = getStorageRoots()
+            val rootStatement = db.compileStatement("INSERT OR IGNORE INTO roots (name, path, root_type) VALUES (?, ?, ?)")
+            for (root in roots) {
+                rootStatement.clearBindings()
+                val rootName = when {
+                    root.absolutePath.contains("emulated") -> "Internal Storage"
+                    root.name.equals("Download", ignoreCase = true) -> "Downloads"
+                    else -> "Storage (${root.name})"
+                }
+                rootStatement.bindString(1, rootName)
+                rootStatement.bindString(2, root.absolutePath)
+                rootStatement.bindString(3, "STORAGE")
+                rootStatement.executeInsert()
+            }
+
             var estimatedTotal = 0
             for (root in roots) {
                 estimatedTotal += countFiles(root)
@@ -78,7 +102,7 @@ class AndroidFilesystemIndexer(private val context: Context) {
 
             var scannedCount = 0
             for (root in roots) {
-                scannedCount = scanAndHashDirectory(db, root, "/", scannedCount, estimatedTotal)
+                scannedCount = scanAndHashDirectory(db, root, root.absolutePath, scannedCount, estimatedTotal)
             }
 
             db.setTransactionSuccessful()

@@ -1457,12 +1457,29 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         reconnectJob = null
     }
 
+    private fun sendPingProbe() {
+        val transport = activeTransport ?: return
+        if (!transport.isConnected()) return
+        serviceScope.launch {
+            try {
+                val pingJson = JSONObject().apply {
+                    put("type", "PING")
+                    put("timestamp", System.currentTimeMillis())
+                }
+                transport.sendFrame(pingJson.toString().toByteArray(StandardCharsets.UTF_8))
+                Log.d(TAG, "Health check: Sent PING probe to Windows host.")
+            } catch (e: Exception) {
+                Log.w(TAG, "Health check: Failed sending PING probe: ${e.message}")
+            }
+        }
+    }
+
     private fun performHealthCheck() {
         if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED) || (currentState == TransportState.DISCOVERING)) {
             Log.i(TAG, "Health check: Transport state is $currentState. Refreshing discovery...")
             startDiscovery()
         } else if ((currentState == TransportState.READY) || (currentState == TransportState.AUTHENTICATED)) {
-            dispatchCommand("PING")
+            sendPingProbe()
         }
     }
 

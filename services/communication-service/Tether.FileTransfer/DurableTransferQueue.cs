@@ -58,6 +58,15 @@ public sealed class DurableTransferQueue
 
     public DurableTransferItem EnqueueOutgoing(string sourcePath, string targetDeviceId, string relativePath = "")
     {
+        var existing = _items.Values.FirstOrDefault(i => !i.IsIncoming &&
+            string.Equals(i.SourcePath, sourcePath, StringComparison.OrdinalIgnoreCase) &&
+            (i.State == FileTransferState.REQUESTED || i.State == FileTransferState.TRANSFERRING || i.State == FileTransferState.CONNECTING));
+
+        if (existing != null)
+        {
+            return existing;
+        }
+
         var fileInfo = new FileInfo(sourcePath);
         if (!fileInfo.Exists && !Directory.Exists(sourcePath))
         {
@@ -128,12 +137,17 @@ public sealed class DurableTransferQueue
     {
         if (_items.TryGetValue(transferId, out var existing))
         {
+            int newRetryCount = newState == FileTransferState.FAILED
+                ? existing.RetryCount + 1
+                : (newState == FileTransferState.TRANSFERRING || newState == FileTransferState.COMPLETED ? 0 : existing.RetryCount);
+
             var updated = existing with
             {
                 State = newState,
                 BytesTransferred = bytesTransferred >= 0 ? bytesTransferred : existing.BytesTransferred,
                 ErrorMessage = errorMessage ?? existing.ErrorMessage,
                 ErrorCode = errorCode != 0 ? errorCode : existing.ErrorCode,
+                RetryCount = newRetryCount,
                 LastUpdatedUtc = DateTime.UtcNow
             };
 
