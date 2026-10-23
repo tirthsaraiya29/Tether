@@ -616,6 +616,29 @@ class TetherFileTransferManager(
         }
     }
 
+    fun requestWindowsFileDownload(securityEngine: ProductionSecurityEngine, host: String, port: Int = 37125, remotePath: String) {
+        coroutineScope.launch(Dispatchers.IO) {
+            var transport: TetherQuicTransportImpl? = null
+            try {
+                transport = TetherQuicTransportImpl(appContext, securityEngine)
+                transport.connect(host, port, timeoutMs = 5000)
+                val myPublicKeyBytes = securityEngine.getPublicKeyBytes()
+                val myFingerprint = securityEngine.computePublicKeyFingerprint(myPublicKeyBytes)
+                val initReqJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT}\",\"protocolVersion\":\"1.0\",\"deviceId\":\"$myFingerprint\"}"
+                transport.sendControlFrame(initReqJson.toByteArray(StandardCharsets.UTF_8))
+                transport.readControlFrame() // Wait for ACK
+
+                val req = FileDownloadRequestFrame(filePath = remotePath)
+                transport.sendControlFrame(req.toJsonString().toByteArray(StandardCharsets.UTF_8))
+                Log.i(TAG, "Sent FILE_DOWNLOAD_REQUEST for '$remotePath' to Windows PC")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed requesting Windows file download: ${e.message}")
+            } finally {
+                transport?.disconnect("Download request sent")
+            }
+        }
+    }
+
     /**
      * Sends BROWSE_ROOTS_REQUEST to Windows PC and returns permitted roots
      */

@@ -489,6 +489,35 @@ public sealed class FileTransferReceiver : IDisposable
                     }
                     break;
 
+                case ControlMessageType.FILE_DOWNLOAD_REQUEST:
+                    if (!isAuthenticated)
+                    {
+                        _logger.Warning("FILE_DOWNLOAD_REQUEST received before CONTROL_INIT.");
+                        return;
+                    }
+                    var downloadReq = JsonSerializer.Deserialize<FileDownloadRequestFrame>(jsonStr);
+                    if (downloadReq != null && !string.IsNullOrWhiteSpace(downloadReq.FilePath))
+                    {
+                        try
+                        {
+                            string canonicalPath = _fileSystemBrowser.GetCanonicalValidatedPath(downloadReq.FilePath);
+                            if (File.Exists(canonicalPath))
+                            {
+                                _durableQueue.EnqueueOutgoing(canonicalPath, authenticatedPeerName);
+                                _logger.Info($"FILE_DOWNLOAD_REQUEST: Enqueued '{canonicalPath}' for transfer to {authenticatedPeerName}");
+                            }
+                            else
+                            {
+                                _logger.Warning($"FILE_DOWNLOAD_REQUEST: File not found '{downloadReq.FilePath}'");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Warning($"FILE_DOWNLOAD_REQUEST error: {ex.Message}");
+                        }
+                    }
+                    break;
+
                 default:
                     _logger.Debug($"Unhandled control message type: {messageType}");
                     break;

@@ -76,6 +76,7 @@ object ControlMessageType {
     const val FS_DB_SYNC_RESPONSE = "FS_DB_SYNC_RESPONSE"
     const val FS_DELTA_UPDATE = "FS_DELTA_UPDATE"
     const val FS_ON_DEMAND_SCAN = "FS_ON_DEMAND_SCAN"
+    const val FILE_DOWNLOAD_REQUEST = "FILE_DOWNLOAD_REQUEST"
 }
 
 /**
@@ -404,4 +405,20 @@ data class FsOnDemandScanFrame(
     val targetPath: String
 ) {
     fun toJsonString(): String = "{\"type\":\"${ControlMessageType.FS_ON_DEMAND_SCAN}\",\"requestId\":\"$requestId\",\"targetPath\":\"$targetPath\"}"
+}
+
+data class FileDownloadRequestFrame(
+    val requestId: String = UUID.randomUUID().toString(),
+    val filePath: String
+) {
+    fun toJsonString(): String = "{\"type\":\"${ControlMessageType.FILE_DOWNLOAD_REQUEST}\",\"requestId\":\"$requestId\",\"filePath\":\"$filePath\"}"
+
+    companion object {
+        fun parseJsonString(jsonStr: String): FileDownloadRequestFrame {
+            return FileDownloadRequestFrame(
+                requestId = JsonParserUtils.getString(jsonStr, "requestId", UUID.randomUUID().toString()),
+                filePath = JsonParserUtils.getString(jsonStr, "filePath", "")
+            )
+        }
+    }
 }

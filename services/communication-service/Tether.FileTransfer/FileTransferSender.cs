@@ -135,8 +135,22 @@ public sealed class FileTransferSender
                         await sslStream.FlushAsync(ct);
                     }
 
-                    queue.UpdateState(item.TransferId, FileTransferState.COMPLETED, bytesTransferred: fileSize);
-                    _logger.Info($"FileTransferSender: Successfully completed transfer {item.FileName} ({fileSize} bytes)!");
+                    byte[] completeBytes = await ReadFrameAsync(sslStream, ct);
+                    string completeJson = Encoding.UTF8.GetString(completeBytes);
+                    using var completeDoc = JsonDocument.Parse(completeJson);
+                    string status = completeDoc.RootElement.TryGetProperty("status", out var sProp) ? sProp.GetString() ?? "" : "";
+
+                    if (status == "SUCCESS" || status == "OK")
+                    {
+                        queue.UpdateState(item.TransferId, FileTransferState.COMPLETED, bytesTransferred: fileSize);
+                        _logger.Info($"FileTransferSender: Successfully completed transfer {item.FileName} ({fileSize} bytes)!");
+                    }
+                    else
+                    {
+                        string reason = completeDoc.RootElement.TryGetProperty("reason", out var rProp) ? rProp.GetString() ?? "Rejected" : "Rejected";
+                        queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: reason);
+                        _logger.Warning($"FileTransferSender: Transfer {item.TransferId} reported failure by receiver: {reason}");
+                    }
                 }
                 catch (Exception ex)
                 {

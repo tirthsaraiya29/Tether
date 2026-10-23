@@ -233,6 +233,24 @@ class TetherFileTransferServer(
                         sendFrame(dos, respObj.toString().toByteArray(StandardCharsets.UTF_8))
                     }
 
+                    ControlMessageType.FILE_DOWNLOAD_REQUEST -> {
+                        if (!isAuthenticated) break
+                        val reqFrame = FileDownloadRequestFrame.parseJsonString(jsonStr)
+                        val requestedFile = File(reqFrame.filePath)
+                        if (requestedFile.exists() && requestedFile.isFile) {
+                            val clientHost = socket.inetAddress.hostAddress ?: ""
+                            fileTransferManager.sendFile(
+                                securityEngine,
+                                clientHost,
+                                SERVER_PORT,
+                                android.net.Uri.fromFile(requestedFile),
+                                "Windows PC"
+                            )
+                        } else {
+                            Log.w(TAG, "FILE_DOWNLOAD_REQUEST: File not found '${reqFrame.filePath}'")
+                        }
+                    }
+
                     ControlMessageType.TRANSFER_REQUEST -> {
                         if (!isAuthenticated) break
                         val reqFrame = TransferRequestFrame.parseJsonString(jsonStr)

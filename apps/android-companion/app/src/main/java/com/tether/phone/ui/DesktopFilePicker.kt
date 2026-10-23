@@ -92,11 +92,20 @@ fun DesktopFilePicker() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = { 
                     val lastSlash = maxOf(currentPath.lastIndexOf('/'), currentPath.lastIndexOf('\\'))
-                    if (lastSlash > 0) {
-                        currentPath = currentPath.substring(0, lastSlash)
-                    } else if (currentPath != "/") {
-                        currentPath = "/"
+                    var targetPath = if (lastSlash > 0) currentPath.substring(0, lastSlash) else "/"
+                    val dbFile = context.getDatabasePath("windows_fs.db")
+                    if (dbFile.exists() && targetPath != "/") {
+                        try {
+                            val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
+                            val cursor = db.rawQuery("SELECT COUNT(1) FROM files WHERE parent_path = ?", arrayOf(targetPath))
+                            if (cursor.moveToFirst() && cursor.getInt(0) == 0) {
+                                targetPath = "/"
+                            }
+                            cursor.close()
+                            db.close()
+                        } catch (_: Exception) { }
                     }
+                    currentPath = targetPath
                 }, enabled = currentPath != "/") {
                     Text("Up")
                 }
@@ -112,6 +121,16 @@ fun DesktopFilePicker() {
                             .clickable {
                                 if (file.isDir) {
                                     currentPath = file.path
+                                } else {
+                                    val service = TetherLanService.instance
+                                    val hostIp = service?.connectedHostAddress
+                                    if (service != null && !hostIp.isNullOrBlank()) {
+                                        service.fileTransferManager.requestWindowsFileDownload(
+                                            service.securityEngine,
+                                            hostIp,
+                                            remotePath = file.path
+                                        )
+                                    }
                                 }
                             }
                             .padding(vertical = 12.dp),
@@ -125,7 +144,7 @@ fun DesktopFilePicker() {
                         Column {
                             Text(file.name)
                             if (!file.isDir) {
-                                Text("${file.size / 1024} KB", style = MaterialTheme.typography.bodySmall)
+                                Text("${file.size / 1024} KB • Tap to Download", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }

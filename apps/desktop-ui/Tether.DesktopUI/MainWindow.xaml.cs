@@ -1260,23 +1260,44 @@ namespace Tether.DesktopUI
                 if (_currentExplorerDir == "/" || string.IsNullOrEmpty(_currentExplorerDir)) return;
 
                 int lastSlash = _currentExplorerDir.LastIndexOf('/');
-                if (lastSlash > 0)
+                string targetPath = lastSlash > 0 ? _currentExplorerDir.Substring(0, lastSlash) : "/";
+
+                string commonData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                string dbPath = Path.Combine(commonData, "Tether", "android_fs.db");
+                if (File.Exists(dbPath) && targetPath != "/")
                 {
-                    LoadExplorerDirectory(_currentExplorerDir.Substring(0, lastSlash));
+                    using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+                    connection.Open();
+                    using var command = connection.CreateCommand();
+                    command.CommandText = "SELECT COUNT(1) FROM files WHERE parent_path = $parent";
+                    command.Parameters.AddWithValue("$parent", targetPath);
+                    long count = (long)(command.ExecuteScalar() ?? 0L);
+                    if (count == 0)
+                    {
+                        targetPath = "/";
+                    }
                 }
-                else
-                {
-                    LoadExplorerDirectory("/");
-                }
+
+                LoadExplorerDirectory(targetPath);
             }
-            catch { }
+            catch
+            {
+                LoadExplorerDirectory("/");
+            }
         }
 
         private void LstFileExplorer_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            if (LstFileExplorer.SelectedItem is ExplorerItemModel selected && selected.IsDirectory)
+            if (LstFileExplorer.SelectedItem is ExplorerItemModel selected)
             {
-                LoadExplorerDirectory(selected.FullPath);
+                if (selected.IsDirectory)
+                {
+                    LoadExplorerDirectory(selected.FullPath);
+                }
+                else if (!string.IsNullOrEmpty(selected.FullPath))
+                {
+                    RequestFileDownloadFromAndroid(selected.FullPath);
+                }
             }
         }
 
@@ -1295,16 +1316,42 @@ namespace Tether.DesktopUI
         {
             try
             {
-                var selectedItems = LstFileExplorer.SelectedItems.Cast<ExplorerItemModel>().Select(i => i.FullPath).ToArray();
-                if (selectedItems.Length > 0)
+                var selectedFiles = LstFileExplorer.SelectedItems.Cast<ExplorerItemModel>()
+                    .Where(i => !i.IsDirectory && !string.IsNullOrEmpty(i.FullPath))
+                    .Select(i => i.FullPath)
+                    .ToArray();
+
+                if (selectedFiles.Length > 0)
                 {
-                    App.ProcessLaunchArgs(selectedItems);
-                    LogTerminal($"Queued {selectedItems.Length} item(s) for transfer.");
+                    foreach (var path in selectedFiles)
+                    {
+                        RequestFileDownloadFromAndroid(path);
+                    }
+                    LogTerminal($"Requested download for {selectedFiles.Length} file(s) from phone.");
                 }
             }
             catch (Exception ex)
             {
-                LogTerminal($"Could not send selected items: {ex.Message}");
+                LogTerminal($"Could not request selected items: {ex.Message}");
+            }
+        }
+
+        private void RequestFileDownloadFromAndroid(string remotePath)
+        {
+            try
+            {
+                var evt = new TetherEvent
+                {
+                    EventType = TetherEventType.FILE_TRANSFER_ENQUEUE_REQUESTED,
+                    Source = "DesktopUI",
+                    PayloadJson = JsonSerializer.Serialize(new { paths = new[] { remotePath } })
+                };
+                DispatchServiceBusPipe(evt);
+                LogTerminal($"Requested download for '{remotePath}' from phone...");
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"Error requesting file download: {ex.Message}");
             }
         }
 
