@@ -1,4 +1,7 @@
 using System;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -75,6 +78,29 @@ public sealed record ControlInitFrame
     [JsonPropertyName("type")] public string Type { get; init; } = ControlMessageType.CONTROL_INIT;
     [JsonPropertyName("protocolVersion")] public string ProtocolVersion { get; init; } = "1.0";
     [JsonPropertyName("deviceId")] public string DeviceId { get; init; } = "";
+    [JsonPropertyName("nonce")] public string Nonce { get; init; } = "";
+    [JsonPropertyName("signature")] public string Signature { get; init; } = "";
+
+    public static ControlInitFrame CreateSigned(X509Certificate2 cert)
+    {
+        string deviceId = FileTransferManager.ComputeSpkiFingerprint(cert);
+        byte[] nonceBytes = RandomNumberGenerator.GetBytes(16);
+        string nonce = Convert.ToHexString(nonceBytes);
+
+        byte[] data = Encoding.UTF8.GetBytes($"TETHER_CONTROL_INIT:{deviceId}:{nonce}");
+        using var ecdsa = cert.GetECDsaPrivateKey()
+            ?? throw new InvalidOperationException("Certificate does not have an ECDSA private key.");
+
+        byte[] sigBytes = ecdsa.SignData(data, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        string signatureB64 = Convert.ToBase64String(sigBytes);
+
+        return new ControlInitFrame
+        {
+            DeviceId = deviceId,
+            Nonce = nonce,
+            Signature = signatureB64
+        };
+    }
 }
 
 public sealed record ControlInitAckFrame

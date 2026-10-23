@@ -145,9 +145,18 @@ public sealed class Worker : BackgroundService
                                                 using var client = new System.Net.Sockets.TcpClient();
                                                 await client.ConnectAsync(activeIp, FileTransferReceiver.DefaultPort);
                                                 using var sslStream = new System.Net.Security.SslStream(client.GetStream(), false, (s, c, ch, err) => true);
-                                                await sslStream.AuthenticateAsClientAsync(activeIp);
 
-                                                var init = new ControlInitFrame { DeviceId = _identity.DeviceId };
+                                                var cert = _fileTransferManager.ServerCertificate;
+                                                var options = new System.Net.Security.SslClientAuthenticationOptions
+                                                {
+                                                    TargetHost = activeIp,
+                                                    ClientCertificates = new System.Security.Cryptography.X509Certificates.X509CertificateCollection { cert },
+                                                    EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
+                                                    LocalCertificateSelectionCallback = (s, h, lc, rc, ai) => cert
+                                                };
+                                                await sslStream.AuthenticateAsClientAsync(options);
+
+                                                var init = ControlInitFrame.CreateSigned(_fileTransferManager.ServerCertificate);
                                                 byte[] initBytes = System.Text.Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(init));
                                                 byte[] lenBuf = new byte[4];
                                                 System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBuf, initBytes.Length);
@@ -295,65 +304,65 @@ public sealed class Worker : BackgroundService
                 {
                     await Task.Delay(3000, stoppingToken);
 
-                    string? activeIp = _sessionManager.GetActiveSessions().FirstOrDefault()?.IpAddress ?? _udpDiscovery.LastDiscoveryIp;
-                    if (!string.IsNullOrEmpty(activeIp))
-                    {
-                        await _fileTransferManager.ProcessOutgoingQueueAsync(activeIp, stoppingToken);
-
-                        if (!_hasSyncedFsOnConnect)
-                        {
-                            _hasSyncedFsOnConnect = true;
-                            _ = Task.Run(async () =>
-                            {
-                                try
-                                {
-                                    _tetherLogger.Info($"Auto-triggering background filesystem database sync with phone ({activeIp})...");
-                                    var indexer = new WindowsFilesystemIndexer(_tetherLogger);
-                                    string localDb = await indexer.BuildDatabaseAsync();
-                                    var activeDev = _sessionManager.GetActiveSessions().FirstOrDefault()?.Device?.DeviceId ?? "TARGET_PHONE";
-                                    _fileTransferManager.DurableQueue.EnqueueOutgoing(localDb, activeDev, "windows_fs.db");
-                                    await _fileTransferManager.RequestPhoneDbSyncAsync(activeIp, stoppingToken);
-                                }
-                                catch (Exception ex)
-                                {
-                                    _tetherLogger.Warning($"Auto-sync filesystem DB failed: {ex.Message}");
-                                }
-                            }, stoppingToken);
-                        }
-                    }
-
                     if (_sessionManager.ActiveSessionCount > 0)
                     {
+                        string? activeIp = _sessionManager.GetActiveSessions().FirstOrDefault()?.IpAddress;
+                        if (!string.IsNullOrEmpty(activeIp))
+                        {
+                            await _fileTransferManager.ProcessOutgoingQueueAsync(activeIp, stoppingToken);
+
+                            if (!_hasSyncedFsOnConnect)
+                            {
+                                _hasSyncedFsOnConnect = true;
+                                _ = Task.Run(async () =>
+                                {
+                                    try
+                                    {
+                                        _tetherLogger.Info($"Auto-triggering background filesystem database sync with phone ({activeIp})...");
+                                        var indexer = new WindowsFilesystemIndexer(_tetherLogger);
+                                        string localDb = await indexer.BuildDatabaseAsync();
+                                        var activeDev = _sessionManager.GetActiveSessions().FirstOrDefault()?.Device?.DeviceId ?? "TARGET_PHONE";
+                                        _fileTransferManager.DurableQueue.EnqueueOutgoing(localDb, activeDev, "windows_fs.db");
+                                        await _fileTransferManager.RequestPhoneDbSyncAsync(activeIp, stoppingToken);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _tetherLogger.Warning($"Auto-sync filesystem DB failed: {ex.Message}");
+                                    }
+                                }, stoppingToken);
+                            }
+                        }
+
                         var snap = LaptopStateCollector.GetLaptopSnapshot(_tetherLogger);
                         if (snap.IsCharging != lastIsCharging || snap.BatteryLevel != lastBattery || snap.LockState != lastLock)
                         {
-                        lastIsCharging = snap.IsCharging;
-                        lastBattery = snap.BatteryLevel;
-                        lastLock = snap.LockState;
-                        _sessionManager.BroadcastLaptopState(snap);
-                    }
+                            lastIsCharging = snap.IsCharging;
+                            lastBattery = snap.BatteryLevel;
+                            lastLock = snap.LockState;
+                            _sessionManager.BroadcastLaptopState(snap);
+                        }
 
-                    if (_powerWatcher.HasPending)
-                    {
-                        try
+                        if (_powerWatcher.HasPending)
                         {
-                            _powerNotifier.FlushToSession(
-                                json => _sessionManager.BroadcastRawFrame(json));
-                        }
-                        catch (Exception ex)
-                        {
-                            _tetherLogger.Warning($"Worker: power-event flush failed: {ex.Message}");
+                            try
+                            {
+                                _powerNotifier.FlushToSession(
+                                    json => _sessionManager.BroadcastRawFrame(json));
+                            }
+                            catch (Exception ex)
+                            {
+                                _tetherLogger.Warning($"Worker: power-event flush failed: {ex.Message}");
+                            }
                         }
                     }
+                    else
+                    {
+                        _hasSyncedFsOnConnect = false;
+                    }
                 }
-                else
-                {
-                    _hasSyncedFsOnConnect = false;
-                }
+                catch (OperationCanceledException) { break; }
+                catch { }
             }
-            catch (OperationCanceledException) { break; }
-            catch { }
-        }
         }, stoppingToken);
 
         return Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_ => { }, TaskScheduler.Default);
