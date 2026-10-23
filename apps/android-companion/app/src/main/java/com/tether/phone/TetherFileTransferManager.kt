@@ -229,6 +229,7 @@ class TetherFileTransferManager(
         val startTimeMs = System.currentTimeMillis()
         var lastEmitTimeMs = startTimeMs
         var bytesTransferred = 0L
+        var hasReceivedDataEnd = false
 
         try {
             FileOutputStream(stagingFile).use { fos ->
@@ -239,6 +240,7 @@ class TetherFileTransferManager(
                     val header = DataChunkFraming.parseHeader(chunkBytes)
                     if (header.msgType == DataChunkMessageType.MSG_DATA_END) {
                         Log.i(TAG, "Received DATA_END signal for transfer $transferId")
+                        hasReceivedDataEnd = true
                         break
                     }
 
@@ -265,16 +267,18 @@ class TetherFileTransferManager(
                 }
             }
 
-            try {
-                val trailingChunk = transport.readDataChunk()
-                if (trailingChunk != null && trailingChunk.size >= DataChunkFraming.HEADER_SIZE_BYTES - 4) {
-                    val header = DataChunkFraming.parseHeader(trailingChunk)
-                    if (header.msgType == DataChunkMessageType.MSG_DATA_END) {
-                        Log.i(TAG, "Consumed trailing MSG_DATA_END for transfer $transferId")
+            if (!hasReceivedDataEnd) {
+                try {
+                    val trailingChunk = transport.readDataChunk()
+                    if (trailingChunk != null && trailingChunk.size >= DataChunkFraming.HEADER_SIZE_BYTES - 4) {
+                        val header = DataChunkFraming.parseHeader(trailingChunk)
+                        if (header.msgType == DataChunkMessageType.MSG_DATA_END) {
+                            Log.i(TAG, "Consumed trailing MSG_DATA_END for transfer $transferId")
+                        }
                     }
+                } catch (e: Exception) {
+                    Log.d(TAG, "Trailing MSG_DATA_END check: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.d(TAG, "Trailing MSG_DATA_END check: ${e.message}")
             }
 
             progress = progress.copy(

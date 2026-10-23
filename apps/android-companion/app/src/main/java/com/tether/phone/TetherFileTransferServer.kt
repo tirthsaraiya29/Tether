@@ -276,6 +276,8 @@ class TetherFileTransferServer(
                     ControlMessageType.TRANSFER_REQUEST -> {
                         if (!isAuthenticated) break
                         val reqFrame = TransferRequestFrame.parseJsonString(jsonStr)
+                        Log.i(TAG, "TRANSFER_REQUEST received: id=${reqFrame.transferId} file=${reqFrame.fileName} size=${reqFrame.fileSize} sha512Len=${reqFrame.expectedSha512.length}")
+                        
                         // Read binary stream and stage file
                         val dummyTransport = object : TetherQuicTransport {
                             override val generationId: Long = 0L
@@ -286,10 +288,18 @@ class TetherFileTransferServer(
                             override fun readControlFrame(maxSizeBytes: Int): ByteArray? = null
                             override fun sendDataChunk(chunkData: ByteArray) {}
                             override fun readDataChunk(maxSizeBytes: Int): ByteArray? {
-                                val totalLen = dis.readInt()
+                                val totalLen = try {
+                                    dis.readInt()
+                                } catch (e: Exception) {
+                                    return null
+                                }
                                 if (totalLen <= 0 || totalLen > maxSizeBytes) return null
                                 val buf = ByteArray(totalLen)
-                                dis.readFully(buf)
+                                try {
+                                    dis.readFully(buf)
+                                } catch (e: Exception) {
+                                    return null
+                                }
                                 return buf
                             }
                             override fun getPeerCertificate(): X509Certificate? = null

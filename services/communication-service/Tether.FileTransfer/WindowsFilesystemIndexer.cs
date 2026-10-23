@@ -81,6 +81,9 @@ namespace Tether.FileTransfer
                 }
             }
 
+            connection.Close();
+            SqliteConnection.ClearPool(connection);
+
             _logger.Info($"Finished building DB. Size: {new FileInfo(_dbPath).Length} bytes");
             return _dbPath;
         }
