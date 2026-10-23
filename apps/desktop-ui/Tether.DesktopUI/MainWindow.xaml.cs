@@ -915,9 +915,9 @@ namespace Tether.DesktopUI
 
             var syncEvent = new TetherEvent
             {
-                EventType = TetherEventType.AUTH_SUCCESS,
+                EventType = TetherEventType.HARDWARE_SYNC_REQUESTED,
                 Source = "DesktopUI",
-                PayloadJson = $"{{\"SyncPayload\":\"sync_levels:vol={vol},bri={bri}\"}}"
+                PayloadJson = JsonSerializer.Serialize(new { vol = vol, bri = bri })
             };
             DispatchServiceBusPipe(syncEvent);
         }
@@ -1210,29 +1210,86 @@ namespace Tether.DesktopUI
                     using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
                     connection.Open();
 
-                    using var command = connection.CreateCommand();
-                    command.CommandText = "SELECT name, path, is_directory, size, last_modified FROM files WHERE parent_path = $parent ORDER BY is_directory DESC, name ASC";
-                    command.Parameters.AddWithValue("$parent", _currentExplorerDir);
-
-                    using var reader = command.ExecuteReader();
-                    while (reader.Read())
+                    if (_currentExplorerDir == "/")
                     {
-                        string name = reader.GetString(0);
-                        string itemPath = reader.GetString(1);
-                        bool isDir = reader.GetInt32(2) == 1;
-                        long size = reader.GetInt64(3);
-                        long lastMod = reader.GetInt64(4);
-
-                        DateTime date = DateTimeOffset.FromUnixTimeMilliseconds(lastMod).LocalDateTime;
-
-                        items.Add(new ExplorerItemModel
+                        bool hasRootsTable = false;
+                        using (var tableCheck = connection.CreateCommand())
                         {
-                            Name = isDir ? $"📁 {name}" : $"📄 {name}",
-                            FullPath = itemPath,
-                            IsDirectory = isDir,
-                            FileSize = size,
-                            FormattedDate = date.ToString("yyyy-MM-dd HH:mm")
-                        });
+                            tableCheck.CommandText = "SELECT COUNT(1) FROM sqlite_master WHERE type='table' AND name='roots'";
+                            hasRootsTable = ((long)(tableCheck.ExecuteScalar() ?? 0L)) > 0;
+                        }
+
+                        if (hasRootsTable)
+                        {
+                            using var command = connection.CreateCommand();
+                            command.CommandText = "SELECT name, path FROM roots ORDER BY name ASC";
+                            using var reader = command.ExecuteReader();
+                            while (reader.Read())
+                            {
+                                string name = reader.GetString(0);
+                                string itemPath = reader.GetString(1);
+                                items.Add(new ExplorerItemModel
+                                {
+                                    Name = $"📁 {name}",
+                                    FullPath = itemPath,
+                                    IsDirectory = true,
+                                    FileSize = 0,
+                                    FormattedDate = ""
+                                });
+                            }
+                        }
+                        else
+                        {
+                            using var command = connection.CreateCommand();
+                            command.CommandText = "SELECT name, path, is_directory, size, last_modified FROM files WHERE parent_path = '/' ORDER BY is_directory DESC, name ASC";
+                            using var reader = command.ExecuteReader();
+                            while (reader.Read())
+                            {
+                                string name = reader.GetString(0);
+                                string itemPath = reader.GetString(1);
+                                bool isDir = reader.GetInt32(2) == 1;
+                                long size = reader.GetInt64(3);
+                                long lastMod = reader.GetInt64(4);
+
+                                DateTime date = DateTimeOffset.FromUnixTimeMilliseconds(lastMod).LocalDateTime;
+
+                                items.Add(new ExplorerItemModel
+                                {
+                                    Name = isDir ? $"📁 {name}" : $"📄 {name}",
+                                    FullPath = itemPath,
+                                    IsDirectory = isDir,
+                                    FileSize = size,
+                                    FormattedDate = date.ToString("yyyy-MM-dd HH:mm")
+                                });
+                            }
+                        }
+                    }
+                    else
+                    {
+                        using var command = connection.CreateCommand();
+                        command.CommandText = "SELECT name, path, is_directory, size, last_modified FROM files WHERE parent_path = $parent ORDER BY is_directory DESC, name ASC";
+                        command.Parameters.AddWithValue("$parent", _currentExplorerDir);
+
+                        using var reader = command.ExecuteReader();
+                        while (reader.Read())
+                        {
+                            string name = reader.GetString(0);
+                            string itemPath = reader.GetString(1);
+                            bool isDir = reader.GetInt32(2) == 1;
+                            long size = reader.GetInt64(3);
+                            long lastMod = reader.GetInt64(4);
+
+                            DateTime date = DateTimeOffset.FromUnixTimeMilliseconds(lastMod).LocalDateTime;
+
+                            items.Add(new ExplorerItemModel
+                            {
+                                Name = isDir ? $"📁 {name}" : $"📄 {name}",
+                                FullPath = itemPath,
+                                IsDirectory = isDir,
+                                FileSize = size,
+                                FormattedDate = date.ToString("yyyy-MM-dd HH:mm")
+                            });
+                        }
                     }
                 }
                 else
@@ -1274,9 +1331,23 @@ namespace Tether.DesktopUI
                     command.CommandText = "SELECT COUNT(1) FROM files WHERE parent_path = $parent";
                     command.Parameters.AddWithValue("$parent", targetPath);
                     long count = (long)(command.ExecuteScalar() ?? 0L);
+
                     if (count == 0)
                     {
-                        targetPath = "/";
+                        bool isRoot = false;
+                        try
+                        {
+                            using var rootCmd = connection.CreateCommand();
+                            rootCmd.CommandText = "SELECT COUNT(1) FROM roots WHERE path = $path";
+                            rootCmd.Parameters.AddWithValue("$path", targetPath);
+                            isRoot = ((long)(rootCmd.ExecuteScalar() ?? 0L)) > 0;
+                        }
+                        catch { }
+
+                        if (!isRoot)
+                        {
+                            targetPath = "/";
+                        }
                     }
                 }
 
@@ -1369,8 +1440,19 @@ namespace Tether.DesktopUI
 
                 if (dialog.ShowDialog() == true && dialog.FileNames.Length > 0)
                 {
-                    App.ProcessLaunchArgs(dialog.FileNames);
-                    LogTerminal($"Queued {dialog.FileNames.Length} file(s) for transfer.");
+                    if (App.ProcessLaunchArgs(dialog.FileNames, out string? err))
+                    {
+                        TxtTransferFileName.Text = $"Queuing: {Path.GetFileName(dialog.FileNames[0])}{(dialog.FileNames.Length > 1 ? $" (+{dialog.FileNames.Length - 1} more)" : "")}";
+                        TxtTransferSpeed.Text = "Queued";
+                        TxtTransferMeta.Text = $"0 / {dialog.FileNames.Length} file(s) waiting for sender";
+                        LogTerminal($"Queued {dialog.FileNames.Length} file(s) for transfer.");
+                    }
+                    else
+                    {
+                        TxtTransferFileName.Text = "Queueing failed";
+                        TxtTransferMeta.Text = err ?? "IPC service unreachable";
+                        LogTerminal($"Could not queue files: {err}");
+                    }
                 }
             }
             catch (Exception ex)

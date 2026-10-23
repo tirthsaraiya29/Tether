@@ -55,7 +55,9 @@ public class PipeServer : IDisposable
     public static bool IsAllowedIpcEvent(TetherEventType type) =>
         type == TetherEventType.PANIC_TRIGGERED ||
         type == TetherEventType.FILE_TRANSFER_CANCEL_REQUESTED ||
-        type == TetherEventType.FILE_TRANSFER_ENQUEUE_REQUESTED;
+        type == TetherEventType.FILE_TRANSFER_ENQUEUE_REQUESTED ||
+        type == TetherEventType.FS_DB_SYNC_REQUESTED ||
+        type == TetherEventType.HARDWARE_SYNC_REQUESTED;
 
     public void Start()
     {

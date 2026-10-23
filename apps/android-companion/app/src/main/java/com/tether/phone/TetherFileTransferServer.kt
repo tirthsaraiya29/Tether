@@ -58,7 +58,7 @@ class TetherFileTransferServer(
                 val sslServer = factory.createServerSocket(SERVER_PORT) as SSLServerSocket
                 sslServer.reuseAddress = true
                 sslServer.enabledProtocols = arrayOf("TLSv1.3")
-                sslServer.wantClientAuth = true
+                sslServer.needClientAuth = true
                 serverSocket = sslServer
 
                 Log.i(TAG, "Tether File Transfer Server listening on TCP port $SERVER_PORT (TLS 1.3)...")
@@ -170,33 +170,31 @@ class TetherFileTransferServer(
                     ControlMessageType.FS_DB_SYNC_REQUEST -> {
                         if (!isAuthenticated) break
                         val reqId = JsonParserUtils.getString(jsonStr, "requestId", "")
-                        
-                        coroutineScope.launch {
-                            try {
-                                val indexer = AndroidFilesystemIndexer(appContext)
-                                val dbFile = indexer.buildDatabase()
-                                val checksum = TetherFileTransferManager.computeFileSha512Hex(dbFile)
-                                
-                                val resp = FsDbSyncResponseFrame(
-                                    requestId = reqId,
-                                    status = "OK",
-                                    dbSize = dbFile.length(),
-                                    checksum = checksum
-                                )
-                                sendFrame(dos, resp.toJsonString().toByteArray(StandardCharsets.UTF_8))
-                                
-                                // Send the DB file
-                                fileTransferManager.sendFile(
-                                    securityEngine,
-                                    socket.inetAddress.hostAddress ?: "",
-                                    SERVER_PORT, // Assuming desktop listens on same port or we just use active
-                                    android.net.Uri.fromFile(dbFile),
-                                    "Windows PC"
-                                )
-                            } catch (e: Exception) {
-                                val resp = FsDbSyncResponseFrame(requestId = reqId, status = "ERROR", dbSize = 0, checksum = "")
-                                sendFrame(dos, resp.toJsonString().toByteArray(StandardCharsets.UTF_8))
-                            }
+
+                        try {
+                            val indexer = AndroidFilesystemIndexer(appContext)
+                            val dbFile = indexer.buildDatabase()
+                            val checksum = TetherFileTransferManager.computeFileSha512Hex(dbFile)
+
+                            val clientHost = socket.inetAddress.hostAddress ?: ""
+                            fileTransferManager.sendFile(
+                                securityEngine,
+                                clientHost,
+                                SERVER_PORT,
+                                android.net.Uri.fromFile(dbFile),
+                                "Windows PC"
+                            )
+
+                            val resp = FsDbSyncResponseFrame(
+                                requestId = reqId,
+                                status = "OK",
+                                dbSize = dbFile.length(),
+                                checksum = checksum
+                            )
+                            sendFrame(dos, resp.toJsonString().toByteArray(StandardCharsets.UTF_8))
+                        } catch (e: Exception) {
+                            val resp = FsDbSyncResponseFrame(requestId = reqId, status = "ERROR", dbSize = 0, checksum = "")
+                            sendFrame(dos, resp.toJsonString().toByteArray(StandardCharsets.UTF_8))
                         }
                     }
 
