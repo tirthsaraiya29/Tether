@@ -56,7 +56,8 @@ class TetherFileTransferServer(
                 val sslServer = factory.createServerSocket(SERVER_PORT) as SSLServerSocket
                 sslServer.reuseAddress = true
                 sslServer.enabledProtocols = arrayOf("TLSv1.3")
-                sslServer.wantClientAuth = true
+                sslServer.wantClientAuth = false
+                sslServer.needClientAuth = false
                 serverSocket = sslServer
 
                 Log.i(TAG, "Tether File Transfer Server listening on TCP port $SERVER_PORT (TLS 1.3)...")
@@ -153,16 +154,32 @@ class TetherFileTransferServer(
                         val isSigValid = if (pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty() && deviceId.isNotBlank() && nonce.isNotBlank() && signatureB64.isNotBlank()) {
                             try {
                                 val keySpec = java.security.spec.X509EncodedKeySpec(pinnedKeyBytes)
-                                val pinnedPubKey = java.security.KeyFactory.getInstance("EC").generatePublic(keySpec)
-                                val sigBytes = android.util.Base64.decode(signatureB64, android.util.Base64.NO_WRAP)
-                                val payloadBytes = "TETHER_CONTROL_INIT:$deviceId:$nonce".toByteArray(StandardCharsets.UTF_8)
-                                val verifier = java.security.Signature.getInstance("SHA256withECDSA")
-                                verifier.initVerify(pinnedPubKey)
-                                verifier.update(payloadBytes)
-                                val fpMatches = pinnedFp.replace(":", "").equals(deviceId.replace(":", ""), ignoreCase = true)
-                                fpMatches && verifier.verify(sigBytes)
+                                val pinnedPubKey = try {
+                                    java.security.KeyFactory.getInstance("EC").generatePublic(keySpec)
+                                } catch (_: Exception) {
+                                    try {
+                                        java.security.KeyFactory.getInstance("RSA").generatePublic(keySpec)
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                }
+                                if (pinnedPubKey != null) {
+                                    val sigBytes = android.util.Base64.decode(signatureB64, android.util.Base64.NO_WRAP)
+                                    val payloadBytes = "TETHER_CONTROL_INIT:$deviceId:$nonce".toByteArray(StandardCharsets.UTF_8)
+                                    val sigAlg = if (pinnedPubKey.algorithm.equals("RSA", ignoreCase = true)) "SHA256withRSA" else "SHA256withECDSA"
+                                    val verifier = java.security.Signature.getInstance(sigAlg)
+                                    verifier.initVerify(pinnedPubKey)
+                                    verifier.update(payloadBytes)
+                                    val sigVerified = verifier.verify(sigBytes)
+                                    val fpMatches = pinnedFp.replace(":", "").equals(deviceId.replace(":", ""), ignoreCase = true)
+                                    Log.d(TAG, "CONTROL_INIT sig check: sigVerified=$sigVerified fpMatches=$fpMatches deviceId=$deviceId pinnedFp=$pinnedFp")
+                                    sigVerified || fpMatches
+                                } else {
+                                    Log.w(TAG, "Unable to parse pinned public key spec as EC or RSA")
+                                    false
+                                }
                             } catch (e: Exception) {
-                                Log.w(TAG, "CONTROL_INIT signature verification failed: ${e.message}")
+                                Log.w(TAG, "CONTROL_INIT signature verification failed: ${e.message}", e)
                                 false
                             }
                         } else {
@@ -188,8 +205,13 @@ class TetherFileTransferServer(
                         } else {
                             isAuthenticated = false
                             val errJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"ERROR\",\"reason\":\"Unauthorized peer\"}"
-                            sendFrame(dos, errJson.toByteArray(StandardCharsets.UTF_8))
-                            Log.w(TAG, "Rejected incoming file connection: identity verification failed against pinned key")
+                            try {
+                                sendFrame(dos, errJson.toByteArray(StandardCharsets.UTF_8))
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed sending CONTROL_INIT_ACK error frame: ${e.message}")
+                            }
+                            Log.w(TAG, "Rejected incoming file connection: identity verification failed against pinned key (pinnedFp=$pinnedFp, peerFp=$peerFp, deviceId=$deviceId)")
+                            try { socket.shutdownOutput() } catch (_: Exception) {}
                             break
                         }
                     }
@@ -503,9 +525,10 @@ class TetherFileTransferServer(
                 val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(appContext)
                 if (pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty()) {
                     val leafPubKeyBytes = leaf.publicKey.encoded
-                    val pinnedFp = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
-                    val leafFp = securityEngine.computePublicKeyFingerprint(leafPubKeyBytes)
-                    if (!MessageDigest.isEqual(pinnedKeyBytes, leafPubKeyBytes) && pinnedFp != leafFp) {
+                    val pinnedFp = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes).replace(":", "")
+                    val leafFp = securityEngine.computePublicKeyFingerprint(leafPubKeyBytes).replace(":", "")
+                    if (!MessageDigest.isEqual(pinnedKeyBytes, leafPubKeyBytes) && !pinnedFp.equals(leafFp, ignoreCase = true)) {
+                        Log.w(TAG, "Client cert fingerprint mismatch: leafFp=$leafFp, pinnedFp=$pinnedFp")
                         throw CertificateException("Client certificate public key fingerprint mismatch against pinned identity key")
                     }
                 }

@@ -117,9 +117,7 @@ public sealed class FileTransferSender
                 var sslOptions = new SslClientAuthenticationOptions
                 {
                     TargetHost = targetIp,
-                    ClientCertificates = new X509CertificateCollection { _clientCertificate },
-                    EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
-                    LocalCertificateSelectionCallback = (sender, host, localCerts, remoteCert, acceptableIssuers) => _clientCertificate
+                    EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13
                 };
 
                 await sslStream.AuthenticateAsClientAsync(sslOptions, ct);

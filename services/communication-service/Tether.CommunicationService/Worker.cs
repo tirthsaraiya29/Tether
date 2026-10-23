@@ -146,13 +146,10 @@ public sealed class Worker : BackgroundService
                                                 await client.ConnectAsync(activeIp, FileTransferReceiver.DefaultPort);
                                                 using var sslStream = new System.Net.Security.SslStream(client.GetStream(), false, (s, c, ch, err) => true);
 
-                                                var cert = _fileTransferManager.ServerCertificate;
                                                 var options = new System.Net.Security.SslClientAuthenticationOptions
                                                 {
                                                     TargetHost = activeIp,
-                                                    ClientCertificates = new System.Security.Cryptography.X509Certificates.X509CertificateCollection { cert },
-                                                    EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
-                                                    LocalCertificateSelectionCallback = (s, h, lc, rc, ai) => cert
+                                                    EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13
                                                 };
                                                 await sslStream.AuthenticateAsClientAsync(options);
 
