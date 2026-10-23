@@ -95,7 +95,6 @@ public static class DataChunkFraming
             destination[6] = guidBytes[7];
             destination[7] = guidBytes[6];
 
-            Array.Copy(guidBytes, 8, destination.Slice(8, 8).ToArray(), 0, 8);
             for (int i = 8; i < 16; i++)
             {
                 destination[i] = guidBytes[i];

@@ -15,6 +15,8 @@ using Tether.CommunicationService.Transport;
 using Tether.EnforcementEngine;
 using Tether.EventBus;
 using Tether.FileTransfer;
+using Tether.FileTransfer.Protocol;
+using Tether.FileTransfer.Receiver;
 using Tether.PanicEngine;
 using Tether.RecoveryEngine;
 using Tether.Shared.Events;
@@ -131,7 +133,54 @@ public sealed class Worker : BackgroundService
                             string path = pathNode.GetString() ?? "";
                             if (!string.IsNullOrWhiteSpace(path))
                             {
-                                _fileTransferManager.DurableQueue.EnqueueOutgoing(path, targetDeviceId);
+                                if (path.StartsWith("/") || path.StartsWith("\\"))
+                                {
+                                    string? activeIp = _sessionManager.GetActiveSessions().FirstOrDefault()?.IpAddress ?? _udpDiscovery.LastDiscoveryIp;
+                                    if (!string.IsNullOrEmpty(activeIp))
+                                    {
+                                        _ = Task.Run(async () =>
+                                        {
+                                            try
+                                            {
+                                                using var client = new System.Net.Sockets.TcpClient();
+                                                await client.ConnectAsync(activeIp, FileTransferReceiver.DefaultPort);
+                                                using var sslStream = new System.Net.Security.SslStream(client.GetStream(), false, (s, c, ch, err) => true);
+                                                await sslStream.AuthenticateAsClientAsync(activeIp);
+
+                                                var init = new ControlInitFrame { DeviceId = _identity.DeviceId };
+                                                byte[] initBytes = System.Text.Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(init));
+                                                byte[] lenBuf = new byte[4];
+                                                System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBuf, initBytes.Length);
+                                                await sslStream.WriteAsync(lenBuf);
+                                                await sslStream.WriteAsync(initBytes);
+                                                await sslStream.FlushAsync();
+
+                                                byte[] ackLenBuf = new byte[4];
+                                                await sslStream.ReadExactlyAsync(ackLenBuf, 0, 4);
+                                                int ackLen = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(ackLenBuf);
+                                                byte[] ackBuf = new byte[ackLen];
+                                                await sslStream.ReadExactlyAsync(ackBuf, 0, ackLen);
+
+                                                var req = new FileDownloadRequestFrame { FilePath = path };
+                                                byte[] reqBytes = System.Text.Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(req));
+                                                System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBuf, reqBytes.Length);
+                                                await sslStream.WriteAsync(lenBuf);
+                                                await sslStream.WriteAsync(reqBytes);
+                                                await sslStream.FlushAsync();
+
+                                                _tetherLogger.Info($"Sent FILE_DOWNLOAD_REQUEST for '{path}' to phone {activeIp}");
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                _tetherLogger.Warning($"Failed sending FILE_DOWNLOAD_REQUEST for '{path}': {ex.Message}");
+                                            }
+                                        });
+                                    }
+                                }
+                                else
+                                {
+                                    _fileTransferManager.DurableQueue.EnqueueOutgoing(path, targetDeviceId);
+                                }
                             }
                         }
                     }
@@ -145,10 +194,14 @@ public sealed class Worker : BackgroundService
             {
                 try
                 {
-                    var activeSession = _sessionManager.GetActiveSessions().FirstOrDefault();
-                    if (activeSession != null && !string.IsNullOrEmpty(activeSession.IpAddress))
+                    string? activeIp = _sessionManager.GetActiveSessions().FirstOrDefault()?.IpAddress ?? _udpDiscovery.LastDiscoveryIp;
+                    if (!string.IsNullOrEmpty(activeIp))
                     {
-                        _ = _fileTransferManager.RequestPhoneDbSyncAsync(activeSession.IpAddress);
+                        _ = _fileTransferManager.RequestPhoneDbSyncAsync(activeIp);
+                    }
+                    else
+                    {
+                        _tetherLogger.Warning("FS_DB_SYNC_REQUESTED received but no phone IP address is known yet.");
                     }
                 }
                 catch (Exception ex)
@@ -201,12 +254,10 @@ public sealed class Worker : BackgroundService
                 {
                     await Task.Delay(3000, stoppingToken);
 
-                    if (_sessionManager.ActiveSessionCount > 0)
-                {
-                    var activeSession = _sessionManager.GetActiveSessions().FirstOrDefault();
-                    if (activeSession != null && !string.IsNullOrEmpty(activeSession.IpAddress))
+                    string? activeIp = _sessionManager.GetActiveSessions().FirstOrDefault()?.IpAddress ?? _udpDiscovery.LastDiscoveryIp;
+                    if (!string.IsNullOrEmpty(activeIp))
                     {
-                        await _fileTransferManager.ProcessOutgoingQueueAsync(activeSession.IpAddress, stoppingToken);
+                        await _fileTransferManager.ProcessOutgoingQueueAsync(activeIp, stoppingToken);
 
                         if (!_hasSyncedFsOnConnect)
                         {
@@ -215,11 +266,12 @@ public sealed class Worker : BackgroundService
                             {
                                 try
                                 {
-                                    _tetherLogger.Info("Auto-triggering background filesystem database sync with phone...");
+                                    _tetherLogger.Info($"Auto-triggering background filesystem database sync with phone ({activeIp})...");
                                     var indexer = new WindowsFilesystemIndexer(_tetherLogger);
                                     string localDb = await indexer.BuildDatabaseAsync();
-                                    _fileTransferManager.DurableQueue.EnqueueOutgoing(localDb, activeSession.Device?.DeviceId ?? "TARGET_PHONE", "windows_fs.db");
-                                    await _fileTransferManager.RequestPhoneDbSyncAsync(activeSession.IpAddress);
+                                    var activeDev = _sessionManager.GetActiveSessions().FirstOrDefault()?.Device?.DeviceId ?? "TARGET_PHONE";
+                                    _fileTransferManager.DurableQueue.EnqueueOutgoing(localDb, activeDev, "windows_fs.db");
+                                    await _fileTransferManager.RequestPhoneDbSyncAsync(activeIp);
                                 }
                                 catch (Exception ex)
                                 {
@@ -229,9 +281,11 @@ public sealed class Worker : BackgroundService
                         }
                     }
 
-                    var snap = LaptopStateCollector.GetLaptopSnapshot(_tetherLogger);
-                    if (snap.IsCharging != lastIsCharging || snap.BatteryLevel != lastBattery || snap.LockState != lastLock)
+                    if (_sessionManager.ActiveSessionCount > 0)
                     {
+                        var snap = LaptopStateCollector.GetLaptopSnapshot(_tetherLogger);
+                        if (snap.IsCharging != lastIsCharging || snap.BatteryLevel != lastBattery || snap.LockState != lastLock)
+                        {
                         lastIsCharging = snap.IsCharging;
                         lastBattery = snap.BatteryLevel;
                         lastLock = snap.LockState;

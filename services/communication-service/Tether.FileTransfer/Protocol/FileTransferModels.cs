@@ -61,6 +61,7 @@ public static class ControlMessageType
     public const string FS_DB_SYNC_RESPONSE = "FS_DB_SYNC_RESPONSE";
     public const string FS_DELTA_UPDATE = "FS_DELTA_UPDATE";
     public const string FS_ON_DEMAND_SCAN = "FS_ON_DEMAND_SCAN";
+    public const string FILE_DOWNLOAD_REQUEST = "FILE_DOWNLOAD_REQUEST";
 }
 
 public static class DataChunkMessageType
@@ -231,3 +232,11 @@ public sealed record QueueSyncSnapshotFrame
     [JsonPropertyName("requestId")] public string RequestId { get; init; } = "";
     [JsonPropertyName("items")] public List<DurableTransferItem> Items { get; init; } = new();
 }
+
+public sealed record FileDownloadRequestFrame
+{
+    [JsonPropertyName("type")] public string Type { get; init; } = ControlMessageType.FILE_DOWNLOAD_REQUEST;
+    [JsonPropertyName("requestId")] public string RequestId { get; init; } = Guid.NewGuid().ToString();
+    [JsonPropertyName("filePath")] public string FilePath { get; init; } = "";
+}
+
