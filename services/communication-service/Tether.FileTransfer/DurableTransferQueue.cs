@@ -58,22 +58,43 @@ public sealed class DurableTransferQueue
 
     public DurableTransferItem EnqueueOutgoing(string sourcePath, string targetDeviceId, string relativePath = "")
     {
+        bool isDir = Directory.Exists(sourcePath);
+        var fileInfo = new FileInfo(sourcePath);
+
         var existing = _items.Values.FirstOrDefault(i => !i.IsIncoming &&
-            string.Equals(i.SourcePath, sourcePath, StringComparison.OrdinalIgnoreCase) &&
-            (i.State == FileTransferState.REQUESTED || i.State == FileTransferState.TRANSFERRING || i.State == FileTransferState.CONNECTING));
+            (string.Equals(i.SourcePath, sourcePath, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(i.FileName, Path.GetFileName(sourcePath), StringComparison.OrdinalIgnoreCase)));
 
         if (existing != null)
         {
-            return existing;
+            long existingSize = isDir ? 0L : (fileInfo.Exists ? fileInfo.Length : existing.FileSize);
+
+            var resetItem = existing with
+            {
+                SourcePath = sourcePath,
+                DestinationDeviceId = targetDeviceId,
+                RelativePath = relativePath,
+                FileSize = existingSize,
+                BytesTransferred = 0L,
+                State = FileTransferState.REQUESTED,
+                LastUpdatedUtc = DateTime.UtcNow,
+                SourceLastModified = isDir ? DateTime.UtcNow.Ticks : (fileInfo.Exists ? fileInfo.LastWriteTimeUtc.Ticks : existing.SourceLastModified),
+                ErrorMessage = null,
+                ErrorCode = 0,
+                RetryCount = 0
+            };
+
+            _items[existing.TransferId] = resetItem;
+            SaveToDisk();
+            _logger.Info($"DurableQueue: Re-queued existing outgoing transfer {resetItem.TransferId} ({resetItem.FileName}) -> {targetDeviceId}");
+            return resetItem;
         }
 
-        var fileInfo = new FileInfo(sourcePath);
-        if (!fileInfo.Exists && !Directory.Exists(sourcePath))
+        if (!fileInfo.Exists && !isDir)
         {
             throw new FileNotFoundException($"Source item does not exist: {sourcePath}");
         }
 
-        bool isDir = Directory.Exists(sourcePath);
         long size = isDir ? 0L : fileInfo.Length;
 
         var item = new DurableTransferItem
@@ -193,16 +214,19 @@ public sealed class DurableTransferQueue
                 if (loaded != null)
                 {
                     _items.Clear();
-                    foreach (var item in loaded)
+                    var deduplicated = loaded
+                        .GroupBy(i => i.IsIncoming ? i.TransferId : (i.FileName ?? i.TransferId), StringComparer.OrdinalIgnoreCase)
+                        .Select(g => g.OrderByDescending(i => i.LastUpdatedUtc).First());
+
+                    foreach (var item in deduplicated)
                     {
-                        // Interrupted or transferring items on load transition to Interrupted/Requested for resume
                         var stateOnLoad = (item.State == FileTransferState.TRANSFERRING || item.State == FileTransferState.VERIFYING)
                             ? FileTransferState.REQUESTED
                             : item.State;
 
                         _items[item.TransferId] = item with { State = stateOnLoad };
                     }
-                    _logger.Info($"DurableQueue: Loaded {_items.Count} items from disk.");
+                    _logger.Info($"DurableQueue: Loaded {_items.Count} items from disk (deduplicated from {loaded.Count}).");
                 }
             }
         }

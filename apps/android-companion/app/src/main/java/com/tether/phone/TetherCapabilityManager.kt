@@ -36,8 +36,8 @@ class TetherCapabilityManager {
 
     fun negotiateCapabilities(peerCapsString: String): Set<TetherCapability> {
         if (peerCapsString.isBlank()) {
-            Log.w(TAG, "Peer advertised no capabilities. Denying all.")
-            negotiatedCapabilities = emptySet()
+            Log.i(TAG, "Peer advertised no explicit capability restrictions. Defaulting to standard capabilities.")
+            negotiatedCapabilities = DEFAULT_ANDROID_CAPABILITIES
             return negotiatedCapabilities
         }
         val peerCaps = peerCapsString.split(",")

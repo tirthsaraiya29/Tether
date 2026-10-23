@@ -68,6 +68,7 @@ public sealed class FileTransferSender
             {
                 string errMsg = "Source path missing";
                 queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: errMsg);
+                queue.RemoveItem(item.TransferId);
                 EmitProgress(activeCallback, item.TransferId, item.FileName, 0, 0, 0, FileTransferState.FAILED, errMsg);
                 continue;
             }
@@ -186,8 +187,9 @@ public sealed class FileTransferSender
                     if (resp == null || resp.Status != "ACCEPTED")
                     {
                         string reason = resp?.Reason ?? "Rejected by phone";
-                        _logger.Warning($"FileTransferSender: Transfer {item.TransferId} rejected by phone: {reason}");
+                        _logger.Warning($"FileTransferSender: Transfer {item.TransferId} ({item.FileName}) rejected by phone: {reason}");
                         queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: reason);
+                        queue.RemoveItem(item.TransferId);
                         EmitProgress(activeCallback, item.TransferId, item.FileName, fileSize, 0, 0, FileTransferState.FAILED, reason);
                         continue;
                     }

@@ -17,7 +17,6 @@ import java.io.File
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
-import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.Principal
 import java.security.PrivateKey
@@ -27,7 +26,6 @@ import java.security.cert.X509Certificate
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLServerSocket
-import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509ExtendedKeyManager
 
 class TetherFileTransferServer(
@@ -67,7 +65,7 @@ class TetherFileTransferServer(
                     try {
                         val clientSocket = sslServer.accept()
                         clientSocket.tcpNoDelay = true
-                        clientSocket.soTimeout = 15000
+                        clientSocket.soTimeout = 30000
                         launch(Dispatchers.IO) {
                             handleClientSocket(clientSocket)
                         }
@@ -100,6 +98,16 @@ class TetherFileTransferServer(
         var peerFingerprint = ""
 
         val sslSocket = socket as? javax.net.ssl.SSLSocket
+        if (sslSocket != null) {
+            try {
+                sslSocket.startHandshake()
+            } catch (e: Exception) {
+                Log.w(TAG, "TLS handshake failed on incoming file connection: ${e.message}")
+                try { socket.close() } catch (_: Exception) {}
+                return@withContext
+            }
+        }
+
         val peerCert = try {
             sslSocket?.session?.peerCertificates?.firstOrNull() as? X509Certificate
         } catch (_: Exception) {
@@ -132,14 +140,20 @@ class TetherFileTransferServer(
                         val pinnedFp = if (pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty()) {
                             securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
                         } else ""
+                        val peerFp = if (peerPubKeyBytes != null && peerPubKeyBytes.isNotEmpty()) {
+                            securityEngine.computePublicKeyFingerprint(peerPubKeyBytes)
+                        } else ""
 
                         val isTlsPeerValid = when {
                             pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty() && peerPubKeyBytes != null && peerPubKeyBytes.isNotEmpty() -> {
                                 MessageDigest.isEqual(pinnedKeyBytes, peerPubKeyBytes) ||
-                                        pinnedFp.equals(securityEngine.computePublicKeyFingerprint(peerPubKeyBytes), ignoreCase = true)
+                                        pinnedFp.equals(peerFp, ignoreCase = true) ||
+                                        pinnedFp.replace(":", "").equals(peerFp.replace(":", ""), ignoreCase = true) ||
+                                        pinnedFp.replace(":", "").equals(deviceId.replace(":", ""), ignoreCase = true)
                             }
                             pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty() && deviceId.isNotBlank() -> {
-                                deviceId.equals(pinnedFp, ignoreCase = true)
+                                deviceId.equals(pinnedFp, ignoreCase = true) ||
+                                        deviceId.replace(":", "").equals(pinnedFp.replace(":", ""), ignoreCase = true)
                             }
                             else -> true
                         }
@@ -171,30 +185,34 @@ class TetherFileTransferServer(
                         if (!isAuthenticated) break
                         val reqId = JsonParserUtils.getString(jsonStr, "requestId", "")
 
-                        try {
-                            val indexer = AndroidFilesystemIndexer(appContext)
-                            val dbFile = indexer.buildDatabase()
-                            val checksum = TetherFileTransferManager.computeFileSha512Hex(dbFile)
+                        coroutineScope.launch(Dispatchers.IO) {
+                            try {
+                                val indexer = AndroidFilesystemIndexer(appContext)
+                                val dbFile = indexer.buildDatabase()
+                                val checksum = TetherFileTransferManager.computeFileSha512Hex(dbFile)
 
-                            val clientHost = socket.inetAddress.hostAddress ?: ""
-                            fileTransferManager.sendFile(
-                                securityEngine,
-                                clientHost,
-                                SERVER_PORT,
-                                android.net.Uri.fromFile(dbFile),
-                                "Windows PC"
-                            )
+                                val clientHost = socket.inetAddress?.hostAddress ?: ""
+                                if (clientHost.isNotBlank()) {
+                                    fileTransferManager.sendFile(
+                                        securityEngine,
+                                        clientHost,
+                                        SERVER_PORT,
+                                        android.net.Uri.fromFile(dbFile),
+                                        "Windows PC"
+                                    )
+                                }
 
-                            val resp = FsDbSyncResponseFrame(
-                                requestId = reqId,
-                                status = "OK",
-                                dbSize = dbFile.length(),
-                                checksum = checksum
-                            )
-                            sendFrame(dos, resp.toJsonString().toByteArray(StandardCharsets.UTF_8))
-                        } catch (e: Exception) {
-                            val resp = FsDbSyncResponseFrame(requestId = reqId, status = "ERROR", dbSize = 0, checksum = "")
-                            sendFrame(dos, resp.toJsonString().toByteArray(StandardCharsets.UTF_8))
+                                val resp = FsDbSyncResponseFrame(
+                                    requestId = reqId,
+                                    status = "OK",
+                                    dbSize = dbFile.length(),
+                                    checksum = checksum
+                                )
+                                sendFrame(dos, resp.toJsonString().toByteArray(StandardCharsets.UTF_8))
+                            } catch (e: Exception) {
+                                val resp = FsDbSyncResponseFrame(requestId = reqId, status = "ERROR", dbSize = 0, checksum = "")
+                                try { sendFrame(dos, resp.toJsonString().toByteArray(StandardCharsets.UTF_8)) } catch (_: Exception) {}
+                            }
                         }
                     }
 
@@ -278,6 +296,9 @@ class TetherFileTransferServer(
                         val reqFrame = TransferRequestFrame.parseJsonString(jsonStr)
                         Log.i(TAG, "TRANSFER_REQUEST received: id=${reqFrame.transferId} file=${reqFrame.fileName} size=${reqFrame.fileSize} sha512Len=${reqFrame.expectedSha512.length}")
                         
+                        val originalTimeout = try { socket.soTimeout } catch (_: Exception) { 30000 }
+                        try { socket.soTimeout = 60000 } catch (_: Exception) {}
+
                         // Read binary stream and stage file
                         val dummyTransport = object : TetherQuicTransport {
                             override val generationId: Long = 0L
@@ -306,7 +327,11 @@ class TetherFileTransferServer(
                             override fun getPeerIdentityFingerprint(): String? = peerFingerprint
                         }
 
-                        fileTransferManager.handleIncomingTransfer(dummyTransport, reqFrame, "Windows PC")
+                        try {
+                            fileTransferManager.handleIncomingTransfer(dummyTransport, reqFrame, "Windows PC")
+                        } finally {
+                            try { socket.soTimeout = originalTimeout } catch (_: Exception) {}
+                        }
                     }
                 }
             }
