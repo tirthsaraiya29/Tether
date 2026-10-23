@@ -1267,8 +1267,9 @@ namespace Tether.DesktopUI
                     else
                     {
                         using var command = connection.CreateCommand();
-                        command.CommandText = "SELECT name, path, is_directory, size, last_modified FROM files WHERE parent_path = $parent ORDER BY is_directory DESC, name ASC";
+                        command.CommandText = "SELECT name, path, is_directory, size, last_modified FROM files WHERE parent_path = $parent OR parent_path = $parentAlt ORDER BY is_directory DESC, name ASC";
                         command.Parameters.AddWithValue("$parent", _currentExplorerDir);
+                        command.Parameters.AddWithValue("$parentAlt", _currentExplorerDir.EndsWith("/") ? _currentExplorerDir.TrimEnd('/') : _currentExplorerDir + "/");
 
                         using var reader = command.ExecuteReader();
                         while (reader.Read())

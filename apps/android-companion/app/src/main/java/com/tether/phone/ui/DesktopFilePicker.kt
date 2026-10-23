@@ -35,20 +35,25 @@ fun DesktopFilePicker() {
         if (dbFile.exists()) {
             dbExists = true
             try {
-                val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
-                val cursor = db.rawQuery("SELECT name, path, is_directory, size FROM files WHERE parent_path = ? ORDER BY is_directory DESC, name ASC", arrayOf(currentPath))
-                val list = mutableListOf<FsNode>()
-                while (cursor.moveToNext()) {
-                    list.add(FsNode(
-                        name = cursor.getString(0),
-                        path = cursor.getString(1),
-                        isDir = cursor.getInt(2) == 1,
-                        size = cursor.getLong(3)
-                    ))
+                SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                    val normPath = currentPath.replace('/', '\\')
+                    val altPath = currentPath.replace('\\', '/')
+                    db.rawQuery(
+                        "SELECT name, path, is_directory, size FROM files WHERE parent_path = ? OR parent_path = ? OR REPLACE(parent_path, '/', '\\') = ? ORDER BY is_directory DESC, name ASC",
+                        arrayOf(currentPath, altPath, normPath)
+                    ).use { cursor ->
+                        val list = mutableListOf<FsNode>()
+                        while (cursor.moveToNext()) {
+                            list.add(FsNode(
+                                name = cursor.getString(0),
+                                path = cursor.getString(1),
+                                isDir = cursor.getInt(2) == 1,
+                                size = cursor.getLong(3)
+                            ))
+                        }
+                        files = list
+                    }
                 }
-                cursor.close()
-                db.close()
-                files = list
             } catch (_: Exception) { }
         } else {
             dbExists = false
@@ -97,7 +102,8 @@ fun DesktopFilePicker() {
                     if (dbFile.exists() && targetPath != "/") {
                         try {
                             val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
-                            val cursor = db.rawQuery("SELECT COUNT(1) FROM files WHERE parent_path = ?", arrayOf(targetPath))
+                            val normTarget = targetPath.replace('/', '\\')
+                            val cursor = db.rawQuery("SELECT COUNT(1) FROM files WHERE parent_path = ? OR parent_path = ?", arrayOf(targetPath, normTarget))
                             if (cursor.moveToFirst() && cursor.getInt(0) == 0) {
                                 targetPath = "/"
                             }

@@ -2,6 +2,7 @@ package com.tether.phone
 
 import android.content.ContentValues
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -305,20 +306,28 @@ class TetherFileTransferManager(
             Log.i(TAG, "SHA-512 integrity verified successfully for $sanitizedName ($bytesTransferred bytes)!")
             
             val promoted = if (sanitizedName == "windows_fs.db") {
-                val dbPath = appContext.getDatabasePath("windows_fs.db")
-                dbPath.parentFile?.mkdirs()
-                if (dbPath.exists()) dbPath.delete()
-                val moved = stagingFile.renameTo(dbPath)
-                if (!moved) {
-                    FileInputStream(stagingFile).use { fis ->
-                        FileOutputStream(dbPath).use { fos ->
-                            fis.copyTo(fos, BUFFER_SIZE)
-                        }
+                try {
+                    val dbPath = appContext.getDatabasePath("windows_fs.db")
+                    dbPath.parentFile?.mkdirs()
+                    SQLiteDatabase.releaseMemory()
+                    if (dbPath.exists()) {
+                        try { dbPath.delete() } catch (_: Exception) {}
                     }
-                    stagingFile.delete()
+                    val moved = stagingFile.renameTo(dbPath)
+                    if (!moved) {
+                        FileInputStream(stagingFile).use { fis ->
+                            FileOutputStream(dbPath).use { fos ->
+                                fis.copyTo(fos, BUFFER_SIZE)
+                            }
+                        }
+                        try { stagingFile.delete() } catch (_: Exception) {}
+                    }
+                    Log.i(TAG, "Installed windows_fs.db to app databases folder")
+                    true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error installing windows_fs.db: ${e.message}", e)
+                    false
                 }
-                Log.i(TAG, "Installed windows_fs.db to app databases folder")
-                true
             } else {
                 promoteStagingFileToStorage(appContext, stagingFile, sanitizedName, request.mimeType)
             }
@@ -331,16 +340,27 @@ class TetherFileTransferManager(
             updateProgress(progress)
 
             if (promoted) {
-                val completeFrame = "{\"type\":\"${ControlMessageType.TRANSFER_COMPLETE}\",\"transferId\":\"$transferId\",\"status\":\"SUCCESS\",\"errorCode\":0}"
+                val completeFrameObj = JSONObject().apply {
+                    put("type", ControlMessageType.TRANSFER_COMPLETE)
+                    put("transferId", transferId)
+                    put("status", "SUCCESS")
+                    put("errorCode", 0)
+                }
                 try {
-                    transport.sendControlFrame(completeFrame.toByteArray(StandardCharsets.UTF_8))
+                    transport.sendControlFrame(completeFrameObj.toString().toByteArray(StandardCharsets.UTF_8))
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed sending TRANSFER_COMPLETE: ${e.message}")
                 }
             } else {
-                val failFrame = "{\"type\":\"${ControlMessageType.TRANSFER_COMPLETE}\",\"transferId\":\"$transferId\",\"status\":\"FAILED\",\"errorCode\":${FileTransferErrorCode.DISK_FULL.code},\"reason\":\"Failed promoting file to storage\"}"
+                val failFrameObj = JSONObject().apply {
+                    put("type", ControlMessageType.TRANSFER_COMPLETE)
+                    put("transferId", transferId)
+                    put("status", "FAILED")
+                    put("errorCode", FileTransferErrorCode.DISK_FULL.code)
+                    put("reason", "Failed promoting file to storage")
+                }
                 try {
-                    transport.sendControlFrame(failFrame.toByteArray(StandardCharsets.UTF_8))
+                    transport.sendControlFrame(failFrameObj.toString().toByteArray(StandardCharsets.UTF_8))
                 } catch (_: Exception) {}
             }
 
@@ -355,9 +375,15 @@ class TetherFileTransferManager(
             )
             updateProgress(progress)
 
-            val failFrame = "{\"type\":\"${ControlMessageType.TRANSFER_COMPLETE}\",\"transferId\":\"$transferId\",\"status\":\"FAILED\",\"errorCode\":${FileTransferErrorCode.INTEGRITY_FAILED.code},\"reason\":\"${e.message}\"}"
+            val failFrameObj = JSONObject().apply {
+                put("type", ControlMessageType.TRANSFER_COMPLETE)
+                put("transferId", transferId)
+                put("status", "FAILED")
+                put("errorCode", FileTransferErrorCode.INTEGRITY_FAILED.code)
+                put("reason", e.message ?: "Transfer failed")
+            }
             try {
-                transport.sendControlFrame(failFrame.toByteArray(StandardCharsets.UTF_8))
+                transport.sendControlFrame(failFrameObj.toString().toByteArray(StandardCharsets.UTF_8))
             } catch (_: Exception) {}
 
             return@withContext false

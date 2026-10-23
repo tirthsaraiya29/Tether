@@ -302,6 +302,7 @@ public sealed class Worker : BackgroundService
 
                         if (!_hasSyncedFsOnConnect)
                         {
+                            _hasSyncedFsOnConnect = true;
                             _ = Task.Run(async () =>
                             {
                                 try
@@ -312,7 +313,6 @@ public sealed class Worker : BackgroundService
                                     var activeDev = _sessionManager.GetActiveSessions().FirstOrDefault()?.Device?.DeviceId ?? "TARGET_PHONE";
                                     _fileTransferManager.DurableQueue.EnqueueOutgoing(localDb, activeDev, "windows_fs.db");
                                     await _fileTransferManager.RequestPhoneDbSyncAsync(activeIp, stoppingToken);
-                                    _hasSyncedFsOnConnect = true;
                                 }
                                 catch (Exception ex)
                                 {

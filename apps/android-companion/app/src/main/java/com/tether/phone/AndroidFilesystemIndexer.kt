@@ -3,6 +3,7 @@ package com.tether.phone
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.database.sqlite.SQLiteStatement
 import android.os.Environment
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -12,17 +13,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import java.io.File
-import java.io.FileInputStream
-import java.security.MessageDigest
-import java.util.Locale
 
 class AndroidFilesystemIndexer(private val context: Context) {
     companion object {
         private const val TAG = "AndroidFsIndexer"
         const val DB_NAME = "android_fs.db"
         private const val DB_VERSION = 3
-        private const val HASH_BUFFER_SIZE = 65536 // 64 KB
-        private const val MAX_HASH_SIZE_BYTES = 100 * 1024 * 1024L // Hash files up to 100MB directly
 
         private val _indexingProgressFlow = MutableStateFlow(IndexingProgress())
         val indexingProgressFlow: StateFlow<IndexingProgress> = _indexingProgressFlow.asStateFlow()
@@ -66,8 +62,9 @@ class AndroidFilesystemIndexer(private val context: Context) {
     }
 
     suspend fun buildDatabase(): File = withContext(Dispatchers.IO) {
-        Log.i(TAG, "Building Android filesystem database with SHA-256 hashes...")
+        Log.i(TAG, "Building Android filesystem database...")
         val db = dbHelper.writableDatabase
+        db.execSQL("PRAGMA synchronous = OFF")
         db.beginTransaction()
         try {
             db.execSQL("DELETE FROM roots")
@@ -88,21 +85,20 @@ class AndroidFilesystemIndexer(private val context: Context) {
                 rootStatement.executeInsert()
             }
 
-            var estimatedTotal = 0
-            for (root in roots) {
-                estimatedTotal += countFiles(root)
-            }
-
             _indexingProgressFlow.value = IndexingProgress(
                 scannedFiles = 0,
-                totalFilesEstimated = estimatedTotal,
-                currentPath = "Starting index...",
+                totalFilesEstimated = 0,
+                currentPath = "Starting fast index...",
                 isFinished = false
+            )
+
+            val fileStatement = db.compileStatement(
+                "INSERT OR IGNORE INTO files (parent_path, name, path, is_directory, size, last_modified, sha256) VALUES (?, ?, ?, ?, ?, ?, ?)"
             )
 
             var scannedCount = 0
             for (root in roots) {
-                scannedCount = scanAndHashDirectory(db, root, root.absolutePath, scannedCount, estimatedTotal)
+                scannedCount = scanDirectoryFast(fileStatement, root, root.absolutePath, scannedCount)
             }
 
             db.setTransactionSuccessful()
@@ -166,94 +162,54 @@ class AndroidFilesystemIndexer(private val context: Context) {
         return roots
     }
 
-    private fun countFiles(dir: File): Int {
-        val files = dir.listFiles() ?: return 0
-        var count = 0
-        for (f in files) {
-            if (f.name.startsWith(".")) continue
-            count++
-            if (f.isDirectory) {
-                count += countFiles(f)
-            }
-        }
-        return count
-    }
-
-    private suspend fun scanAndHashDirectory(
-        db: SQLiteDatabase,
+    private suspend fun scanDirectoryFast(
+        statement: SQLiteStatement,
         dir: File,
         parentPath: String,
         initialScanned: Int,
-        totalEstimate: Int
     ): Int {
         val files = dir.listFiles() ?: return initialScanned
         var scanned = initialScanned
 
-        val statement = db.compileStatement(
-            "INSERT OR IGNORE INTO files (parent_path, name, path, is_directory, size, last_modified, sha256) VALUES (?, ?, ?, ?, ?, ?, ?)"
-        )
-
         for (file in files) {
-            if (file.name.startsWith(".")) continue
+            val name = file.name
+            if (name.startsWith(".") ||
+                name.equals("LOST.DIR", ignoreCase = true) ||
+                name.equals("Android", ignoreCase = true) ||
+                name.equals("System Volume Information", ignoreCase = true)) {
+                continue
+            }
 
             val isDir = file.isDirectory
             val path = file.absolutePath
             val length = if (isDir) 0L else file.length()
-            val sha256 = if (!isDir) computeFileSha256Throttled(file) else ""
 
             statement.clearBindings()
             statement.bindString(1, parentPath)
-            statement.bindString(2, file.name)
+            statement.bindString(2, name)
             statement.bindString(3, path)
             statement.bindLong(4, if (isDir) 1L else 0L)
             statement.bindLong(5, length)
             statement.bindLong(6, file.lastModified())
-            statement.bindString(7, sha256)
+            statement.bindString(7, "") // Fast scan omits SHA-256 calculation
             statement.executeInsert()
 
             scanned++
-            if (scanned % 10 == 0 || scanned == totalEstimate) {
+            if (scanned % 100 == 0) {
                 _indexingProgressFlow.value = IndexingProgress(
                     scannedFiles = scanned,
-                    totalFilesEstimated = maxOf(totalEstimate, scanned),
-                    currentPath = file.name,
+                    totalFilesEstimated = scanned,
+                    currentPath = name,
                     isFinished = false
                 )
-                yield() // Cooperatively release CPU execution
+                yield() // Cooperatively yield execution
             }
 
             if (isDir) {
-                scanned = scanAndHashDirectory(db, file, path, scanned, totalEstimate)
+                scanned = scanDirectoryFast(statement, file, path, scanned)
             }
         }
 
         return scanned
-    }
-
-    private suspend fun computeFileSha256Throttled(file: File): String {
-        if (!file.exists() || !file.canRead() || file.length() == 0L) return ""
-        return try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            val buffer = ByteArray(HASH_BUFFER_SIZE)
-            var bytesReadTotal = 0L
-            var readCount = 0
-
-            FileInputStream(file).use { fis ->
-                while (bytesReadTotal < MAX_HASH_SIZE_BYTES) {
-                    val read = fis.read(buffer)
-                    if (read <= 0) break
-                    digest.update(buffer, 0, read)
-                    bytesReadTotal += read
-                    readCount++
-
-                    if (readCount % 16 == 0) {
-                        yield() // Yield every 1MB read to prevent UI/CPU stutter
-                    }
-                }
-            }
-            digest.digest().joinToString("") { String.format(Locale.US, "%02x", it) }
-        } catch (e: Exception) {
-            ""
-        }
     }
 }

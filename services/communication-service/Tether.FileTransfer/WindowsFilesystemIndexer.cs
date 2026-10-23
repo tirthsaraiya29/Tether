@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
@@ -23,83 +22,115 @@ namespace Tether.FileTransfer
 
         public async Task<string> BuildDatabaseAsync()
         {
-            _logger.Info("Building Windows filesystem database...");
-
-            if (File.Exists(_dbPath))
+            return await Task.Run(() =>
             {
-                File.Delete(_dbPath);
-            }
+                _logger.Info("Building Windows filesystem database...");
 
-            using var connection = new SqliteConnection($"Data Source={_dbPath}");
-            connection.Open();
-
-            using (var cmd = connection.CreateCommand())
-            {
-                cmd.CommandText = "PRAGMA journal_mode=DELETE;";
-                cmd.ExecuteNonQuery();
-            }
-
-            using (var command = connection.CreateCommand())
-            {
-                command.CommandText = @"
-                    CREATE TABLE files (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        parent_path TEXT,
-                        name TEXT,
-                        path TEXT UNIQUE,
-                        is_directory INTEGER,
-                        size INTEGER,
-                        last_modified INTEGER
-                    );
-                    CREATE INDEX idx_parent ON files(parent_path);
-                ";
-                command.ExecuteNonQuery();
-            }
-
-            using (var transaction = connection.BeginTransaction())
-            {
-                try
+                if (File.Exists(_dbPath))
                 {
-                    string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                    ScanDirectory(connection, transaction, userProfile, "/");
+                    try { File.Delete(_dbPath); } catch { }
+                }
 
-                    // Optionally add Drives
-                    foreach (var drive in DriveInfo.GetDrives())
+                using var connection = new SqliteConnection($"Data Source={_dbPath}");
+                connection.Open();
+
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = "PRAGMA journal_mode=DELETE; PRAGMA synchronous=OFF;";
+                    cmd.ExecuteNonQuery();
+                }
+
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = @"
+                        CREATE TABLE files (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            parent_path TEXT,
+                            name TEXT,
+                            path TEXT UNIQUE,
+                            is_directory INTEGER,
+                            size INTEGER,
+                            last_modified INTEGER
+                        );
+                        CREATE INDEX idx_parent ON files(parent_path);
+                    ";
+                    command.ExecuteNonQuery();
+                }
+
+                using (var transaction = connection.BeginTransaction())
+                {
+                    using var insertCmd = connection.CreateCommand();
+                    insertCmd.Transaction = transaction;
+                    insertCmd.CommandText = "INSERT OR IGNORE INTO files (parent_path, name, path, is_directory, size, last_modified) VALUES ($parent, $name, $path, $isDir, $size, $lastMod)";
+
+                    var parentParam = insertCmd.Parameters.Add("$parent", SqliteType.Text);
+                    var nameParam = insertCmd.Parameters.Add("$name", SqliteType.Text);
+                    var pathParam = insertCmd.Parameters.Add("$path", SqliteType.Text);
+                    var isDirParam = insertCmd.Parameters.Add("$isDir", SqliteType.Integer);
+                    var sizeParam = insertCmd.Parameters.Add("$size", SqliteType.Integer);
+                    var lastModParam = insertCmd.Parameters.Add("$lastMod", SqliteType.Integer);
+
+                    try
                     {
-                        if (drive.IsReady && drive.RootDirectory.FullName != Path.GetPathRoot(userProfile))
+                        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                        ScanDirectory(insertCmd, parentParam, nameParam, pathParam, isDirParam, sizeParam, lastModParam, userProfile, "/");
+
+                        // Add Drives
+                        foreach (var drive in DriveInfo.GetDrives())
                         {
-                            InsertRecord(connection, transaction, "/", drive.Name, drive.RootDirectory.FullName, true, 0, 0);
+                            if (drive.IsReady && drive.RootDirectory.FullName != Path.GetPathRoot(userProfile))
+                            {
+                                InsertRecord(insertCmd, parentParam, nameParam, pathParam, isDirParam, sizeParam, lastModParam,
+                                    "/", drive.Name, drive.RootDirectory.FullName, true, 0, 0);
+                            }
                         }
+
+                        transaction.Commit();
                     }
-
-                    transaction.Commit();
+                    catch (Exception ex)
+                    {
+                        _logger.Error($"Error building Windows DB: {ex.Message}");
+                        transaction.Rollback();
+                    }
                 }
-                catch (Exception ex)
-                {
-                    _logger.Error($"Error building Windows DB: {ex.Message}");
-                    transaction.Rollback();
-                }
-            }
 
-            connection.Close();
-            SqliteConnection.ClearPool(connection);
+                connection.Close();
+                SqliteConnection.ClearPool(connection);
 
-            _logger.Info($"Finished building DB. Size: {new FileInfo(_dbPath).Length} bytes");
-            return _dbPath;
+                _logger.Info($"Finished building DB. Size: {new FileInfo(_dbPath).Length} bytes");
+                return _dbPath;
+            });
         }
 
-        private void ScanDirectory(SqliteConnection connection, SqliteTransaction transaction, string dirPath, string parentPath)
+        private void ScanDirectory(
+            SqliteCommand insertCmd,
+            SqliteParameter parentParam,
+            SqliteParameter nameParam,
+            SqliteParameter pathParam,
+            SqliteParameter isDirParam,
+            SqliteParameter sizeParam,
+            SqliteParameter lastModParam,
+            string dirPath,
+            string parentPath)
         {
             try
             {
                 var dirInfo = new DirectoryInfo(dirPath);
 
-                InsertRecord(connection, transaction, parentPath, dirInfo.Name, dirInfo.FullName, true, 0, new DateTimeOffset(dirInfo.LastWriteTimeUtc).ToUnixTimeMilliseconds());
+                InsertRecord(insertCmd, parentParam, nameParam, pathParam, isDirParam, sizeParam, lastModParam,
+                    parentPath, dirInfo.Name, dirInfo.FullName, true, 0, new DateTimeOffset(dirInfo.LastWriteTimeUtc).ToUnixTimeMilliseconds());
 
-                // Avoid scanning Windows or Program Files completely by default to save time
+                // Skip scanning heavy system/temp/cache directories to ensure fast indexing
                 if (dirInfo.Name.Equals("Windows", StringComparison.OrdinalIgnoreCase) ||
                     dirInfo.Name.Equals("Program Files", StringComparison.OrdinalIgnoreCase) ||
                     dirInfo.Name.Equals("Program Files (x86)", StringComparison.OrdinalIgnoreCase) ||
+                    dirInfo.Name.Equals("AppData", StringComparison.OrdinalIgnoreCase) ||
+                    dirInfo.Name.Equals("Application Data", StringComparison.OrdinalIgnoreCase) ||
+                    dirInfo.Name.Equals("Temp", StringComparison.OrdinalIgnoreCase) ||
+                    dirInfo.Name.Equals("Package Cache", StringComparison.OrdinalIgnoreCase) ||
+                    dirInfo.Name.Equals("$Recycle.Bin", StringComparison.OrdinalIgnoreCase) ||
+                    dirInfo.Name.Equals(".git", StringComparison.OrdinalIgnoreCase) ||
+                    dirInfo.Name.Equals("node_modules", StringComparison.OrdinalIgnoreCase) ||
                     dirInfo.Name.StartsWith("."))
                 {
                     return;
@@ -108,13 +139,14 @@ namespace Tether.FileTransfer
                 foreach (var dir in dirInfo.GetDirectories())
                 {
                     if ((dir.Attributes & FileAttributes.Hidden) == FileAttributes.Hidden) continue;
-                    ScanDirectory(connection, transaction, dir.FullName, dirInfo.FullName);
+                    ScanDirectory(insertCmd, parentParam, nameParam, pathParam, isDirParam, sizeParam, lastModParam, dir.FullName, dirInfo.FullName);
                 }
 
                 foreach (var file in dirInfo.GetFiles())
                 {
                     if ((file.Attributes & FileAttributes.Hidden) == FileAttributes.Hidden) continue;
-                    InsertRecord(connection, transaction, dirInfo.FullName, file.Name, file.FullName, false, file.Length, new DateTimeOffset(file.LastWriteTimeUtc).ToUnixTimeMilliseconds());
+                    InsertRecord(insertCmd, parentParam, nameParam, pathParam, isDirParam, sizeParam, lastModParam,
+                        dirInfo.FullName, file.Name, file.FullName, false, file.Length, new DateTimeOffset(file.LastWriteTimeUtc).ToUnixTimeMilliseconds());
                 }
             }
             catch (UnauthorizedAccessException) { /* Ignore */ }
@@ -124,17 +156,27 @@ namespace Tether.FileTransfer
             }
         }
 
-        private void InsertRecord(SqliteConnection connection, SqliteTransaction transaction, string parentPath, string name, string path, bool isDirectory, long size, long lastModified)
+        private static void InsertRecord(
+            SqliteCommand command,
+            SqliteParameter parentParam,
+            SqliteParameter nameParam,
+            SqliteParameter pathParam,
+            SqliteParameter isDirParam,
+            SqliteParameter sizeParam,
+            SqliteParameter lastModParam,
+            string parentPath,
+            string name,
+            string path,
+            bool isDirectory,
+            long size,
+            long lastModified)
         {
-            using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = "INSERT OR IGNORE INTO files (parent_path, name, path, is_directory, size, last_modified) VALUES ($parent, $name, $path, $isDir, $size, $lastMod)";
-            command.Parameters.AddWithValue("$parent", parentPath);
-            command.Parameters.AddWithValue("$name", name);
-            command.Parameters.AddWithValue("$path", path);
-            command.Parameters.AddWithValue("$isDir", isDirectory ? 1 : 0);
-            command.Parameters.AddWithValue("$size", size);
-            command.Parameters.AddWithValue("$lastMod", lastModified);
+            parentParam.Value = parentPath;
+            nameParam.Value = name;
+            pathParam.Value = path;
+            isDirParam.Value = isDirectory ? 1 : 0;
+            sizeParam.Value = size;
+            lastModParam.Value = lastModified;
             command.ExecuteNonQuery();
         }
     }

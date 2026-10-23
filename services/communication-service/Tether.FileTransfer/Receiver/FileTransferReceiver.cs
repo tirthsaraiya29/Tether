@@ -392,6 +392,7 @@ public sealed class FileTransferReceiver : IDisposable
                             }
                             catch (Exception ex)
                             {
+                                _logger.Warning($"FS_DB_SYNC_REQUEST error: {ex.Message}");
                                 var resp = new FsDbSyncResponseFrame
                                 {
                                     RequestId = syncReq.RequestId,
