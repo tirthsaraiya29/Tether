@@ -35,7 +35,7 @@ public sealed class PacketRouter
         {
             case "PING":
                 _logger.Debug($"PacketRouter: Received PING from '{device.DisplayName}'. Responding with PONG.");
-                await FrameCodec.WriteJsonFrameAsync(stream, new { type = "PONG", timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, ct);
+                await session.WriteJsonFrameSafeAsync(new { type = "PONG", timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, ct);
                 break;
 
             case "PONG":
@@ -45,7 +45,7 @@ public sealed class PacketRouter
 
             case "HANDSHAKE_PROOF":
                 _logger.Debug($"PacketRouter: Received HANDSHAKE_PROOF from '{device.DisplayName}'. Responding with HANDSHAKE_VERIFIED.");
-                await FrameCodec.WriteJsonFrameAsync(stream, new { type = "HANDSHAKE_VERIFIED", status = "OK" }, ct);
+                await session.WriteJsonFrameSafeAsync(new { type = "HANDSHAKE_VERIFIED", status = "OK" }, ct);
                 break;
 
             case "HANDSHAKE_VERIFIED":
@@ -73,7 +73,7 @@ public sealed class PacketRouter
         if (!_capabilityManager.CanDeviceExecuteCommand(device, cmd.Command))
         {
             _logger.Warning($"PacketRouter: Capability check failed for command '{cmd.Command}' from '{device.DisplayName}'.");
-            await FrameCodec.WriteJsonFrameAsync(stream, new
+            await session.WriteJsonFrameSafeAsync(new
             {
                 type = "CONFIRM_COMMAND",
                 confirmedCommand = cmd.Command,
@@ -98,7 +98,7 @@ public sealed class PacketRouter
             catch (Exception ex)
             {
                 _logger.Warning($"PacketRouter: LaptopSnapshot collection failed: {ex.Message}");
-                await FrameCodec.WriteJsonFrameAsync(stream, new
+                await session.WriteJsonFrameSafeAsync(new
                 {
                     type = "CONFIRM_COMMAND",
                     confirmedCommand = cmd.Command,
@@ -108,7 +108,7 @@ public sealed class PacketRouter
                 return;
             }
 
-            await FrameCodec.WriteJsonFrameAsync(stream, new
+            await session.WriteJsonFrameSafeAsync(new
             {
                 type = "LAPTOP_STATE",
                 batteryLevel = snap.BatteryLevel,
@@ -120,7 +120,7 @@ public sealed class PacketRouter
                 timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             }, ct);
 
-            await FrameCodec.WriteJsonFrameAsync(stream, new
+            await session.WriteJsonFrameSafeAsync(new
             {
                 type = "CONFIRM_COMMAND",
                 confirmedCommand = cmd.Command,
@@ -152,7 +152,7 @@ public sealed class PacketRouter
             cmdLower.StartsWith("brightness_") || cmdLower.StartsWith("set_brightness:") || cmdLower.StartsWith("bright_"))
         {
             var snap = LaptopStateCollector.GetLaptopSnapshot(_logger);
-            await FrameCodec.WriteJsonFrameAsync(stream, new
+            await session.WriteJsonFrameSafeAsync(new
             {
                 type = "HARDWARE_METRICS",
                 volumeLevel = currentVol,
@@ -172,7 +172,7 @@ public sealed class PacketRouter
             cmd.Command.Equals("get_brightness", StringComparison.OrdinalIgnoreCase))
         {
             var snap = LaptopStateCollector.GetLaptopSnapshot(_logger);
-            await FrameCodec.WriteJsonFrameAsync(stream, new
+            await session.WriteJsonFrameSafeAsync(new
             {
                 type = "HARDWARE_METRICS",
                 volumeLevel = currentVol,
@@ -185,7 +185,7 @@ public sealed class PacketRouter
             }, ct);
         }
 
-        await FrameCodec.WriteJsonFrameAsync(stream, new
+        await session.WriteJsonFrameSafeAsync(new
         {
             type = "CONFIRM_COMMAND",
             confirmedCommand = cmd.Command,

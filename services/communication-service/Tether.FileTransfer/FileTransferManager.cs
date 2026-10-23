@@ -51,6 +51,7 @@ public sealed class FileTransferManager : ITrustValidator, IDisposable
 
     public FileSystemBrowser FileSystemBrowser => _fileSystemBrowser;
     public DurableTransferQueue DurableQueue => _durableQueue;
+    public X509Certificate2 ServerCertificate => _serverCertificate;
 
     public async System.Threading.Tasks.Task ProcessOutgoingQueueAsync(string phoneIp, System.Threading.CancellationToken ct = default)
     {
@@ -76,22 +77,14 @@ public sealed class FileTransferManager : ITrustValidator, IDisposable
             var options = new System.Net.Security.SslClientAuthenticationOptions
             {
                 TargetHost = phoneIp,
-                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13
+                ClientCertificates = new X509CertificateCollection { _serverCertificate },
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
+                LocalCertificateSelectionCallback = (sender, targetHost, localCertificates, remoteCertificate, acceptableIssuers) => _serverCertificate
             };
-
-            if (_serverCertificate.HasPrivateKey)
-            {
-                options.LocalCertificateSelectionCallback = (sender, targetHost, localCertificates, remoteCertificate, acceptableIssuers) => _serverCertificate;
-                options.ClientCertificates = new X509CertificateCollection();
-            }
-            else
-            {
-                options.ClientCertificates = new X509CertificateCollection { _serverCertificate };
-            }
 
             await sslStream.AuthenticateAsClientAsync(options, cts.Token);
 
-            var initFrame = new ControlInitFrame { DeviceId = "LOCAL_WIN" };
+            var initFrame = ControlInitFrame.CreateSigned(_serverCertificate);
             byte[] initPayload = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(initFrame));
             byte[] lenBytes = new byte[4];
             System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBytes, initPayload.Length);

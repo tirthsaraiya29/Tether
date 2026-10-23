@@ -36,6 +36,7 @@ public sealed class TetherSession : IDisposable
     private readonly PacketRouter _packetRouter;
     private readonly InputForwarder _inputForwarder;
 
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
     private SslStream? _tls;
     private long _lastFrameReceivedTicks;
 
@@ -69,13 +70,41 @@ public sealed class TetherSession : IDisposable
         Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
     }
 
-    public async Task SendLaptopStateAsync(LaptopSnapshot snap, CancellationToken ct)
+    public async Task WriteJsonFrameSafeAsync<T>(T payload, CancellationToken ct)
     {
         var tls = _tls;
         if (tls == null) return;
+        await _writeLock.WaitAsync(ct);
         try
         {
-            await FrameCodec.WriteJsonFrameAsync(tls, new LaptopStateFrame
+            await FrameCodec.WriteJsonFrameAsync(tls, payload, ct);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task WriteRawFrameSafeAsync(byte[] payload, CancellationToken ct)
+    {
+        var tls = _tls;
+        if (tls == null || payload == null || payload.Length == 0) return;
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await FrameCodec.WriteFrameAsync(tls, payload, ct);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task SendLaptopStateAsync(LaptopSnapshot snap, CancellationToken ct)
+    {
+        try
+        {
+            await WriteJsonFrameSafeAsync(new LaptopStateFrame
             {
                 BatteryLevel = snap.BatteryLevel,
                 BatteryPercent = snap.BatteryLevel,
@@ -94,11 +123,9 @@ public sealed class TetherSession : IDisposable
 
     public async Task SendRawFrameAsync(byte[] payload, CancellationToken ct)
     {
-        var tls = _tls;
-        if (tls == null || payload == null || payload.Length == 0) return;
         try
         {
-            await FrameCodec.WriteFrameAsync(tls, payload, ct);
+            await WriteRawFrameSafeAsync(payload, ct);
         }
         catch (Exception ex)
         {
@@ -172,7 +199,7 @@ public sealed class TetherSession : IDisposable
             try
             {
                 var initSnap = LaptopStateCollector.GetLaptopSnapshot(_logger);
-                await FrameCodec.WriteJsonFrameAsync(_tls!, new LaptopStateFrame
+                await WriteJsonFrameSafeAsync(new LaptopStateFrame
                 {
                     BatteryLevel = initSnap.BatteryLevel,
                     BatteryPercent = initSnap.BatteryLevel,
@@ -260,7 +287,7 @@ public sealed class TetherSession : IDisposable
                 Capabilities = ServerCaps,
                 Pqc = false
             };
-            await FrameCodec.WriteJsonFrameAsync(stream, resp, ct);
+            await WriteJsonFrameSafeAsync(resp, ct);
 
             try
             {
@@ -274,7 +301,7 @@ public sealed class TetherSession : IDisposable
                         string.Equals(pType.GetString(), "HANDSHAKE_PROOF", StringComparison.Ordinal))
                     {
                         _logger.Debug($"TetherSession [{SessionId}]: Received HANDSHAKE_PROOF for paired device. Responding with HANDSHAKE_VERIFIED.");
-                        await FrameCodec.WriteJsonFrameAsync(stream, new { type = "HANDSHAKE_VERIFIED", status = "OK" }, ct);
+                        await WriteJsonFrameSafeAsync(new { type = "HANDSHAKE_VERIFIED", status = "OK" }, ct);
                     }
                 }
             }
@@ -298,7 +325,7 @@ public sealed class TetherSession : IDisposable
                 init.DeviceName,
                 initFrameBytes);
 
-            await FrameCodec.WriteFrameAsync(stream, respBytes, ct);
+            await WriteRawFrameSafeAsync(respBytes, ct);
             _logger.Info($"TetherSession [{SessionId}]: Sent HANDSHAKE_RESPONSE (PAIRING_PENDING) with requestId '{pending.RequestId}'. Waiting for PAIRING_CONFIRMED...");
 
             using var pairingCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -333,11 +360,11 @@ public sealed class TetherSession : IDisposable
             if (!verified)
             {
                 _logger.Warning($"TetherSession [{SessionId}]: PIN proof verification failed for requestId '{reqId}'.");
-                await FrameCodec.WriteJsonFrameAsync(stream, new { type = "PAIRING_COMPLETE", status = "DENIED" }, ct);
+                await WriteJsonFrameSafeAsync(new { type = "PAIRING_COMPLETE", status = "DENIED" }, ct);
                 return false;
             }
 
-            await FrameCodec.WriteJsonFrameAsync(stream, new
+            await WriteJsonFrameSafeAsync(new
             {
                 type = "PAIRING_COMPLETE",
                 status = "OK",
@@ -351,7 +378,7 @@ public sealed class TetherSession : IDisposable
         }
 
         _logger.Warning($"TetherSession [{SessionId}]: Unknown phone {phoneFingerprint} did not request pairing. Denying.");
-        await FrameCodec.WriteJsonFrameAsync(stream, new HandshakeResponse
+        await WriteJsonFrameSafeAsync(new HandshakeResponse
         {
             DeviceId = _identity.DeviceId,
             DeviceName = _identity.DeviceName,
@@ -367,14 +394,44 @@ public sealed class TetherSession : IDisposable
         var stream = _tls!;
         Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
 
-        while (!ct.IsCancellationRequested)
-        {
-            using var readCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            readCts.CancelAfter(TimeSpan.FromSeconds(10));
+        using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var combinedCt = sessionCts.Token;
 
+        // Decoupled heartbeat probing task sending PING every 10s unconditionally
+        _ = Task.Run(async () =>
+        {
+            while (!combinedCt.IsCancellationRequested)
+            {
+                try { await Task.Delay(10000, combinedCt); }
+                catch (OperationCanceledException) { break; }
+
+                _logger.Debug($"TetherSession [{SessionId}]: Periodic 10s heartbeat probe sending PING...");
+                try
+                {
+                    await WriteJsonFrameSafeAsync(new { type = "PING", timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, combinedCt);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"TetherSession [{SessionId}]: Failed sending PING probe: {ex.Message}. Terminating connection.");
+                    try { sessionCts.Cancel(); } catch { }
+                    break;
+                }
+
+                long elapsedSeconds = (DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastFrameReceivedTicks)) / TimeSpan.TicksPerSecond;
+                if (elapsedSeconds > 45)
+                {
+                    _logger.Warning($"TetherSession [{SessionId}]: Heartbeat timeout ({elapsedSeconds}s silence). Declaring connection dead.");
+                    try { sessionCts.Cancel(); } catch { }
+                    break;
+                }
+            }
+        }, combinedCt);
+
+        while (!combinedCt.IsCancellationRequested)
+        {
             try
             {
-                var frameBytes = await FrameCodec.ReadFrameAsync(stream, readCts.Token);
+                var frameBytes = await FrameCodec.ReadFrameAsync(stream, combinedCt);
                 if (frameBytes is null)
                 {
                     _logger.Info($"TetherSession [{SessionId}]: Socket EOF received. Closing session.");
@@ -383,8 +440,7 @@ public sealed class TetherSession : IDisposable
 
                 Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
 
-                // Binary input path (hot, 60-120 Hz). Session is only reached here after
-                // the device has been authenticated as Paired, so we forward unconditionally.
+                // Binary input path (hot, 60-120 Hz).
                 if (frameBytes.Length >= 1 && frameBytes[0] == PacketTypeInputEvent)
                 {
                     _inputForwarder.Forward(frameBytes);
@@ -402,30 +458,18 @@ public sealed class TetherSession : IDisposable
 
                 using (doc)
                 {
-                    await _packetRouter.RouteFrameAsync(doc, this, Device!, stream, ct);
+                    await _packetRouter.RouteFrameAsync(doc, this, Device!, stream, combinedCt);
                 }
             }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            catch (OperationCanceledException) { break; }
+            catch (Exception ex)
             {
-                _logger.Debug($"TetherSession [{SessionId}]: 10s idle threshold reached. Sending PING probe...");
-                try
-                {
-                    await FrameCodec.WriteJsonFrameAsync(stream, new { type = "PING", timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, ct);
-                }
-                catch (Exception ex)
-                {
-                    _logger.Warning($"TetherSession [{SessionId}]: Failed sending PING probe: {ex.Message}. Terminating connection.");
-                    break;
-                }
-
-                long elapsedSeconds = (DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastFrameReceivedTicks)) / TimeSpan.TicksPerSecond;
-                if (elapsedSeconds > 45)
-                {
-                    _logger.Warning($"TetherSession [{SessionId}]: Heartbeat timeout (no PONG received in 45s). Declaring connection dead.");
-                    break;
-                }
+                _logger.Warning($"TetherSession [{SessionId}]: Socket read error: {ex.Message}");
+                break;
             }
         }
+
+        try { sessionCts.Cancel(); } catch { }
     }
 
     public void Close(string reason)

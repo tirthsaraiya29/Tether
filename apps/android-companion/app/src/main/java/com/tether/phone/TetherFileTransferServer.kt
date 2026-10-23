@@ -56,7 +56,7 @@ class TetherFileTransferServer(
                 val sslServer = factory.createServerSocket(SERVER_PORT) as SSLServerSocket
                 sslServer.reuseAddress = true
                 sslServer.enabledProtocols = arrayOf("TLSv1.3")
-                sslServer.needClientAuth = true
+                sslServer.wantClientAuth = true
                 serverSocket = sslServer
 
                 Log.i(TAG, "Tether File Transfer Server listening on TCP port $SERVER_PORT (TLS 1.3)...")
@@ -137,6 +137,9 @@ class TetherFileTransferServer(
                     ControlMessageType.CONTROL_INIT -> {
                         val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(appContext)
                         val deviceId = JsonParserUtils.getString(jsonStr, "deviceId", "")
+                        val nonce = JsonParserUtils.getString(jsonStr, "nonce", "")
+                        val signatureB64 = JsonParserUtils.getString(jsonStr, "signature", "")
+
                         val pinnedFp = if (pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty()) {
                             securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
                         } else ""
@@ -144,19 +147,29 @@ class TetherFileTransferServer(
                             securityEngine.computePublicKeyFingerprint(peerPubKeyBytes)
                         } else ""
 
-                        val isTlsPeerValid = when {
-                            pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty() && peerPubKeyBytes != null && peerPubKeyBytes.isNotEmpty() -> {
-                                MessageDigest.isEqual(pinnedKeyBytes, peerPubKeyBytes) ||
-                                        pinnedFp.equals(peerFp, ignoreCase = true) ||
-                                        pinnedFp.replace(":", "").equals(peerFp.replace(":", ""), ignoreCase = true) ||
-                                        pinnedFp.replace(":", "").equals(deviceId.replace(":", ""), ignoreCase = true)
+                        val isMtlsValid = pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty() && peerPubKeyBytes != null && peerPubKeyBytes.isNotEmpty() &&
+                                (MessageDigest.isEqual(pinnedKeyBytes, peerPubKeyBytes) || pinnedFp.equals(peerFp, ignoreCase = true) || pinnedFp.replace(":", "").equals(peerFp.replace(":", ""), ignoreCase = true))
+
+                        val isSigValid = if (pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty() && deviceId.isNotBlank() && nonce.isNotBlank() && signatureB64.isNotBlank()) {
+                            try {
+                                val keySpec = java.security.spec.X509EncodedKeySpec(pinnedKeyBytes)
+                                val pinnedPubKey = java.security.KeyFactory.getInstance("EC").generatePublic(keySpec)
+                                val sigBytes = android.util.Base64.decode(signatureB64, android.util.Base64.NO_WRAP)
+                                val payloadBytes = "TETHER_CONTROL_INIT:$deviceId:$nonce".toByteArray(StandardCharsets.UTF_8)
+                                val verifier = java.security.Signature.getInstance("SHA256withECDSA")
+                                verifier.initVerify(pinnedPubKey)
+                                verifier.update(payloadBytes)
+                                val fpMatches = pinnedFp.replace(":", "").equals(deviceId.replace(":", ""), ignoreCase = true)
+                                fpMatches && verifier.verify(sigBytes)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "CONTROL_INIT signature verification failed: ${e.message}")
+                                false
                             }
-                            pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty() && deviceId.isNotBlank() -> {
-                                deviceId.equals(pinnedFp, ignoreCase = true) ||
-                                        deviceId.replace(":", "").equals(pinnedFp.replace(":", ""), ignoreCase = true)
-                            }
-                            else -> true
+                        } else {
+                            false
                         }
+
+                        val isTlsPeerValid = isMtlsValid || isSigValid
 
                         if (isTlsPeerValid) {
                             isAuthenticated = true
@@ -171,7 +184,7 @@ class TetherFileTransferServer(
 
                             val ackJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"OK\",\"grantedCapabilities\":\"CLIPBOARD,FILES,NOTIFICATIONS,MEDIA\"}"
                             sendFrame(dos, ackJson.toByteArray(StandardCharsets.UTF_8))
-                            Log.i(TAG, "Authenticated incoming file connection from $safePeerFp")
+                            Log.i(TAG, "Authenticated incoming file connection from $safePeerFp (mTLS=$isMtlsValid, Sig=$isSigValid)")
                         } else {
                             isAuthenticated = false
                             val errJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"ERROR\",\"reason\":\"Unauthorized peer\"}"
@@ -454,9 +467,15 @@ class TetherFileTransferServer(
             override fun getClientAliases(keyType: String?, issuers: Array<out Principal>?): Array<String> = emptyArray()
             override fun chooseClientAlias(keyType: Array<out String>?, issuers: Array<out Principal>?, socket: Socket?): String? = null
             override fun chooseEngineClientAlias(keyType: Array<out String>?, issuers: Array<out Principal>?, engine: SSLEngine?): String? = null
-            override fun getServerAliases(keyType: String?, issuers: Array<out Principal>?): Array<String> = arrayOf("TetherIdentity")
-            override fun chooseServerAlias(keyType: String?, issuers: Array<out Principal>?, socket: Socket?): String = "TetherIdentity"
-            override fun chooseEngineServerAlias(keyType: String?, issuers: Array<out Principal>?, engine: SSLEngine?): String = "TetherIdentity"
+            override fun getServerAliases(keyType: String?, issuers: Array<out Principal>?): Array<String> {
+                return if (keyType?.contains("EC", ignoreCase = true) == true) arrayOf("TetherIdentity") else emptyArray()
+            }
+            override fun chooseServerAlias(keyType: String?, issuers: Array<out Principal>?, socket: Socket?): String? {
+                return if (keyType?.contains("EC", ignoreCase = true) == true) "TetherIdentity" else null
+            }
+            override fun chooseEngineServerAlias(keyType: String?, issuers: Array<out Principal>?, engine: SSLEngine?): String? {
+                return if (keyType?.contains("EC", ignoreCase = true) == true) "TetherIdentity" else null
+            }
             override fun getCertificateChain(alias: String?): Array<X509Certificate>? {
                 return try {
                     arrayOf(securityEngine.getIdentityCertificate())
@@ -477,9 +496,7 @@ class TetherFileTransferServer(
 
         val customTrustManager = object : javax.net.ssl.X509ExtendedTrustManager() {
             private fun verifyClientCertificate(chain: Array<out X509Certificate>?) {
-                if (chain.isNullOrEmpty()) {
-                    throw CertificateException("Client certificate chain is null or empty")
-                }
+                if (chain.isNullOrEmpty()) return // Allow missing client cert flight, enforced via signed CONTROL_INIT
                 val leaf = chain[0]
                 leaf.checkValidity()
 
@@ -518,7 +535,7 @@ class TetherFileTransferServer(
                 throw CertificateException("Server certificates are not checked by server trust manager")
             }
 
-            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
         }
 
         val sslContext = SSLContext.getInstance("TLSv1.3")

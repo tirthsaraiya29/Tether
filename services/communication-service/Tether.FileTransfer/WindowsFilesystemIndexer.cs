@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
 using Tether.Shared.Logging;
@@ -8,6 +9,7 @@ namespace Tether.FileTransfer
 {
     public class WindowsFilesystemIndexer
     {
+        private static readonly SemaphoreSlim IndexLock = new(1, 1);
         private readonly ITetherLogger _logger;
         private readonly string _dbPath;
         private const string DbName = "windows_fs.db";
@@ -22,84 +24,100 @@ namespace Tether.FileTransfer
 
         public async Task<string> BuildDatabaseAsync()
         {
-            return await Task.Run(() =>
+            await IndexLock.WaitAsync();
+            try
             {
-                _logger.Info("Building Windows filesystem database...");
-
-                if (File.Exists(_dbPath))
+                return await Task.Run(() =>
                 {
-                    try { File.Delete(_dbPath); } catch { }
-                }
+                    _logger.Info("Building Windows filesystem database...");
 
-                using var connection = new SqliteConnection($"Data Source={_dbPath}");
-                connection.Open();
-
-                using (var cmd = connection.CreateCommand())
-                {
-                    cmd.CommandText = "PRAGMA journal_mode=DELETE; PRAGMA synchronous=OFF;";
-                    cmd.ExecuteNonQuery();
-                }
-
-                using (var command = connection.CreateCommand())
-                {
-                    command.CommandText = @"
-                        CREATE TABLE files (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            parent_path TEXT,
-                            name TEXT,
-                            path TEXT UNIQUE,
-                            is_directory INTEGER,
-                            size INTEGER,
-                            last_modified INTEGER
-                        );
-                        CREATE INDEX idx_parent ON files(parent_path);
-                    ";
-                    command.ExecuteNonQuery();
-                }
-
-                using (var transaction = connection.BeginTransaction())
-                {
-                    using var insertCmd = connection.CreateCommand();
-                    insertCmd.Transaction = transaction;
-                    insertCmd.CommandText = "INSERT OR IGNORE INTO files (parent_path, name, path, is_directory, size, last_modified) VALUES ($parent, $name, $path, $isDir, $size, $lastMod)";
-
-                    var parentParam = insertCmd.Parameters.Add("$parent", SqliteType.Text);
-                    var nameParam = insertCmd.Parameters.Add("$name", SqliteType.Text);
-                    var pathParam = insertCmd.Parameters.Add("$path", SqliteType.Text);
-                    var isDirParam = insertCmd.Parameters.Add("$isDir", SqliteType.Integer);
-                    var sizeParam = insertCmd.Parameters.Add("$size", SqliteType.Integer);
-                    var lastModParam = insertCmd.Parameters.Add("$lastMod", SqliteType.Integer);
-
-                    try
+                    string tmpPath = _dbPath + ".tmp";
+                    if (File.Exists(tmpPath))
                     {
-                        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                        ScanDirectory(insertCmd, parentParam, nameParam, pathParam, isDirParam, sizeParam, lastModParam, userProfile, "/");
+                        try { File.Delete(tmpPath); } catch { }
+                    }
 
-                        // Add Drives
-                        foreach (var drive in DriveInfo.GetDrives())
+                    using (var connection = new SqliteConnection($"Data Source={tmpPath}"))
+                    {
+                        connection.Open();
+
+                        using (var cmd = connection.CreateCommand())
                         {
-                            if (drive.IsReady && drive.RootDirectory.FullName != Path.GetPathRoot(userProfile))
+                            cmd.CommandText = "PRAGMA journal_mode=DELETE; PRAGMA synchronous=OFF;";
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.CommandText = @"
+                                CREATE TABLE files (
+                                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    parent_path TEXT,
+                                    name TEXT,
+                                    path TEXT UNIQUE,
+                                    is_directory INTEGER,
+                                    size INTEGER,
+                                    last_modified INTEGER
+                                );
+                                CREATE INDEX idx_parent ON files(parent_path);
+                            ";
+                            command.ExecuteNonQuery();
+                        }
+
+                        using (var transaction = connection.BeginTransaction())
+                        {
+                            using var insertCmd = connection.CreateCommand();
+                            insertCmd.Transaction = transaction;
+                            insertCmd.CommandText = "INSERT OR IGNORE INTO files (parent_path, name, path, is_directory, size, last_modified) VALUES ($parent, $name, $path, $isDir, $size, $lastMod)";
+
+                            var parentParam = insertCmd.Parameters.Add("$parent", SqliteType.Text);
+                            var nameParam = insertCmd.Parameters.Add("$name", SqliteType.Text);
+                            var pathParam = insertCmd.Parameters.Add("$path", SqliteType.Text);
+                            var isDirParam = insertCmd.Parameters.Add("$isDir", SqliteType.Integer);
+                            var sizeParam = insertCmd.Parameters.Add("$size", SqliteType.Integer);
+                            var lastModParam = insertCmd.Parameters.Add("$lastMod", SqliteType.Integer);
+
+                            try
                             {
-                                InsertRecord(insertCmd, parentParam, nameParam, pathParam, isDirParam, sizeParam, lastModParam,
-                                    "/", drive.Name, drive.RootDirectory.FullName, true, 0, 0);
+                                string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                                ScanDirectory(insertCmd, parentParam, nameParam, pathParam, isDirParam, sizeParam, lastModParam, userProfile, "/");
+
+                                // Add Drives
+                                foreach (var drive in DriveInfo.GetDrives())
+                                {
+                                    if (drive.IsReady && drive.RootDirectory.FullName != Path.GetPathRoot(userProfile))
+                                    {
+                                        InsertRecord(insertCmd, parentParam, nameParam, pathParam, isDirParam, sizeParam, lastModParam,
+                                            "/", drive.Name, drive.RootDirectory.FullName, true, 0, 0);
+                                    }
+                                }
+
+                                transaction.Commit();
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.Error($"Error building Windows DB: {ex.Message}");
+                                transaction.Rollback();
                             }
                         }
 
-                        transaction.Commit();
+                        connection.Close();
+                        SqliteConnection.ClearPool(connection);
                     }
-                    catch (Exception ex)
+
+                    if (File.Exists(tmpPath))
                     {
-                        _logger.Error($"Error building Windows DB: {ex.Message}");
-                        transaction.Rollback();
+                        File.Move(tmpPath, _dbPath, overwrite: true);
                     }
-                }
 
-                connection.Close();
-                SqliteConnection.ClearPool(connection);
-
-                _logger.Info($"Finished building DB. Size: {new FileInfo(_dbPath).Length} bytes");
-                return _dbPath;
-            });
+                    _logger.Info($"Finished building DB. Size: {new FileInfo(_dbPath).Length} bytes");
+                    return _dbPath;
+                });
+            }
+            finally
+            {
+                IndexLock.Release();
+            }
         }
 
         private void ScanDirectory(

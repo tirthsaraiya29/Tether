@@ -705,7 +705,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 && (connectedHostAddress == device.hostAddress)
 
         if (!isConnectedToTarget) {
-            if ((currentState == TransportState.CONNECTING) || (currentState == TransportState.TLS_HANDSHAKE)) {
+            if ((currentState == TransportState.CONNECTING) || (currentState == TransportState.TLS_HANDSHAKE) || (currentState == TransportState.AUTHENTICATING)) {
                 if (connectedHostAddress != device.hostAddress) {
                     Log.i(TAG, "Discovered new host $safeAddr while connecting to $connectedHostAddress. Disconnecting stale connection...")
                     disconnectActiveSession("Switching to newly discovered host $safeAddr")
@@ -775,6 +775,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         connectedPeerName = result.peerDeviceId.ifBlank { "Windows PC" }
                         trustState = TrustState.PAIRED
                         currentState = TransportState.AUTHENTICATED
+                        try { discoveryManager.stopDiscovery() } catch (_: Exception) {}
                         capabilityManager.negotiateCapabilities(result.peerCapabilities.ifBlank { "" })
 
                         mainHandler.postDelayed(
@@ -883,6 +884,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     
                     trustState = TrustState.PAIRED
                     currentState = TransportState.AUTHENTICATED
+                    try { discoveryManager.stopDiscovery() } catch (_: Exception) {}
                     capabilityManager.negotiateCapabilities(result.peerCapabilities.ifBlank { "" })
 
                     mainHandler.postDelayed(
