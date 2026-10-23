@@ -77,9 +77,7 @@ public sealed class FileTransferManager : ITrustValidator, IDisposable
             var options = new System.Net.Security.SslClientAuthenticationOptions
             {
                 TargetHost = phoneIp,
-                ClientCertificates = new X509CertificateCollection { _serverCertificate },
-                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
-                LocalCertificateSelectionCallback = (sender, targetHost, localCertificates, remoteCertificate, acceptableIssuers) => _serverCertificate
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13
             };
 
             await sslStream.AuthenticateAsClientAsync(options, cts.Token);

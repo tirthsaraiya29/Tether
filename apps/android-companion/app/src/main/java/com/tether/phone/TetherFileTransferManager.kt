@@ -310,6 +310,10 @@ class TetherFileTransferManager(
                     val dbPath = appContext.getDatabasePath("windows_fs.db")
                     dbPath.parentFile?.mkdirs()
                     SQLiteDatabase.releaseMemory()
+                    val walFile = File(dbPath.path + "-wal")
+                    val shmFile = File(dbPath.path + "-shm")
+                    if (walFile.exists()) try { walFile.delete() } catch (_: Exception) {}
+                    if (shmFile.exists()) try { shmFile.delete() } catch (_: Exception) {}
                     if (dbPath.exists()) {
                         try { dbPath.delete() } catch (_: Exception) {}
                     }
