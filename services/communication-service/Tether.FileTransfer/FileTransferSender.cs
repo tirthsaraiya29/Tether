@@ -111,39 +111,46 @@ public sealed class FileTransferSender
             var sslOptions = new SslClientAuthenticationOptions
             {
                 TargetHost = targetIp,
-                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13
+                ClientCertificates = new X509CertificateCollection(),
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13,
+                LocalCertificateSelectionCallback = (sender, host, localCerts, remoteCert, acceptableIssuers) => _clientCertificate
             };
 
-            // Workaround for ECDSA CNG key container issues
-            if (_clientCertificate.HasPrivateKey)
-            {
-                sslOptions.LocalCertificateSelectionCallback = (sender, targetHost, localCertificates, remoteCertificate, acceptableIssuers) => _clientCertificate;
-                sslOptions.ClientCertificates = new X509CertificateCollection();
-            }
-            else
-            {
-                sslOptions.ClientCertificates = new X509CertificateCollection { _clientCertificate };
-            }
-
             await sslStream.AuthenticateAsClientAsync(sslOptions, ct);
-            _logger.Info($"FileTransferSender: TLS 1.3 authenticated to {targetIp}:{port}");
+
+            var localFp = FileTransferManager.ComputeSpkiFingerprint(_clientCertificate);
 
             // 1. Send CONTROL_INIT
-            string myFingerprint = FileTransferManager.ComputeSpkiFingerprint(_clientCertificate);
-            var initFrame = new ControlInitFrame { DeviceId = myFingerprint };
+            var initFrame = new ControlInitFrame { DeviceId = localFp };
             await SendFrameAsync(sslStream, JsonSerializer.Serialize(initFrame), ct);
 
             byte[] ackFrame = await ReadFrameAsync(sslStream, ct);
-            _logger.Info($"FileTransferSender: Received CONTROL_INIT_ACK");
+            var ackStr = Encoding.UTF8.GetString(ackFrame);
+            _logger.Info($"FileTransferSender: CONTROL_INIT_ACK raw={ackStr}");
+
+            var ackObj = JsonSerializer.Deserialize<ControlInitAckFrame>(ackStr);
+            if (ackObj == null || ackObj.Status != "OK")
+            {
+                _logger.Warning($"FileTransferSender: Connection rejected by phone: {ackObj?.Status}");
+                throw new Exception($"Phone rejected connection: {ackObj?.Status}");
+            }
 
             foreach (var prepared in preparedItems)
             {
                 var item = prepared.Item;
+
+                if (!tcpClient.Connected || !sslStream.CanWrite || !sslStream.CanRead)
+                {
+                    _logger.Warning("Breaking out of transfer loop: stream is closed.");
+                    break;
+                }
+
                 if (ct.IsCancellationRequested) break;
                 if (!File.Exists(item.SourcePath) && !Directory.Exists(item.SourcePath))
                 {
                     string errMsg = "Source path missing";
                     queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: errMsg);
+                    queue.RemoveItem(item.TransferId);
                     EmitProgress(activeCallback, item.TransferId, item.FileName, prepared.Size, 0, 0, FileTransferState.FAILED, errMsg);
                     continue;
                 }
@@ -189,7 +196,7 @@ public sealed class FileTransferSender
                     long startTimeMs = Environment.TickCount64;
                     long lastEmitTimeMs = startTimeMs;
 
-                    using (var fs = File.OpenRead(item.SourcePath))
+                    using (var fs = new FileStream(item.SourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                     {
                         byte[] buffer = new byte[chunkSize];
                         long bytesSent = 0;
@@ -244,9 +251,15 @@ public sealed class FileTransferSender
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error($"FileTransferSender: Exception sending transfer {item.TransferId}: {ex.Message}");
+                    _logger.Error($"FileTransferSender: Transfer {item.TransferId} failed: {ex.GetType().FullName}: {ex.Message}");
                     queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: ex.Message);
                     EmitProgress(activeCallback, item.TransferId, item.FileName, prepared.Size, 0, 0, FileTransferState.FAILED, ex.Message);
+
+                    if (ex is IOException || ex is EndOfStreamException || ex is SocketException)
+                    {
+                        _logger.Warning("Breaking out of transfer loop: network stream encountered an error.");
+                        break;
+                    }
                 }
             }
         }
@@ -321,7 +334,7 @@ public sealed class FileTransferSender
     public static string ComputeSha512Hex(string path)
     {
         using var sha = SHA512.Create();
-        using var fs = File.OpenRead(path);
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         byte[] hash = sha.ComputeHash(fs);
         return Convert.ToHexString(hash);
     }
