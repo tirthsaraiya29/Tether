@@ -181,10 +181,11 @@ public sealed class FileTransferReceiver : IDisposable
     {
         try
         {
+            string remoteIp = ((IPEndPoint)connection.RemoteEndPoint).Address.ToString();
             // Identity is proven by the client certificate; CONTROL_INIT may only confirm it.
             var stream = await connection.AcceptInboundStreamAsync(ct);
             using var streamAdapter = new QuicStreamAdapter(stream);
-            await HandleTransferSessionAsync(streamAdapter, ExtractPeerCertFromConnection(connection), ct);
+            await HandleTransferSessionAsync(streamAdapter, ExtractPeerCertFromConnection(connection), remoteIp, ct);
         }
         catch (Exception ex)
         {
@@ -240,6 +241,7 @@ public sealed class FileTransferReceiver : IDisposable
     {
         try
         {
+            string remoteIp = ((IPEndPoint)client.Client.RemoteEndPoint!).Address.ToString();
             client.NoDelay = true;
             using var networkStream = client.GetStream();
             using var sslStream = new SslStream(networkStream, false, (sender, cert, chain, errors) => true);
@@ -266,7 +268,7 @@ public sealed class FileTransferReceiver : IDisposable
             };
 
             using var streamAdapter = new NetworkStreamAdapter(sslStream);
-            await HandleTransferSessionAsync(streamAdapter, peerCertificate, ct);
+            await HandleTransferSessionAsync(streamAdapter, peerCertificate, remoteIp, ct);
         }
         catch (Exception ex)
         {
@@ -278,7 +280,7 @@ public sealed class FileTransferReceiver : IDisposable
         }
     }
 
-    private async Task HandleTransferSessionAsync(ITransportStream stream, X509Certificate2? peerCertificate, CancellationToken ct)
+    private async Task HandleTransferSessionAsync(ITransportStream stream, X509Certificate2? peerCertificate, string remoteIp, CancellationToken ct)
     {
         _logger.Info("Starting HandleTransferSessionAsync (waiting for CONTROL_INIT)");
         byte[] lenBuffer = new byte[4];
@@ -384,6 +386,9 @@ public sealed class FileTransferReceiver : IDisposable
                                 await SendControlFrameAsync(stream, JsonSerializer.Serialize(resp), ct);
 
                                 _durableQueue.EnqueueOutgoing(dbPath, authenticatedPeerName, "windows_fs.db");
+                                if (_trustValidator is FileTransferManager manager) {
+                                    _ = Task.Run(() => manager.ProcessOutgoingQueueAsync(remoteIp));
+                                }
                             }
                             catch (Exception ex)
                             {
@@ -505,6 +510,10 @@ public sealed class FileTransferReceiver : IDisposable
                             {
                                 _durableQueue.EnqueueOutgoing(canonicalPath, authenticatedPeerName);
                                 _logger.Info($"FILE_DOWNLOAD_REQUEST: Enqueued '{canonicalPath}' for transfer to {authenticatedPeerName}");
+
+                                if (_trustValidator is FileTransferManager manager) {
+                                    _ = Task.Run(() => manager.ProcessOutgoingQueueAsync(remoteIp));
+                                }
                             }
                             else
                             {
