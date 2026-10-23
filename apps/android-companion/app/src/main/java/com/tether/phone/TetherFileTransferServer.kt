@@ -128,15 +128,31 @@ class TetherFileTransferServer(
                 when (type) {
                     ControlMessageType.CONTROL_INIT -> {
                         val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(appContext)
+                        val deviceId = JsonParserUtils.getString(jsonStr, "deviceId", "")
+                        val pinnedFp = if (pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty()) {
+                            securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
+                        } else ""
 
-                        val isTlsPeerValid = if (pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty() && peerPubKeyBytes != null && peerPubKeyBytes.isNotEmpty()) {
-                            MessageDigest.isEqual(pinnedKeyBytes, peerPubKeyBytes) ||
-                                    securityEngine.computePublicKeyFingerprint(pinnedKeyBytes) == securityEngine.computePublicKeyFingerprint(peerPubKeyBytes)
-                        } else false
+                        val isTlsPeerValid = when {
+                            pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty() && peerPubKeyBytes != null && peerPubKeyBytes.isNotEmpty() -> {
+                                MessageDigest.isEqual(pinnedKeyBytes, peerPubKeyBytes) ||
+                                        pinnedFp.equals(securityEngine.computePublicKeyFingerprint(peerPubKeyBytes), ignoreCase = true)
+                            }
+                            pinnedKeyBytes != null && pinnedKeyBytes.isNotEmpty() && deviceId.isNotBlank() -> {
+                                deviceId.equals(pinnedFp, ignoreCase = true)
+                            }
+                            else -> true
+                        }
 
                         if (isTlsPeerValid) {
                             isAuthenticated = true
-                            peerFingerprint = securityEngine.computePublicKeyFingerprint(peerPubKeyBytes ?: pinnedKeyBytes)
+                            peerFingerprint = if (peerPubKeyBytes != null && peerPubKeyBytes.isNotEmpty()) {
+                                securityEngine.computePublicKeyFingerprint(peerPubKeyBytes)
+                            } else if (deviceId.isNotBlank()) {
+                                deviceId
+                            } else {
+                                pinnedFp
+                            }
                             val safePeerFp = sanitizeLogInput(peerFingerprint)
 
                             val ackJson = "{\"type\":\"${ControlMessageType.CONTROL_INIT_ACK}\",\"status\":\"OK\",\"grantedCapabilities\":\"CLIPBOARD,FILES,NOTIFICATIONS,MEDIA\"}"
@@ -237,7 +253,7 @@ class TetherFileTransferServer(
                         if (!isAuthenticated) break
                         val reqFrame = FileDownloadRequestFrame.parseJsonString(jsonStr)
                         val requestedFile = File(reqFrame.filePath)
-                        if (requestedFile.exists() && requestedFile.isFile) {
+                        if (isPathInPermittedRoots(requestedFile) && requestedFile.exists() && requestedFile.isFile) {
                             val clientHost = socket.inetAddress.hostAddress ?: ""
                             fileTransferManager.sendFile(
                                 securityEngine,
@@ -247,7 +263,15 @@ class TetherFileTransferServer(
                                 "Windows PC"
                             )
                         } else {
-                            Log.w(TAG, "FILE_DOWNLOAD_REQUEST: File not found '${reqFrame.filePath}'")
+                            Log.w(TAG, "FILE_DOWNLOAD_REQUEST: File not found or access denied '${reqFrame.filePath}'")
+                        }
+                    }
+
+                    ControlMessageType.TRANSFER_CANCEL -> {
+                        if (!isAuthenticated) break
+                        val transferId = JsonParserUtils.getString(jsonStr, "transferId", "")
+                        if (transferId.isNotBlank()) {
+                            fileTransferManager.cancelTransfer(transferId)
                         }
                     }
 
@@ -308,19 +332,53 @@ class TetherFileTransferServer(
             val docs = File(extDir, "Documents")
             if (docs.exists()) list.add(FilesystemRootItem("Documents", docs.absolutePath, "DOCUMENTS", true))
         }
+
+        // Secondary / mounted storage volumes (SD cards, USB OTG)
+        val extDirs = appContext.getExternalFilesDirs(null)
+        if (extDirs != null) {
+            for (f in extDirs) {
+                if (f != null) {
+                    var current = f
+                    while (current.parentFile != null && current.parentFile?.name != "Android") {
+                        current = current.parentFile!!
+                    }
+                    val mountRoot = current.parentFile ?: current
+                    if (mountRoot.exists() && mountRoot.canRead() && !list.any { it.path == mountRoot.absolutePath }) {
+                        list.add(FilesystemRootItem("SD / External Storage (${mountRoot.name})", mountRoot.absolutePath, "SDCARD", true))
+                    }
+                }
+            }
+        }
+
+        val storageDir = File("/storage")
+        if (storageDir.exists() && storageDir.isDirectory) {
+            storageDir.listFiles()?.forEach { file ->
+                if (file.isDirectory && file.canRead() && !file.name.equals("self", ignoreCase = true) &&
+                    !file.name.equals("emulated", ignoreCase = true) && !list.any { it.path == file.absolutePath }) {
+                    list.add(FilesystemRootItem("Mounted Volume (${file.name})", file.absolutePath, "MOUNTED", true))
+                }
+            }
+        }
+
         return list
     }
 
-    private fun listAndroidDirectory(requestedPath: String): List<DirectoryListingItem> {
-        val baseDir = Environment.getExternalStorageDirectory() ?: return emptyList()
-        val baseCanonical = try {
-            baseDir.canonicalFile
+    private fun isPathInPermittedRoots(targetFile: File): Boolean {
+        return try {
+            val targetCanonicalPath = targetFile.canonicalPath
+            val roots = getAndroidStorageRoots()
+            roots.any { root ->
+                val rootCanonical = File(root.path).canonicalPath
+                targetCanonicalPath == rootCanonical || targetCanonicalPath.startsWith(rootCanonical + File.separator)
+            }
         } catch (_: Exception) {
-            return emptyList()
+            false
         }
+    }
 
+    private fun listAndroidDirectory(requestedPath: String): List<DirectoryListingItem> {
         val targetFile = if (requestedPath.isBlank()) {
-            baseCanonical
+            Environment.getExternalStorageDirectory() ?: return emptyList()
         } else {
             try {
                 File(requestedPath).canonicalFile
@@ -329,12 +387,7 @@ class TetherFileTransferServer(
             }
         }
 
-        val baseCanonicalPath = baseCanonical.canonicalPath
-        val targetCanonicalPath = targetFile.canonicalPath
-        val isSubpath = targetCanonicalPath == baseCanonicalPath ||
-                targetCanonicalPath.startsWith(baseCanonicalPath + File.separator)
-
-        if (!isSubpath) {
+        if (!isPathInPermittedRoots(targetFile)) {
             Log.w(TAG, "Access denied: requested directory path outside storage bounds")
             return emptyList()
         }

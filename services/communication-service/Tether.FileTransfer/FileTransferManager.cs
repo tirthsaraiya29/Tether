@@ -46,7 +46,7 @@ public sealed class FileTransferManager : ITrustValidator, IDisposable
         _eventPublisher = eventPublisher;
         _fileSystemBrowser = new FileSystemBrowser(logger);
         _durableQueue = new DurableTransferQueue(logger);
-        _sender = new FileTransferSender(logger, serverCertificate);
+        _sender = new FileTransferSender(logger, serverCertificate, this);
     }
 
     public FileSystemBrowser FileSystemBrowser => _fileSystemBrowser;

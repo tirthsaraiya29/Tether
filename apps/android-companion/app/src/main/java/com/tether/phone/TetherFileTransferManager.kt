@@ -91,6 +91,86 @@ class TetherFileTransferManager(
     private fun updateProgress(progress: TransferProgress) {
         activeTransfers[progress.transferId] = progress
         _transferListFlow.value = activeTransfers.values.toList()
+        showTransferNotification(progress)
+    }
+
+    private fun showTransferNotification(progress: TransferProgress) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (androidx.core.content.ContextCompat.checkSelfPermission(
+                        appContext,
+                        android.Manifest.permission.POST_NOTIFICATIONS
+                    ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    return
+                }
+            }
+
+            val notificationManager = androidx.core.app.NotificationManagerCompat.from(appContext)
+            val notifId = progress.transferId.hashCode()
+
+            when (progress.state) {
+                FileTransferState.TRANSFERRING, FileTransferState.VERIFYING -> {
+                    val directionText = if (progress.isIncoming) "Receiving" else "Sending"
+                    val speedText = String.format(Locale.US, "%.1f MB/s", progress.speedMbPerSec)
+                    val title = "$directionText ${progress.fileName}"
+                    val content = "${progress.progressPercentage}% • $speedText • ${progress.peerName}"
+
+                    val notification = androidx.core.app.NotificationCompat.Builder(
+                        appContext,
+                        TetherNotificationChannels.CHANNEL_FILE_TRANSFER
+                    )
+                        .setSmallIcon(android.R.drawable.stat_sys_download)
+                        .setContentTitle(title)
+                        .setContentText(content)
+                        .setProgress(100, progress.progressPercentage, progress.state == FileTransferState.VERIFYING)
+                        .setOngoing(true)
+                        .setOnlyAlertOnce(true)
+                        .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
+                        .build()
+
+                    notificationManager.notify(notifId, notification)
+                }
+
+                FileTransferState.COMPLETED -> {
+                    val title = "Transfer Complete: ${progress.fileName}"
+                    val content = "Successfully saved (${progress.fileSize / 1024} KB)"
+                    val notification = androidx.core.app.NotificationCompat.Builder(
+                        appContext,
+                        TetherNotificationChannels.CHANNEL_FILE_TRANSFER
+                    )
+                        .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                        .setContentTitle(title)
+                        .setContentText(content)
+                        .setOngoing(false)
+                        .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
+                        .build()
+
+                    notificationManager.notify(notifId, notification)
+                }
+
+                FileTransferState.FAILED, FileTransferState.CANCELLED -> {
+                    val title = "Transfer Failed: ${progress.fileName}"
+                    val content = progress.errorMessage ?: "Transfer stopped"
+                    val notification = androidx.core.app.NotificationCompat.Builder(
+                        appContext,
+                        TetherNotificationChannels.CHANNEL_FILE_TRANSFER
+                    )
+                        .setSmallIcon(android.R.drawable.stat_notify_error)
+                        .setContentTitle(title)
+                        .setContentText(content)
+                        .setOngoing(false)
+                        .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
+                        .build()
+
+                    notificationManager.notify(notifId, notification)
+                }
+
+                else -> {}
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed posting transfer notification: ${e.message}")
+        }
     }
 
     fun getStagingFile(transferId: String): File {

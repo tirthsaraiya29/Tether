@@ -11,6 +11,7 @@ object TetherNotificationChannels {
     const val CHANNEL_POWER_EVENTS = "tether_power_events"
     const val CHANNEL_PAIRING_PROMPT = "tether_pairing_prompt"
     const val CHANNEL_UPDATES = "tether_updates"
+    const val CHANNEL_FILE_TRANSFER = "tether_file_transfers"
 
     fun createAllChannels(context: Context) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -85,6 +86,19 @@ object TetherNotificationChannels {
                 ).apply {
                     description = "Notifications when a new version of Tether is available"
                     setShowBadge(true)
+                }
+            )
+        }
+
+        if (notificationManager.getNotificationChannel(CHANNEL_FILE_TRANSFER) == null) {
+            channelsToCreate.add(
+                NotificationChannel(
+                    CHANNEL_FILE_TRANSFER,
+                    "Tether File Transfers",
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply {
+                    description = "Live notifications for active file uploads and downloads"
+                    setShowBadge(false)
                 }
             )
         }

@@ -532,14 +532,16 @@ namespace Tether.DesktopUI
                             long bytesTransferred = root.GetProperty("BytesTransferred").GetInt64();
                             double speedBytesPerSec = root.GetProperty("SpeedBytesPerSec").GetDouble();
                             string peerName = root.GetProperty("PeerName").GetString() ?? "";
+                            bool isIncoming = root.TryGetProperty("IsIncoming", out var incProp) && incProp.GetBoolean();
 
                             _activeTransferId = transferId;
                             int pct = fileSize > 0 ? (int)((double)bytesTransferred / fileSize * 100.0) : 0;
                             double speedMb = speedBytesPerSec / (1024.0 * 1024.0);
+                            string direction = isIncoming ? "Receiving" : "Sending";
 
                             Dispatcher.InvokeAsync(() =>
                             {
-                                TxtTransferFileName.Text = $"Receiving: {fileName} (from {peerName})";
+                                TxtTransferFileName.Text = $"{direction}: {fileName} (from {peerName})";
                                 TransferProgressBar.Value = Math.Clamp(pct, 0, 100);
                                 TxtTransferSpeed.Text = $"{speedMb:F1} MB/s";
                                 TxtTransferMeta.Text = $"{bytesTransferred / (1024 * 1024)} / {fileSize / (1024 * 1024)} MB ({pct}%)";

@@ -54,6 +54,23 @@ enum class FileTransferState {
 }
 
 /**
+ * Progress tracker for Android database indexing
+ */
+data class IndexingProgress(
+    val scannedFiles: Int = 0,
+    val totalFilesEstimated: Int = 0,
+    val currentPath: String = "",
+    val isFinished: Boolean = false,
+    val errorMessage: String? = null,
+) {
+    val progressFraction: Float
+        get() = if (totalFilesEstimated > 0) (scannedFiles.toFloat() / totalFilesEstimated.toFloat()).coerceIn(0f, 1f) else 0f
+
+    val progressPercentage: Int
+        get() = (progressFraction * 100).toInt()
+}
+
+/**
  * Control Stream Message Type Constants
  */
 object ControlMessageType {

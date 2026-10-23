@@ -19,11 +19,13 @@ public sealed class FileTransferSender
 {
     private readonly ITetherLogger _logger;
     private readonly X509Certificate2 _clientCertificate;
+    private readonly ITrustValidator _trustValidator;
 
-    public FileTransferSender(ITetherLogger logger, X509Certificate2 clientCertificate)
+    public FileTransferSender(ITetherLogger logger, X509Certificate2 clientCertificate, ITrustValidator trustValidator)
     {
         _logger = logger;
         _clientCertificate = clientCertificate;
+        _trustValidator = trustValidator;
     }
 
     public async Task ProcessOutgoingQueueAsync(
@@ -38,7 +40,31 @@ public sealed class FileTransferSender
 
         if (pendingItems.Count == 0) return;
 
-        _logger.Info($"FileTransferSender: Attempting transport connection to {targetIp}:{port} for {pendingItems.Count} pending items...");
+        // Pre-compute hashes and sizes to avoid stalling the socket later
+        var preparedItems = new System.Collections.Generic.List<(DurableTransferItem Item, string Sha512, long Size)>();
+        foreach (var item in pendingItems)
+        {
+            if (ct.IsCancellationRequested) return;
+            if (!File.Exists(item.SourcePath) && !Directory.Exists(item.SourcePath))
+            {
+                queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: "Source path missing");
+                continue;
+            }
+            try
+            {
+                string sha512 = ComputeSha512Hex(item.SourcePath);
+                long size = new FileInfo(item.SourcePath).Length;
+                preparedItems.Add((item, sha512, size));
+            }
+            catch (Exception ex)
+            {
+                 queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: $"Pre-processing failed: {ex.Message}");
+            }
+        }
+
+        if (preparedItems.Count == 0) return;
+
+        _logger.Info($"FileTransferSender: Attempting transport connection to {targetIp}:{port} for {preparedItems.Count} pending items...");
 
         using var tcpClient = new TcpClient();
         tcpClient.NoDelay = true;
@@ -49,7 +75,15 @@ public sealed class FileTransferSender
             using var sslStream = new SslStream(
                 tcpClient.GetStream(),
                 leaveInnerStreamOpen: false,
-                userCertificateValidationCallback: (sender, cert, chain, errors) => true);
+                userCertificateValidationCallback: (sender, cert, chain, errors) => {
+                    if (cert is X509Certificate2 cert2) {
+                        return _trustValidator.ValidatePeerPublicKey(cert2, out _, out _, out bool hasFiles) && hasFiles;
+                    }
+                    if (cert != null) {
+                        return _trustValidator.ValidatePeerPublicKey(new X509Certificate2(cert), out _, out _, out bool hasFiles) && hasFiles;
+                    }
+                    return false;
+                });
 
             var sslOptions = new SslClientAuthenticationOptions
             {
@@ -62,14 +96,16 @@ public sealed class FileTransferSender
             _logger.Info($"FileTransferSender: TLS 1.3 authenticated to {targetIp}:{port}");
 
             // 1. Send CONTROL_INIT
-            var initFrame = new ControlInitFrame { DeviceId = "LOCAL_WIN" };
+            string myFingerprint = FileTransferManager.ComputeSpkiFingerprint(_clientCertificate);
+            var initFrame = new ControlInitFrame { DeviceId = myFingerprint };
             await SendFrameAsync(sslStream, JsonSerializer.Serialize(initFrame), ct);
 
             byte[] ackFrame = await ReadFrameAsync(sslStream, ct);
             _logger.Info($"FileTransferSender: Received CONTROL_INIT_ACK");
 
-            foreach (var item in pendingItems)
+            foreach (var prepared in preparedItems)
             {
+                var item = prepared.Item;
                 if (ct.IsCancellationRequested) break;
                 if (!File.Exists(item.SourcePath) && !Directory.Exists(item.SourcePath))
                 {
@@ -81,8 +117,8 @@ public sealed class FileTransferSender
 
                 try
                 {
-                    string sha512Hex = ComputeSha512Hex(item.SourcePath);
-                    long fileSize = new FileInfo(item.SourcePath).Length;
+                    string sha512Hex = prepared.Sha512;
+                    long fileSize = prepared.Size;
                     long chunkSize = 65536;
                     long totalChunks = fileSize > 0 ? (fileSize + chunkSize - 1) / chunkSize : 0;
 

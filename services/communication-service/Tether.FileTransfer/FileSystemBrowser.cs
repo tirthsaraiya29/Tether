@@ -46,6 +46,25 @@ public sealed class FileSystemBrowser
         AddRootIfValid(roots, "Videos", Path.Combine(userProfile, "Videos"), "VIDEOS");
         AddRootIfValid(roots, "Desktop", Path.Combine(userProfile, "Desktop"), "DESKTOP");
 
+        // Enumerate all ready mounted logical drives
+        try
+        {
+            foreach (var drive in DriveInfo.GetDrives())
+            {
+                if (drive.IsReady)
+                {
+                    string label = string.IsNullOrWhiteSpace(drive.VolumeLabel)
+                        ? $"Drive ({drive.Name.TrimEnd('\\')})"
+                        : $"{drive.VolumeLabel} ({drive.Name.TrimEnd('\\')})";
+                    AddRootIfValid(roots, label, drive.RootDirectory.FullName, "DRIVE");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"FileSystemBrowser: Error enumerating system drives: {ex.Message}");
+        }
+
         // Custom roots from settings.json
         try
         {
