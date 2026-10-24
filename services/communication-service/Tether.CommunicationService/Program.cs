@@ -8,6 +8,7 @@ using Tether.CommunicationService;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.Discovery;
+using Tether.CommunicationService.FileTransfer;
 using Tether.CommunicationService.Ipc;
 using Tether.CommunicationService.Pairing;
 using Tether.CommunicationService.Protocol;
@@ -59,6 +60,9 @@ var host = builder
         services.AddSingleton<TetherTcpServer>();
         services.AddSingleton<PowerEventWatcher>();
         services.AddSingleton<PowerEventNotifier>();
+
+        services.AddSingleton<TokenStore>();
+        services.AddHostedService<FileTransferServer>();
 
         services.AddSingleton<ITrustStoreProvider, TrustStoreProviderBridge>();
 

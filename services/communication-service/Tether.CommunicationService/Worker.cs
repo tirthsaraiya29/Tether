@@ -154,7 +154,8 @@ public sealed class Worker : BackgroundService
             id: _identity.DeviceId,
             name: _identity.DeviceName,
             caps: AdvertisedCaps,
-            pqc: false);
+            pqc: false,
+            ftPort: 37124);
 
         _tetherLogger.Info($"Transport up. DeviceId={_identity.DeviceId}");
 

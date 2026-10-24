@@ -1229,7 +1229,7 @@ fun TetherNavigationShell(
 
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
-                            // Triple("FILE SHARING", Icons.Default.Folder, AppScreen.FILE_TRANSFER), // Discarded/Excluded
+                            Triple("FILE SHARING", Icons.Default.Folder, AppScreen.FILE_TRANSFER),
                             Triple("REMOTE INPUT", Icons.Default.TouchApp, AppScreen.REMOTE_INPUT),
                             Triple("PERMISSIONS", Icons.Default.CheckCircle, AppScreen.PERMISSIONS),
                             Triple(stringResource(R.string.nav_apps), Icons.Default.Refresh, AppScreen.SYSTEM_APPS),
@@ -1327,6 +1327,9 @@ fun TetherNavigationShell(
                             onSelectLaptop = onSelectLaptop,
                             onTriggerStepVerification = onTriggerStepVerification,
                             onLanActionRequested = onLaptopActionClick
+                        )
+                        AppScreen.FILE_TRANSFER -> FileTransferScreen(
+                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
                         )
                         AppScreen.SECURITY_SETTINGS -> SettingsScreen(
                             trustState = trustState,

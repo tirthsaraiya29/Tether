@@ -59,6 +59,7 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.google.material)
     implementation(libs.bouncycastle.bcprov)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation(libs.junit)
     testImplementation("org.json:json:20260814")
     androidTestImplementation(platform(libs.androidx.compose.bom))
