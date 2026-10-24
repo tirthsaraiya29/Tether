@@ -38,8 +38,6 @@
 
 **Tether** is an open-source personal trust and authentication platform designed to connect an Android device with a Windows workstation. It aims to use a smartphone as a cryptographically secured **trust anchor**, enabling device-based authentication workflows, workstation locking, trust validation, emergency lockdown, and remote workstation control.
 
-Tether also includes an encrypted local file-transfer channel (TCP 37125, ALPN tether-quic-v1) so files and links can be pushed from Android to the paired Windows host without a cloud service, and a Share-to-PC intent handler that lets any Android app hand off content to Tether.
-
 Unlike cloud-dependent companion applications, Tether communicates directly over local Wi-Fi/LAN infrastructure without requiring a cloud relay.
 
 ## Installation and Setup
@@ -61,7 +59,7 @@ Download prebuilt binaries directly from the official releases:
 ### 3. Install on Windows
 
 1. Run `Tether-Setup-*.exe` as Administrator.
-2. Complete the wizard to install `Tether.CommunicationService`, register `TetherCredentialProvider.dll`, and open local firewall ports 37123 (control) and 37125 (file transfer). The service also attempts to add the matching netsh rules on startup.
+2. Complete the wizard to install `Tether.CommunicationService`, register `TetherCredentialProvider.dll`, and open local firewall port 37123 (control). The service also attempts to add the matching netsh rules on startup.
 3. Launch `Tether Desktop UI`.
 
 ### 4. Install on Android
@@ -134,16 +132,6 @@ Download prebuilt binaries directly from the official releases:
 - **Display Brightness:** Adjust monitor brightness via the interactive session helper.
 - **Remote Input:** Stream mouse movement, clicks, scrolling, and modifier-key events.
 - **Application Launching:** Launch configured Windows utilities into the active desktop session.
-
-### Tether Files, Explorer Integration & Durable Transfer Queue
-
-- **Bidirectional File & Folder Explorer:** Browse permitted Windows roots (Downloads, Documents, Pictures, Videos, Desktop, plus custom settings paths) from Android, and browse Android-accessible storage locations from Windows.
-- **Windows Explorer Context Menu:** Integrated "Send to Phone — Tether" context-menu command in Windows Explorer for single/multiple files and folders.
-- **Durable Reconciled Queue:** Persistent JSON queue store on Windows (`%LOCALAPPDATA%\Tether\transfer_queue.json`) and Android (`Context.filesDir`). Queued transfers persist across UI closures, service restarts, and disconnections, resuming automatically when the trusted device reconnects.
-- **Standard-User Privilege Separation:** Tether Desktop UI runs natively under standard-user privileges (`asInvoker`) without requiring UAC elevation for ordinary file browsing, queueing, or workstation control.
-- **Encrypted Transfer Channel:** TCP `37125` with TLS 1.3 / QUIC ALPN `tether-quic-v1` transport.
-- **SHA-512 Integrity Verification:** Files stream in 64 KB chunks, compute SHA-512 in transit, and undergo digest verification before staging files are committed to destination storage.
-- **Share to PC:** Android registers `ACTION_SEND` and `ACTION_SEND_MULTIPLE` intent filters to push links, text, and files directly from any Android app to PC.
 
 ### Android Update Checks and Permissions
 
