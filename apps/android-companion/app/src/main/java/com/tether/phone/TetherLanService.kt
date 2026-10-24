@@ -547,7 +547,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
             "ACTION_GET_STATUS" -> {
                 notifyStateToInterface()
-                if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED) || (currentState == TransportState.DISCOVERING)) {
+                if (trustState != TrustState.PAIRING_REQUESTED && currentState != TransportState.PAIRING_REQUIRED && ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED) || (currentState == TransportState.DISCOVERING))) {
                     resetReconnectBackoff()
                     startDiscovery()
                 }
@@ -638,7 +638,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 return START_STICKY
             }
             null -> {
-                if (currentState == TransportState.DISCONNECTED) {
+                if (trustState != TrustState.PAIRING_REQUESTED && currentState != TransportState.PAIRING_REQUIRED && currentState == TransportState.DISCONNECTED) {
                     startDiscovery()
                 }
                 return START_STICKY
@@ -655,7 +655,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     @Synchronized
     fun startDiscovery() {
-        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING) || (currentState == TransportState.PAIRING_REQUIRED)) {
+        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING) || (currentState == TransportState.PAIRING_REQUIRED) || (trustState == TrustState.PAIRING_REQUESTED)) {
             return
         }
         currentState = TransportState.DISCOVERING
@@ -686,18 +686,26 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val isConnectedToTarget = ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY))
                 && (connectedHostAddress == device.hostAddress)
 
-        if (!isConnectedToTarget) {
-            if ((currentState == TransportState.CONNECTING) || (currentState == TransportState.TLS_HANDSHAKE) || (currentState == TransportState.AUTHENTICATING)) {
-                if (connectedHostAddress != device.hostAddress) {
-                    Log.i(TAG, "Discovered new host $safeAddr while connecting to $connectedHostAddress. Disconnecting stale connection...")
-                    disconnectActiveSession("Switching to newly discovered host $safeAddr")
-                } else {
-                    return
-                }
-            }
-            currentState = TransportState.HOST_FOUND
-            connectToHost(device.hostAddress, device.port)
+        if (isConnectedToTarget) {
+            return
         }
+
+        if ((currentState == TransportState.PAIRING_REQUIRED || trustState == TrustState.PAIRING_REQUESTED) && (activeTransport?.isConnected() == true)) {
+            Log.d(TAG, "Pairing is currently pending on active transport. Skipping connectToHost from onDeviceDiscovered for $safeAddr.")
+            return
+        }
+
+        if ((currentState == TransportState.CONNECTING) || (currentState == TransportState.TLS_HANDSHAKE) || (currentState == TransportState.AUTHENTICATING)) {
+            if (connectedHostAddress != device.hostAddress) {
+                Log.i(TAG, "Discovered new host $safeAddr while connecting to $connectedHostAddress. Disconnecting stale connection...")
+                disconnectActiveSession("Switching to newly discovered host $safeAddr")
+            } else {
+                return
+            }
+        }
+
+        currentState = TransportState.HOST_FOUND
+        connectToHost(device.hostAddress, device.port)
     }
 
     override fun onDeviceLost(deviceId: String) {
@@ -717,7 +725,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     fun connectToHost(hostAddress: String, port: Int = TetherDiscoveryManager.DEFAULT_PORT) {
         if ((currentState == TransportState.AUTHENTICATING) || (currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) return
-        if ((currentState == TransportState.PAIRING_REQUIRED) && (activeTransport?.isConnected() == true)) {
+        if ((currentState == TransportState.PAIRING_REQUIRED || trustState == TrustState.PAIRING_REQUESTED) && (activeTransport?.isConnected() == true)) {
             Log.d(TAG, "Pairing is currently pending on active transport. Skipping connectToHost.")
             return
         }
@@ -775,25 +783,32 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         val safeReqId = sanitizeLog(result.requestId)
                         Log.i(TAG, "Pairing pending for requestId=$safeReqId. Launching PairingConfirmationActivity...")
                         resetReconnectBackoff()
+
+                        val isNewPairingRequest = (pendingRequestId != result.requestId) || (trustState != TrustState.PAIRING_REQUESTED)
+
                         savePendingPairingState(result.requestId, result.winEcPubKeyBytes, result.transcriptHash)
 
                         trustState = TrustState.PAIRING_REQUESTED
                         currentState = TransportState.PAIRING_REQUIRED
 
-                        showPairingNotification(result)
+                        if (isNewPairingRequest) {
+                            showPairingNotification(result)
 
-                        val promptIntent = Intent(this@TetherLanService, PairingConfirmationActivity::class.java).apply {
-                            action = ACTION_SHOW_PAIRING_PROMPT
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                            putExtra(EXTRA_PAIRING_REQUEST_ID, result.requestId)
-                            putExtra(EXTRA_PEER_DEVICE_NAME, result.peerName)
-                            putExtra(EXTRA_WINDOWS_FINGERPRINT, result.peerFingerprint)
-                            putExtra(EXTRA_PAIRING_SAS_CODE, result.peerFingerprint.take(6))
-                        }
-                        try {
-                            startActivity(promptIntent)
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Direct startActivity failed (background launch restriction); relying on heads-up notification: ${e.message}")
+                            val promptIntent = Intent(this@TetherLanService, PairingConfirmationActivity::class.java).apply {
+                                action = ACTION_SHOW_PAIRING_PROMPT
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                putExtra(EXTRA_PAIRING_REQUEST_ID, result.requestId)
+                                putExtra(EXTRA_PEER_DEVICE_NAME, result.peerName)
+                                putExtra(EXTRA_WINDOWS_FINGERPRINT, result.peerFingerprint)
+                                putExtra(EXTRA_PAIRING_SAS_CODE, result.peerFingerprint.take(6))
+                            }
+                            try {
+                                startActivity(promptIntent)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Direct startActivity failed (background launch restriction); relying on heads-up notification: ${e.message}")
+                            }
+                        } else {
+                            Log.i(TAG, "Pairing prompt already active for requestId=$safeReqId; waiting for user input.")
                         }
                     }
                     is PairingResult.PairingDenied -> {
@@ -881,10 +896,14 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
                 is PairingResult.Error -> {
                     Log.e(TAG, "Failed finalizing pairing: ${sanitizeLog(result.message)}")
+                    clearPendingPairingState()
+                    trustState = TrustState.UNPAIRED
                     disconnectActiveSession("Finalize pairing error: ${result.message}")
                     scheduleReconnectWithBackoff("Finalize pairing error")
                 }
                 else -> {
+                    clearPendingPairingState()
+                    trustState = TrustState.UNPAIRED
                     disconnectActiveSession("Unexpected finalize pairing result: $result")
                 }
             }
@@ -905,7 +924,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     Log.w(TAG, "Error sending PAIRING_REJECTED frame: ${e.message}")
                 }
             }
-                    clearPendingPairingState()
+            clearPendingPairingState()
+            trustState = TrustState.UNPAIRED
             disconnectActiveSession("Pairing rejected by user")
         }
     }
@@ -1529,6 +1549,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         try { activeTransport?.disconnect(reason) } catch (_: Exception) {}
         activeTransport = null
         connectedHostAddress = null
+        if (currentState == TransportState.PAIRING_REQUIRED || trustState == TrustState.PAIRING_REQUESTED) {
+            clearPendingPairingState()
+            trustState = TrustState.UNPAIRED
+        }
         currentState = TransportState.DISCONNECTED
     }
 
@@ -1537,7 +1561,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         val promptIntent = Intent(this, PairingConfirmationActivity::class.java).apply {
             action = ACTION_SHOW_PAIRING_PROMPT
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             putExtra(EXTRA_PAIRING_REQUEST_ID, result.requestId)
             putExtra(EXTRA_PEER_DEVICE_NAME, result.peerName)
             putExtra(EXTRA_WINDOWS_FINGERPRINT, result.peerFingerprint)
@@ -1584,7 +1608,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun scheduleReconnectWithBackoff(reason: String) {
-        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING)) {
+        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING) || (currentState == TransportState.PAIRING_REQUIRED) || (trustState == TrustState.PAIRING_REQUESTED)) {
             return
         }
         reconnectJob?.cancel()
@@ -1627,8 +1651,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun performHealthCheck() {
         if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED) || (currentState == TransportState.DISCOVERING)) {
-            Log.i(TAG, "Health check: Transport state is $currentState. Refreshing discovery...")
-            startDiscovery()
+            if (trustState != TrustState.PAIRING_REQUESTED && currentState != TransportState.PAIRING_REQUIRED) {
+                Log.i(TAG, "Health check: Transport state is $currentState. Refreshing discovery...")
+                startDiscovery()
+            }
         } else if ((currentState == TransportState.READY) || (currentState == TransportState.AUTHENTICATED)) {
             sendPingProbe()
         }
