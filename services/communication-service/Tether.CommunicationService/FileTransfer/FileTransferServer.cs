@@ -36,6 +36,36 @@ public class FileTransferServer : IHostedService
         _sessionManager = sessionManager;
     }
 
+    private static bool TryGetValidPath(string? inputPath, out string fullPath)
+    {
+        fullPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(inputPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (inputPath.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
+            {
+                return false;
+            }
+
+            var normalized = Path.GetFullPath(inputPath);
+            if (!Path.IsPathRooted(normalized))
+            {
+                return false;
+            }
+
+            fullPath = normalized;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static void HandleRemoteResponse(string type, string rawJson)
     {
         string requestId = "";
@@ -82,7 +112,7 @@ public class FileTransferServer : IHostedService
         {
             try
             {
-                if (string.IsNullOrEmpty(path))
+                if (string.IsNullOrWhiteSpace(path))
                 {
                     var drives = DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => new
                     {
@@ -95,12 +125,12 @@ public class FileTransferServer : IHostedService
                     return Results.Ok(drives);
                 }
 
-                if (!Directory.Exists(path))
+                if (!TryGetValidPath(path, out var fullPath) || !Directory.Exists(fullPath))
                 {
                     return Results.NotFound(new { error = "Directory not found" });
                 }
 
-                var dirInfo = new DirectoryInfo(path);
+                var dirInfo = new DirectoryInfo(fullPath);
 
                 var entries = new List<object>();
                 foreach (var dir in dirInfo.GetDirectories())
@@ -140,13 +170,13 @@ public class FileTransferServer : IHostedService
         {
             try
             {
-                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                if (!TryGetValidPath(path, out var fullPath) || !File.Exists(fullPath))
                 {
                     return Results.NotFound("File not found");
                 }
 
                 var contentType = "application/octet-stream";
-                return Results.File(path, contentType, enableRangeProcessing: true);
+                return Results.File(fullPath, contentType, enableRangeProcessing: true);
             }
             catch (Exception ex)
             {
@@ -159,18 +189,18 @@ public class FileTransferServer : IHostedService
         {
             try
             {
-                if (string.IsNullOrEmpty(path))
+                if (!TryGetValidPath(path, out var fullPath))
                 {
                     return Results.BadRequest("Path is required");
                 }
 
-                var dir = Path.GetDirectoryName(path);
+                var dir = Path.GetDirectoryName(fullPath);
                 if (dir != null && !Directory.Exists(dir))
                 {
                     Directory.CreateDirectory(dir);
                 }
 
-                using var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+                using var fileStream = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
                 await context.Request.Body.CopyToAsync(fileStream);
 
                 return Results.Ok();

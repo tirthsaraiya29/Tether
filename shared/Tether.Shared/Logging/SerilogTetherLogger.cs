@@ -16,13 +16,20 @@ namespace Tether.Shared.Logging
                 .CreateLogger();
         }
 
-        public void Info(string message) => _logger.Information(message);
-        public void Warning(string message) => _logger.Warning(message);
+        private static string SanitizeLogInput(string? message)
+        {
+            if (string.IsNullOrEmpty(message)) return string.Empty;
+            return message.Replace("\r", "").Replace("\n", " ");
+        }
+
+        public void Info(string message) => _logger.Information("{Message}", SanitizeLogInput(message));
+        public void Warning(string message) => _logger.Warning("{Message}", SanitizeLogInput(message));
         public void Error(string message, Exception? ex = null)
         {
-            if (ex != null) _logger.Error(ex, message);
-            else _logger.Error(message);
+            var sanitized = SanitizeLogInput(message);
+            if (ex != null) _logger.Error(ex, "{Message}", sanitized);
+            else _logger.Error("{Message}", sanitized);
         }
-        public void Debug(string message) => _logger.Debug(message);
+        public void Debug(string message) => _logger.Debug("{Message}", SanitizeLogInput(message));
     }
 }
