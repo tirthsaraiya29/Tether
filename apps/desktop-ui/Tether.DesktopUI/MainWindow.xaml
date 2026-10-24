@@ -36,7 +36,7 @@
             </Grid.ColumnDefinitions>
 
             <!-- ============================================================= -->
-            <!-- TOP COMMAND TITLEBAR (ROW 0)                                  -->
+            <!-- TOP TITLEBAR (ROW 0)                                          -->
             <!-- ============================================================= -->
             <Border Grid.Row="0"
                     Grid.Column="0"
@@ -71,7 +71,7 @@
                                    FontSize="12.5"
                                    FontWeight="Bold"
                                    Foreground="{StaticResource TextPrimaryBrush}"/>
-                        <TextBlock Text="PROXIMITY AUTH"
+                        <TextBlock Text="SMART UNLOCK"
                                    FontFamily="{StaticResource MonoFontFamily}"
                                    FontSize="8.5"
                                    Foreground="{StaticResource TextMutedBrush}"/>
@@ -89,7 +89,7 @@
                 </Grid>
             </Border>
 
-            <!-- Right Titlebar: Telemetry Strip & Caption Controls -->
+            <!-- Right Titlebar: Status Strip & Window Controls -->
             <Border Grid.Row="0"
                     Grid.Column="1"
                     Background="{StaticResource TitleBarBackgroundBrush}"
@@ -102,14 +102,14 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- Left Breadcrumb & Transport Badges -->
+                    <!-- Left Breadcrumb & Connection Badges -->
                     <StackPanel Grid.Column="0"
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center"
                                 Margin="22,0,0,0"
                                 IsHitTestVisible="False">
                         <TextBlock x:Name="TxtWorkspaceTitle"
-                                   Text="System Command Deck"
+                                   Text="Dashboard"
                                    FontFamily="{StaticResource FluentDisplayFontFamily}"
                                    FontSize="12.5"
                                    FontWeight="SemiBold"
@@ -121,14 +121,14 @@
                                 Margin="14,0"/>
 
                         <Border Style="{StaticResource NeutralBadgePillStyle}" Margin="0,0,6,0">
-                            <TextBlock Text="BLE • mDNS • TCP"
+                            <TextBlock Text="Wi-Fi"
                                        FontFamily="{StaticResource MonoFontFamily}"
                                        FontSize="9.5"
                                        Foreground="{StaticResource TextSecondaryBrush}"/>
                         </Border>
 
                         <Border Style="{StaticResource NeutralBadgePillStyle}">
-                            <TextBlock Text="IPC: NAMED_PIPE_ACL"
+                            <TextBlock Text="Service Active"
                                        FontFamily="{StaticResource MonoFontFamily}"
                                        FontSize="9.5"
                                        Foreground="{StaticResource TextMutedBrush}"/>
@@ -152,7 +152,7 @@
                                      VerticalAlignment="Center"
                                      Margin="0,0,7,0"/>
                             <TextBlock x:Name="TxtHeaderNodeBadge"
-                                       Text="STANDBY"
+                                       Text="DISCONNECTED"
                                        FontFamily="{StaticResource MonoFontFamily}"
                                        FontSize="10"
                                        FontWeight="SemiBold"
@@ -207,7 +207,7 @@
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0"
-                               Text="WORKSPACES"
+                               Text="MENU"
                                Style="{StaticResource SectionEyebrowTextStyle}"
                                Margin="22,0,0,6"/>
 
@@ -231,11 +231,11 @@
                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
                                            VerticalAlignment="Center"/>
                                 <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                                    <TextBlock Text="Command Deck"
+                                    <TextBlock Text="Dashboard"
                                                FontFamily="{StaticResource FluentFontFamily}"
                                                FontSize="12.5"
                                                FontWeight="SemiBold"/>
-                                    <TextBlock Text="Telemetry, controls &amp; vault"
+                                    <TextBlock Text="Status, quick controls &amp; lock"
                                                FontFamily="{StaticResource FluentFontFamily}"
                                                FontSize="10.5"
                                                Foreground="{StaticResource TextMutedBrush}"/>
@@ -256,11 +256,11 @@
                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
                                            VerticalAlignment="Center"/>
                                 <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                                    <TextBlock Text="File Bridge"
+                                    <TextBlock Text="File Transfer"
                                                FontFamily="{StaticResource FluentFontFamily}"
                                                FontSize="12.5"
                                                FontWeight="SemiBold"/>
-                                    <TextBlock Text="Host ↔ Android storage"
+                                    <TextBlock Text="Transfer files with your phone"
                                                FontFamily="{StaticResource FluentFontFamily}"
                                                FontSize="10.5"
                                                Foreground="{StaticResource TextMutedBrush}"/>
@@ -269,7 +269,7 @@
                         </ListBoxItem>
                     </ListBox>
 
-                    <!-- Architecture Security Posture Summary -->
+                    <!-- Security Status Summary -->
                     <Border Grid.Row="2"
                             Margin="12,0,12,10"
                             Padding="12,10"
@@ -278,16 +278,16 @@
                             BorderBrush="{StaticResource SubtleDividerBrush}"
                             BorderThickness="1">
                         <StackPanel>
-                            <TextBlock Text="SECURITY ARCHITECTURE"
+                            <TextBlock Text="SECURITY STATUS"
                                        Style="{StaticResource SectionEyebrowTextStyle}"
                                        Margin="0,0,0,6"/>
 
                             <Grid Margin="0,2">
-                                <TextBlock Text="Vault Cipher"
+                                <TextBlock Text="Saved Password"
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="11"
                                            Foreground="{StaticResource TextSecondaryBrush}"/>
-                                <TextBlock Text="DPAPI + Entropy"
+                                <TextBlock Text="Encrypted"
                                            FontFamily="{StaticResource MonoFontFamily}"
                                            FontSize="10.5"
                                            Foreground="{StaticResource TextAccentBrush}"
@@ -295,11 +295,11 @@
                             </Grid>
 
                             <Grid Margin="0,2">
-                                <TextBlock Text="Registry ACL"
+                                <TextBlock Text="Access Protection"
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="11"
                                            Foreground="{StaticResource TextSecondaryBrush}"/>
-                                <TextBlock Text="SYSTEM / DACL v2"
+                                <TextBlock Text="System Protected"
                                            FontFamily="{StaticResource MonoFontFamily}"
                                            FontSize="10.5"
                                            Foreground="{StaticResource StatusHealthyBrush}"
@@ -307,11 +307,11 @@
                             </Grid>
 
                             <Grid Margin="0,2">
-                                <TextBlock Text="File Bridge"
+                                <TextBlock Text="File Transfer"
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="11"
                                            Foreground="{StaticResource TextSecondaryBrush}"/>
-                                <TextBlock Text="HTTPS :37124"
+                                <TextBlock Text="Encrypted (HTTPS)"
                                            FontFamily="{StaticResource MonoFontFamily}"
                                            FontSize="10.5"
                                            Foreground="{StaticResource TextPrimaryBrush}"
@@ -320,7 +320,7 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Operator Identity Card -->
+                    <!-- User Account Card -->
                     <Border Grid.Row="3"
                             Margin="12,0,12,12"
                             Padding="12,10"
@@ -350,13 +350,13 @@
                             </Border>
 
                             <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
-                                <TextBlock Text="ACTIVE OPERATOR"
+                                <TextBlock Text="CURRENT ACCOUNT"
                                            FontFamily="{StaticResource MonoFontFamily}"
                                            FontSize="9.5"
                                            FontWeight="SemiBold"
                                            Foreground="{StaticResource TextMutedBrush}"/>
                                 <TextBlock x:Name="TxtUserType"
-                                           Text="DOMAIN UNRESOLVED"
+                                           Text="Detecting account..."
                                            FontFamily="{StaticResource MonoFontFamily}"
                                            FontSize="11.5"
                                            FontWeight="SemiBold"
@@ -382,7 +382,7 @@
                 </Grid.ColumnDefinitions>
 
                 <!-- ========================================================= -->
-                <!-- WORKSPACE B: DUAL-PANE FILE BRIDGE                        -->
+                <!-- WORKSPACE B: DUAL-PANE FILE TRANSFER                      -->
                 <!-- ========================================================= -->
                 <Grid x:Name="FilesContainer"
                       Visibility="Collapsed"
@@ -410,15 +410,15 @@
                             <!-- Pane Header -->
                             <Grid Grid.Row="0" Margin="0,0,0,12">
                                 <StackPanel>
-                                    <TextBlock Text="LOCAL ENDPOINT"
+                                    <TextBlock Text="THIS PC"
                                                Style="{StaticResource SectionEyebrowTextStyle}"/>
-                                    <TextBlock Text="Windows Workstation File System"
+                                    <TextBlock Text="Local Files"
                                                Style="{StaticResource CardTitleTextStyle}"/>
                                 </StackPanel>
                                 <Border Style="{StaticResource NeutralBadgePillStyle}"
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Top">
-                                    <TextBlock Text="NTFS / HOST"
+                                    <TextBlock Text="WINDOWS"
                                                FontFamily="{StaticResource MonoFontFamily}"
                                                FontSize="9.5"
                                                Foreground="{StaticResource TextSecondaryBrush}"/>
@@ -434,16 +434,19 @@
                                 <Button x:Name="BtnLocalUp"
                                         Grid.Column="0"
                                         Content="&#xE74A;"
-                                        ToolTip="Parent directory"
+                                        ToolTip="Up one level"
                                         FontFamily="{StaticResource IconFontFamily}"
-                                        Width="34" Height="34"
+                                        Width="36" Height="36"
                                         Margin="0,0,8,0"
                                         Padding="0"
                                         Click="BtnLocalUp_Click"/>
                                 <TextBox x:Name="TxtLocalPath"
                                          Grid.Column="1"
-                                         Height="34"
+                                         Height="36"
                                          VerticalContentAlignment="Center"
+                                         Padding="10,0"
+                                         FontSize="12.5"
+                                         ToolTip="Current folder path (press Enter to open)"
                                          KeyDown="TxtLocalPath_KeyDown"/>
                             </Grid>
 
@@ -453,7 +456,7 @@
                                       MouseDoubleClick="ListLocalFiles_MouseDoubleClick">
                                 <ListView.View>
                                     <GridView>
-                                        <GridViewColumn Header="NAME" Width="250">
+                                        <GridViewColumn Header="Name" Width="230">
                                             <GridViewColumn.CellTemplate>
                                                 <DataTemplate>
                                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -473,7 +476,7 @@
                                                 </DataTemplate>
                                             </GridViewColumn.CellTemplate>
                                         </GridViewColumn>
-                                        <GridViewColumn Header="TYPE" Width="85">
+                                        <GridViewColumn Header="Type" Width="75">
                                             <GridViewColumn.CellTemplate>
                                                 <DataTemplate>
                                                     <TextBlock Text="{Binding Type}"
@@ -483,7 +486,7 @@
                                                 </DataTemplate>
                                             </GridViewColumn.CellTemplate>
                                         </GridViewColumn>
-                                        <GridViewColumn Header="SIZE" Width="95">
+                                        <GridViewColumn Header="Size" Width="85">
                                             <GridViewColumn.CellTemplate>
                                                 <DataTemplate>
                                                     <TextBlock Text="{Binding Size}"
@@ -510,14 +513,14 @@
                                                FontSize="13"
                                                VerticalAlignment="Center"
                                                Margin="0,0,8,0"/>
-                                    <TextBlock Text="Push Selected File to Android Node"
+                                    <TextBlock Text="Send to Phone"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
                         </Grid>
                     </Border>
 
-                    <!-- Remote Android Storage Pane -->
+                    <!-- Remote Phone Storage Pane -->
                     <Border Grid.Column="2"
                             Style="{StaticResource GlassPanel}"
                             Margin="0"
@@ -533,15 +536,15 @@
                             <!-- Pane Header -->
                             <Grid Grid.Row="0" Margin="0,0,0,12">
                                 <StackPanel>
-                                    <TextBlock Text="REMOTE COMPANION NODE"
+                                    <TextBlock Text="CONNECTED PHONE"
                                                Style="{StaticResource SectionEyebrowTextStyle}"/>
-                                    <TextBlock Text="Android Storage (/sdcard/)"
+                                    <TextBlock Text="Phone Storage"
                                                Style="{StaticResource CardTitleTextStyle}"/>
                                 </StackPanel>
                                 <Border Style="{StaticResource BadgePillBorderStyle}"
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Top">
-                                    <TextBlock Text="TLS BRIDGE"
+                                    <TextBlock Text="SECURE LINK"
                                                FontFamily="{StaticResource MonoFontFamily}"
                                                FontSize="9.5"
                                                Foreground="{StaticResource TextAccentBrush}"/>
@@ -558,23 +561,26 @@
                                 <Button x:Name="BtnRemoteUp"
                                         Grid.Column="0"
                                         Content="&#xE74A;"
-                                        ToolTip="Parent directory"
+                                        ToolTip="Up one level"
                                         FontFamily="{StaticResource IconFontFamily}"
-                                        Width="34" Height="34"
+                                        Width="36" Height="36"
                                         Margin="0,0,8,0"
                                         Padding="0"
                                         Click="BtnRemoteUp_Click"/>
                                 <TextBox x:Name="TxtRemotePath"
                                          Grid.Column="1"
-                                         Height="34"
+                                         Height="36"
                                          VerticalContentAlignment="Center"
+                                         Padding="10,0"
+                                         FontSize="12.5"
+                                         ToolTip="Current phone path (press Enter to open)"
                                          KeyDown="TxtRemotePath_KeyDown"/>
                                 <Button x:Name="BtnRemoteRefresh"
                                         Grid.Column="2"
                                         Content="&#xE72C;"
-                                        ToolTip="Refresh remote directory"
+                                        ToolTip="Refresh folder"
                                         FontFamily="{StaticResource IconFontFamily}"
-                                        Width="34" Height="34"
+                                        Width="36" Height="36"
                                         Margin="8,0,0,0"
                                         Padding="0"
                                         Click="BtnRemoteRefresh_Click"/>
@@ -586,7 +592,7 @@
                                       MouseDoubleClick="ListRemoteFiles_MouseDoubleClick">
                                 <ListView.View>
                                     <GridView>
-                                        <GridViewColumn Header="NAME" Width="250">
+                                        <GridViewColumn Header="Name" Width="230">
                                             <GridViewColumn.CellTemplate>
                                                 <DataTemplate>
                                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -606,7 +612,7 @@
                                                 </DataTemplate>
                                             </GridViewColumn.CellTemplate>
                                         </GridViewColumn>
-                                        <GridViewColumn Header="TYPE" Width="85">
+                                        <GridViewColumn Header="Type" Width="75">
                                             <GridViewColumn.CellTemplate>
                                                 <DataTemplate>
                                                     <TextBlock Text="{Binding Type}"
@@ -616,7 +622,7 @@
                                                 </DataTemplate>
                                             </GridViewColumn.CellTemplate>
                                         </GridViewColumn>
-                                        <GridViewColumn Header="SIZE" Width="95">
+                                        <GridViewColumn Header="Size" Width="85">
                                             <GridViewColumn.CellTemplate>
                                                 <DataTemplate>
                                                     <TextBlock Text="{Binding Size}"
@@ -643,7 +649,7 @@
                                                FontSize="13"
                                                VerticalAlignment="Center"
                                                Margin="0,0,8,0"/>
-                                    <TextBlock Text="Pull Selected File to Windows Host"
+                                    <TextBlock Text="Download to PC"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
@@ -652,7 +658,7 @@
                 </Grid>
 
                 <!-- ========================================================= -->
-                <!-- WORKSPACE A (LEFT COLUMN): TELEMETRY, HARDWARE & VAULT    -->
+                <!-- WORKSPACE A (LEFT COLUMN): STATUS, CONTROLS & UNLOCK      -->
                 <!-- ========================================================= -->
                 <ScrollViewer x:Name="LeftScrollViewer"
                               Grid.Column="0"
@@ -661,7 +667,7 @@
                               Padding="0,0,4,0">
                     <StackPanel>
 
-                        <!-- 1. Proximity Link & Topology Card -->
+                        <!-- 1. Connection Card -->
                         <Border x:Name="CardPipeline" Style="{StaticResource GlassPanel}">
                             <StackPanel>
                                 <Grid>
@@ -671,9 +677,9 @@
                                     </Grid.ColumnDefinitions>
 
                                     <StackPanel Grid.Column="0">
-                                        <TextBlock Text="PROXIMITY PIPELINE"
+                                        <TextBlock Text="PHONE CONNECTION"
                                                    Style="{StaticResource SectionEyebrowTextStyle}"/>
-                                        <TextBlock Text="Node Link &amp; Trust State"
+                                        <TextBlock Text="Wireless Link &amp; Proximity"
                                                    Style="{StaticResource CardTitleTextStyle}"/>
                                     </StackPanel>
 
@@ -695,7 +701,7 @@
                                                          HorizontalAlignment="Center"
                                                          VerticalAlignment="Center"/>
                                             </Grid>
-                                            <TextBlock Text="NODE TELEMETRY"
+                                            <TextBlock Text="LIVE STATUS"
                                                        FontFamily="{StaticResource MonoFontFamily}"
                                                        FontSize="9.5"
                                                        FontWeight="SemiBold"
@@ -732,12 +738,12 @@
                                         </Border>
 
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                            <TextBlock Text="CURRENT LINK STATE"
+                                            <TextBlock Text="CONNECTION STATUS"
                                                        FontFamily="{StaticResource MonoFontFamily}"
                                                        FontSize="9.5"
                                                        Foreground="{StaticResource TextMutedBrush}"/>
                                             <TextBlock x:Name="TxtStatus"
-                                                       Text="WAITING FOR SERVICE PIPELINE..."
+                                                       Text="Connecting to Tether service..."
                                                        FontFamily="{StaticResource MonoFontFamily}"
                                                        FontSize="13"
                                                        FontWeight="Bold"
@@ -748,13 +754,13 @@
                                         <StackPanel Grid.Column="2"
                                                     VerticalAlignment="Center"
                                                     HorizontalAlignment="Right">
-                                            <TextBlock Text="TRANSPORT"
+                                            <TextBlock Text="BACKGROUND SERVICE"
                                                        FontFamily="{StaticResource MonoFontFamily}"
                                                        FontSize="9"
                                                        Foreground="{StaticResource TextMutedBrush}"
                                                        HorizontalAlignment="Right"/>
                                             <TextBlock x:Name="TxtStatusSub"
-                                                       Text="IPC LISTENING"
+                                                       Text="Starting..."
                                                        FontFamily="{StaticResource MonoFontFamily}"
                                                        FontSize="10.5"
                                                        Foreground="{StaticResource TextSecondaryBrush}"
@@ -766,28 +772,28 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- 2. Hardware Environment Controls Card -->
+                        <!-- 2. Volume & Brightness Controls -->
                         <Border x:Name="CardHardware" Style="{StaticResource GlassPanel}">
                             <StackPanel>
                                 <Grid Margin="0,0,0,14">
                                     <StackPanel>
-                                        <TextBlock Text="HARDWARE TELEMETRY SYNC"
+                                        <TextBlock Text="QUICK CONTROLS"
                                                    Style="{StaticResource SectionEyebrowTextStyle}"/>
-                                        <TextBlock Text="Audio &amp; Display Luminance"
+                                        <TextBlock Text="Volume &amp; Brightness"
                                                    Style="{StaticResource CardTitleTextStyle}"/>
                                     </StackPanel>
 
                                     <Border Style="{StaticResource NeutralBadgePillStyle}"
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Top">
-                                        <TextBlock Text="2.5s POLL / DEBOUNCED"
+                                        <TextBlock Text="AUTO-SYNCED"
                                                    FontFamily="{StaticResource MonoFontFamily}"
                                                    FontSize="9.5"
                                                    Foreground="{StaticResource TextMutedBrush}"/>
                                     </Border>
                                 </Grid>
 
-                                <!-- Master Volume Control Well -->
+                                <!-- Volume Slider -->
                                 <Border Style="{StaticResource RecessedWellStyle}"
                                         Margin="0,0,0,10">
                                     <StackPanel>
@@ -799,7 +805,7 @@
                                                            Foreground="{StaticResource SystemAccentBrush}"
                                                            VerticalAlignment="Center"
                                                            Margin="0,0,8,0"/>
-                                                <TextBlock Text="Master Audio Endpoint"
+                                                <TextBlock Text="PC Master Volume"
                                                            FontFamily="{StaticResource FluentFontFamily}"
                                                            FontSize="12.5"
                                                            FontWeight="Medium"
@@ -824,7 +830,7 @@
                                     </StackPanel>
                                 </Border>
 
-                                <!-- Display Brightness Control Well -->
+                                <!-- Brightness Slider -->
                                 <Border Style="{StaticResource RecessedWellStyle}">
                                     <StackPanel>
                                         <Grid Margin="0,0,0,8">
@@ -835,7 +841,7 @@
                                                            Foreground="{StaticResource SystemAccentBrush}"
                                                            VerticalAlignment="Center"
                                                            Margin="0,0,8,0"/>
-                                                <TextBlock Text="Primary Display Luminance"
+                                                <TextBlock Text="PC Screen Brightness"
                                                            FontFamily="{StaticResource FluentFontFamily}"
                                                            FontSize="12.5"
                                                            FontWeight="Medium"
@@ -862,16 +868,16 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- 3. Credential Provider Security Vault Card -->
+                        <!-- 3. Auto-Unlock Password Card -->
                         <Border x:Name="CardVault"
                                 Style="{StaticResource GlassPanel}"
                                 Margin="0">
                             <StackPanel>
                                 <Grid Margin="0,0,0,6">
                                     <StackPanel>
-                                        <TextBlock Text="CREDENTIAL PROVIDER VAULT"
+                                        <TextBlock Text="AUTO-UNLOCK SETUP"
                                                    Style="{StaticResource SectionEyebrowTextStyle}"/>
-                                        <TextBlock Text="Windows Logon Secret Provisioning"
+                                        <TextBlock Text="Save Windows Password"
                                                    Style="{StaticResource CardTitleTextStyle}"/>
                                     </StackPanel>
 
@@ -879,7 +885,7 @@
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Top">
                                         <TextBlock x:Name="TxtVaultBadge"
-                                                   Text="DPAPI LOCAL_MACHINE"
+                                                   Text="SECURE STORAGE"
                                                    FontFamily="{StaticResource MonoFontFamily}"
                                                    FontSize="9.5"
                                                    FontWeight="SemiBold"
@@ -887,7 +893,7 @@
                                     </Border>
                                 </Grid>
 
-                                <TextBlock Text="Verifies your Windows account via LogonUser and seals the secret into HKLM\SOFTWARE\Tether\CredentialProvider\Secrets with SYSTEM-restricted DACLs."
+                                <TextBlock Text="Enter your Windows sign-in password once so Tether can unlock your PC automatically when your phone is nearby. Your password stays encrypted safely on this computer."
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="12"
                                            Foreground="{StaticResource TextSecondaryBrush}"
@@ -903,12 +909,14 @@
 
                                     <PasswordBox x:Name="TxtPassword"
                                                  Grid.Column="0"
+                                                 Height="36"
                                                  VerticalContentAlignment="Center"/>
 
                                     <Button x:Name="BtnCommitVault"
                                             Grid.Column="2"
                                             Style="{StaticResource AccentButton}"
-                                            Padding="18,9"
+                                            Height="36"
+                                            Padding="18,0"
                                             Click="BtnCommitVault_Click">
                                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                             <TextBlock Text="&#xE8D7;"
@@ -916,7 +924,7 @@
                                                        FontSize="12.5"
                                                        VerticalAlignment="Center"
                                                        Margin="0,0,8,0"/>
-                                            <TextBlock Text="Verify &amp; Seal Secret"
+                                            <TextBlock Text="Save Password"
                                                        VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Button>
@@ -928,7 +936,7 @@
                 </ScrollViewer>
 
                 <!-- ========================================================= -->
-                <!-- WORKSPACE A (RIGHT COLUMN): TELEMETRY CONSOLE & OVERRIDES -->
+                <!-- WORKSPACE A (RIGHT COLUMN): RECENT ACTIVITY & ACTIONS     -->
                 <!-- ========================================================= -->
                 <Grid x:Name="RightColumnGrid" Grid.Column="2">
                     <Grid.RowDefinitions>
@@ -936,7 +944,7 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Ring-Buffer Activity Console -->
+                    <!-- Activity Console -->
                     <Border Grid.Row="0"
                             Style="{StaticResource GlassPanel}"
                             Padding="18"
@@ -950,9 +958,9 @@
                             <!-- Console Header -->
                             <Grid Grid.Row="0" Margin="0,0,0,12">
                                 <StackPanel>
-                                    <TextBlock Text="EVENT BUS STREAM"
+                                    <TextBlock Text="ACTIVITY"
                                                Style="{StaticResource SectionEyebrowTextStyle}"/>
-                                    <TextBlock Text="Real-Time Telemetry Console"
+                                    <TextBlock Text="Recent Activity &amp; Logs"
                                                Style="{StaticResource CardTitleTextStyle}"/>
                                 </StackPanel>
 
@@ -962,7 +970,7 @@
                                     <Button x:Name="BtnCopyLogs"
                                             Style="{StaticResource SubtleIconButton}"
                                             Margin="0,0,6,0"
-                                            ToolTip="Copy buffer to clipboard"
+                                            ToolTip="Copy log to clipboard"
                                             Click="BtnCopyLogs_Click">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="&#xE8C8;"
@@ -979,7 +987,7 @@
                                     <Button x:Name="BtnClearLogs"
                                             Style="{StaticResource SubtleIconButton}"
                                             Margin="0,0,8,0"
-                                            ToolTip="Flush log buffer"
+                                            ToolTip="Clear activity log"
                                             Click="BtnClearLogs_Click">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="&#xE74D;"
@@ -1010,7 +1018,7 @@
                                 </StackPanel>
                             </Grid>
 
-                            <!-- UI-Virtualized Ring-Buffer Terminal -->
+                            <!-- Terminal List -->
                             <Border Grid.Row="1"
                                     Background="{StaticResource TerminalBackgroundBrush}"
                                     BorderBrush="{StaticResource TerminalBorderBrush}"
@@ -1059,7 +1067,7 @@
                         </Grid>
                     </Border>
 
-                    <!-- Tactical Action Bar -->
+                    <!-- Bottom Actions -->
                     <Grid Grid.Row="1" Margin="0,12,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -1097,7 +1105,7 @@
                                            FontSize="13"
                                            VerticalAlignment="Center"
                                            Margin="0,0,8,0"/>
-                                <TextBlock Text="Immediate Workstation Lock"
+                                <TextBlock Text="Lock PC Now"
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="12.5"
                                            FontWeight="SemiBold"
