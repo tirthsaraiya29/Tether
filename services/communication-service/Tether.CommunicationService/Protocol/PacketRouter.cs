@@ -61,8 +61,10 @@ public sealed class PacketRouter
 
             case "FILE_TRANSFER_TOKEN_REQUEST":
                 _logger.Info($"PacketRouter: Received FILE_TRANSFER_TOKEN_REQUEST from '{device.DisplayName}'. Generating token.");
+                string reqId = "";
+                if (doc.RootElement.TryGetProperty("requestId", out var rProp)) reqId = rProp.GetString() ?? "";
                 var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(60)); // 1 hour token
-                await session.WriteJsonFrameSafeAsync(new { type = "FILE_TRANSFER_TOKEN_RESPONSE", token = token, validForMinutes = 60 }, ct);
+                await session.WriteJsonFrameSafeAsync(new { type = "FILE_TRANSFER_TOKEN_RESPONSE", requestId = reqId, token = token, validForMinutes = 60 }, ct);
                 break;
 
             case "FS_LIST_RESULT":

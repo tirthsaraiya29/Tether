@@ -986,8 +986,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
             "FILE_TRANSFER_TOKEN_RESPONSE" -> {
                 val token = json.optString("token", "")
-                if (requestId.isNotEmpty()) {
+                if (requestId.isNotEmpty() && pendingTokenRequests.containsKey(requestId)) {
                     pendingTokenRequests.remove(requestId)?.complete(token)
+                } else if (pendingTokenRequests.isNotEmpty()) {
+                    val key = pendingTokenRequests.keys.firstOrNull()
+                    if (key != null) {
+                        pendingTokenRequests.remove(key)?.complete(token)
+                    }
                 }
             }
             "POWER_EVENT" -> {
