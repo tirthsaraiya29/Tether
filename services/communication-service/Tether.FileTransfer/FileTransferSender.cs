@@ -43,10 +43,15 @@ public sealed class FileTransferSender
         Action<TransferProgress>? progressCallback = null,
         CancellationToken ct = default)
     {
-        if (!await _sendLock.WaitAsync(0, ct)) return;
+        await _sendLock.WaitAsync(ct);
 
         try
         {
+            string buildVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
+            int sessionId = System.Diagnostics.Process.GetCurrentProcess().SessionId;
+            string username = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value ?? "unknown";
+            _logger.Info($"[XFER-TRACE] ProcessOutgoingQueueAsync entry: build={buildVersion} sessionId={sessionId} user={username}");
+
             var activeCallback = progressCallback ?? _onProgressUpdate;
 
             var allItems = queue.GetAllItems().Where(i => !i.IsIncoming).ToList();
@@ -69,7 +74,12 @@ public sealed class FileTransferSender
             foreach (var item in pendingItems)
             {
                 if (ct.IsCancellationRequested) return;
-                if (!File.Exists(item.SourcePath) && !Directory.Exists(item.SourcePath))
+                bool fileExists = File.Exists(item.SourcePath);
+                bool hasPrivateKey = _clientCertificate.HasPrivateKey;
+                bool hasEcdsa = _clientCertificate.GetECDsaPrivateKey() != null;
+                _logger.Debug($"[XFER-TRACE] Item {item.TransferId} path={item.SourcePath} fileExists={fileExists} certHasPriv={hasPrivateKey} certHasEcdsa={hasEcdsa} targetIp={targetIp}");
+
+                if (!fileExists && !Directory.Exists(item.SourcePath))
                 {
                     string errMsg = "Source path missing";
                     queue.UpdateState(item.TransferId, FileTransferState.FAILED, errorMessage: errMsg);
@@ -93,10 +103,12 @@ public sealed class FileTransferSender
 
             if (preparedItems.Count == 0) return;
 
-            _logger.Info($"FileTransferSender: Attempting transport connection to {targetIp}:{port} for {preparedItems.Count} pending items...");
+            _logger.Info($"[XFER-TRACE] FileTransferSender: Attempting transport connection to {targetIp}:{port} for {preparedItems.Count} pending items...");
 
             using var tcpClient = new TcpClient();
             tcpClient.NoDelay = true;
+            tcpClient.ReceiveTimeout = 60_000;
+            tcpClient.SendTimeout = 60_000;
 
             try
             {
@@ -126,7 +138,19 @@ public sealed class FileTransferSender
                 var initFrame = ControlInitFrame.CreateSigned(_clientCertificate);
                 await SendFrameAsync(sslStream, JsonSerializer.Serialize(initFrame), ct);
 
-                byte[] ackFrame = await ReadFrameAsync(sslStream, ct);
+                _logger.Debug("[XFER-TRACE] awaiting CONTROL_INIT_ACK");
+                byte[] ackFrame;
+                try
+                {
+                    ackFrame = await ReadFrameAsync(sslStream, ct);
+                    _logger.Debug($"[XFER-TRACE] CONTROL_INIT_ACK read returned len={ackFrame.Length}");
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"[XFER-TRACE] CONTROL_INIT_ACK read threw {ex.GetType().FullName}: {ex.Message}");
+                    throw;
+                }
+
                 var ackStr = Encoding.UTF8.GetString(ackFrame);
                 _logger.Info($"FileTransferSender: CONTROL_INIT_ACK raw={ackStr}");
 
@@ -181,7 +205,19 @@ public sealed class FileTransferSender
 
                         await SendFrameAsync(sslStream, JsonSerializer.Serialize(req), ct);
 
-                        byte[] respBytes = await ReadFrameAsync(sslStream, ct);
+                        _logger.Debug($"[XFER-TRACE] {item.TransferId}: awaiting TRANSFER_RESPONSE (file={item.FileName}, size={prepared.Size})");
+                        byte[] respBytes;
+                        try
+                        {
+                            respBytes = await ReadFrameAsync(sslStream, ct);
+                            _logger.Debug($"[XFER-TRACE] {item.TransferId}: TRANSFER_RESPONSE read returned len={respBytes.Length}");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Error($"[XFER-TRACE] {item.TransferId}: TRANSFER_RESPONSE read threw {ex.GetType().FullName}: {ex.Message}");
+                            throw;
+                        }
+
                         string respJson = Encoding.UTF8.GetString(respBytes);
                         var resp = JsonSerializer.Deserialize<TransferResponseFrame>(respJson);
 
@@ -214,8 +250,14 @@ public sealed class FileTransferSender
                                 await sslStream.FlushAsync(ct);
                                 bytesSent += read;
 
+                                bool isLastChunk = bytesSent == fileSize;
+                                if ((chunkIndex % 256 == 0) || isLastChunk)
+                                {
+                                    _logger.Debug($"[XFER-TRACE] {item.TransferId}: chunk write idx={chunkIndex} off={bytesSent} len={read}");
+                                }
+
                                 long nowMs = Environment.TickCount64;
-                                if (nowMs - lastEmitTimeMs >= 100 || bytesSent == fileSize)
+                                if (nowMs - lastEmitTimeMs >= 100 || isLastChunk)
                                 {
                                     double elapsedSec = Math.Max(0.001, (nowMs - startTimeMs) / 1000.0);
                                     double speed = bytesSent / elapsedSec;
@@ -233,7 +275,19 @@ public sealed class FileTransferSender
 
                         EmitProgress(activeCallback, item.TransferId, item.FileName, fileSize, fileSize, 0, FileTransferState.VERIFYING, null);
 
-                        byte[] completeBytes = await ReadFrameAsync(sslStream, ct);
+                        _logger.Debug($"[XFER-TRACE] {item.TransferId}: awaiting TRANSFER_COMPLETE (bytesSent={fileSize})");
+                        byte[] completeBytes;
+                        try
+                        {
+                            completeBytes = await ReadFrameAsync(sslStream, ct);
+                            _logger.Debug($"[XFER-TRACE] {item.TransferId}: TRANSFER_COMPLETE read returned len={completeBytes.Length}");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Error($"[XFER-TRACE] {item.TransferId}: TRANSFER_COMPLETE read threw {ex.GetType().FullName}: {ex.Message}");
+                            throw;
+                        }
+
                         string completeJson = Encoding.UTF8.GetString(completeBytes);
                         using var completeDoc = JsonDocument.Parse(completeJson);
                         string status = completeDoc.RootElement.TryGetProperty("status", out var sProp) ? sProp.GetString() ?? "" : "";

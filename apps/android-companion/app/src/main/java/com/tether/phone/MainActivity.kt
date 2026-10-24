@@ -661,38 +661,7 @@ class MainActivity : FragmentActivity() {
         }
         if (toSend.isEmpty()) return
 
-        lifecycleScope.launch(Dispatchers.Main) {
-            if (checkPermissions()) {
-                startLanService()
-            }
-            var count = 0
-            val remaining = mutableListOf<Uri>()
-
-            toSend.forEach { uri ->
-                val service = TetherLanService.instance
-                if (service != null) {
-                    service.sendFile(uri)
-                    count++
-                } else {
-                    remaining.add(uri)
-                }
-            }
-
-            if (remaining.isNotEmpty()) {
-                synchronized(pendingSharedUris) {
-                    pendingSharedUris.addAll(remaining)
-                }
-            }
-
-            if (count > 0) {
-                val msg = if (count == 1) {
-                    getString(R.string.toast_sharing_to_pc)
-                } else {
-                    getString(R.string.toast_files_sending_to_pc, count)
-                }
-                Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
-            }
-        }
+        Toast.makeText(this, "File transfer feature is disabled", Toast.LENGTH_SHORT).show()
     }
 
     private fun handleVoiceIntent(intent: Intent?) {
@@ -1232,6 +1201,7 @@ class MainActivity : FragmentActivity() {
             )
         }
 
+        /* Discarded/Excluded: File transfer feature disabled, storage access permission not required
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val isAllFilesGranted = Environment.isExternalStorageManager()
             list.add(
@@ -1258,6 +1228,7 @@ class MainActivity : FragmentActivity() {
                 )
             )
         }
+        */
 
         val isBatteryIgnored = powerManager.isIgnoringBatteryOptimizations(packageName)
         list.add(

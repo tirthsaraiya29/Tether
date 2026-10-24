@@ -90,6 +90,7 @@ object TetherNotificationChannels {
             )
         }
 
+        /* Discarded/Excluded: File Transfer Notification Channel
         if (notificationManager.getNotificationChannel(CHANNEL_FILE_TRANSFER) == null) {
             channelsToCreate.add(
                 NotificationChannel(
@@ -102,6 +103,7 @@ object TetherNotificationChannels {
                 }
             )
         }
+        */
 
         if (channelsToCreate.isNotEmpty()) {
             notificationManager.createNotificationChannels(channelsToCreate)

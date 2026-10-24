@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -32,6 +33,7 @@ class TetherFileTransferManager(
     private val appContext: Context,
     private val capabilityManager: TetherCapabilityManager,
     private val coroutineScope: CoroutineScope,
+    customStagingDir: File? = null,
 ) {
 
     companion object {
@@ -77,10 +79,10 @@ class TetherFileTransferManager(
         }
     }
 
-    private val stagingDir: File by lazy {
-        File(appContext.cacheDir, STAGING_DIR_NAME).apply {
-            if (!exists()) mkdirs()
-        }
+    val stagingDir: File = customStagingDir ?: try {
+        File(appContext.cacheDir, STAGING_DIR_NAME).apply { if (!exists()) mkdirs() }
+    } catch (_: Exception) {
+        File(System.getProperty("java.io.tmpdir") ?: ".", STAGING_DIR_NAME).apply { if (!exists()) mkdirs() }
     }
 
     private val activeTransfers = ConcurrentHashMap<String, TransferProgress>()
@@ -90,9 +92,13 @@ class TetherFileTransferManager(
     private val transferJobs = ConcurrentHashMap<String, Job>()
 
     private fun updateProgress(progress: TransferProgress) {
-        activeTransfers[progress.transferId] = progress
-        _transferListFlow.value = activeTransfers.values.toList()
-        showTransferNotification(progress)
+        try {
+            activeTransfers[progress.transferId] = progress
+            _transferListFlow.value = activeTransfers.values.toList()
+            showTransferNotification(progress)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error in updateProgress for ${progress.transferId}: ${e.message}")
+        }
     }
 
     private fun showTransferNotification(progress: TransferProgress) {
@@ -181,31 +187,122 @@ class TetherFileTransferManager(
     /**
      * Executes an incoming file transfer stream from transport into staging file
      */
+    private suspend fun trySendTransferResponse(
+        transport: TetherQuicTransport,
+        transferId: String,
+        status: String,
+        errorCode: Int = 0,
+        reason: String = "",
+    ) {
+        withTimeoutOrNull(2000L) {
+            try {
+                val resp = TransferResponseFrame(
+                    transferId = transferId,
+                    status = status,
+                    resumeOffset = 0L,
+                    errorCode = errorCode,
+                    reason = reason,
+                )
+                transport.sendControlFrame(resp.toJsonString().toByteArray(StandardCharsets.UTF_8))
+                Log.d(TAG, "[XFER-TRACE] transferId=$transferId sent TRANSFER_RESPONSE status=$status reason=$reason")
+            } catch (e: Exception) {
+                Log.e(TAG, "[XFER-TRACE] transferId=$transferId failed to send TRANSFER_RESPONSE: ${e.javaClass.simpleName}: ${e.message}")
+            }
+        } ?: Log.e(TAG, "[XFER-TRACE] transferId=$transferId timeout sending TRANSFER_RESPONSE status=$status")
+    }
+
+    private suspend fun trySendTransferComplete(
+        transport: TetherQuicTransport,
+        transferId: String,
+        status: String,
+        errorCode: Int = 0,
+        reason: String = "",
+    ) {
+        withTimeoutOrNull(2000L) {
+            try {
+                val frame = JSONObject().apply {
+                    put("type", ControlMessageType.TRANSFER_COMPLETE)
+                    put("transferId", transferId)
+                    put("status", status)
+                    put("errorCode", errorCode)
+                    if (reason.isNotBlank()) {
+                        put("reason", sanitizeLogInput(reason))
+                    }
+                }
+                transport.sendControlFrame(frame.toString().toByteArray(StandardCharsets.UTF_8))
+                Log.d(TAG, "[XFER-TRACE] transferId=$transferId sent TRANSFER_COMPLETE status=$status reason=$reason")
+            } catch (e: Exception) {
+                Log.e(TAG, "[XFER-TRACE] transferId=$transferId failed to send TRANSFER_COMPLETE: ${e.javaClass.simpleName}: ${e.message}")
+            }
+        } ?: Log.e(TAG, "[XFER-TRACE] transferId=$transferId timeout sending TRANSFER_COMPLETE status=$status")
+    }
+
+    /**
+     * Executes an incoming file transfer stream from transport into staging file
+     */
     suspend fun handleIncomingTransfer(
         transport: TetherQuicTransport,
         request: TransferRequestFrame,
         peerName: String,
     ): Boolean = withContext(Dispatchers.IO) {
         val transferId = request.transferId
+        var acceptSent = false
+        Log.d(TAG, "[XFER-TRACE] transferId=$transferId handleIncomingTransfer entered: file=${sanitizeFilename(request.fileName)} size=${request.fileSize}")
+
+        try {
+            performIncomingTransfer(transport, request, peerName) { acceptSent = true }
+        } catch (e: Exception) {
+            Log.e(TAG, "[XFER-TRACE] transferId=$transferId handleIncomingTransfer outer catch: acceptSent=$acceptSent exception=${e.javaClass.simpleName}: ${e.message}", e)
+            val stagingFile = getStagingFile(transferId)
+            try { if (stagingFile.exists()) stagingFile.delete() } catch (_: Exception) {}
+
+            val reasonStr = e.message ?: "Receiver exception"
+            if (!acceptSent) {
+                trySendTransferResponse(
+                    transport, transferId,
+                    status = "REJECTED",
+                    errorCode = FileTransferErrorCode.INTEGRITY_FAILED.code,
+                    reason = reasonStr,
+                )
+            } else {
+                trySendTransferComplete(
+                    transport, transferId,
+                    status = "FAILED",
+                    errorCode = FileTransferErrorCode.INTEGRITY_FAILED.code,
+                    reason = reasonStr,
+                )
+            }
+            false
+        }
+    }
+
+    private suspend fun performIncomingTransfer(
+        transport: TetherQuicTransport,
+        request: TransferRequestFrame,
+        peerName: String,
+        onAcceptSent: () -> Unit,
+    ): Boolean {
+        val transferId = request.transferId
         val sanitizedName = sanitizeFilename(request.fileName)
         val expectedSha512 = request.expectedSha512.uppercase(Locale.US)
 
         if (!capabilityManager.isCapabilityGranted(TetherCapability.FILES)) {
-            Log.w(TAG, "Incoming transfer $transferId denied: missing FILES capability")
-            val resp = TransferResponseFrame(
-                transferId = transferId,
+            Log.w(TAG, "[XFER-TRACE] transferId=$transferId capability check failed: missing FILES capability")
+            trySendTransferResponse(
+                transport, transferId,
                 status = "REJECTED",
                 errorCode = FileTransferErrorCode.MISSING_CAPABILITY.code,
                 reason = FileTransferErrorCode.MISSING_CAPABILITY.description,
             )
-            transport.sendControlFrame(resp.toJson().toString().toByteArray(StandardCharsets.UTF_8))
-            return@withContext false
+            return false
         }
+        Log.d(TAG, "[XFER-TRACE] transferId=$transferId capability check passed")
 
         val stagingFile = getStagingFile(transferId)
         if (stagingFile.exists()) {
             stagingFile.delete()
         }
+        Log.d(TAG, "[XFER-TRACE] transferId=$transferId staging file ready: ${stagingFile.absolutePath}")
 
         var progress = TransferProgress(
             transferId = transferId,
@@ -224,174 +321,196 @@ class TetherFileTransferManager(
             status = "ACCEPTED",
             resumeOffset = 0L,
         )
-        transport.sendControlFrame(acceptResp.toJson().toString().toByteArray(StandardCharsets.UTF_8))
+        transport.sendControlFrame(acceptResp.toJsonString().toByteArray(StandardCharsets.UTF_8))
+        onAcceptSent()
+        Log.d(TAG, "[XFER-TRACE] transferId=$transferId ACCEPTED frame sent")
 
         val digest = MessageDigest.getInstance("SHA-512")
         val startTimeMs = System.currentTimeMillis()
         var lastEmitTimeMs = startTimeMs
         var bytesTransferred = 0L
+        var chunkIndex = 0L
         var hasReceivedDataEnd = false
 
-        try {
-            FileOutputStream(stagingFile).use { fos ->
-                while (bytesTransferred < request.fileSize) {
-                    val chunkBytes = transport.readDataChunk() ?: break
-                    if (chunkBytes.size < DataChunkFraming.HEADER_SIZE_BYTES - 4) break
+        FileOutputStream(stagingFile).use { fos ->
+            while (bytesTransferred < request.fileSize) {
+                val chunkBytes = transport.readDataChunk() ?: break
+                if (chunkBytes.size < DataChunkFraming.HEADER_SIZE_BYTES - 4) break
 
-                    val header = DataChunkFraming.parseHeader(chunkBytes)
-                    if (header.msgType == DataChunkMessageType.MSG_DATA_END) {
-                        Log.i(TAG, "Received DATA_END signal for transfer $transferId")
-                        hasReceivedDataEnd = true
-                        break
-                    }
+                val header = DataChunkFraming.parseHeader(chunkBytes)
+                if (header.msgType == DataChunkMessageType.MSG_DATA_END) {
+                    Log.i(TAG, "[XFER-TRACE] transferId=$transferId received MSG_DATA_END signal")
+                    hasReceivedDataEnd = true
+                    break
+                }
 
-                    val payloadOffset = DataChunkFraming.HEADER_SIZE_BYTES - 4
-                    val payloadLen = header.payloadLength
-                    if (payloadLen <= 0 || payloadOffset + payloadLen > chunkBytes.size) break
+                val payloadOffset = DataChunkFraming.HEADER_SIZE_BYTES - 4
+                val payloadLen = header.payloadLength
+                if (payloadLen <= 0 || payloadOffset + payloadLen > chunkBytes.size) break
 
-                    fos.write(chunkBytes, payloadOffset, payloadLen)
-                    digest.update(chunkBytes, payloadOffset, payloadLen)
-                    bytesTransferred += payloadLen
+                fos.write(chunkBytes, payloadOffset, payloadLen)
+                digest.update(chunkBytes, payloadOffset, payloadLen)
+                bytesTransferred += payloadLen
+                chunkIndex++
 
-                    val now = System.currentTimeMillis()
-                    if (now - lastEmitTimeMs >= PROGRESS_EMIT_INTERVAL_MS) {
-                        val elapsedSec = (now - startTimeMs) / 1000.0
-                        val speed = if (elapsedSec > 0) bytesTransferred / elapsedSec else 0.0
-                        progress = progress.copy(
-                            bytesTransferred = bytesTransferred,
-                            speedBytesPerSec = speed,
-                            state = FileTransferState.TRANSFERRING,
-                        )
-                        updateProgress(progress)
-                        lastEmitTimeMs = now
-                    }
+                val isLastChunk = bytesTransferred == request.fileSize
+                val shouldLogChunk = (chunkIndex % 256L == 0L) || isLastChunk
+                if (shouldLogChunk) {
+                    Log.d(TAG, "[XFER-TRACE] transferId=$transferId chunk idx=$chunkIndex off=$bytesTransferred len=$payloadLen")
+                }
+
+                val now = System.currentTimeMillis()
+                if (now - lastEmitTimeMs >= PROGRESS_EMIT_INTERVAL_MS || isLastChunk) {
+                    val elapsedSec = (now - startTimeMs) / 1000.0
+                    val speed = if (elapsedSec > 0) bytesTransferred / elapsedSec else 0.0
+                    progress = progress.copy(
+                        bytesTransferred = bytesTransferred,
+                        speedBytesPerSec = speed,
+                        state = FileTransferState.TRANSFERRING,
+                    )
+                    updateProgress(progress)
+                    lastEmitTimeMs = now
                 }
             }
+        }
 
-            if (!hasReceivedDataEnd) {
-                try {
-                    val trailingChunk = transport.readDataChunk()
-                    if (trailingChunk != null && trailingChunk.size >= DataChunkFraming.HEADER_SIZE_BYTES - 4) {
-                        val header = DataChunkFraming.parseHeader(trailingChunk)
-                        if (header.msgType == DataChunkMessageType.MSG_DATA_END) {
-                            Log.i(TAG, "Consumed trailing MSG_DATA_END for transfer $transferId")
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.d(TAG, "Trailing MSG_DATA_END check: ${e.message}")
-                }
-            }
+        Log.d(TAG, "[XFER-TRACE] transferId=$transferId stream loop exited: received=$bytesTransferred expected=${request.fileSize} hasDataEnd=$hasReceivedDataEnd")
 
-            progress = progress.copy(
-                bytesTransferred = bytesTransferred,
-                state = FileTransferState.VERIFYING,
-            )
-            updateProgress(progress)
-
-            val computedSha512Hex = computeFileSha512Hex(stagingFile).uppercase(Locale.US)
-            val expectedSha512Bytes = expectedSha512.toByteArray(StandardCharsets.UTF_8)
-            val computedSha512Bytes = computedSha512Hex.toByteArray(StandardCharsets.UTF_8)
-
-            if (!MessageDigest.isEqual(expectedSha512Bytes, computedSha512Bytes)) {
-                Log.e(TAG, "SHA-512 integrity failure for $transferId! Expected: $expectedSha512, Computed: $computedSha512Hex")
-                stagingFile.delete()
-                progress = progress.copy(
-                    state = FileTransferState.FAILED,
-                    errorMessage = "SHA-512 integrity verification failed",
-                )
-                updateProgress(progress)
-                return@withContext false
-            }
-
-            Log.i(TAG, "SHA-512 integrity verified successfully for $sanitizedName ($bytesTransferred bytes)!")
-            
-            val promoted = if (sanitizedName == "windows_fs.db") {
-                try {
-                    val dbPath = appContext.getDatabasePath("windows_fs.db")
-                    dbPath.parentFile?.mkdirs()
-                    SQLiteDatabase.releaseMemory()
-                    val walFile = File(dbPath.path + "-wal")
-                    val shmFile = File(dbPath.path + "-shm")
-                    if (walFile.exists()) try { walFile.delete() } catch (_: Exception) {}
-                    if (shmFile.exists()) try { shmFile.delete() } catch (_: Exception) {}
-                    if (dbPath.exists()) {
-                        try { dbPath.delete() } catch (_: Exception) {}
-                    }
-                    val moved = stagingFile.renameTo(dbPath)
-                    if (!moved) {
-                        FileInputStream(stagingFile).use { fis ->
-                            FileOutputStream(dbPath).use { fos ->
-                                fis.copyTo(fos, BUFFER_SIZE)
-                            }
-                        }
-                        try { stagingFile.delete() } catch (_: Exception) {}
-                    }
-                    Log.i(TAG, "Installed windows_fs.db to app databases folder")
-                    true
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error installing windows_fs.db: ${e.message}", e)
-                    false
-                }
-            } else {
-                promoteStagingFileToStorage(appContext, stagingFile, sanitizedName, request.mimeType)
-            }
-
-            progress = progress.copy(
-                bytesTransferred = bytesTransferred,
-                state = if (promoted) FileTransferState.COMPLETED else FileTransferState.FAILED,
-                errorMessage = if (promoted) null else "Failed promoting file to MediaStore storage",
-            )
-            updateProgress(progress)
-
-            if (promoted) {
-                val completeFrameObj = JSONObject().apply {
-                    put("type", ControlMessageType.TRANSFER_COMPLETE)
-                    put("transferId", transferId)
-                    put("status", "SUCCESS")
-                    put("errorCode", 0)
-                }
-                try {
-                    transport.sendControlFrame(completeFrameObj.toString().toByteArray(StandardCharsets.UTF_8))
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed sending TRANSFER_COMPLETE: ${e.message}")
-                }
-            } else {
-                val failFrameObj = JSONObject().apply {
-                    put("type", ControlMessageType.TRANSFER_COMPLETE)
-                    put("transferId", transferId)
-                    put("status", "FAILED")
-                    put("errorCode", FileTransferErrorCode.DISK_FULL.code)
-                    put("reason", "Failed promoting file to storage")
-                }
-                try {
-                    transport.sendControlFrame(failFrameObj.toString().toByteArray(StandardCharsets.UTF_8))
-                } catch (_: Exception) {}
-            }
-
-            return@withContext promoted
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error handling incoming transfer $transferId: ${e.message}", e)
+        if (!hasReceivedDataEnd && bytesTransferred < request.fileSize) {
+            Log.w(TAG, "[XFER-TRACE] transferId=$transferId stream incomplete: received=$bytesTransferred expected=${request.fileSize}")
             stagingFile.delete()
             progress = progress.copy(
                 state = FileTransferState.FAILED,
-                errorMessage = e.message,
+                errorMessage = "Incomplete stream payload",
             )
             updateProgress(progress)
 
-            val failFrameObj = JSONObject().apply {
-                put("type", ControlMessageType.TRANSFER_COMPLETE)
-                put("transferId", transferId)
-                put("status", "FAILED")
-                put("errorCode", FileTransferErrorCode.INTEGRITY_FAILED.code)
-                put("reason", e.message ?: "Transfer failed")
-            }
-            try {
-                transport.sendControlFrame(failFrameObj.toString().toByteArray(StandardCharsets.UTF_8))
-            } catch (_: Exception) {}
-
-            return@withContext false
+            trySendTransferComplete(
+                transport, transferId,
+                status = "FAILED",
+                errorCode = FileTransferErrorCode.INTEGRITY_FAILED.code,
+                reason = "Incomplete stream payload",
+            )
+            return false
         }
+
+        if (!hasReceivedDataEnd) {
+            try {
+                val trailingChunk = transport.readDataChunk()
+                if (trailingChunk != null && trailingChunk.size >= DataChunkFraming.HEADER_SIZE_BYTES - 4) {
+                    val header = DataChunkFraming.parseHeader(trailingChunk)
+                    if (header.msgType == DataChunkMessageType.MSG_DATA_END) {
+                        Log.i(TAG, "[XFER-TRACE] transferId=$transferId consumed trailing MSG_DATA_END")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "[XFER-TRACE] transferId=$transferId trailing MSG_DATA_END check: ${e.message}")
+            }
+        }
+
+        progress = progress.copy(
+            bytesTransferred = bytesTransferred,
+            state = FileTransferState.VERIFYING,
+        )
+        updateProgress(progress)
+
+        Log.d(TAG, "[XFER-TRACE] transferId=$transferId SHA-512 compute start")
+        val computedSha512Hex = computeFileSha512Hex(stagingFile).uppercase(Locale.US)
+        val expectedSha512Bytes = expectedSha512.toByteArray(StandardCharsets.UTF_8)
+        val computedSha512Bytes = computedSha512Hex.toByteArray(StandardCharsets.UTF_8)
+        val sha512Match = MessageDigest.isEqual(expectedSha512Bytes, computedSha512Bytes)
+
+        Log.d(TAG, "[XFER-TRACE] transferId=$transferId SHA-512 compute result: match=$sha512Match computed=${computedSha512Hex.take(16)} expected=${expectedSha512.take(16)}")
+
+        if (!sha512Match) {
+            Log.e(TAG, "[XFER-TRACE] transferId=$transferId SHA-512 integrity failure! Expected: $expectedSha512, Computed: $computedSha512Hex")
+            stagingFile.delete()
+            progress = progress.copy(
+                state = FileTransferState.FAILED,
+                errorMessage = "SHA-512 integrity verification failed",
+            )
+            updateProgress(progress)
+
+            trySendTransferComplete(
+                transport, transferId,
+                status = "FAILED",
+                errorCode = FileTransferErrorCode.INTEGRITY_FAILED.code,
+                reason = "SHA-512 integrity verification failed",
+            )
+            return false
+        }
+
+        Log.i(TAG, "[XFER-TRACE] transferId=$transferId SHA-512 integrity verified successfully ($sanitizedName, $bytesTransferred bytes)!")
+
+        Log.d(TAG, "[XFER-TRACE] transferId=$transferId promotion start")
+        var promotionException: Exception? = null
+        val promoted = if (sanitizedName == "windows_fs.db") {
+            try {
+                val dbPath = appContext.getDatabasePath("windows_fs.db")
+                dbPath.parentFile?.mkdirs()
+                SQLiteDatabase.releaseMemory()
+                val walFile = File(dbPath.path + "-wal")
+                val shmFile = File(dbPath.path + "-shm")
+                if (walFile.exists()) try { walFile.delete() } catch (_: Exception) {}
+                if (shmFile.exists()) try { shmFile.delete() } catch (_: Exception) {}
+                if (dbPath.exists()) {
+                    try { dbPath.delete() } catch (_: Exception) {}
+                }
+                val moved = stagingFile.renameTo(dbPath)
+                if (!moved) {
+                    FileInputStream(stagingFile).use { fis ->
+                        FileOutputStream(dbPath).use { fos ->
+                            fis.copyTo(fos, BUFFER_SIZE)
+                        }
+                    }
+                    try { stagingFile.delete() } catch (_: Exception) {}
+                }
+                Log.i(TAG, "[XFER-TRACE] transferId=$transferId installed windows_fs.db to app databases folder")
+                true
+            } catch (e: Exception) {
+                promotionException = e
+                Log.e(TAG, "[XFER-TRACE] transferId=$transferId error installing windows_fs.db: ${e.message}", e)
+                false
+            }
+        } else {
+            try {
+                promoteStagingFileToStorage(appContext, stagingFile, sanitizedName, request.mimeType)
+            } catch (e: Exception) {
+                promotionException = e
+                Log.e(TAG, "[XFER-TRACE] transferId=$transferId promoteStagingFileToStorage exception: ${e.javaClass.simpleName}: ${e.message}", e)
+                false
+            }
+        }
+
+        Log.d(TAG, "[XFER-TRACE] transferId=$transferId promotion result: success=$promoted")
+
+        progress = progress.copy(
+            bytesTransferred = bytesTransferred,
+            state = if (promoted) FileTransferState.COMPLETED else FileTransferState.FAILED,
+            errorMessage = if (promoted) null else (promotionException?.message ?: "Failed promoting file to MediaStore storage"),
+        )
+        updateProgress(progress)
+
+        if (promoted) {
+            trySendTransferComplete(
+                transport, transferId,
+                status = "SUCCESS",
+                errorCode = 0,
+            )
+        } else {
+            val isDiskFull = promotionException is IOException && promotionException.message?.contains("ENOSPC", ignoreCase = true) == true
+            val errCode = if (isDiskFull) FileTransferErrorCode.DISK_FULL.code else FileTransferErrorCode.INTEGRITY_FAILED.code
+            val errReason = promotionException?.let { "${it.javaClass.simpleName}: ${it.message}" } ?: "Failed promoting file to storage"
+
+            trySendTransferComplete(
+                transport, transferId,
+                status = "FAILED",
+                errorCode = errCode,
+                reason = errReason,
+            )
+        }
+
+        return promoted
     }
 
     /**
@@ -455,19 +574,21 @@ class TetherFileTransferManager(
         mimeType: String,
     ): Boolean {
         val safeMimeType = if (mimeType.isBlank() || mimeType == "*/*") "application/octet-stream" else mimeType
+        val isAllFiles = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Environment.isExternalStorageManager() else false
+        Log.d(TAG, "[XFER-TRACE] promoteStagingFileToStorage start: name=$displayName mime=$safeMimeType isAllFiles=$isAllFiles sdk=${Build.VERSION.SDK_INT}")
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val resolver = context.contentResolver
                 val contentValues = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
                     put(MediaStore.MediaColumns.MIME_TYPE, safeMimeType)
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Tether")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Tether")
                 }
 
                 val uri: Uri? = try {
                     resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
                 } catch (e: Exception) {
-                    Log.w(TAG, "MediaStore insert failed: ${e.message}")
+                    Log.w(TAG, "[XFER-TRACE] MediaStore insert failed (isAllFiles=$isAllFiles, sdk=${Build.VERSION.SDK_INT}): ${e.message}", e)
                     null
                 }
 
@@ -479,10 +600,10 @@ class TetherFileTransferManager(
                             }
                         }
                         stagingFile.delete()
-                        Log.i(TAG, "Promoted file to MediaStore: $uri")
+                        Log.i(TAG, "[XFER-TRACE] Promoted file to MediaStore: $uri")
                         return true
                     } catch (e: Exception) {
-                        Log.e(TAG, "Failed writing to MediaStore OutputStream for $uri: ${e.message}")
+                        Log.e(TAG, "[XFER-TRACE] Failed writing to MediaStore OutputStream for $uri: ${e.message}")
                         try { resolver.delete(uri, null, null) } catch (_: Exception) {}
                     }
                 }
@@ -491,7 +612,7 @@ class TetherFileTransferManager(
             val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val tetherDir = File(downloadsDir, "Tether")
             if (!tetherDir.exists() && !tetherDir.mkdirs()) {
-                Log.e(TAG, "Failed creating target directory: ${tetherDir.absolutePath}")
+                Log.e(TAG, "[XFER-TRACE] Failed creating target directory: ${tetherDir.absolutePath}")
                 return false
             }
 
@@ -507,10 +628,10 @@ class TetherFileTransferManager(
                 }
                 stagingFile.delete()
             }
-            Log.i(TAG, "Promoted file to filesystem: ${destFile.absolutePath}")
+            Log.i(TAG, "[XFER-TRACE] Promoted file to filesystem: ${destFile.absolutePath}")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed promoting staging file to storage: ${e.message}", e)
+            Log.e(TAG, "[XFER-TRACE] Failed promoting staging file to storage: ${e.message}", e)
             false
         }
     }

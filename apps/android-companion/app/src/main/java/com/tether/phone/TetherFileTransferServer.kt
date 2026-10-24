@@ -60,6 +60,7 @@ class TetherFileTransferServer(
                 sslServer.needClientAuth = false
                 serverSocket = sslServer
 
+                Log.i(TAG, "[XFER-TRACE] Tether Phone build: ${BuildConfig.VERSION_NAME} (${BuildConfig.BUILD_TYPE}) pid=${android.os.Process.myPid()}")
                 Log.i(TAG, "Tether File Transfer Server listening on TCP port $SERVER_PORT (TLS 1.3)...")
 
                 while (isActive && isRunning) {
@@ -93,6 +94,7 @@ class TetherFileTransferServer(
     }
 
     private suspend fun handleClientSocket(socket: Socket) = withContext(Dispatchers.IO) {
+        Log.d(TAG, "[XFER-TRACE] handleClientSocket entered: remote=${socket.remoteSocketAddress}")
         val dis = DataInputStream(socket.inputStream)
         val dos = DataOutputStream(socket.outputStream)
         var isAuthenticated = false
@@ -329,7 +331,7 @@ class TetherFileTransferServer(
                     ControlMessageType.TRANSFER_REQUEST -> {
                         if (!isAuthenticated) break
                         val reqFrame = TransferRequestFrame.parseJsonString(jsonStr)
-                        Log.i(TAG, "TRANSFER_REQUEST received: id=${reqFrame.transferId} file=${reqFrame.fileName} size=${reqFrame.fileSize} sha512Len=${reqFrame.expectedSha512.length}")
+                        Log.i(TAG, "[XFER-TRACE] TRANSFER_REQUEST received: id=${reqFrame.transferId} file=${reqFrame.fileName} size=${reqFrame.fileSize} sha512Len=${reqFrame.expectedSha512.length}")
                         
                         val originalTimeout = try { socket.soTimeout } catch (_: Exception) { 30000 }
                         try { socket.soTimeout = 60000 } catch (_: Exception) {}
@@ -365,13 +367,44 @@ class TetherFileTransferServer(
                         try {
                             fileTransferManager.handleIncomingTransfer(dummyTransport, reqFrame, "Windows PC")
                         } finally {
-                            try { socket.soTimeout = originalTimeout } catch (_: Exception) {}
+                            try {
+                                socket.soTimeout = 100
+                                try {
+                                    val len = dis.readInt()
+                                    if (len in 1..MAX_CONTROL_FRAME_SIZE) {
+                                        val buf = ByteArray(len)
+                                        dis.readFully(buf)
+                                        if (buf.size >= DataChunkFraming.HEADER_SIZE_BYTES - 4) {
+                                            val header = DataChunkFraming.parseHeader(buf)
+                                            if (header.msgType == DataChunkMessageType.MSG_DATA_END) {
+                                                Log.d(TAG, "[XFER-TRACE] Cleanly consumed trailing MSG_DATA_END frame for ${reqFrame.transferId}")
+                                            } else if (header.msgType == DataChunkMessageType.MSG_DATA_CHUNK) {
+                                                Log.w(TAG, "[XFER-TRACE] Trailing data chunk received after declared file size for ${reqFrame.transferId}")
+                                                val failFrameObj = JSONObject().apply {
+                                                    put("type", ControlMessageType.TRANSFER_COMPLETE)
+                                                    put("transferId", reqFrame.transferId)
+                                                    put("status", "FAILED")
+                                                    put("errorCode", FileTransferErrorCode.INTEGRITY_FAILED.code)
+                                                    put("reason", "Trailing data chunk after declared file size")
+                                                }
+                                                try { sendFrame(dos, failFrameObj.toString().toByteArray(StandardCharsets.UTF_8)) } catch (_: Exception) {}
+                                                try { socket.close() } catch (_: Exception) {}
+                                            }
+                                        }
+                                    }
+                                } catch (_: java.io.InterruptedIOException) {
+                                } catch (_: java.net.SocketTimeoutException) {
+                                } catch (_: Exception) {
+                                }
+                            } finally {
+                                try { socket.soTimeout = originalTimeout } catch (_: Exception) {}
+                            }
                         }
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Exception handling client connection: ${e.message}")
+            Log.e(TAG, "[XFER-TRACE] handleClientSocket outer catch: ${e.javaClass.simpleName}: ${e.message}", e)
         } finally {
             try { socket.close() } catch (_: Exception) {}
         }

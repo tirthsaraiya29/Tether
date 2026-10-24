@@ -24,7 +24,7 @@ class TetherCapabilityManager {
 
         val DEFAULT_ANDROID_CAPABILITIES = setOf(
             TetherCapability.CLIPBOARD,
-            TetherCapability.FILES,
+            // TetherCapability.FILES, // Discarded/Excluded: File transfer feature disabled
             TetherCapability.NOTIFICATIONS,
             TetherCapability.MEDIA,
             TetherCapability.TERMINAL,
