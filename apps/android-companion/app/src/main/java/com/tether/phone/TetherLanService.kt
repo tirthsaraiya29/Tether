@@ -14,7 +14,9 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -35,6 +37,7 @@ import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.nio.charset.StandardCharsets
@@ -339,6 +342,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private val processedRequestIds = ConcurrentHashMap<String, Long>()
+    private val pendingTokenRequests = ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<String>>()
 
     private val powerSaveReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -980,6 +984,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     }
                 }
             }
+            "FILE_TRANSFER_TOKEN_RESPONSE" -> {
+                val token = json.optString("token", "")
+                if (requestId.isNotEmpty()) {
+                    pendingTokenRequests.remove(requestId)?.complete(token)
+                }
+            }
             "POWER_EVENT" -> {
                 val eventsArray = json.optJSONArray("events")
                 var newestEvent: JSONObject? = null
@@ -1090,6 +1100,139 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
+                }
+            }
+            "FS_LIST" -> {
+                val reqPath = json.optString("path", "")
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        val itemsArray = JSONArray()
+                        if (reqPath.isEmpty()) {
+                            val roots = mutableListOf<File>()
+                            roots.add(Environment.getExternalStorageDirectory())
+                            val externalDirs = getExternalFilesDirs(null)
+                            for (dir in externalDirs) {
+                                if (dir != null) {
+                                    val rootPath = dir.absolutePath.substringBefore("/Android/")
+                                    val rootFile = File(rootPath)
+                                    if (!roots.contains(rootFile)) {
+                                        roots.add(rootFile)
+                                    }
+                                }
+                            }
+                            for (root in roots) {
+                                if (root.exists()) {
+                                    val item = JSONObject().apply {
+                                        val isPrimary = root.absolutePath == Environment.getExternalStorageDirectory().absolutePath
+                                        put("name", if (isPrimary) "Primary Storage" else root.name)
+                                        put("path", root.absolutePath)
+                                        put("isDirectory", true)
+                                        put("size", root.totalSpace)
+                                        put("lastModified", root.lastModified())
+                                    }
+                                    itemsArray.put(item)
+                                }
+                            }
+                        } else {
+                            val dir = File(reqPath)
+                            if (dir.exists() && dir.isDirectory) {
+                                dir.listFiles()?.forEach { file ->
+                                    val item = JSONObject().apply {
+                                        put("name", file.name)
+                                        put("path", file.absolutePath)
+                                        put("isDirectory", file.isDirectory)
+                                        put("size", if (file.isDirectory) 0L else file.length())
+                                        put("lastModified", file.lastModified())
+                                    }
+                                    itemsArray.put(item)
+                                }
+                            }
+                        }
+                        
+                        val responseJson = JSONObject().apply {
+                            put("type", "FS_LIST_RESULT")
+                            put("requestId", requestId)
+                            put("path", reqPath)
+                            put("items", itemsArray)
+                        }
+                        transport.sendFrame(responseJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    } catch (e: Exception) {
+                        Log.e(TAG, "FS_LIST error: ${e.message}")
+                        val errorJson = JSONObject().apply {
+                            put("type", "FS_LIST_RESULT")
+                            put("requestId", requestId)
+                            put("path", reqPath)
+                            put("error", e.message)
+                        }
+                        transport.sendFrame(errorJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    }
+                }
+            }
+            "FS_RECEIVE_FILE" -> {
+                val windowsPath = json.optString("windowsPath", "")
+                val fileName = json.optString("fileName", "")
+                val token = json.optString("token", "")
+                
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        val hostIp = connectedHostAddress ?: throw Exception("No connected host IP")
+                        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                        if (!downloadsDir.exists()) {
+                            downloadsDir.mkdirs()
+                        }
+                        val destFile = File(downloadsDir, fileName)
+                        val destUri = Uri.fromFile(destFile)
+                        
+                        FileTransferClient.downloadFile(hostIp, windowsPath, destUri, this@TetherLanService, token)
+                        
+                        val responseJson = JSONObject().apply {
+                            put("type", "FS_TRANSFER_STATUS")
+                            put("requestId", requestId)
+                            put("status", "SUCCESS")
+                        }
+                        transport.sendFrame(responseJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    } catch (e: Exception) {
+                        Log.e(TAG, "FS_RECEIVE_FILE error: ${e.message}")
+                        val errorJson = JSONObject().apply {
+                            put("type", "FS_TRANSFER_STATUS")
+                            put("requestId", requestId)
+                            put("status", "ERROR")
+                            put("error", e.message)
+                        }
+                        transport.sendFrame(errorJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    }
+                }
+            }
+            "FS_SEND_FILE" -> {
+                val androidPath = json.optString("androidPath", "")
+                val windowsDestPath = json.optString("windowsDestPath", "")
+                val token = json.optString("token", "")
+                
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        val hostIp = connectedHostAddress ?: throw Exception("No connected host IP")
+                        val sourceFile = File(androidPath)
+                        if (!sourceFile.exists()) throw Exception("Source file does not exist")
+                        val sourceUri = Uri.fromFile(sourceFile)
+                        
+                        FileTransferClient.uploadFile(hostIp, sourceUri, windowsDestPath, this@TetherLanService, token)
+                        
+                        val responseJson = JSONObject().apply {
+                            put("type", "FS_TRANSFER_STATUS")
+                            put("requestId", requestId)
+                            put("status", "SUCCESS")
+                        }
+                        transport.sendFrame(responseJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    } catch (e: Exception) {
+                        Log.e(TAG, "FS_SEND_FILE error: ${e.message}")
+                        val errorJson = JSONObject().apply {
+                            put("type", "FS_TRANSFER_STATUS")
+                            put("requestId", requestId)
+                            put("status", "ERROR")
+                            put("error", e.message)
+                        }
+                        transport.sendFrame(errorJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    }
                 }
             }
             "HARDWARE_METRICS", "LAPTOP_STATE" -> {
@@ -1270,6 +1413,29 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         } catch (e: Exception) {
             Log.e(TAG, "Failed sending command $command: ${e.message}", e)
             Result.failure(e)
+        }
+    }
+
+    suspend fun requestFileTransferToken(): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        if ((currentState != TransportState.READY) && (currentState != TransportState.AUTHENTICATED)) {
+            throw IllegalStateException("TLS session not connected")
+        }
+        val reqId = UUID.randomUUID().toString()
+        val deferred = kotlinx.coroutines.CompletableDeferred<String>()
+        pendingTokenRequests[reqId] = deferred
+        val cmdJson = JSONObject().apply {
+            put("type", "FILE_TRANSFER_TOKEN_REQUEST")
+            put("requestId", reqId)
+            put("timestamp", System.currentTimeMillis())
+        }
+        val transport = activeTransport ?: throw IllegalStateException("Active transport is null")
+        if (!transport.isConnected()) {
+            throw IllegalStateException("Transport socket is disconnected")
+        }
+        transport.sendFrame(cmdJson.toString().toByteArray(StandardCharsets.UTF_8))
+        
+        kotlinx.coroutines.withTimeout(10000L) {
+            deferred.await()
         }
     }
 

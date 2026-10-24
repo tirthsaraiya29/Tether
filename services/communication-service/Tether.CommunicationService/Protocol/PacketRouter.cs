@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
+using Tether.CommunicationService.FileTransfer;
 using Tether.CommunicationService.Transport;
 using Tether.EventBus;
 using Tether.Shared.Events;
@@ -17,12 +18,14 @@ public sealed class PacketRouter
     private readonly ITetherLogger _logger;
     private readonly CapabilityManager _capabilityManager;
     private readonly IEventBus _eventBus;
+    private readonly TokenStore _tokenStore;
 
-    public PacketRouter(ITetherLogger logger, CapabilityManager capabilityManager, IEventBus eventBus)
+    public PacketRouter(ITetherLogger logger, CapabilityManager capabilityManager, IEventBus eventBus, TokenStore tokenStore)
     {
         _logger = logger;
         _capabilityManager = capabilityManager;
         _eventBus = eventBus;
+        _tokenStore = tokenStore;
     }
 
     public async Task RouteFrameAsync(JsonDocument doc, TetherSession session, TetherDevice device, Stream stream, CancellationToken ct)
@@ -54,6 +57,19 @@ public sealed class PacketRouter
 
             case "COMMAND_EXECUTE":
                 await HandleCommandAsync(doc, session, device, stream, ct);
+                break;
+
+            case "FILE_TRANSFER_TOKEN_REQUEST":
+                _logger.Info($"PacketRouter: Received FILE_TRANSFER_TOKEN_REQUEST from '{device.DisplayName}'. Generating token.");
+                var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(60)); // 1 hour token
+                await session.WriteJsonFrameSafeAsync(new { type = "FILE_TRANSFER_TOKEN_RESPONSE", token = token, validForMinutes = 60 }, ct);
+                break;
+
+            case "FS_LIST_RESULT":
+            case "FS_DOWNLOAD_RESULT":
+            case "FS_UPLOAD_RESULT":
+            case "FS_TRANSFER_STATUS":
+                FileTransferServer.HandleRemoteResponse(type, doc.RootElement.GetRawText());
                 break;
 
             default:

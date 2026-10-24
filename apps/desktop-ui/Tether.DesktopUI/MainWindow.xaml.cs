@@ -334,11 +334,28 @@ namespace Tether.DesktopUI
 
         private void NavRailList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (CardPipeline == null || CardHardware == null || CardVault == null) return;
-            CardPipeline.Visibility = Visibility.Visible;
-            CardHardware.Visibility = Visibility.Visible;
-            CardVault.Visibility = Visibility.Visible;
-            LeftScrollViewer?.ScrollToTop();
+            if (CardPipeline == null || CardHardware == null || CardVault == null || FilesContainer == null || LeftScrollViewer == null || RightColumnGrid == null) return;
+
+            var selected = (ListBoxItem)NavRailList.SelectedItem;
+            string tag = selected?.Tag as string ?? "";
+
+            if (tag == "Files")
+            {
+                if (TxtWorkspaceTitle != null) TxtWorkspaceTitle.Text = "Host ↔ Android File Bridge";
+                LeftScrollViewer.Visibility = Visibility.Collapsed;
+                RightColumnGrid.Visibility = Visibility.Collapsed;
+                FilesContainer.Visibility = Visibility.Visible;
+                LoadLocalFiles(TxtLocalPath.Text);
+                LoadRemoteFiles(TxtRemotePath.Text);
+            }
+            else
+            {
+                if (TxtWorkspaceTitle != null) TxtWorkspaceTitle.Text = "System Command Deck";
+                FilesContainer.Visibility = Visibility.Collapsed;
+                LeftScrollViewer.Visibility = Visibility.Visible;
+                RightColumnGrid.Visibility = Visibility.Visible;
+                LeftScrollViewer?.ScrollToTop();
+            }
         }
 
         private void BtnMinimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
@@ -450,17 +467,33 @@ namespace Tether.DesktopUI
             switch (evt.EventType)
             {
                 case TetherEventType.PHONE_CONNECTED:
+                    var healthyBrush = GetFluentBrush("StatusHealthyBrush", Color.FromRgb(16, 185, 129));
                     TxtStatus.Text = "LINK ENFORCED";
-                    IndicatorNode.Fill = GetFluentBrush("StatusHealthyBrush", Color.FromRgb(52, 211, 153));
-                    IndicatorHalo.Fill = GetFluentBrush("HealthyHaloBrush", Color.FromArgb(90, 52, 211, 153));
+                    if (TxtStatusSub != null) TxtStatusSub.Text = $"SYNCED {DateTime.Now:HH:mm:ss}";
+                    if (TxtHeaderNodeBadge != null)
+                    {
+                        TxtHeaderNodeBadge.Text = "LINK ENFORCED";
+                        TxtHeaderNodeBadge.Foreground = healthyBrush;
+                    }
+                    if (HeaderIndicatorDot != null) HeaderIndicatorDot.Fill = healthyBrush;
+                    IndicatorNode.Fill = healthyBrush;
+                    IndicatorHalo.Fill = GetFluentBrush("HealthyHaloBrush", Color.FromArgb(90, 16, 185, 129));
                     LogTerminal("Phone connected.");
                     ForceTelemetrySyncToPhone();
                     break;
 
                 case TetherEventType.PHONE_DISCONNECTED:
+                    var criticalBrush = GetFluentBrush("StatusCriticalBrush", Color.FromRgb(244, 63, 94));
                     TxtStatus.Text = "NODE DISCONNECTED";
-                    IndicatorNode.Fill = GetFluentBrush("StatusCriticalBrush", Color.FromRgb(251, 113, 133));
-                    IndicatorHalo.Fill = GetFluentBrush("CriticalHaloBrush", Color.FromArgb(90, 251, 113, 133));
+                    if (TxtStatusSub != null) TxtStatusSub.Text = "AWAITING BEACON";
+                    if (TxtHeaderNodeBadge != null)
+                    {
+                        TxtHeaderNodeBadge.Text = "DISCONNECTED";
+                        TxtHeaderNodeBadge.Foreground = criticalBrush;
+                    }
+                    if (HeaderIndicatorDot != null) HeaderIndicatorDot.Fill = criticalBrush;
+                    IndicatorNode.Fill = criticalBrush;
+                    IndicatorHalo.Fill = GetFluentBrush("CriticalHaloBrush", Color.FromArgb(90, 244, 63, 94));
                     LogTerminal("Phone disconnected.");
                     break;
 
@@ -845,6 +878,11 @@ namespace Tether.DesktopUI
                 _terminalLogs.RemoveAt(0);
             }
 
+            if (TxtLogCount != null)
+            {
+                TxtLogCount.Text = $"{_terminalLogs.Count} / {MaxTerminalEntries}";
+            }
+
             if (TerminalList.Items.Count > 0)
             {
                 TerminalList.ScrollIntoView(TerminalList.Items[^1]);
@@ -894,7 +932,7 @@ namespace Tether.DesktopUI
                 }
             }
             if (!_isListening) return;
-            LogTerminal("Tether service is not running. Click 'Restart Service' to try again.");
+            LogTerminal("Tether service is not running. Click 'Restart Tether Service' to try again.");
         }
 
         private void BtnLockdownOverride_Click(object sender, RoutedEventArgs e)
@@ -1109,6 +1147,7 @@ namespace Tether.DesktopUI
 
                 if (!LogonUser(Environment.UserName, Environment.UserDomainName, Marshal.PtrToStringUni(unmanagedPasswordPtr), 2, 0, out IntPtr token))
                 {
+                    if (TxtVaultBadge != null) TxtVaultBadge.Text = "AUTH FAILED";
                     LogTerminal("Could not verify password. Please check your Windows password and try again.");
                     return;
                 }
@@ -1143,6 +1182,7 @@ namespace Tether.DesktopUI
                                 rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
                             }
 
+                            if (TxtVaultBadge != null) TxtVaultBadge.Text = "SECRET SEALED";
                             LogTerminal("Password saved successfully.");
                             TxtPassword.Clear();
                         }
@@ -1162,6 +1202,7 @@ namespace Tether.DesktopUI
                                 };
 
                                 Process.Start(startInfo);
+                                if (TxtVaultBadge != null) TxtVaultBadge.Text = "SECRET SEALED";
                                 LogTerminal("Password saved successfully.");
                                 TxtPassword.Clear();
                             }
@@ -1189,6 +1230,229 @@ namespace Tether.DesktopUI
                     byte[] zeroBuffer = new byte[TxtPassword.SecurePassword.Length * 2];
                     Marshal.Copy(zeroBuffer, 0, unmanagedPasswordPtr, zeroBuffer.Length);
                     Marshal.ZeroFreeGlobalAllocUnicode(unmanagedPasswordPtr);
+                }
+            }
+        }
+
+        // ==========================================
+        // FILE TRANSFER LOGIC
+        // ==========================================
+
+        private static readonly System.Net.Http.HttpClient _httpClient = new System.Net.Http.HttpClient(
+            new System.Net.Http.HttpClientHandler { ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true }
+        )
+        { BaseAddress = new Uri("https://localhost:37124") };
+
+        public class FileItem
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("name")]
+            public string Name { get; set; } = "";
+
+            [System.Text.Json.Serialization.JsonPropertyName("isDirectory")]
+            public bool IsDirectory { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("path")]
+            public string Path { get; set; } = "";
+
+            [System.Text.Json.Serialization.JsonIgnore]
+            public string FullPath => Path;
+
+            [System.Text.Json.Serialization.JsonPropertyName("size")]
+            public long RawSize { get; set; }
+
+            [System.Text.Json.Serialization.JsonIgnore]
+            public string Size => IsDirectory ? "Directory" : FormatByteSize(RawSize);
+
+            [System.Text.Json.Serialization.JsonIgnore]
+            public string Type => IsDirectory ? "Folder" : "File";
+
+            [System.Text.Json.Serialization.JsonIgnore]
+            public string Icon => IsDirectory ? "\uE8B7" : "\uE8A5";
+        }
+
+        private static string FormatByteSize(long bytes)
+        {
+            if (bytes < 1024) return $"{bytes} B";
+            if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+            return $"{bytes / (1024.0 * 1024.0):F2} MB";
+        }
+
+        private void LoadLocalFiles(string path)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    path = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                    TxtLocalPath.Text = path;
+                }
+
+                var dir = new DirectoryInfo(path);
+                if (!dir.Exists) return;
+
+                var items = new List<FileItem>();
+                foreach (var d in dir.GetDirectories())
+                {
+                    items.Add(new FileItem { Name = d.Name, Path = d.FullName, IsDirectory = true });
+                }
+                foreach (var f in dir.GetFiles())
+                {
+                    items.Add(new FileItem { Name = f.Name, Path = f.FullName, RawSize = f.Length, IsDirectory = false });
+                }
+
+                ListLocalFiles.ItemsSource = items;
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"Local FS error: {ex.Message}");
+            }
+        }
+
+        private void BtnLocalUp_Click(object sender, RoutedEventArgs e)
+        {
+            var dir = new DirectoryInfo(TxtLocalPath.Text);
+            if (dir.Parent != null)
+            {
+                TxtLocalPath.Text = dir.Parent.FullName;
+                LoadLocalFiles(TxtLocalPath.Text);
+            }
+        }
+
+        private void TxtLocalPath_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter) LoadLocalFiles(TxtLocalPath.Text);
+        }
+
+        private void ListLocalFiles_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (ListLocalFiles.SelectedItem is FileItem item && item.IsDirectory)
+            {
+                TxtLocalPath.Text = item.FullPath;
+                LoadLocalFiles(TxtLocalPath.Text);
+            }
+        }
+
+        private async void LoadRemoteFiles(string path)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    path = "/sdcard/";
+                    TxtRemotePath.Text = path;
+                }
+
+                var payload = new { path = path };
+                var content = new System.Net.Http.StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.PostAsync("/api/fs/remote/list", content);
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    var list = JsonSerializer.Deserialize<List<FileItem>>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    ListRemoteFiles.ItemsSource = list;
+                }
+                else
+                {
+                    LogTerminal($"Remote FS list error: {response.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"Remote FS error: {ex.Message}");
+            }
+        }
+
+        private void BtnRemoteUp_Click(object sender, RoutedEventArgs e)
+        {
+            string p = TxtRemotePath.Text.TrimEnd('/');
+            int lastSlash = p.LastIndexOf('/');
+            if (lastSlash > 0)
+            {
+                TxtRemotePath.Text = p.Substring(0, lastSlash + 1);
+                LoadRemoteFiles(TxtRemotePath.Text);
+            }
+            else if (lastSlash == 0)
+            {
+                TxtRemotePath.Text = "/";
+                LoadRemoteFiles("/");
+            }
+        }
+
+        private void TxtRemotePath_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter) LoadRemoteFiles(TxtRemotePath.Text);
+        }
+
+        private void BtnRemoteRefresh_Click(object sender, RoutedEventArgs e)
+        {
+            LoadRemoteFiles(TxtRemotePath.Text);
+        }
+
+        private void ListRemoteFiles_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (ListRemoteFiles.SelectedItem is FileItem item && item.IsDirectory)
+            {
+                string sep = TxtRemotePath.Text.EndsWith("/") ? "" : "/";
+                TxtRemotePath.Text = TxtRemotePath.Text + sep + item.Name;
+                LoadRemoteFiles(TxtRemotePath.Text);
+            }
+        }
+
+        private async void BtnUpload_Click(object sender, RoutedEventArgs e)
+        {
+            if (ListLocalFiles.SelectedItem is FileItem item && !item.IsDirectory)
+            {
+                try
+                {
+                    LogTerminal($"Uploading {item.Name} to Android...");
+                    var payload = new { localPath = item.FullPath, remoteDir = TxtRemotePath.Text };
+                    var content = new System.Net.Http.StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+                    var res = await _httpClient.PostAsync("/api/fs/remote/upload", content);
+                    if (res.IsSuccessStatusCode)
+                    {
+                        LogTerminal("Upload initiated.");
+                        await Task.Delay(2000);
+                        LoadRemoteFiles(TxtRemotePath.Text);
+                    }
+                    else
+                    {
+                        LogTerminal($"Upload API error: {res.StatusCode}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogTerminal($"Upload error: {ex.Message}");
+                }
+            }
+        }
+
+        private async void BtnDownload_Click(object sender, RoutedEventArgs e)
+        {
+            if (ListRemoteFiles.SelectedItem is FileItem item && !item.IsDirectory)
+            {
+                try
+                {
+                    LogTerminal($"Downloading {item.Name} from Android...");
+                    string sep = TxtRemotePath.Text.EndsWith("/") ? "" : "/";
+                    string remotePath = TxtRemotePath.Text + sep + item.Name;
+                    var payload = new { remotePath = remotePath, localDir = TxtLocalPath.Text };
+                    var content = new System.Net.Http.StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+                    var res = await _httpClient.PostAsync("/api/fs/remote/download", content);
+                    if (res.IsSuccessStatusCode)
+                    {
+                        LogTerminal("Download initiated.");
+                        await Task.Delay(2000);
+                        LoadLocalFiles(TxtLocalPath.Text);
+                    }
+                    else
+                    {
+                        LogTerminal($"Download API error: {res.StatusCode}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogTerminal($"Download error: {ex.Message}");
                 }
             }
         }

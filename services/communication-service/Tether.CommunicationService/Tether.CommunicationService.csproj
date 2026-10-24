@@ -44,4 +44,7 @@
 		  DestinationFolder="$(OutDir)"
 		  SkipUnchangedFiles="true" />
 	</Target>
+	<ItemGroup>
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+	</ItemGroup>
 </Project>
