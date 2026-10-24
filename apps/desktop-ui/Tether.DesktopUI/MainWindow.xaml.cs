@@ -341,7 +341,7 @@ namespace Tether.DesktopUI
 
             if (tag == "Files")
             {
-                if (TxtWorkspaceTitle != null) TxtWorkspaceTitle.Text = "Host ↔ Android File Bridge";
+                if (TxtWorkspaceTitle != null) TxtWorkspaceTitle.Text = "File Transfer";
                 LeftScrollViewer.Visibility = Visibility.Collapsed;
                 RightColumnGrid.Visibility = Visibility.Collapsed;
                 FilesContainer.Visibility = Visibility.Visible;
@@ -350,7 +350,7 @@ namespace Tether.DesktopUI
             }
             else
             {
-                if (TxtWorkspaceTitle != null) TxtWorkspaceTitle.Text = "System Command Deck";
+                if (TxtWorkspaceTitle != null) TxtWorkspaceTitle.Text = "Dashboard";
                 FilesContainer.Visibility = Visibility.Collapsed;
                 LeftScrollViewer.Visibility = Visibility.Visible;
                 RightColumnGrid.Visibility = Visibility.Visible;
@@ -468,11 +468,11 @@ namespace Tether.DesktopUI
             {
                 case TetherEventType.PHONE_CONNECTED:
                     var healthyBrush = GetFluentBrush("StatusHealthyBrush", Color.FromRgb(16, 185, 129));
-                    TxtStatus.Text = "LINK ENFORCED";
-                    if (TxtStatusSub != null) TxtStatusSub.Text = $"SYNCED {DateTime.Now:HH:mm:ss}";
+                    TxtStatus.Text = "CONNECTED";
+                    if (TxtStatusSub != null) TxtStatusSub.Text = $"Active ({DateTime.Now:HH:mm:ss})";
                     if (TxtHeaderNodeBadge != null)
                     {
-                        TxtHeaderNodeBadge.Text = "LINK ENFORCED";
+                        TxtHeaderNodeBadge.Text = "CONNECTED";
                         TxtHeaderNodeBadge.Foreground = healthyBrush;
                     }
                     if (HeaderIndicatorDot != null) HeaderIndicatorDot.Fill = healthyBrush;
@@ -484,8 +484,8 @@ namespace Tether.DesktopUI
 
                 case TetherEventType.PHONE_DISCONNECTED:
                     var criticalBrush = GetFluentBrush("StatusCriticalBrush", Color.FromRgb(244, 63, 94));
-                    TxtStatus.Text = "NODE DISCONNECTED";
-                    if (TxtStatusSub != null) TxtStatusSub.Text = "AWAITING BEACON";
+                    TxtStatus.Text = "NOT CONNECTED";
+                    if (TxtStatusSub != null) TxtStatusSub.Text = "Looking for phone...";
                     if (TxtHeaderNodeBadge != null)
                     {
                         TxtHeaderNodeBadge.Text = "DISCONNECTED";
@@ -944,7 +944,7 @@ namespace Tether.DesktopUI
                 Source = "DesktopUI"
             };
             DispatchServiceBusPipe(evt);
-            LogTerminal("System locked.");
+            LogTerminal("PC locked.");
         }
 
         private async void BtnRestartService_Click(object sender, RoutedEventArgs e)
@@ -1147,8 +1147,8 @@ namespace Tether.DesktopUI
 
                 if (!LogonUser(Environment.UserName, Environment.UserDomainName, Marshal.PtrToStringUni(unmanagedPasswordPtr), 2, 0, out IntPtr token))
                 {
-                    if (TxtVaultBadge != null) TxtVaultBadge.Text = "AUTH FAILED";
-                    LogTerminal("Could not verify password. Please check your Windows password and try again.");
+                    if (TxtVaultBadge != null) TxtVaultBadge.Text = "INCORRECT PASSWORD";
+                    LogTerminal("Incorrect password. Please enter your valid Windows password.");
                     return;
                 }
                 CloseHandle(token);
@@ -1182,8 +1182,8 @@ namespace Tether.DesktopUI
                                 rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
                             }
 
-                            if (TxtVaultBadge != null) TxtVaultBadge.Text = "SECRET SEALED";
-                            LogTerminal("Password saved successfully.");
+                            if (TxtVaultBadge != null) TxtVaultBadge.Text = "PASSWORD SAVED";
+                            LogTerminal("Windows password saved securely.");
                             TxtPassword.Clear();
                         }
                         catch (UnauthorizedAccessException)
@@ -1202,8 +1202,8 @@ namespace Tether.DesktopUI
                                 };
 
                                 Process.Start(startInfo);
-                                if (TxtVaultBadge != null) TxtVaultBadge.Text = "SECRET SEALED";
-                                LogTerminal("Password saved successfully.");
+                                if (TxtVaultBadge != null) TxtVaultBadge.Text = "PASSWORD SAVED";
+                                LogTerminal("Windows password saved securely.");
                                 TxtPassword.Clear();
                             }
                             catch (Exception ex)
@@ -1284,11 +1284,15 @@ namespace Tether.DesktopUI
                 if (string.IsNullOrWhiteSpace(path))
                 {
                     path = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                    TxtLocalPath.Text = path;
                 }
 
                 var dir = new DirectoryInfo(path);
                 if (!dir.Exists) return;
+
+                TxtLocalPath.Text = dir.FullName;
+                TxtLocalPath.CaretIndex = TxtLocalPath.Text.Length;
+                TxtLocalPath.ScrollToEnd();
+                TxtLocalPath.ToolTip = dir.FullName;
 
                 var items = new List<FileItem>();
                 foreach (var d in dir.GetDirectories())
@@ -1304,7 +1308,7 @@ namespace Tether.DesktopUI
             }
             catch (Exception ex)
             {
-                LogTerminal($"Local FS error: {ex.Message}");
+                LogTerminal($"Local file error: {ex.Message}");
             }
         }
 
@@ -1313,8 +1317,7 @@ namespace Tether.DesktopUI
             var dir = new DirectoryInfo(TxtLocalPath.Text);
             if (dir.Parent != null)
             {
-                TxtLocalPath.Text = dir.Parent.FullName;
-                LoadLocalFiles(TxtLocalPath.Text);
+                LoadLocalFiles(dir.Parent.FullName);
             }
         }
 
@@ -1327,8 +1330,7 @@ namespace Tether.DesktopUI
         {
             if (ListLocalFiles.SelectedItem is FileItem item && item.IsDirectory)
             {
-                TxtLocalPath.Text = item.FullPath;
-                LoadLocalFiles(TxtLocalPath.Text);
+                LoadLocalFiles(item.FullPath);
             }
         }
 
@@ -1336,11 +1338,12 @@ namespace Tether.DesktopUI
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(path))
-                {
-                    path = "/sdcard/";
-                    TxtRemotePath.Text = path;
-                }
+                if (path == null) path = "";
+
+                TxtRemotePath.Text = path;
+                TxtRemotePath.CaretIndex = TxtRemotePath.Text.Length;
+                TxtRemotePath.ScrollToEnd();
+                TxtRemotePath.ToolTip = string.IsNullOrEmpty(path) ? "Storage Roots" : path;
 
                 var payload = new { path = path };
                 var content = new System.Net.Http.StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
@@ -1354,12 +1357,12 @@ namespace Tether.DesktopUI
                 }
                 else
                 {
-                    LogTerminal($"Remote FS list error: {response.StatusCode}");
+                    LogTerminal($"Phone connection status: {response.StatusCode}");
                 }
             }
             catch (Exception ex)
             {
-                LogTerminal($"Remote FS error: {ex.Message}");
+                LogTerminal($"Phone storage error: {ex.Message}");
             }
         }
 
@@ -1369,13 +1372,11 @@ namespace Tether.DesktopUI
             int lastSlash = p.LastIndexOf('/');
             if (lastSlash > 0)
             {
-                TxtRemotePath.Text = p.Substring(0, lastSlash + 1);
-                LoadRemoteFiles(TxtRemotePath.Text);
+                LoadRemoteFiles(p.Substring(0, lastSlash));
             }
-            else if (lastSlash == 0)
+            else
             {
-                TxtRemotePath.Text = "/";
-                LoadRemoteFiles("/");
+                LoadRemoteFiles("");
             }
         }
 
@@ -1393,9 +1394,17 @@ namespace Tether.DesktopUI
         {
             if (ListRemoteFiles.SelectedItem is FileItem item && item.IsDirectory)
             {
-                string sep = TxtRemotePath.Text.EndsWith("/") ? "" : "/";
-                TxtRemotePath.Text = TxtRemotePath.Text + sep + item.Name;
-                LoadRemoteFiles(TxtRemotePath.Text);
+                if (!string.IsNullOrWhiteSpace(item.FullPath))
+                {
+                    LoadRemoteFiles(item.FullPath);
+                }
+                else
+                {
+                    string current = TxtRemotePath.Text;
+                    string sep = string.IsNullOrEmpty(current) || current.EndsWith("/") ? "" : "/";
+                    string target = current + sep + item.Name;
+                    LoadRemoteFiles(target);
+                }
             }
         }
 
@@ -1405,19 +1414,19 @@ namespace Tether.DesktopUI
             {
                 try
                 {
-                    LogTerminal($"Uploading {item.Name} to Android...");
+                    LogTerminal($"Sending {item.Name} to phone...");
                     var payload = new { localPath = item.FullPath, remoteDir = TxtRemotePath.Text };
                     var content = new System.Net.Http.StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
                     var res = await _httpClient.PostAsync("/api/fs/remote/upload", content);
                     if (res.IsSuccessStatusCode)
                     {
-                        LogTerminal("Upload initiated.");
+                        LogTerminal("File sent to phone.");
                         await Task.Delay(2000);
                         LoadRemoteFiles(TxtRemotePath.Text);
                     }
                     else
                     {
-                        LogTerminal($"Upload API error: {res.StatusCode}");
+                        LogTerminal($"Upload error: {res.StatusCode}");
                     }
                 }
                 catch (Exception ex)
@@ -1433,7 +1442,7 @@ namespace Tether.DesktopUI
             {
                 try
                 {
-                    LogTerminal($"Downloading {item.Name} from Android...");
+                    LogTerminal($"Downloading {item.Name} from phone...");
                     string sep = TxtRemotePath.Text.EndsWith("/") ? "" : "/";
                     string remotePath = TxtRemotePath.Text + sep + item.Name;
                     var payload = new { remotePath = remotePath, localDir = TxtLocalPath.Text };
@@ -1441,13 +1450,13 @@ namespace Tether.DesktopUI
                     var res = await _httpClient.PostAsync("/api/fs/remote/download", content);
                     if (res.IsSuccessStatusCode)
                     {
-                        LogTerminal("Download initiated.");
+                        LogTerminal("File downloaded to PC.");
                         await Task.Delay(2000);
                         LoadLocalFiles(TxtLocalPath.Text);
                     }
                     else
                     {
-                        LogTerminal($"Download API error: {res.StatusCode}");
+                        LogTerminal($"Download error: {res.StatusCode}");
                     }
                 }
                 catch (Exception ex)

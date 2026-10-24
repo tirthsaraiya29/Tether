@@ -455,12 +455,15 @@
         <Setter Property="BorderBrush" Value="{StaticResource GlassControlBorderBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="FontFamily" Value="{StaticResource MonoFontFamily}"/>
-        <Setter Property="FontSize" Value="12"/>
-        <Setter Property="Padding" Value="10,6"/>
+        <Setter Property="FontSize" Value="12.5"/>
+        <Setter Property="Padding" Value="10,0"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="CaretBrush" Value="{StaticResource SystemAccentBrush}"/>
         <Setter Property="SelectionBrush" Value="{StaticResource SystemAccentBrush}"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Hidden"/>
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Hidden"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">
@@ -471,8 +474,12 @@
                                 BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="7">
                             <ScrollViewer x:Name="PART_ContentHost"
+                                          Focusable="False"
+                                          HorizontalScrollBarVisibility="Hidden"
+                                          VerticalScrollBarVisibility="Hidden"
                                           Margin="{TemplateBinding Padding}"
-                                          VerticalAlignment="Center"/>
+                                          VerticalAlignment="Stretch"
+                                          HorizontalAlignment="Stretch"/>
                         </Border>
                         <Border x:Name="FocusAccentLine"
                                 Height="2"
@@ -505,7 +512,8 @@
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="FontFamily" Value="{StaticResource FluentFontFamily}"/>
         <Setter Property="FontSize" Value="13"/>
-        <Setter Property="Padding" Value="12,8"/>
+        <Setter Property="Padding" Value="12,0"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="CaretBrush" Value="{StaticResource SystemAccentBrush}"/>
         <Setter Property="SelectionBrush" Value="{StaticResource SystemAccentBrush}"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -520,8 +528,12 @@
                                 BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="7">
                             <ScrollViewer x:Name="PART_ContentHost"
+                                          Focusable="False"
+                                          HorizontalScrollBarVisibility="Hidden"
+                                          VerticalScrollBarVisibility="Hidden"
                                           Margin="{TemplateBinding Padding}"
-                                          VerticalAlignment="Center"/>
+                                          VerticalAlignment="Stretch"
+                                          HorizontalAlignment="Stretch"/>
                         </Border>
                         <Border x:Name="FocusAccentLine"
                                 Height="2"
