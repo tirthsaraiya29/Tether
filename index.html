@@ -2668,10 +2668,6 @@
               <dd>Direct, encrypted over your home Wi-Fi on port <code>37123</code>.</dd>
             </div>
             <div>
-              <dt>File sharing</dt>
-              <dd>Send files from Android to your PC over a second encrypted channel on port <code>37125</code>. Transfers are SHA-512 verified before they are saved.</dd>
-            </div>
-            <div>
               <dt>Finding each other</dt>
               <dd>The two devices announce themselves on your network — no server needed.</dd>
             </div>
@@ -2771,19 +2767,6 @@
           <p class="feature-text">Monitors connectivity state callbacks to drop sessions on interface switches. Enforces strict replay protection with monotonic request IDs and 30-second timestamp drift limits.</p>
           <p class="feature-meta"><span class="chip">Implemented</span></p>
         </article>
-        <!-- Feature 7: Tether Files & Explorer Integration -->
-        <article class="feature feature-wide reveal">
-          <span class="feature-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
-              <path d="M12 4v12"></path>
-              <path d="M7 9l5-5 5 5"></path>
-            </svg>
-          </span>
-          <h3 class="feature-title">Tether Files, Explorer Integration &amp; Durable Queue</h3>
-          <p class="feature-text">Browse permitted Windows roots (Downloads, Documents, Pictures, Videos, Desktop) from Android, and browse Android-accessible locations from Windows. Right-click any file or folder in Windows File Explorer to choose <strong>Send to Phone — Tether</strong>. Transfers enter a durable offline queue immediately, waiting for the target phone to become reachable, then transferring automatically over an encrypted channel (Port 37125, ALPN tether-quic-v1) with SHA-512 integrity verification.</p>
-          <p class="feature-meta"><span class="chip">Implemented</span><span class="chip chip-mono">Explorer Context Menu</span><span class="chip chip-mono">Durable Queue</span><span class="chip chip-mono">SHA-512</span></p>
-        </article>
       </div>
     </div>
   </section>
@@ -2882,7 +2865,7 @@
       <div class="net-grid">
         <div class="prose reveal">
           <p>Both devices need to be on the same Wi-Fi or local network. Your phone finds your PC by announcing itself on that network — the same way printers and smart TVs show up. Then the two connect directly to each other.</p>
-          <p>Control traffic uses one encrypted TCP port (37123). File transfers use a second encrypted channel on 37125, so large files don't compete with commands. Both ports are opened by the Windows installer; the service also attempts to add the matching firewall rules automatically.</p>
+          <p>Control traffic uses encrypted TCP port 37123. The port is opened by the Windows installer; the service also attempts to add the matching firewall rule automatically.</p>
           <p>What Tether deliberately leaves out: there's no cloud relay, no Bluetooth command channel, no opening your PC to the open internet, and no phone-hotspot mode. The whole idea is that it works at home and nowhere else.</p>
           <p>That's a real benefit — fewer companies involved, and a shorter path you can understand. But staying local isn't the same as being safe. Other devices on your Wi-Fi can still see traffic, and how well the encryption is set up matters a lot.</p>
         </div>
@@ -2917,8 +2900,6 @@
                   <span class="conduit-chip">Direct</span>
                   <span class="conduit-chip">Encrypted</span>
                   <span class="conduit-chip conduit-chip-port">Port <code>:37123</code></span>
-                  <span class="conduit-chip">Files</span>
-                  <span class="conduit-chip conduit-chip-port">Port <code>:37125</code></span>
                 </div>
                 <div class="conduit-track" aria-hidden="true"></div>
               </div>
@@ -3031,10 +3012,6 @@
             <li>
               <span class="check-mark" aria-hidden="true"></span>
               <p><strong>Your phone's fingerprint or face unlock is part of it.</strong> Sensitive actions are meant to require it. Not every phone has the same secure hardware, so this varies by device.</p>
-            </li>
-            <li>
-              <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>Incoming files are checked before they're saved.</strong> Each transfer is verified against a SHA-512 digest, filenames are cleaned up to prevent path traversal, and the sender's device must be paired and hold the file-sharing capability. None of that has been reviewed by an outside auditor yet.</p>
             </li>
             <li>
               <span class="check-mark" aria-hidden="true"></span>
@@ -3240,10 +3217,6 @@
             <div>
               <dt><code>Tether.InputPipe</code></dt>
               <dd>Dedicated input stream dispatching mouse deltas and key strokes from the network daemon to <code>Tether.SessionHelper.exe</code> inside the active interactive desktop.</dd>
-            </div>
-            <div>
-              <dt><code>FILE_TRANSFER_CANCEL_REQUESTED</code></dt>
-              <dd>Whitelisted IPC event used by the desktop UI to cancel an in-progress incoming file transfer. Added alongside the existing <code>PANIC_TRIGGERED</code> allowlist entry on <code>TetherPipe</code>.</dd>
             </div>
           </dl>
         </div>
@@ -3466,12 +3439,7 @@
             <p>Not yet. Tether is an early project and no outside expert has reviewed it. It's interesting to explore, but don't rely on it to protect anything important.</p>
           </div>
         </details>
-        <details class="faq-item">
-          <summary>Can I share things from other apps?</summary>
-          <div class="faq-body">
-            <p>Yes. Tether appears in Android's share sheet. Share a file, photo, link, or a block of text from any app, and it will be sent to your paired PC without opening Tether first.</p>
-          </div>
-        </details>
+
 
         <details class="faq-item">
           <summary>Will Tether tell me when there's an update?</summary>
