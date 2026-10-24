@@ -13,8 +13,8 @@ local.properties
 .idea/
 *.iml
 .kotlin/
-apps/android-companion/.artifacts/
-.artifacts/
+apps/android-companion/.artifacts/**
+.artifacts/**
 
 # .NET
 bin/
