@@ -14,7 +14,6 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
-import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -139,9 +138,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private lateinit var discoveryManager: TetherDiscoveryManager
     private lateinit var pairingManager: TetherPairingManager
     private lateinit var capabilityManager: TetherCapabilityManager
-    lateinit var fileTransferManager: TetherFileTransferManager
-        private set
-    private var fileTransferServer: TetherFileTransferServer? = null
     private lateinit var connectivityManager: ConnectivityManager
     private var activeTransport: TetherTransport? = null
 
@@ -192,23 +188,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         rebootTimeoutJob?.cancel()
         shutdownTimeoutJob?.cancel()
 
-        // Auto-trigger background filesystem indexing and DB sync (Discarded/Excluded)
-        /*
-        serviceScope.launch(Dispatchers.IO) {
-            try {
-                Log.i(TAG, "Auto-indexing local filesystem for DB sync...")
-                val indexer = AndroidFilesystemIndexer(applicationContext)
-                indexer.buildDatabase()
-
-                val hostIp = connectedHostAddress
-                if (!hostIp.isNullOrBlank()) {
-                    fileTransferManager.requestWindowsDbSync(securityEngine, hostIp)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Auto filesystem DB sync failed: ${e.message}")
-            }
-        }
-        */
         currentPowerState = LaptopPowerState.CONNECTED_LOCKED
         getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
             remove("last_power_command")
@@ -433,10 +412,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         pairingManager = TetherPairingManager(this, securityEngine)
         capabilityManager = TetherCapabilityManager()
-        fileTransferManager = TetherFileTransferManager(applicationContext, capabilityManager, serviceScope)
-        // File transfer server disabled/discarded
-        // fileTransferServer = TetherFileTransferServer(applicationContext, securityEngine, fileTransferManager, serviceScope)
-        // fileTransferServer?.start()
 
         val pinnedKey = securityEngine.getPinnedKeyDecrypted(this)
         trustState = if (pinnedKey != null) TrustState.PAIRED else TrustState.UNPAIRED
@@ -1619,30 +1594,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     val activeHostAddress: String?
         get() = connectedHostAddress
 
-    @Suppress("UNUSED_PARAMETER")
-    fun sendFile(uri: Uri) {
-        Log.w(TAG, "sendFile called but file transfer feature is cleanly discarded/disabled.")
-        /*
-        val host = connectedHostAddress ?: "192.168.1.100"
-        val peerName = "PC ($host)"
-        if (::securityEngine.isInitialized && ::fileTransferManager.isInitialized) {
-            fileTransferManager.sendFile(
-                securityEngine = securityEngine,
-                host = host,
-                port = 37125,
-                uri = uri,
-                peerName = peerName,
-            )
-        } else {
-            Log.e(TAG, "Cannot send file: service or securityEngine not initialized")
-        }
-        */
-    }
-
     override fun onDestroy() {
         instance = null
-        fileTransferServer?.stop()
-        fileTransferServer = null
         serviceJob.cancelChildren()
 
         try { unregisterReceiver(powerSaveReceiver) } catch (_: Exception) {}

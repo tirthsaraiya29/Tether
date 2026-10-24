@@ -145,49 +145,7 @@ namespace Tether.DesktopUI
         public static bool ProcessLaunchArgs(string[] args, out string? errorMessage)
         {
             errorMessage = null;
-            try
-            {
-                var sendPaths = new List<string>();
-                for (int i = 0; i < args.Length; i++)
-                {
-                    if (args[i].Equals("--send", StringComparison.OrdinalIgnoreCase) || args[i].Equals("send", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (i + 1 < args.Length)
-                        {
-                            sendPaths.Add(args[i + 1]);
-                            i++;
-                        }
-                    }
-                    else if (File.Exists(args[i]) || Directory.Exists(args[i]))
-                    {
-                        sendPaths.Add(args[i]);
-                    }
-                }
-
-                if (sendPaths.Count > 0)
-                {
-                    var enqueueEvt = new TetherEvent
-                    {
-                        EventType = TetherEventType.FILE_TRANSFER_ENQUEUE_REQUESTED,
-                        Timestamp = DateTime.UtcNow,
-                        Source = "ExplorerContextMenu",
-                        PayloadJson = JsonSerializer.Serialize(new { paths = sendPaths })
-                    };
-
-                    using var pipeClient = new NamedPipeClientStream(".", IpcConstants.PipeName, PipeDirection.Out);
-                    pipeClient.Connect(1000);
-                    string json = JsonSerializer.Serialize(enqueueEvt);
-                    byte[] bytes = Encoding.UTF8.GetBytes(json);
-                    pipeClient.Write(bytes, 0, bytes.Length);
-                    return true;
-                }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                errorMessage = ex.Message;
-                return false;
-            }
+            return true;
         }
     }
 }

@@ -14,9 +14,6 @@ using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
 using Tether.EnforcementEngine;
 using Tether.EventBus;
-using Tether.FileTransfer;
-using Tether.FileTransfer.Protocol;
-using Tether.FileTransfer.Receiver;
 using Tether.PanicEngine;
 using Tether.RecoveryEngine;
 using Tether.Shared.Events;
@@ -39,7 +36,6 @@ public sealed class Worker : BackgroundService
     private readonly SessionManager _sessionManager;
     private readonly PowerEventWatcher _powerWatcher;
     private readonly PowerEventNotifier _powerNotifier;
-    private readonly FileTransferManager _fileTransferManager;
 
     public Worker(
         ILogger<Worker> logger,
@@ -52,7 +48,6 @@ public sealed class Worker : BackgroundService
         SessionManager sessionManager,
         PowerEventWatcher powerWatcher,
         PowerEventNotifier powerNotifier,
-        FileTransferManager fileTransferManager,
         TrustStateManager trustStateManager,
         EnforcementManager enforcementManager,
         PanicManager panicManager,
@@ -70,7 +65,6 @@ public sealed class Worker : BackgroundService
         _sessionManager = sessionManager;
         _powerWatcher = powerWatcher;
         _powerNotifier = powerNotifier;
-        _fileTransferManager = fileTransferManager;
         _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager; _ = ipcEventRelay;
 
         eventBus.Subscribe(evt =>
@@ -95,18 +89,6 @@ public sealed class Worker : BackgroundService
                         });
                     }
                 }
-            }
-            else if (evt.EventType == TetherEventType.FILE_TRANSFER_CANCEL_REQUESTED)
-            {
-                _tetherLogger.Warning("FILE_TRANSFER_CANCEL_REQUESTED ignored: File transfer feature is cleanly discarded.");
-            }
-            else if (evt.EventType == TetherEventType.FILE_TRANSFER_ENQUEUE_REQUESTED)
-            {
-                _tetherLogger.Warning("FILE_TRANSFER_ENQUEUE_REQUESTED ignored: File transfer feature is cleanly discarded.");
-            }
-            else if (evt.EventType == TetherEventType.FS_DB_SYNC_REQUESTED)
-            {
-                _tetherLogger.Warning("FS_DB_SYNC_REQUESTED ignored: File transfer feature is cleanly discarded.");
             }
             else if (evt.EventType == TetherEventType.HARDWARE_SYNC_REQUESTED && !string.IsNullOrEmpty(evt.PayloadJson))
             {
@@ -152,8 +134,6 @@ public sealed class Worker : BackgroundService
         });
     }
 
-    private bool _hasSyncedFsOnConnect = false;
-
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _tetherLogger.Info("Tether Communication Service starting (mDNS + UDP Broadcast + TLS 1.3 transport + QUIC File Transfer).");
@@ -197,35 +177,6 @@ public sealed class Worker : BackgroundService
 
                     if (_sessionManager.ActiveSessionCount > 0)
                     {
-                        string? activeIp = _sessionManager.GetActiveSessions().FirstOrDefault()?.IpAddress;
-                        if (!string.IsNullOrEmpty(activeIp))
-                        {
-                            // File transfer outgoing queue & filesystem DB sync disabled/discarded
-                            /*
-                            await _fileTransferManager.ProcessOutgoingQueueAsync(activeIp, stoppingToken);
-
-                            if (!_hasSyncedFsOnConnect)
-                            {
-                                _hasSyncedFsOnConnect = true;
-                                _ = Task.Run(async () =>
-                                {
-                                    try
-                                    {
-                                        _tetherLogger.Info($"Auto-triggering background filesystem database sync with phone ({activeIp})...");
-                                        var indexer = new WindowsFilesystemIndexer(_tetherLogger);
-                                        string localDb = await indexer.BuildDatabaseAsync();
-                                        var activeDev = _sessionManager.GetActiveSessions().FirstOrDefault()?.Device?.DeviceId ?? "TARGET_PHONE";
-                                        _fileTransferManager.DurableQueue.EnqueueOutgoing(localDb, activeDev, "windows_fs.db");
-                                        await _fileTransferManager.RequestPhoneDbSyncAsync(activeIp, stoppingToken);
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        _tetherLogger.Warning($"Auto-sync filesystem DB failed: {ex.Message}");
-                                    }
-                                }, stoppingToken);
-                            }
-                            */
-                        }
 
                         var snap = LaptopStateCollector.GetLaptopSnapshot(_tetherLogger);
                         if (snap.IsCharging != lastIsCharging || snap.BatteryLevel != lastBattery || snap.LockState != lastLock)
@@ -248,10 +199,6 @@ public sealed class Worker : BackgroundService
                                 _tetherLogger.Warning($"Worker: power-event flush failed: {ex.Message}");
                             }
                         }
-                    }
-                    else
-                    {
-                        _hasSyncedFsOnConnect = false;
                     }
                 }
                 catch (OperationCanceledException) { break; }

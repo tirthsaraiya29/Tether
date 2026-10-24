@@ -67,7 +67,6 @@ fun TetherAppScreen(
     showPermissionsBanner: Boolean = false,
     missingPermissionsCount: Int = 0,
     onNavigateToPermissions: () -> Unit = {},
-    onNavigateToFileTransfer: () -> Unit = {},
     onDismissPermissionsBanner: () -> Unit = {},
     onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
@@ -1307,7 +1306,6 @@ fun TetherNavigationShell(
                             laptopTelemetry = laptopTelemetry,
                             windowsFingerprint = windowsFingerprint,
                             onLaptopCardClick = onLaptopCardClick,
-                            onNavigateToFileTransfer = { currentScreen = AppScreen.FILE_TRANSFER },
                             statusText = statusText,
                             statusColor = statusColor,
                             connectionStatus = connectionStatus,
@@ -1357,9 +1355,6 @@ fun TetherNavigationShell(
                             onConfirmPairing = onConfirmPairing,
                             onForgetTrust = onForgetTrust
                         )
-                        AppScreen.FILE_TRANSFER -> {
-                            // File transfer screen cleanly discarded/excluded
-                        }
                         AppScreen.REMOTE_INPUT -> RemoteInputScreen(
                             transportState = TetherLanService.instance?.currentState ?: TransportState.DISCONNECTED
                         )

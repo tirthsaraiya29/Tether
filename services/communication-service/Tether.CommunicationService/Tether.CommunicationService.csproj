@@ -23,7 +23,6 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\..\..\shared\Tether.Shared\Tether.Shared.csproj" />
-		<ProjectReference Include="..\Tether.FileTransfer\Tether.FileTransfer.csproj" />
 		<ProjectReference Include="..\..\event-bus\Tether.EventBus\Tether.EventBus.csproj" />
 		<ProjectReference Include="..\..\trust-engine\Tether.TrustEngine\Tether.TrustEngine.csproj" />
 		<ProjectReference Include="..\..\enforcement-engine\Tether.EnforcementEngine\Tether.EnforcementEngine.csproj" />

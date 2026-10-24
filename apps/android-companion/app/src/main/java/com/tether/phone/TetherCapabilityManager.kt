@@ -4,7 +4,6 @@ import android.util.Log
 
 enum class TetherCapability(val scopeName: String, val isElevated: Boolean) {
     CLIPBOARD("CLIPBOARD", false),
-    FILES("FILES", false),
     NOTIFICATIONS("NOTIFICATIONS", false),
     MEDIA("MEDIA", false),
     TERMINAL("TERMINAL", true),
@@ -24,7 +23,6 @@ class TetherCapabilityManager {
 
         val DEFAULT_ANDROID_CAPABILITIES = setOf(
             TetherCapability.CLIPBOARD,
-            // TetherCapability.FILES, // Discarded/Excluded: File transfer feature disabled
             TetherCapability.NOTIFICATIONS,
             TetherCapability.MEDIA,
             TetherCapability.TERMINAL,
@@ -66,7 +64,6 @@ class TetherCapabilityManager {
             cmdLower in setOf("shutdown", "reboot", "sleep", "halt", "lock_now", "unlock", "lock") -> TetherCapability.POWER_ELEVATED
             cmdLower in setOf("cmd", "powershell", "powershell7", "wsl", "bash") -> TetherCapability.TERMINAL
             cmdLower in setOf("copy", "paste", "clipboard") -> TetherCapability.CLIPBOARD
-            cmdLower in setOf("file_transfer", "file_list") -> TetherCapability.FILES
             (cmdLower in setOf("volume_up", "volume_down", "volume_mute", "volume_get", "vol_get", "get_volume", "set_volume", "brightness_up", "brightness_down", "bright_up", "bright_down", "brightness_get", "bright_get", "get_brightness", "set_brightness")) ||
                 cmdLower.startsWith("volume_set:") || cmdLower.startsWith("set_volume:") || cmdLower.startsWith("vol_set:") ||
                 cmdLower.startsWith("brightness_set:") || cmdLower.startsWith("set_brightness:") || cmdLower.startsWith("bright_set:") -> TetherCapability.MEDIA
