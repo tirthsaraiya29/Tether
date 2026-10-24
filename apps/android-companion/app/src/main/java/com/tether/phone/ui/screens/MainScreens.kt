@@ -211,7 +211,7 @@ fun TetherAppScreen(
                     enabled = isConnected,
                 )
 
-                // File Explorer & Sharing Quick Access Card
+                /* Discarded/Excluded: File Explorer & Sharing Quick Access Card
                 ProfessionalGlassSurface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -261,6 +261,7 @@ fun TetherAppScreen(
                         )
                     }
                 }
+                */
 
                 ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
                     Text(
@@ -1229,7 +1230,7 @@ fun TetherNavigationShell(
 
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
-                            Triple("FILE SHARING", Icons.Default.Folder, AppScreen.FILE_TRANSFER),
+                            // Triple("FILE SHARING", Icons.Default.Folder, AppScreen.FILE_TRANSFER), // Discarded/Excluded
                             Triple("REMOTE INPUT", Icons.Default.TouchApp, AppScreen.REMOTE_INPUT),
                             Triple("PERMISSIONS", Icons.Default.CheckCircle, AppScreen.PERMISSIONS),
                             Triple(stringResource(R.string.nav_apps), Icons.Default.Refresh, AppScreen.SYSTEM_APPS),
@@ -1356,13 +1357,9 @@ fun TetherNavigationShell(
                             onConfirmPairing = onConfirmPairing,
                             onForgetTrust = onForgetTrust
                         )
-                        AppScreen.FILE_TRANSFER -> FileTransferScreen(
-                            fileTransferManager = TetherLanService.instance?.fileTransferManager,
-                            onSendFileSelected = { uri ->
-                                Log.i("TetherApp", "User selected file URI for QUIC transfer: $uri")
-                                TetherLanService.instance?.sendFile(uri)
-                            }
-                        )
+                        AppScreen.FILE_TRANSFER -> {
+                            // File transfer screen cleanly discarded/excluded
+                        }
                         AppScreen.REMOTE_INPUT -> RemoteInputScreen(
                             transportState = TetherLanService.instance?.currentState ?: TransportState.DISCONNECTED
                         )

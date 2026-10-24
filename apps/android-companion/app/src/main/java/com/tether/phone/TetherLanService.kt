@@ -192,7 +192,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         rebootTimeoutJob?.cancel()
         shutdownTimeoutJob?.cancel()
 
-        // Auto-trigger background filesystem indexing and DB sync asynchronously
+        // Auto-trigger background filesystem indexing and DB sync (Discarded/Excluded)
+        /*
         serviceScope.launch(Dispatchers.IO) {
             try {
                 Log.i(TAG, "Auto-indexing local filesystem for DB sync...")
@@ -207,6 +208,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 Log.w(TAG, "Auto filesystem DB sync failed: ${e.message}")
             }
         }
+        */
         currentPowerState = LaptopPowerState.CONNECTED_LOCKED
         getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
             remove("last_power_command")
@@ -432,8 +434,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         pairingManager = TetherPairingManager(this, securityEngine)
         capabilityManager = TetherCapabilityManager()
         fileTransferManager = TetherFileTransferManager(applicationContext, capabilityManager, serviceScope)
-        fileTransferServer = TetherFileTransferServer(applicationContext, securityEngine, fileTransferManager, serviceScope)
-        fileTransferServer?.start()
+        // File transfer server disabled/discarded
+        // fileTransferServer = TetherFileTransferServer(applicationContext, securityEngine, fileTransferManager, serviceScope)
+        // fileTransferServer?.start()
 
         val pinnedKey = securityEngine.getPinnedKeyDecrypted(this)
         trustState = if (pinnedKey != null) TrustState.PAIRED else TrustState.UNPAIRED
@@ -1616,7 +1619,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     val activeHostAddress: String?
         get() = connectedHostAddress
 
+    @Suppress("UNUSED_PARAMETER")
     fun sendFile(uri: Uri) {
+        Log.w(TAG, "sendFile called but file transfer feature is cleanly discarded/disabled.")
+        /*
         val host = connectedHostAddress ?: "192.168.1.100"
         val peerName = "PC ($host)"
         if (::securityEngine.isInitialized && ::fileTransferManager.isInitialized) {
@@ -1630,6 +1636,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         } else {
             Log.e(TAG, "Cannot send file: service or securityEngine not initialized")
         }
+        */
     }
 
     override fun onDestroy() {

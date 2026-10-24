@@ -254,8 +254,8 @@
                               Padding="0,0,4,0">
                     <StackPanel>
 
-                        <!-- File Transfers Card -->
-                        <Border x:Name="CardFileTransfer" Style="{StaticResource GlassPanel}" Margin="0,0,0,18">
+                        <!-- File Transfers Card (Discarded/Excluded) -->
+                        <Border x:Name="CardFileTransfer" Style="{StaticResource GlassPanel}" Margin="0,0,0,18" Visibility="Collapsed">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>

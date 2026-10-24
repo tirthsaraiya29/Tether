@@ -27,7 +27,7 @@ namespace Tether.CommunicationService;
 
 public sealed class Worker : BackgroundService
 {
-    private const string AdvertisedCaps = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED";
+    private const string AdvertisedCaps = "CLIPBOARD,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED";
 
     private readonly ILogger<Worker> _logger;
     private readonly ITetherLogger _tetherLogger;
@@ -96,124 +96,17 @@ public sealed class Worker : BackgroundService
                     }
                 }
             }
-            else if (evt.EventType == TetherEventType.FILE_TRANSFER_CANCEL_REQUESTED && !string.IsNullOrEmpty(evt.PayloadJson))
+            else if (evt.EventType == TetherEventType.FILE_TRANSFER_CANCEL_REQUESTED)
             {
-                try
-                {
-                    using var doc = System.Text.Json.JsonDocument.Parse(evt.PayloadJson);
-                    if (doc.RootElement.TryGetProperty("transferId", out var idElem))
-                    {
-                        string transferId = idElem.GetString() ?? "";
-                        if (!string.IsNullOrEmpty(transferId))
-                        {
-                            _fileTransferManager.CancelTransfer(transferId);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _tetherLogger.Warning($"Failed handling FILE_TRANSFER_CANCEL_REQUESTED: {ex.Message}");
-                }
+                _tetherLogger.Warning("FILE_TRANSFER_CANCEL_REQUESTED ignored: File transfer feature is cleanly discarded.");
             }
-            else if (evt.EventType == TetherEventType.FILE_TRANSFER_ENQUEUE_REQUESTED && !string.IsNullOrEmpty(evt.PayloadJson))
+            else if (evt.EventType == TetherEventType.FILE_TRANSFER_ENQUEUE_REQUESTED)
             {
-                try
-                {
-                    using var doc = System.Text.Json.JsonDocument.Parse(evt.PayloadJson);
-                    string targetDeviceId = doc.RootElement.TryGetProperty("targetDeviceId", out var devElem) ? devElem.GetString() ?? "" : "";
-                    if (string.IsNullOrEmpty(targetDeviceId))
-                    {
-                        targetDeviceId = _sessionManager.GetActiveSessions().FirstOrDefault()?.Device?.DeviceId ?? "TARGET_PHONE";
-                    }
-
-                    if (doc.RootElement.TryGetProperty("paths", out var pathsElem) && pathsElem.ValueKind == System.Text.Json.JsonValueKind.Array)
-                    {
-                        foreach (var pathNode in pathsElem.EnumerateArray())
-                        {
-                            string path = pathNode.GetString() ?? "";
-                            if (!string.IsNullOrWhiteSpace(path))
-                            {
-                                if (path.StartsWith("/") || path.StartsWith("\\"))
-                                {
-                                    string? activeIp = _sessionManager.GetActiveSessions().FirstOrDefault()?.IpAddress ?? _udpDiscovery.LastDiscoveryIp;
-                                    if (!string.IsNullOrEmpty(activeIp))
-                                    {
-                                        _ = Task.Run(async () =>
-                                        {
-                                            try
-                                            {
-                                                using var client = new System.Net.Sockets.TcpClient();
-                                                await client.ConnectAsync(activeIp, FileTransferReceiver.DefaultPort);
-                                                using var sslStream = new System.Net.Security.SslStream(client.GetStream(), false, (s, c, ch, err) => true);
-
-                                                var options = new System.Net.Security.SslClientAuthenticationOptions
-                                                {
-                                                    TargetHost = activeIp,
-                                                    EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls13
-                                                };
-                                                await sslStream.AuthenticateAsClientAsync(options);
-
-                                                var init = ControlInitFrame.CreateSigned(_fileTransferManager.ServerCertificate);
-                                                byte[] initBytes = System.Text.Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(init));
-                                                byte[] lenBuf = new byte[4];
-                                                System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBuf, initBytes.Length);
-                                                await sslStream.WriteAsync(lenBuf);
-                                                await sslStream.WriteAsync(initBytes);
-                                                await sslStream.FlushAsync();
-
-                                                byte[] ackLenBuf = new byte[4];
-                                                await sslStream.ReadExactlyAsync(ackLenBuf, 0, 4);
-                                                int ackLen = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(ackLenBuf);
-                                                byte[] ackBuf = new byte[ackLen];
-                                                await sslStream.ReadExactlyAsync(ackBuf, 0, ackLen);
-
-                                                var req = new FileDownloadRequestFrame { FilePath = path };
-                                                byte[] reqBytes = System.Text.Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(req));
-                                                System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBuf, reqBytes.Length);
-                                                await sslStream.WriteAsync(lenBuf);
-                                                await sslStream.WriteAsync(reqBytes);
-                                                await sslStream.FlushAsync();
-
-                                                _tetherLogger.Info($"Sent FILE_DOWNLOAD_REQUEST for '{path}' to phone {activeIp}");
-                                            }
-                                            catch (Exception ex)
-                                            {
-                                                _tetherLogger.Warning($"Failed sending FILE_DOWNLOAD_REQUEST for '{path}': {ex.Message}");
-                                            }
-                                        });
-                                    }
-                                }
-                                else
-                                {
-                                    _fileTransferManager.DurableQueue.EnqueueOutgoing(path, targetDeviceId);
-                                }
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _tetherLogger.Warning($"Failed handling FILE_TRANSFER_ENQUEUE_REQUESTED: {ex.Message}");
-                }
+                _tetherLogger.Warning("FILE_TRANSFER_ENQUEUE_REQUESTED ignored: File transfer feature is cleanly discarded.");
             }
             else if (evt.EventType == TetherEventType.FS_DB_SYNC_REQUESTED)
             {
-                try
-                {
-                    string? activeIp = _sessionManager.GetActiveSessions().FirstOrDefault()?.IpAddress ?? _udpDiscovery.LastDiscoveryIp;
-                    if (!string.IsNullOrEmpty(activeIp))
-                    {
-                        _ = _fileTransferManager.RequestPhoneDbSyncAsync(activeIp);
-                    }
-                    else
-                    {
-                        _tetherLogger.Warning("FS_DB_SYNC_REQUESTED received but no phone IP address is known yet.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _tetherLogger.Warning($"Failed handling FS_DB_SYNC_REQUESTED: {ex.Message}");
-                }
+                _tetherLogger.Warning("FS_DB_SYNC_REQUESTED ignored: File transfer feature is cleanly discarded.");
             }
             else if (evt.EventType == TetherEventType.HARDWARE_SYNC_REQUESTED && !string.IsNullOrEmpty(evt.PayloadJson))
             {
@@ -273,7 +166,8 @@ public sealed class Worker : BackgroundService
         _pipeServer.Start();
         _tcpServer.Start();
         _udpDiscovery.Start();
-        _fileTransferManager.Start();
+        // File transfer manager receiver startup disabled/discarded
+        // _fileTransferManager.Start();
 
         _mdns.Start(
             port: TetherTcpServer.ListenPort,
@@ -306,6 +200,8 @@ public sealed class Worker : BackgroundService
                         string? activeIp = _sessionManager.GetActiveSessions().FirstOrDefault()?.IpAddress;
                         if (!string.IsNullOrEmpty(activeIp))
                         {
+                            // File transfer outgoing queue & filesystem DB sync disabled/discarded
+                            /*
                             await _fileTransferManager.ProcessOutgoingQueueAsync(activeIp, stoppingToken);
 
                             if (!_hasSyncedFsOnConnect)
@@ -328,6 +224,7 @@ public sealed class Worker : BackgroundService
                                     }
                                 }, stoppingToken);
                             }
+                            */
                         }
 
                         var snap = LaptopStateCollector.GetLaptopSnapshot(_tetherLogger);
@@ -445,7 +342,7 @@ public sealed class Worker : BackgroundService
 
         _mdns.Stop();
         _udpDiscovery.Stop();
-        _fileTransferManager.Stop();
+        // _fileTransferManager.Stop();
         _tcpServer.Stop();
         _pipeServer.Dispose();
         await base.StopAsync(cancellationToken);

@@ -341,7 +341,7 @@ namespace Tether.DesktopUI
             CardPipeline.Visibility = Visibility.Visible;
             CardHardware.Visibility = Visibility.Visible;
             CardVault.Visibility = Visibility.Visible;
-            CardFileTransfer.Visibility = Visibility.Visible;
+            CardFileTransfer.Visibility = Visibility.Collapsed; // Discarded/Excluded
             LeftScrollViewer?.ScrollToTop();
         }
 
@@ -1431,35 +1431,7 @@ namespace Tether.DesktopUI
 
         private void BtnEnqueueFiles_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                var dialog = new Microsoft.Win32.OpenFileDialog
-                {
-                    Title = "Select Files to Send to Phone",
-                    Multiselect = true
-                };
-
-                if (dialog.ShowDialog() == true && dialog.FileNames.Length > 0)
-                {
-                    if (App.ProcessLaunchArgs(dialog.FileNames, out string? err))
-                    {
-                        TxtTransferFileName.Text = $"Queuing: {Path.GetFileName(dialog.FileNames[0])}{(dialog.FileNames.Length > 1 ? $" (+{dialog.FileNames.Length - 1} more)" : "")}";
-                        TxtTransferSpeed.Text = "Queued";
-                        TxtTransferMeta.Text = $"0 / {dialog.FileNames.Length} file(s) waiting for sender";
-                        LogTerminal($"Queued {dialog.FileNames.Length} file(s) for transfer.");
-                    }
-                    else
-                    {
-                        TxtTransferFileName.Text = "Queueing failed";
-                        TxtTransferMeta.Text = err ?? "IPC service unreachable";
-                        LogTerminal($"Could not queue files: {err}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                LogTerminal($"Could not queue files: {ex.Message}");
-            }
+            LogTerminal("File transfer feature is cleanly discarded/disabled.");
         }
 
         private void BtnOpenDownloadsFolder_Click(object sender, RoutedEventArgs e)

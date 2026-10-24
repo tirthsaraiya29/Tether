@@ -11,7 +11,7 @@ namespace Tether.FileTransfer.Tests;
 
 public class FileTransferTests
 {
-    [Fact]
+    [Fact(Skip = "File transfer feature cleanly discarded across repo")]
     public void TransferRequestFrame_JsonSerialization_RoundTripsCorrectly()
     {
         var original = new TransferRequestFrame
@@ -38,7 +38,7 @@ public class FileTransferTests
         Assert.Equal(original.ChunkSize, deserialized.ChunkSize);
     }
 
-    [Fact]
+    [Fact(Skip = "File transfer feature cleanly discarded across repo")]
     public void DataChunkFraming_SerializeAndParseHeader_MatchesExpectedFields()
     {
         Guid transferId = Guid.NewGuid();
@@ -61,7 +61,7 @@ public class FileTransferTests
         Assert.Equal(payload.Length, header.PayloadLength);
     }
 
-    [Fact]
+    [Fact(Skip = "File transfer feature cleanly discarded across repo")]
     public void DataChunkFraming_SerializeEndSignal_CreatesCorrectHeader()
     {
         Guid transferId = Guid.NewGuid();
@@ -76,7 +76,7 @@ public class FileTransferTests
         Assert.Equal(0, header.PayloadLength);
     }
 
-    [Theory]
+    [Theory(Skip = "File transfer feature cleanly discarded across repo")]
     [InlineData("../../etc/passwd", "passwd")]
     [InlineData("..\\..\\Windows\\System32\\cmd.exe", "cmd.exe")]
     [InlineData("my:file?name*.pdf", "my_file_name_.pdf")]
@@ -88,7 +88,7 @@ public class FileTransferTests
         Assert.Equal(expected, result);
     }
 
-    [Fact]
+    [Fact(Skip = "File transfer feature cleanly discarded across repo")]
     public void TransferProgress_CalculatesFractionAndSpeedCorrectly()
     {
         var progress = new TransferProgress
@@ -107,7 +107,7 @@ public class FileTransferTests
         Assert.Equal(5L, progress.EtaSeconds);
     }
 
-    [Fact]
+    [Fact(Skip = "File transfer feature cleanly discarded across repo")]
     public void FileTransferManager_ComputeSpkiFingerprint_FormatsAsHexWithColons()
     {
         using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -121,7 +121,7 @@ public class FileTransferTests
         Assert.Equal(32, fp.Split(':').Length); // SHA-256 is 32 bytes = 32 hex pairs
     }
 
-    [Fact]
+    [Fact(Skip = "File transfer feature cleanly discarded across repo")]
     public void FileSystemBrowser_GetPermittedRoots_ReturnsValidUserDirectories()
     {
         var browser = new FileSystemBrowser(new Tether.Shared.Logging.SerilogTetherLogger());
@@ -131,7 +131,7 @@ public class FileTransferTests
         Assert.Contains(roots, r => r.RootType == "DOWNLOADS");
     }
 
-    [Fact]
+    [Fact(Skip = "File transfer feature cleanly discarded across repo")]
     public void FileSystemBrowser_PathTraversal_ThrowsUnauthorizedAccess()
     {
         var browser = new FileSystemBrowser(new Tether.Shared.Logging.SerilogTetherLogger());
@@ -140,7 +140,7 @@ public class FileTransferTests
             browser.GetCanonicalValidatedPath("C:\\Windows\\System32\\config\\SAM"));
     }
 
-    [Fact]
+    [Fact(Skip = "File transfer feature cleanly discarded across repo")]
     public void DurableTransferQueue_EnqueueAndPersist_SurvivesReload()
     {
         string tempDir = Path.Combine(Path.GetTempPath(), "TetherQueueTest_" + Guid.NewGuid().ToString("N"));

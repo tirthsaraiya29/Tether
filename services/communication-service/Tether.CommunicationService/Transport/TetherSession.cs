@@ -275,6 +275,40 @@ public sealed class TetherSession : IDisposable
 
         if (knownDevice != null && knownDevice.TrustState == DeviceTrustState.Paired)
         {
+            bool isKeyMatch = string.IsNullOrEmpty(knownDevice.PublicKeySpkiBase64) ||
+                             string.Equals(knownDevice.PublicKeySpkiBase64, init.PublicKey, StringComparison.Ordinal) ||
+                             string.Equals(TrustStore.ComputeFingerprintOrNull(knownDevice.PublicKeySpkiBase64), phoneFingerprint, StringComparison.OrdinalIgnoreCase);
+
+            if (!isKeyMatch)
+            {
+                _logger.Warning($"[XFER-TRACE] TetherSession [{SessionId}]: Mismatched public key for paired phone {phoneFingerprint} ({knownDevice.DisplayName}). Rejecting with PairingDenied.");
+
+                var deniedResp = new HandshakeResponse
+                {
+                    DeviceId = _identity.DeviceId,
+                    DeviceName = _identity.DeviceName,
+                    PublicKey = _identity.GetPublicKeySpkiBase64(),
+                    Status = HandshakeStatus.PairingDenied,
+                    Capabilities = ServerCaps,
+                    Pqc = false
+                };
+                await WriteJsonFrameSafeAsync(deniedResp, ct);
+
+                _eventBus.Publish(new TetherEvent
+                {
+                    EventType = TetherEventType.PAIRING_INVALIDATED,
+                    Source = nameof(TetherSession),
+                    PayloadJson = JsonSerializer.Serialize(new
+                    {
+                        deviceId = knownDevice.DeviceId,
+                        displayName = knownDevice.DisplayName,
+                        reason = "Public key mismatch during handshake"
+                    })
+                });
+
+                return false;
+            }
+
             Device = knownDevice;
             _logger.Info($"TetherSession [{SessionId}]: Recognized paired phone {phoneFingerprint} ({knownDevice.DisplayName}).");
 

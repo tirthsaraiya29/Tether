@@ -1,5 +1,9 @@
 # Tether QUIC File Sharing Wire Protocol Specification (`tether-quic-v1`)
 
+> [!NOTE]
+> **DISCARDED / EXCLUDED FEATURE**  
+> The file transfer feature has been cleanly discarded and excluded from active execution, UI navigation, background services, and intent filters across the codebase. This protocol document and implementation files are preserved intact for specification and code history without deletion.
+
 ## 1. Overview & Transport Protocol
 
 Tether QUIC File Sharing is an application-level peer-to-peer file transfer protocol built over QUIC (RFC 9000) with TLS 1.3 encryption.
