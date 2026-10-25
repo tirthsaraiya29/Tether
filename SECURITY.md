@@ -7,7 +7,7 @@ Tether is currently under active development. Security fixes are prioritized for
 | Version / Branch | Supported |
 | --- | --- |
 | Latest development version (`main`) | ✅ |
-| Development branch (`canary`) | ✅ |
+| Development branch (`beta`) | ✅ |
 | Older releases and unsupported builds | ❌ |
 
 Support for a particular branch does not guarantee that every feature is production-ready or that every known security issue has been resolved.
