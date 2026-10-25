@@ -20,13 +20,14 @@ enum class TrustState {
 }
 
 enum class AppScreen {
-    TELEMETRY_DASHBOARD,
     FILE_TRANSFER,
+    TELEMETRY_DASHBOARD,
     SECURITY_SETTINGS,
     LAPTOP_CONTROL,
     SYSTEM_APPS,
     PAIRING,
-    REMOTE_INPUT
+    REMOTE_INPUT,
+    PERMISSIONS
 }
 
 enum class TrustTier(@param:StringRes val labelRes: Int, val color: Color) {

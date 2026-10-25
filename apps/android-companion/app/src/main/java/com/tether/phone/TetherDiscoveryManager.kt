@@ -379,7 +379,10 @@ class TetherDiscoveryManager(
             serviceInfo,
             onResolved = { resolvedInfo ->
                 val host: InetAddress? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    resolvedInfo.hostAddresses.firstOrNull() ?: resolvedInfo.host
+                    resolvedInfo.hostAddresses.firstOrNull { it is Inet4Address }
+                        ?: resolvedInfo.hostAddresses.firstOrNull { !it.isLinkLocalAddress }
+                        ?: resolvedInfo.hostAddresses.firstOrNull()
+                        ?: resolvedInfo.host
                 } else {
                     try {
                         resolvedInfo.host ?: (NsdServiceInfo::class.java.getMethod("getHost").invoke(resolvedInfo) as? InetAddress)
@@ -398,6 +401,14 @@ class TetherDiscoveryManager(
                 val txtAttributes = parseAttributes(resolvedInfo)
                 val deviceId = txtAttributes["id"] ?: resolvedInfo.serviceName
                 val name = txtAttributes["name"] ?: resolvedInfo.serviceName
+
+                val phonePublicKey = securityEngine.getPublicKeyBytes()
+                val phoneId = securityEngine.computePublicKeyFingerprint(phonePublicKey)
+                if (deviceId.equals(phoneId, ignoreCase = true) || deviceId.replace(":", "").equals(phoneId.replace(":", ""), ignoreCase = true)) {
+                    Log.d(TAG, "[XFER-TRACE] ignoring own mDNS advertisement ($phoneId)")
+                    return@resolveOrEnqueue
+                }
+
                 val version = txtAttributes["v"] ?: "1.0"
                 val caps = txtAttributes["caps"] ?: ""
                 val pqc = txtAttributes["pqc"] == "true"

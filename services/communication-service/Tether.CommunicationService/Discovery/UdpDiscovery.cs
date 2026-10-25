@@ -26,6 +26,8 @@ public sealed class UdpDiscovery : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _workerTask;
 
+    public string? LastDiscoveryIp { get; private set; }
+
     public UdpDiscovery(ITetherLogger logger, WindowsIdentity identity)
     {
         _logger = logger;
@@ -104,7 +106,8 @@ public sealed class UdpDiscovery : IDisposable
 
                 if (type == "TETHER_DISCOVERY_PROBE")
                 {
-                    _logger.Debug($"UDP Discovery: Received probe from {result.RemoteEndPoint.Address}. Responding...");
+                    LastDiscoveryIp = result.RemoteEndPoint.Address.ToString();
+                    _logger.Debug($"UDP Discovery: Received probe from {LastDiscoveryIp}. Responding...");
                     await _udpClient.SendAsync(responsePayload, responsePayload.Length, result.RemoteEndPoint);
                 }
             }
