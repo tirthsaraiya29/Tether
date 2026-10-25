@@ -46,7 +46,12 @@ class TetherTlsTransport(
 
         private fun sanitizeLog(input: String?): String {
             if (input == null) return "null"
-            return input.replace("\r", "\\r").replace("\n", "\\n").take(256)
+            return input
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .replace("\t", "\\t")
+                .filter { (it.code >= 0x20) && (it.code != 0x7F) }
+                .take(256)
         }
     }
 
