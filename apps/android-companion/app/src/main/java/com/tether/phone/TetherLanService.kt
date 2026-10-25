@@ -1182,7 +1182,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         }
                         transport.sendFrame(responseJson.toString().toByteArray(StandardCharsets.UTF_8))
                     } catch (e: Exception) {
-                        Log.e(TAG, "FS_LIST error: ${e.message}")
+                        Log.e(TAG, "FS_LIST error: ${sanitizeLog(e.message)}")
                         val errorJson = JSONObject().apply {
                             put("type", "FS_LIST_RESULT")
                             put("requestId", requestId)
@@ -1217,7 +1217,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         }
                         transport.sendFrame(responseJson.toString().toByteArray(StandardCharsets.UTF_8))
                     } catch (e: Exception) {
-                        Log.e(TAG, "FS_RECEIVE_FILE error: ${e.message}")
+                        Log.e(TAG, "FS_RECEIVE_FILE error: ${sanitizeLog(e.message)}")
                         val errorJson = JSONObject().apply {
                             put("type", "FS_TRANSFER_STATUS")
                             put("requestId", requestId)
@@ -1249,7 +1249,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         }
                         transport.sendFrame(responseJson.toString().toByteArray(StandardCharsets.UTF_8))
                     } catch (e: Exception) {
-                        Log.e(TAG, "FS_SEND_FILE error: ${e.message}")
+                        Log.e(TAG, "FS_SEND_FILE error: ${sanitizeLog(e.message)}")
                         val errorJson = JSONObject().apply {
                             put("type", "FS_TRANSFER_STATUS")
                             put("requestId", requestId)
