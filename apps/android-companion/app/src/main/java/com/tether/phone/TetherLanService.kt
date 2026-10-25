@@ -16,6 +16,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -36,6 +37,7 @@ import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.nio.charset.StandardCharsets
@@ -135,12 +137,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val networkExecutor = Executors.newCachedThreadPool()
 
-    private lateinit var securityEngine: ProductionSecurityEngine
+    lateinit var securityEngine: ProductionSecurityEngine
     private lateinit var discoveryManager: TetherDiscoveryManager
     private lateinit var pairingManager: TetherPairingManager
     private lateinit var capabilityManager: TetherCapabilityManager
-    lateinit var fileTransferManager: TetherFileTransferManager
-        private set
     private lateinit var connectivityManager: ConnectivityManager
     private var activeTransport: TetherTransport? = null
 
@@ -190,6 +190,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         lastPowerCommandAtMs = 0L
         rebootTimeoutJob?.cancel()
         shutdownTimeoutJob?.cancel()
+
         currentPowerState = LaptopPowerState.CONNECTED_LOCKED
         getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
             remove("last_power_command")
@@ -285,7 +286,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private var isExplicitPairingRequested: Boolean = false
 
     @Volatile
-    private var connectedHostAddress: String? = null
+    var connectedHostAddress: String? = null
 
     @Volatile
     private var currentVolumeLevel: Int = 50
@@ -341,6 +342,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private val processedRequestIds = ConcurrentHashMap<String, Long>()
+    private val pendingTokenRequests = ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<String>>()
 
     private val powerSaveReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -414,7 +416,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         pairingManager = TetherPairingManager(this, securityEngine)
         capabilityManager = TetherCapabilityManager()
-        fileTransferManager = TetherFileTransferManager(applicationContext, capabilityManager, serviceScope)
 
         val pinnedKey = securityEngine.getPinnedKeyDecrypted(this)
         trustState = if (pinnedKey != null) TrustState.PAIRED else TrustState.UNPAIRED
@@ -546,7 +547,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
             "ACTION_GET_STATUS" -> {
                 notifyStateToInterface()
-                if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED) || (currentState == TransportState.DISCOVERING)) {
+                if (trustState != TrustState.PAIRING_REQUESTED && currentState != TransportState.PAIRING_REQUIRED && ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED) || (currentState == TransportState.DISCOVERING))) {
                     resetReconnectBackoff()
                     startDiscovery()
                 }
@@ -637,7 +638,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 return START_STICKY
             }
             null -> {
-                if (currentState == TransportState.DISCONNECTED) {
+                if (trustState != TrustState.PAIRING_REQUESTED && currentState != TransportState.PAIRING_REQUIRED && currentState == TransportState.DISCONNECTED) {
                     startDiscovery()
                 }
                 return START_STICKY
@@ -654,7 +655,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     @Synchronized
     fun startDiscovery() {
-        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING) || (currentState == TransportState.PAIRING_REQUIRED)) {
+        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING) || (currentState == TransportState.PAIRING_REQUIRED) || (trustState == TrustState.PAIRING_REQUESTED)) {
             return
         }
         currentState = TransportState.DISCOVERING
@@ -681,10 +682,30 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val safeName = sanitizeLog(device.name)
         val safeAddr = sanitizeLog(device.hostAddress)
         Log.i(TAG, "mDNS/UDP Discovered Tether device ($activeCount active): $safeName at $safeAddr:${device.port}")
-        if ((currentState == TransportState.DISCOVERING) || (currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED)) {
-            currentState = TransportState.HOST_FOUND
-            connectToHost(device.hostAddress, device.port)
+
+        val isConnectedToTarget = ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY))
+                && (connectedHostAddress == device.hostAddress)
+
+        if (isConnectedToTarget) {
+            return
         }
+
+        if ((currentState == TransportState.PAIRING_REQUIRED || trustState == TrustState.PAIRING_REQUESTED) && (activeTransport?.isConnected() == true)) {
+            Log.d(TAG, "Pairing is currently pending on active transport. Skipping connectToHost from onDeviceDiscovered for $safeAddr.")
+            return
+        }
+
+        if ((currentState == TransportState.CONNECTING) || (currentState == TransportState.TLS_HANDSHAKE) || (currentState == TransportState.AUTHENTICATING)) {
+            if (connectedHostAddress != device.hostAddress) {
+                Log.i(TAG, "Discovered new host $safeAddr while connecting to $connectedHostAddress. Disconnecting stale connection...")
+                disconnectActiveSession("Switching to newly discovered host $safeAddr")
+            } else {
+                return
+            }
+        }
+
+        currentState = TransportState.HOST_FOUND
+        connectToHost(device.hostAddress, device.port)
     }
 
     override fun onDeviceLost(deviceId: String) {
@@ -704,7 +725,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     fun connectToHost(hostAddress: String, port: Int = TetherDiscoveryManager.DEFAULT_PORT) {
         if ((currentState == TransportState.AUTHENTICATING) || (currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) return
-        if ((currentState == TransportState.PAIRING_REQUIRED) && (activeTransport?.isConnected() == true)) {
+        if ((currentState == TransportState.PAIRING_REQUIRED || trustState == TrustState.PAIRING_REQUESTED) && (activeTransport?.isConnected() == true)) {
             Log.d(TAG, "Pairing is currently pending on active transport. Skipping connectToHost.")
             return
         }
@@ -744,6 +765,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         connectedPeerName = result.peerDeviceId.ifBlank { "Windows PC" }
                         trustState = TrustState.PAIRED
                         currentState = TransportState.AUTHENTICATED
+                        try { discoveryManager.stopDiscovery() } catch (_: Exception) {}
                         capabilityManager.negotiateCapabilities(result.peerCapabilities.ifBlank { "" })
 
                         mainHandler.postDelayed(
@@ -761,25 +783,32 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         val safeReqId = sanitizeLog(result.requestId)
                         Log.i(TAG, "Pairing pending for requestId=$safeReqId. Launching PairingConfirmationActivity...")
                         resetReconnectBackoff()
+
+                        val isNewPairingRequest = (pendingRequestId != result.requestId) || (trustState != TrustState.PAIRING_REQUESTED)
+
                         savePendingPairingState(result.requestId, result.winEcPubKeyBytes, result.transcriptHash)
 
                         trustState = TrustState.PAIRING_REQUESTED
                         currentState = TransportState.PAIRING_REQUIRED
 
-                        showPairingNotification(result)
+                        if (isNewPairingRequest) {
+                            showPairingNotification(result)
 
-                        val promptIntent = Intent(this@TetherLanService, PairingConfirmationActivity::class.java).apply {
-                            action = ACTION_SHOW_PAIRING_PROMPT
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                            putExtra(EXTRA_PAIRING_REQUEST_ID, result.requestId)
-                            putExtra(EXTRA_PEER_DEVICE_NAME, result.peerName)
-                            putExtra(EXTRA_WINDOWS_FINGERPRINT, result.peerFingerprint)
-                            putExtra(EXTRA_PAIRING_SAS_CODE, result.peerFingerprint.take(6))
-                        }
-                        try {
-                            startActivity(promptIntent)
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Direct startActivity failed (background launch restriction); relying on heads-up notification: ${e.message}")
+                            val promptIntent = Intent(this@TetherLanService, PairingConfirmationActivity::class.java).apply {
+                                action = ACTION_SHOW_PAIRING_PROMPT
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                putExtra(EXTRA_PAIRING_REQUEST_ID, result.requestId)
+                                putExtra(EXTRA_PEER_DEVICE_NAME, result.peerName)
+                                putExtra(EXTRA_WINDOWS_FINGERPRINT, result.peerFingerprint)
+                                putExtra(EXTRA_PAIRING_SAS_CODE, result.peerFingerprint.take(6))
+                            }
+                            try {
+                                startActivity(promptIntent)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Direct startActivity failed (background launch restriction); relying on heads-up notification: ${e.message}")
+                            }
+                        } else {
+                            Log.i(TAG, "Pairing prompt already active for requestId=$safeReqId; waiting for user input.")
                         }
                     }
                     is PairingResult.PairingDenied -> {
@@ -852,6 +881,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     
                     trustState = TrustState.PAIRED
                     currentState = TransportState.AUTHENTICATED
+                    try { discoveryManager.stopDiscovery() } catch (_: Exception) {}
                     capabilityManager.negotiateCapabilities(result.peerCapabilities.ifBlank { "" })
 
                     mainHandler.postDelayed(
@@ -866,10 +896,14 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
                 is PairingResult.Error -> {
                     Log.e(TAG, "Failed finalizing pairing: ${sanitizeLog(result.message)}")
+                    clearPendingPairingState()
+                    trustState = TrustState.UNPAIRED
                     disconnectActiveSession("Finalize pairing error: ${result.message}")
                     scheduleReconnectWithBackoff("Finalize pairing error")
                 }
                 else -> {
+                    clearPendingPairingState()
+                    trustState = TrustState.UNPAIRED
                     disconnectActiveSession("Unexpected finalize pairing result: $result")
                 }
             }
@@ -890,7 +924,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     Log.w(TAG, "Error sending PAIRING_REJECTED frame: ${e.message}")
                 }
             }
-                    clearPendingPairingState()
+            clearPendingPairingState()
+            trustState = TrustState.UNPAIRED
             disconnectActiveSession("Pairing rejected by user")
         }
     }
@@ -907,9 +942,11 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
                 if (frameBytes.isNotEmpty() && frameBytes[0] == 0x05.toByte()) {
                     processIncomingBinaryFrame(frameBytes, transport)
-                } else if (frameBytes.isNotEmpty() && frameBytes[0] == '{'.code.toByte()) {
-                    val jsonStr = String(frameBytes, StandardCharsets.UTF_8)
-                    processIncomingFrame(JSONObject(jsonStr), transport)
+                } else if (frameBytes.isNotEmpty()) {
+                    val jsonStr = String(frameBytes, StandardCharsets.UTF_8).trim()
+                    if (jsonStr.startsWith("{")) {
+                        processIncomingFrame(JSONObject(jsonStr), transport)
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -964,6 +1001,17 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         transport.sendFrame(pongJson.toString().toByteArray(StandardCharsets.UTF_8))
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed sending PONG frame: ${e.message}")
+                    }
+                }
+            }
+            "FILE_TRANSFER_TOKEN_RESPONSE" -> {
+                val token = json.optString("token", "")
+                if (requestId.isNotEmpty() && pendingTokenRequests.containsKey(requestId)) {
+                    pendingTokenRequests.remove(requestId)?.complete(token)
+                } else if (pendingTokenRequests.isNotEmpty()) {
+                    val key = pendingTokenRequests.keys.firstOrNull()
+                    if (key != null) {
+                        pendingTokenRequests.remove(key)?.complete(token)
                     }
                 }
             }
@@ -1077,6 +1125,139 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
+                }
+            }
+            "FS_LIST" -> {
+                val reqPath = json.optString("path", "")
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        val itemsArray = JSONArray()
+                        if (reqPath.isEmpty()) {
+                            val roots = mutableListOf<File>()
+                            roots.add(Environment.getExternalStorageDirectory())
+                            val externalDirs = getExternalFilesDirs(null)
+                            for (dir in externalDirs) {
+                                if (dir != null) {
+                                    val rootPath = dir.absolutePath.substringBefore("/Android/")
+                                    val rootFile = File(rootPath)
+                                    if (!roots.contains(rootFile)) {
+                                        roots.add(rootFile)
+                                    }
+                                }
+                            }
+                            for (root in roots) {
+                                if (root.exists()) {
+                                    val item = JSONObject().apply {
+                                        val isPrimary = root.absolutePath == Environment.getExternalStorageDirectory().absolutePath
+                                        put("name", if (isPrimary) "Primary Storage" else root.name)
+                                        put("path", root.absolutePath)
+                                        put("isDirectory", true)
+                                        put("size", root.totalSpace)
+                                        put("lastModified", root.lastModified())
+                                    }
+                                    itemsArray.put(item)
+                                }
+                            }
+                        } else {
+                            val dir = File(reqPath)
+                            if (dir.exists() && dir.isDirectory) {
+                                dir.listFiles()?.forEach { file ->
+                                    val item = JSONObject().apply {
+                                        put("name", file.name)
+                                        put("path", file.absolutePath)
+                                        put("isDirectory", file.isDirectory)
+                                        put("size", if (file.isDirectory) 0L else file.length())
+                                        put("lastModified", file.lastModified())
+                                    }
+                                    itemsArray.put(item)
+                                }
+                            }
+                        }
+                        
+                        val responseJson = JSONObject().apply {
+                            put("type", "FS_LIST_RESULT")
+                            put("requestId", requestId)
+                            put("path", reqPath)
+                            put("items", itemsArray)
+                        }
+                        transport.sendFrame(responseJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    } catch (e: Exception) {
+                        Log.e(TAG, "FS_LIST error: ${e.message}")
+                        val errorJson = JSONObject().apply {
+                            put("type", "FS_LIST_RESULT")
+                            put("requestId", requestId)
+                            put("path", reqPath)
+                            put("error", e.message)
+                        }
+                        transport.sendFrame(errorJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    }
+                }
+            }
+            "FS_RECEIVE_FILE" -> {
+                val windowsPath = json.optString("windowsPath", "")
+                val fileName = json.optString("fileName", "")
+                val token = json.optString("token", "")
+                
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        val hostIp = connectedHostAddress ?: throw Exception("No connected host IP")
+                        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                        if (!downloadsDir.exists()) {
+                            downloadsDir.mkdirs()
+                        }
+                        val destFile = File(downloadsDir, fileName)
+                        val destUri = Uri.fromFile(destFile)
+                        
+                        FileTransferClient.downloadFile(hostIp, windowsPath, destUri, this@TetherLanService, token)
+                        
+                        val responseJson = JSONObject().apply {
+                            put("type", "FS_TRANSFER_STATUS")
+                            put("requestId", requestId)
+                            put("status", "SUCCESS")
+                        }
+                        transport.sendFrame(responseJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    } catch (e: Exception) {
+                        Log.e(TAG, "FS_RECEIVE_FILE error: ${e.message}")
+                        val errorJson = JSONObject().apply {
+                            put("type", "FS_TRANSFER_STATUS")
+                            put("requestId", requestId)
+                            put("status", "ERROR")
+                            put("error", e.message)
+                        }
+                        transport.sendFrame(errorJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    }
+                }
+            }
+            "FS_SEND_FILE" -> {
+                val androidPath = json.optString("androidPath", "")
+                val windowsDestPath = json.optString("windowsDestPath", "")
+                val token = json.optString("token", "")
+                
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        val hostIp = connectedHostAddress ?: throw Exception("No connected host IP")
+                        val sourceFile = File(androidPath)
+                        if (!sourceFile.exists()) throw Exception("Source file does not exist")
+                        val sourceUri = Uri.fromFile(sourceFile)
+                        
+                        FileTransferClient.uploadFile(hostIp, sourceUri, windowsDestPath, this@TetherLanService, token)
+                        
+                        val responseJson = JSONObject().apply {
+                            put("type", "FS_TRANSFER_STATUS")
+                            put("requestId", requestId)
+                            put("status", "SUCCESS")
+                        }
+                        transport.sendFrame(responseJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    } catch (e: Exception) {
+                        Log.e(TAG, "FS_SEND_FILE error: ${e.message}")
+                        val errorJson = JSONObject().apply {
+                            put("type", "FS_TRANSFER_STATUS")
+                            put("requestId", requestId)
+                            put("status", "ERROR")
+                            put("error", e.message)
+                        }
+                        transport.sendFrame(errorJson.toString().toByteArray(StandardCharsets.UTF_8))
+                    }
                 }
             }
             "HARDWARE_METRICS", "LAPTOP_STATE" -> {
@@ -1260,6 +1441,29 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
     }
 
+    suspend fun requestFileTransferToken(): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        if ((currentState != TransportState.READY) && (currentState != TransportState.AUTHENTICATED)) {
+            throw IllegalStateException("TLS session not connected")
+        }
+        val reqId = UUID.randomUUID().toString()
+        val deferred = kotlinx.coroutines.CompletableDeferred<String>()
+        pendingTokenRequests[reqId] = deferred
+        val cmdJson = JSONObject().apply {
+            put("type", "FILE_TRANSFER_TOKEN_REQUEST")
+            put("requestId", reqId)
+            put("timestamp", System.currentTimeMillis())
+        }
+        val transport = activeTransport ?: throw IllegalStateException("Active transport is null")
+        if (!transport.isConnected()) {
+            throw IllegalStateException("Transport socket is disconnected")
+        }
+        transport.sendFrame(cmdJson.toString().toByteArray(StandardCharsets.UTF_8))
+        
+        kotlinx.coroutines.withTimeout(10000L) {
+            deferred.await()
+        }
+    }
+
     fun dispatchCommand(actionCommand: String) {
         serviceScope.launch {
             try {
@@ -1345,6 +1549,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         try { activeTransport?.disconnect(reason) } catch (_: Exception) {}
         activeTransport = null
         connectedHostAddress = null
+        if (currentState == TransportState.PAIRING_REQUIRED || trustState == TrustState.PAIRING_REQUESTED) {
+            clearPendingPairingState()
+            trustState = TrustState.UNPAIRED
+        }
         currentState = TransportState.DISCONNECTED
     }
 
@@ -1353,7 +1561,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         val promptIntent = Intent(this, PairingConfirmationActivity::class.java).apply {
             action = ACTION_SHOW_PAIRING_PROMPT
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             putExtra(EXTRA_PAIRING_REQUEST_ID, result.requestId)
             putExtra(EXTRA_PEER_DEVICE_NAME, result.peerName)
             putExtra(EXTRA_WINDOWS_FINGERPRINT, result.peerFingerprint)
@@ -1400,7 +1608,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun scheduleReconnectWithBackoff(reason: String) {
-        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING)) {
+        if ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY) || (currentState == TransportState.CONNECTING) || (currentState == TransportState.PAIRING_REQUIRED) || (trustState == TrustState.PAIRING_REQUESTED)) {
             return
         }
         reconnectJob?.cancel()
@@ -1424,12 +1632,31 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         reconnectJob = null
     }
 
+    private fun sendPingProbe() {
+        val transport = activeTransport ?: return
+        if (!transport.isConnected()) return
+        serviceScope.launch {
+            try {
+                val pingJson = JSONObject().apply {
+                    put("type", "PING")
+                    put("timestamp", System.currentTimeMillis())
+                }
+                transport.sendFrame(pingJson.toString().toByteArray(StandardCharsets.UTF_8))
+                Log.d(TAG, "Health check: Sent PING probe to Windows host.")
+            } catch (e: Exception) {
+                Log.w(TAG, "Health check: Failed sending PING probe: ${e.message}")
+            }
+        }
+    }
+
     private fun performHealthCheck() {
         if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED) || (currentState == TransportState.DISCOVERING)) {
-            Log.i(TAG, "Health check: Transport state is $currentState. Refreshing discovery...")
-            startDiscovery()
+            if (trustState != TrustState.PAIRING_REQUESTED && currentState != TransportState.PAIRING_REQUIRED) {
+                Log.i(TAG, "Health check: Transport state is $currentState. Refreshing discovery...")
+                startDiscovery()
+            }
         } else if ((currentState == TransportState.READY) || (currentState == TransportState.AUTHENTICATED)) {
-            dispatchCommand("PING")
+            sendPingProbe()
         }
     }
 
@@ -1563,22 +1790,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     val activeHostAddress: String?
         get() = connectedHostAddress
-
-    fun sendFile(uri: Uri) {
-        val host = connectedHostAddress ?: "192.168.1.100"
-        val peerName = "PC ($host)"
-        if (::securityEngine.isInitialized && ::fileTransferManager.isInitialized) {
-            fileTransferManager.sendFile(
-                securityEngine = securityEngine,
-                host = host,
-                port = 37125,
-                uri = uri,
-                peerName = peerName,
-            )
-        } else {
-            Log.e(TAG, "Cannot send file: service or securityEngine not initialized")
-        }
-    }
 
     override fun onDestroy() {
         instance = null

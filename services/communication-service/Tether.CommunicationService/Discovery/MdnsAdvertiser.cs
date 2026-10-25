@@ -15,7 +15,7 @@ public sealed class MdnsAdvertiser : IDisposable
 
     public MdnsAdvertiser(ITetherLogger logger) => _logger = logger;
 
-    public void Start(int port, string id, string name, string caps, bool pqc)
+    public void Start(int port, string id, string name, string caps, bool pqc, int? ftPort = null)
     {
         try
         {
@@ -28,9 +28,13 @@ public sealed class MdnsAdvertiser : IDisposable
             _profile.AddProperty("name", name);
             _profile.AddProperty("caps", caps);
             _profile.AddProperty("pqc", pqc ? "true" : "false");
+            if (ftPort.HasValue)
+            {
+                _profile.AddProperty("ft_port", ftPort.Value.ToString());
+            }
 
             _discovery.Advertise(_profile);
-            _logger.Info($"mDNS advertised: {InstanceName}._tether._tcp.local on port {port} (id={id}, pqc={pqc}).");
+            _logger.Info($"mDNS advertised: {InstanceName}._tether._tcp.local on port {port} (id={id}, pqc={pqc}, ft_port={ftPort}).");
         }
         catch (Exception ex)
         {

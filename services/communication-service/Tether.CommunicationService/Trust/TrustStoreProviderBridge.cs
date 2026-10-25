@@ -1,9 +1,16 @@
 using System;
 using System.Linq;
-using Tether.FileTransfer;
 using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService.Trust;
+
+public interface ITrustStoreProvider
+{
+    bool IsPeerTrustedAndHasCapability(
+        string spkiFingerprint,
+        string requiredCapability,
+        out string displayName);
+}
 
 public sealed class TrustStoreProviderBridge : ITrustStoreProvider
 {

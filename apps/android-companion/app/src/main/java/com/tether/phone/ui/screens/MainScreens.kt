@@ -12,8 +12,10 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
@@ -62,6 +64,10 @@ fun TetherAppScreen(
     brightnessLevel: Int = 50,
     isMuted: Boolean = false,
     grantedCapabilities: Set<String> = emptySet(),
+    showPermissionsBanner: Boolean = false,
+    missingPermissionsCount: Int = 0,
+    onNavigateToPermissions: () -> Unit = {},
+    onDismissPermissionsBanner: () -> Unit = {},
     onUnlockClick: () -> Unit,
     onLockClick: () -> Unit,
     onPanicClick: () -> Unit,
@@ -82,6 +88,13 @@ fun TetherAppScreen(
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        if (showPermissionsBanner) {
+            PermissionsChecklistBanner(
+                missingCount = missingPermissionsCount,
+                onReviewClick = onNavigateToPermissions,
+                onDismiss = onDismissPermissionsBanner
+            )
+        }
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(durationMillis = 1000)) + 
@@ -196,6 +209,58 @@ fun TetherAppScreen(
                     onBrightnessDown = { onLanActionRequested("BRIGHT_DOWN") },
                     enabled = isConnected,
                 )
+
+                /* Discarded/Excluded: File Explorer & Sharing Quick Access Card
+                ProfessionalGlassSurface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToFileTransfer() }
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(LiquidCyan.copy(alpha = 0.15f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Folder,
+                                    contentDescription = "File Explorer",
+                                    tint = LiquidCyan,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "TETHER FILES & EXPLORER",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Browse PC & Phone Storage • QUIC / TLS 1.3",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.ArrowForward,
+                            contentDescription = "Open File Explorer",
+                            tint = LiquidCyan
+                        )
+                    }
+                }
+                */
 
                 ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
                     Text(
@@ -1111,7 +1176,13 @@ fun TetherNavigationShell(
     onInitiatePairing: () -> Unit = {},
     onCancelPairing: () -> Unit = {},
     onConfirmPairing: (String) -> Unit = {},
-    onForgetTrust: () -> Unit = {}
+    onForgetTrust: () -> Unit = {},
+    permissionItems: List<PermissionItemState> = emptyList(),
+    showPermissionsBanner: Boolean = false,
+    missingPermissionsCount: Int = 0,
+    onOpenAppSettings: () -> Unit = {},
+    onGrantAllMissingPermissions: () -> Unit = {},
+    onDismissPermissionsBanner: () -> Unit = {},
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -1160,6 +1231,7 @@ fun TetherNavigationShell(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
                             Triple("FILE SHARING", Icons.Default.Folder, AppScreen.FILE_TRANSFER),
                             Triple("REMOTE INPUT", Icons.Default.TouchApp, AppScreen.REMOTE_INPUT),
+                            Triple("PERMISSIONS", Icons.Default.CheckCircle, AppScreen.PERMISSIONS),
                             Triple(stringResource(R.string.nav_apps), Icons.Default.Refresh, AppScreen.SYSTEM_APPS),
                             Triple(stringResource(R.string.nav_security), Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
                             Triple(stringResource(R.string.nav_pair), Icons.Default.QrCode, AppScreen.PAIRING),
@@ -1244,6 +1316,10 @@ fun TetherNavigationShell(
                             brightnessLevel = brightnessLevel,
                             isMuted = isMuted,
                             grantedCapabilities = grantedCapabilities,
+                            showPermissionsBanner = showPermissionsBanner,
+                            missingPermissionsCount = missingPermissionsCount,
+                            onNavigateToPermissions = { currentScreen = AppScreen.PERMISSIONS },
+                            onDismissPermissionsBanner = onDismissPermissionsBanner,
                             onUnlockClick = onUnlockClick,
                             onLockClick = onLockClick,
                             onPanicClick = onPanicClick,
@@ -1251,6 +1327,9 @@ fun TetherNavigationShell(
                             onSelectLaptop = onSelectLaptop,
                             onTriggerStepVerification = onTriggerStepVerification,
                             onLanActionRequested = onLaptopActionClick
+                        )
+                        AppScreen.FILE_TRANSFER -> FileTransferScreen(
+                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
                         )
                         AppScreen.SECURITY_SETTINGS -> SettingsScreen(
                             trustState = trustState,
@@ -1279,15 +1358,13 @@ fun TetherNavigationShell(
                             onConfirmPairing = onConfirmPairing,
                             onForgetTrust = onForgetTrust
                         )
-                        AppScreen.FILE_TRANSFER -> FileTransferScreen(
-                            fileTransferManager = TetherLanService.instance?.fileTransferManager,
-                            onSendFileSelected = { uri ->
-                                Log.i("TetherApp", "User selected file URI for QUIC transfer: $uri")
-                                TetherLanService.instance?.sendFile(uri)
-                            }
-                        )
                         AppScreen.REMOTE_INPUT -> RemoteInputScreen(
                             transportState = TetherLanService.instance?.currentState ?: TransportState.DISCONNECTED
+                        )
+                        AppScreen.PERMISSIONS -> PermissionsScreen(
+                            items = permissionItems,
+                            onOpenAppSettings = onOpenAppSettings,
+                            onGrantAllMissing = onGrantAllMissingPermissions
                         )
                     }
                 }

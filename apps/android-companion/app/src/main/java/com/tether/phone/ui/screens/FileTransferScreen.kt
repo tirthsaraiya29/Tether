@@ -1,331 +1,206 @@
 package com.tether.phone.ui.screens
 
-import android.net.Uri
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.UploadFile
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.tether.phone.FileTransferState
-import com.tether.phone.TetherFileTransferManager
-import com.tether.phone.TransferProgress
-import java.util.Locale
+import com.tether.phone.FileNode
+import com.tether.phone.FileTransferClient
+import com.tether.phone.ui.components.DeepSpaceCanvasVisualizer
+import com.tether.phone.ui.components.ProfessionalGlassSurface
+import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FileTransferScreen(
-    fileTransferManager: TetherFileTransferManager?,
-    onSendFileSelected: (Uri) -> Unit,
-    modifier: Modifier = Modifier,
+    onBack: () -> Unit
 ) {
-    val transferList by fileTransferManager?.transferListFlow?.collectAsState(initial = emptyList())
-        ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(emptyList()) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var currentPath by remember { mutableStateOf<String?>(null) }
+    var files by remember { mutableStateOf<List<FileNode>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    var pendingDownloadFile by remember { mutableStateOf<FileNode?>(null) }
+    
+    var token by remember { mutableStateOf<String?>(null) }
+    val service = com.tether.phone.TetherLanService.instance
+    val hostIp = service?.connectedHostAddress
 
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri: Uri? ->
-        uri?.let { onSendFileSelected(it) }
-    }
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
-    ) {
-        // Header Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            ),
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Speed,
-                        contentDescription = "QUIC Transfer",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp),
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = "QUIC File Sharing",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = "UDP :37125 • SHA-512 Verified • ALPN tether-quic-v1",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+    val downloadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("*/*")
+    ) { uri ->
+        uri?.let { destUri ->
+            pendingDownloadFile?.let { fileNode ->
+                coroutineScope.launch {
+                    try {
+                        if (hostIp == null || token == null) throw Exception("Not connected or no token")
+                        isLoading = true
+                        FileTransferClient.downloadFile(hostIp, fileNode.path, destUri, context, token!!)
+                    } catch (e: Exception) {
+                        errorMessage = e.message
+                    } finally {
+                        isLoading = false
+                        pendingDownloadFile = null
                     }
                 }
+            }
+        }
+    }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Button(
-                    onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.UploadFile,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "Send File to PC", fontWeight = FontWeight.SemiBold)
+    val uploadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { sourceUri ->
+            coroutineScope.launch {
+                try {
+                    if (hostIp == null || token == null) throw Exception("Not connected or no token")
+                    isLoading = true
+                    FileTransferClient.uploadFile(hostIp, sourceUri, currentPath ?: "", context, token!!)
+                    // Refresh
+                    files = FileTransferClient.listDirectory(hostIp, currentPath, token!!)
+                } catch (e: Exception) {
+                    errorMessage = e.message
+                } finally {
+                    isLoading = false
                 }
             }
         }
+    }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Transfers (${transferList.size})",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-
-            if (transferList.isNotEmpty()) {
-                OutlinedButton(
-                    onClick = { fileTransferManager?.clearHistory() },
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Clear,
-                        contentDescription = "Clear History",
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(text = "Clear", fontSize = 12.sp)
-                }
+    LaunchedEffect(currentPath, token) {
+        if (token != null && hostIp != null) {
+            try {
+                isLoading = true
+                files = FileTransferClient.listDirectory(hostIp, currentPath, token!!)
+            } catch (e: Exception) {
+                errorMessage = e.message
+            } finally {
+                isLoading = false
             }
         }
+    }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (transferList.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.FolderOpen,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "No active or recent file transfers",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+    LaunchedEffect(Unit) {
+        if (service != null && hostIp != null) {
+            try {
+                isLoading = true
+                token = service.requestFileTransferToken()
+            } catch (e: Exception) {
+                errorMessage = "Failed to get file transfer token: ${e.message}"
+            } finally {
+                isLoading = false
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(transferList, key = { it.transferId }) { item ->
-                    TransferItemCard(
-                        item = item,
-                        onCancelClick = { fileTransferManager?.cancelTransfer(item.transferId) },
+            errorMessage = "Not connected to a host"
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        DeepSpaceCanvasVisualizer()
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(currentPath ?: "Root", maxLines = 1) },
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            if (currentPath == null) {
+                                onBack()
+                            } else {
+                                // Simple path up
+                                val segments = currentPath!!.split("/").filter { it.isNotEmpty() }
+                                if (segments.size <= 1) {
+                                    currentPath = null
+                                } else {
+                                    currentPath = segments.dropLast(1).joinToString("/")
+                                }
+                            }
+                        }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = androidx.compose.ui.graphics.Color.Transparent
                     )
+                )
+            },
+            floatingActionButton = {
+                FloatingActionButton(onClick = {
+                    uploadLauncher.launch(arrayOf("*/*"))
+                }) {
+                    Icon(Icons.Default.Upload, contentDescription = "Upload")
+                }
+            },
+            containerColor = androidx.compose.ui.graphics.Color.Transparent
+        ) { padding ->
+            Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                } else if (errorMessage != null) {
+                    Text(
+                        text = errorMessage!!,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.align(Alignment.Center).padding(16.dp)
+                    )
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(files) { file ->
+                            ProfessionalGlassSurface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .clickable {
+                                        if (file.isDirectory) {
+                                            currentPath = file.path
+                                        } else {
+                                            pendingDownloadFile = file
+                                            downloadLauncher.launch(file.name)
+                                        }
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (file.isDirectory) Icons.Default.Folder else Icons.Default.InsertDriveFile,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Column {
+                                        Text(file.name, fontWeight = FontWeight.Bold)
+                                        if (!file.isDirectory) {
+                                            Text("${file.size} bytes", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    if (!file.isDirectory) {
+                                        Icon(Icons.Default.Download, contentDescription = "Download")
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
-}
-
-@Composable
-fun TransferItemCard(
-    item: TransferProgress,
-    onCancelClick: () -> Unit,
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    StateBadgeIcon(state = item.state)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = item.fileName,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = "${if (item.isIncoming) "From" else "To"} ${item.peerName} • ${formatFileSize(item.fileSize)}",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
-                if (item.state == FileTransferState.TRANSFERRING || item.state == FileTransferState.VERIFYING) {
-                    IconButton(onClick = onCancelClick) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Cancel",
-                            tint = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-            }
-
-            if (item.state == FileTransferState.TRANSFERRING || item.state == FileTransferState.VERIFYING) {
-                Spacer(modifier = Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    progress = { item.progressFraction },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "${item.progressPercentage}% (${formatFileSize(item.bytesTransferred)})",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = String.format(Locale.US, "%.1f MB/s", item.speedMbPerSec),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-
-            if (item.state == FileTransferState.FAILED && !item.errorMessage.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = item.errorMessage,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun StateBadgeIcon(state: FileTransferState) {
-    val (icon, color) = when (state) {
-        FileTransferState.COMPLETED -> Icons.Default.CheckCircle to Color(0xFF4CAF50)
-        FileTransferState.FAILED -> Icons.Default.Error to Color(0xFFF44336)
-        FileTransferState.CANCELLED -> Icons.Default.Close to Color(0xFFFF9800)
-        FileTransferState.TRANSFERRING, FileTransferState.VERIFYING -> Icons.Default.Speed to Color(0xFF2196F3)
-        else -> Icons.Default.FolderOpen to Color.Gray
-    }
-
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(color.copy(alpha = 0.15f)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = state.name,
-            tint = color,
-            modifier = Modifier.size(18.dp),
-        )
-    }
-}
-
-private fun formatFileSize(bytes: Long): String {
-    if (bytes <= 0) return "0 B"
-    val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt()
-    return String.format(Locale.US, "%.1f %s", bytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
 }

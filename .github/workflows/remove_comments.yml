@@ -1,0 +1,357 @@
+name: Remove Comments and Blank Lines
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: comment-blank-line-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Clean source files
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install parser dependency
+        run: python -m pip install --disable-pip-version-check tree-sitter-language-pack
+
+      - name: Clean comments and blank lines
+        id: cleanup
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/clean.py" <<'PY'
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          from tree_sitter_language_pack import get_parser
+
+          ROOT = Path.cwd()
+
+          LANGUAGES = {
+              ".kt": "kotlin",
+              ".kts": "kotlin",
+              ".c": "c",
+              ".cc": "cpp",
+              ".cpp": "cpp",
+              ".cxx": "cpp",
+              ".h": "cpp",
+              ".hh": "cpp",
+              ".hpp": "cpp",
+              ".hxx": "cpp",
+              ".cs": "c_sharp",
+              ".html": "html",
+              ".htm": "html",
+              ".py": "python",
+              ".yml": "yaml",
+              ".yaml": "yaml",
+              ".xaml": "xml",
+          }
+
+          EXCLUDED_DIRS = {
+              ".git",
+              "bin",
+              "obj",
+              "build",
+              "dist",
+              "node_modules",
+              ".gradle",
+          }
+
+          EXTRA_EXTENSIONS = {".reg", ".iss"}
+
+          def walk(node):
+              yield node
+              for child in node.children:
+                  yield from walk(child)
+
+          def remove_comment_ranges(data, ranges):
+              result = bytearray(data)
+
+              for start, end in sorted(ranges, reverse=True):
+                  for index in range(start, end):
+                      if result[index] not in (10, 13):
+                          result[index] = 32
+
+              return bytes(result)
+
+          def strip_iss_comment(line):
+              quoted = False
+              index = 0
+
+              while index < len(line):
+                  char = line[index]
+
+                  if char == '"':
+                      if (
+                          quoted
+                          and index + 1 < len(line)
+                          and line[index + 1] == '"'
+                      ):
+                          index += 2
+                          continue
+
+                      quoted = not quoted
+
+                  elif char == ";" and not quoted:
+                      return line[:index].rstrip()
+
+                  index += 1
+
+              return line.rstrip()
+
+          def transform(path):
+              try:
+                  original = path.read_bytes()
+                  text = original.decode("utf-8-sig")
+              except (OSError, UnicodeDecodeError) as exc:
+                  print(f"SKIP unreadable file: {path}: {exc}")
+                  return False
+
+              if b"\0" in original:
+                  print(f"SKIP binary file: {path}")
+                  return False
+
+              suffix = path.suffix.lower()
+              newline = "\r\n" if b"\r\n" in original else "\n"
+              has_final_newline = original.endswith((b"\n", b"\r"))
+
+              if suffix == ".reg":
+                  output = []
+
+                  for line in text.splitlines():
+                      if line.lstrip().startswith(";"):
+                          continue
+
+                      if line.strip():
+                          output.append(line.rstrip())
+
+                  result = newline.join(output)
+
+              elif suffix == ".iss":
+                  output = []
+
+                  for line in text.splitlines():
+                      cleaned = strip_iss_comment(line)
+
+                      if cleaned.strip():
+                          output.append(cleaned)
+
+                  result = newline.join(output)
+
+              else:
+                  language = LANGUAGES.get(suffix)
+
+                  if language is None:
+                      return False
+
+                  try:
+                      parser = get_parser(language)
+                      tree = parser.parse(original)
+                  except Exception as exc:
+                      print(f"SKIP parser failure: {path}: {exc}")
+                      return False
+
+                  if tree.root_node.has_error:
+                      print(f"SKIP syntax errors: {path}")
+                      return False
+
+                  nodes = list(walk(tree.root_node))
+
+                  ranges = [
+                      (node.start_byte, node.end_byte)
+                      for node in nodes
+                      if node.type == "comment"
+                  ]
+
+                  protected_lines = set()
+
+                  for node in nodes:
+                      kind = node.type.lower()
+
+                      is_multiline_content = (
+                          "string" in kind
+                          or "scalar" in kind
+                          or kind == "raw_string_literal"
+                      )
+
+                      if (
+                          is_multiline_content
+                          and node.start_point.row < node.end_point.row
+                      ):
+                          protected_lines.update(
+                              range(
+                                  node.start_point.row,
+                                  node.end_point.row + 1,
+                              )
+                          )
+
+                  stripped = remove_comment_ranges(original, ranges)
+
+                  try:
+                      cleaned_text = stripped.decode("utf-8-sig")
+                  except UnicodeDecodeError:
+                      print(f"SKIP invalid UTF-8: {path}")
+                      return False
+
+                  output = []
+
+                  for number, line in enumerate(
+                      cleaned_text.splitlines()
+                  ):
+                      if number in protected_lines:
+                          output.append(line)
+                      elif line.strip():
+                          output.append(line.rstrip())
+
+                  result = newline.join(output)
+
+              if has_final_newline and result:
+                  result += newline
+
+              updated = result.encode("utf-8")
+
+              if original.startswith(b"\xef\xbb\xbf"):
+                  updated = b"\xef\xbb\xbf" + updated
+
+              if updated == original:
+                  return False
+
+              path.write_bytes(updated)
+              print(f"CLEANED: {path}")
+              return True
+
+          def main():
+              if len(sys.argv) == 3 and sys.argv[1] == "--file":
+                  path = ROOT / sys.argv[2]
+
+                  try:
+                      return 10 if transform(path) else 0
+                  except Exception as exc:
+                      print(f"SKIP {path}: {exc}")
+                      return 1
+
+              tracked = subprocess.check_output(
+                  ["git", "ls-files", "-z"]
+              ).decode("utf-8").split("\0")
+
+              changed = 0
+              skipped = 0
+              candidates = []
+
+              for name in filter(None, tracked):
+                  path = ROOT / name
+
+                  if not path.is_file():
+                      continue
+
+                  # Do not modify GitHub Actions workflow definitions.
+                  if name.startswith(".github/workflows/"):
+                      print(f"SKIP workflow definition: {name}")
+                      continue
+
+                  if any(
+                      part in EXCLUDED_DIRS
+                      for part in path.parts
+                  ):
+                      continue
+
+                  if (
+                      path.suffix.lower() in LANGUAGES
+                      or path.suffix.lower() in EXTRA_EXTENSIONS
+                  ):
+                      candidates.append(name)
+
+              print(f"Files discovered: {len(candidates)}")
+
+              for name in candidates:
+                  result = subprocess.run(
+                      [
+                          sys.executable,
+                          __file__,
+                          "--file",
+                          name,
+                      ],
+                      check=False,
+                  )
+
+                  if result.returncode == 10:
+                      changed += 1
+                  elif result.returncode != 0:
+                      skipped += 1
+                      print(
+                          f"SKIP: {name}; "
+                          f"worker exit code {result.returncode}"
+                      )
+
+              print(f"Files changed: {changed}")
+              print(f"Files skipped: {skipped}")
+
+              with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                  output.write(f"changed={changed}\n")
+                  output.write(f"skipped={skipped}\n")
+
+              return 0
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          PY
+
+          python "$RUNNER_TEMP/clean.py"
+
+      - name: Show cleanup summary
+        if: always()
+        run: |
+          echo "Cleanup finished."
+          echo "Review the preceding logs for changed or skipped files."
+
+      - name: Create pull request
+        if: success() && steps.cleanup.outputs.changed != '0'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: main
+          branch: automation/remove-comments-and-blank-lines
+          delete-branch: true
+          commit-message: "style: remove comments and blank lines"
+          title: "style: remove comments and blank lines"
+          body: |
+            ## Summary
+            - Remove parser-recognized comments from supported source files.
+            - Remove blank lines outside recognized multiline literals.
+            - Handle Inno Setup comments outside quoted strings.
+            - Remove full-line comments from registry files.
+            - Skip GitHub Actions workflow definitions to avoid
+              modifying CI/CD configuration.
+            - Isolate file processing so an individual parser crash
+              does not terminate the repository-wide cleanup.
+
+            ## Validation required
+            - Review every changed file.
+            - Run Android and Windows builds and relevant tests.
+            - Check YAML, XAML, registry, and installer syntax.
+            - Verify multiline strings and embedded scripts remain intact.
+
+            This pull request is generated by a manually triggered workflow.
+
+      - name: Report no changes
+        if: success() && steps.cleanup.outputs.changed == '0'
+        run: echo "No files required cleanup; no pull request was created."

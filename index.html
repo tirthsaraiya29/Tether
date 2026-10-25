@@ -2316,6 +2316,7 @@
       .feature-grid > .feature:nth-child(4) { grid-column: span 4; }
       .feature-grid > .feature:nth-child(5) { grid-column: span 3; }
       .feature-grid > .feature:nth-child(6) { grid-column: span 3; }
+      .feature-grid > .feature:nth-child(7) { grid-column: span 6; }
     }
 
     @media (max-width: 900px) {
@@ -2545,7 +2546,7 @@
       <div class="hero-copy">
         <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>PHONE + PC · YOUR OWN WI-FI</p>
         <h1 class="hero-title" id="hero-title">Your phone and your PC. <span class="hero-accent">Talking directly.</span></h1>
-        <p class="hero-lede">Tether is an open-source personal trust and authentication platform that connects an Android device to a Windows workstation over local Wi-Fi. Unlock Windows via biometric challenge, stream trackpad input, execute emergency lockdowns, and adjust media controls — entirely on your local network with zero cloud dependencies.</p>
+        <p class="hero-lede">Tether is an open-source personal trust and authentication platform that connects an Android device to a Windows workstation over local Wi-Fi. Unlock Windows via biometric challenge, stream trackpad input, send files and links straight to your PC, execute emergency lockdowns, and adjust media controls — entirely on your local network with zero cloud dependencies.</p>
 
         <div class="hero-actions">
           <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether/releases" target="_blank" rel="noopener noreferrer">
@@ -2699,7 +2700,7 @@
             </svg>
           </span>
           <h3 class="feature-title">Device-Assisted Windows Unlock</h3>
-          <p class="feature-text">Authenticate your Windows workstation via an Android biometric challenge. Communicates directly with the native C++ <code>TetherCredentialProvider</code> on the Windows logon screen.</p>
+          <p class="feature-text">Authenticate your Windows workstation via a streamlined single sign-in path using Android biometrics and the native C++ <code>TetherCredentialProvider</code>. The logon tile exclusively requires phone-app unlock, eliminating manual password fallbacks or TPM-stored options.</p>
           <p class="feature-meta"><span class="chip">Implemented</span><span class="chip chip-mono">Credential Provider</span></p>
         </article>
 
@@ -2751,7 +2752,7 @@
             </svg>
           </span>
           <h3 class="feature-title">Audio, Display & Apps</h3>
-          <p class="feature-text">Adjust Windows Core Audio endpoint volume, change display brightness via WMI, and launch configured utilities (Terminal, Task Manager, Settings).</p>
+          <p class="feature-text">Adjust Windows Core Audio endpoint volume, change display brightness via WMI, and launch configured utilities (Task Manager, Settings).</p>
           <p class="feature-meta"><span class="chip">Implemented</span></p>
         </article>
 
@@ -2864,7 +2865,7 @@
       <div class="net-grid">
         <div class="prose reveal">
           <p>Both devices need to be on the same Wi-Fi or local network. Your phone finds your PC by announcing itself on that network — the same way printers and smart TVs show up. Then the two connect directly to each other.</p>
-          <p>The connection is encrypted, and it uses one specific port (<code>37123</code>) so your router knows what to allow.</p>
+          <p>Control traffic uses encrypted TCP port 37123. The port is opened by the Windows installer; the service also attempts to add the matching firewall rule automatically.</p>
           <p>What Tether deliberately leaves out: there's no cloud relay, no Bluetooth command channel, no opening your PC to the open internet, and no phone-hotspot mode. The whole idea is that it works at home and nowhere else.</p>
           <p>That's a real benefit — fewer companies involved, and a shorter path you can understand. But staying local isn't the same as being safe. Other devices on your Wi-Fi can still see traffic, and how well the encryption is set up matters a lot.</p>
         </div>
@@ -3407,7 +3408,7 @@
         <details class="faq-item">
           <summary>What can it actually do right now?</summary>
           <div class="faq-body">
-            <p>The current beta build implements cryptographic device pairing over TLS 1.3, Windows unlock via the native Credential Provider and Android biometrics, emergency lockdown/trust revocation, remote trackpad and keyboard input streaming, display brightness and Core Audio controls, and session-aware utility launching.</p>
+            <p>The v1.1.2 release implements cryptographic device pairing over TLS 1.3, streamlined single sign-in Windows unlock via the native Credential Provider and Android biometrics, local filesystem database auto-sync, emergency lockdown/trust revocation, remote trackpad and keyboard input streaming, display brightness and Core Audio controls, and session-aware utility launching.</p>
           </div>
         </details>
 
@@ -3436,6 +3437,14 @@
           <summary>Is it safe to use?</summary>
           <div class="faq-body">
             <p>Not yet. Tether is an early project and no outside expert has reviewed it. It's interesting to explore, but don't rely on it to protect anything important.</p>
+          </div>
+        </details>
+
+
+        <details class="faq-item">
+          <summary>Will Tether tell me when there's an update?</summary>
+          <div class="faq-body">
+            <p>On Android, yes. Tether checks GitHub for new releases in the background and posts a notification when one is available. Tapping it opens an in-app dialog with the release notes and a download link.</p>
           </div>
         </details>
       </div>

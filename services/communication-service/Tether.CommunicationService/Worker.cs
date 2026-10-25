@@ -14,7 +14,6 @@ using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
 using Tether.EnforcementEngine;
 using Tether.EventBus;
-using Tether.FileTransfer;
 using Tether.PanicEngine;
 using Tether.RecoveryEngine;
 using Tether.Shared.Events;
@@ -25,7 +24,7 @@ namespace Tether.CommunicationService;
 
 public sealed class Worker : BackgroundService
 {
-    private const string AdvertisedCaps = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED";
+    private const string AdvertisedCaps = "CLIPBOARD,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED";
 
     private readonly ILogger<Worker> _logger;
     private readonly ITetherLogger _tetherLogger;
@@ -37,7 +36,6 @@ public sealed class Worker : BackgroundService
     private readonly SessionManager _sessionManager;
     private readonly PowerEventWatcher _powerWatcher;
     private readonly PowerEventNotifier _powerNotifier;
-    private readonly FileTransferManager _fileTransferManager;
 
     public Worker(
         ILogger<Worker> logger,
@@ -50,7 +48,6 @@ public sealed class Worker : BackgroundService
         SessionManager sessionManager,
         PowerEventWatcher powerWatcher,
         PowerEventNotifier powerNotifier,
-        FileTransferManager fileTransferManager,
         TrustStateManager trustStateManager,
         EnforcementManager enforcementManager,
         PanicManager panicManager,
@@ -68,7 +65,6 @@ public sealed class Worker : BackgroundService
         _sessionManager = sessionManager;
         _powerWatcher = powerWatcher;
         _powerNotifier = powerNotifier;
-        _fileTransferManager = fileTransferManager;
         _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager; _ = ipcEventRelay;
 
         eventBus.Subscribe(evt =>
@@ -94,23 +90,45 @@ public sealed class Worker : BackgroundService
                     }
                 }
             }
-            else if (evt.EventType == TetherEventType.FILE_TRANSFER_CANCEL_REQUESTED && !string.IsNullOrEmpty(evt.PayloadJson))
+            else if (evt.EventType == TetherEventType.HARDWARE_SYNC_REQUESTED && !string.IsNullOrEmpty(evt.PayloadJson))
             {
                 try
                 {
                     using var doc = System.Text.Json.JsonDocument.Parse(evt.PayloadJson);
-                    if (doc.RootElement.TryGetProperty("transferId", out var idElem))
+                    var root = doc.RootElement;
+                    int vol = root.TryGetProperty("vol", out var vProp) ? vProp.GetInt32() : -1;
+                    int bri = root.TryGetProperty("bri", out var bProp) ? bProp.GetInt32() : -1;
+
+                    if (vol >= 0)
                     {
-                        string transferId = idElem.GetString() ?? "";
-                        if (!string.IsNullOrEmpty(transferId))
+                        HardwareExecutor.ExecuteCommand($"volume_set:{vol}", _tetherLogger, out _);
+                        if (_sessionManager.ActiveSessionCount > 0)
                         {
-                            _fileTransferManager.CancelTransfer(transferId);
+                            _sessionManager.BroadcastRawFrame(System.Text.Json.JsonSerializer.Serialize(new
+                            {
+                                type = "COMMAND_EXECUTE",
+                                command = $"volume_set:{vol}",
+                                requestId = Guid.NewGuid().ToString()
+                            }));
+                        }
+                    }
+                    if (bri >= 0)
+                    {
+                        HardwareExecutor.ExecuteCommand($"brightness_set:{bri}", _tetherLogger, out _);
+                        if (_sessionManager.ActiveSessionCount > 0)
+                        {
+                            _sessionManager.BroadcastRawFrame(System.Text.Json.JsonSerializer.Serialize(new
+                            {
+                                type = "COMMAND_EXECUTE",
+                                command = $"brightness_set:{bri}",
+                                requestId = Guid.NewGuid().ToString()
+                            }));
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    _tetherLogger.Warning($"Failed handling FILE_TRANSFER_CANCEL_REQUESTED: {ex.Message}");
+                    _tetherLogger.Warning($"Failed handling HARDWARE_SYNC_REQUESTED: {ex.Message}");
                 }
             }
         });
@@ -128,14 +146,16 @@ public sealed class Worker : BackgroundService
         _pipeServer.Start();
         _tcpServer.Start();
         _udpDiscovery.Start();
-        _fileTransferManager.Start();
+        // File transfer manager receiver startup disabled/discarded
+        // _fileTransferManager.Start();
 
         _mdns.Start(
             port: TetherTcpServer.ListenPort,
             id: _identity.DeviceId,
             name: _identity.DeviceName,
             caps: AdvertisedCaps,
-            pqc: false);
+            pqc: false,
+            ftPort: 37124);
 
         _tetherLogger.Info($"Transport up. DeviceId={_identity.DeviceId}");
 
@@ -158,6 +178,7 @@ public sealed class Worker : BackgroundService
 
                     if (_sessionManager.ActiveSessionCount > 0)
                     {
+
                         var snap = LaptopStateCollector.GetLaptopSnapshot(_tetherLogger);
                         if (snap.IsCharging != lastIsCharging || snap.BatteryLevel != lastBattery || snap.LockState != lastLock)
                         {
@@ -193,6 +214,30 @@ public sealed class Worker : BackgroundService
     {
         try
         {
+            string exePath = Process.GetCurrentProcess().MainModule?.FileName ?? "";
+            if (!string.IsNullOrEmpty(exePath))
+            {
+                var psiDeleteBlock = new ProcessStartInfo
+                {
+                    FileName = "netsh",
+                    Arguments = $"advfirewall firewall delete rule name=all program=\"{exePath}\"",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                using var p0 = Process.Start(psiDeleteBlock);
+                p0?.WaitForExit(2000);
+
+                var psiAllowExe = new ProcessStartInfo
+                {
+                    FileName = "netsh",
+                    Arguments = $"advfirewall firewall add rule name=\"Tether Service Exe\" dir=in action=allow program=\"{exePath}\" enable=yes profile=any",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                using var pExe = Process.Start(psiAllowExe);
+                pExe?.WaitForExit(2000);
+            }
+
             var psiTcp = new ProcessStartInfo
             {
                 FileName = "netsh",
@@ -245,7 +290,7 @@ public sealed class Worker : BackgroundService
 
         _mdns.Stop();
         _udpDiscovery.Stop();
-        _fileTransferManager.Stop();
+        // _fileTransferManager.Stop();
         _tcpServer.Stop();
         _pipeServer.Dispose();
         await base.StopAsync(cancellationToken);

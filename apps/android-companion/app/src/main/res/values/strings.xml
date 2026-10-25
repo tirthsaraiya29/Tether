@@ -1,5 +1,8 @@
 <resources>
     <string name="app_name">Tether</string>
+    <string name="share_to_pc">Share to PC</string>
+    <string name="toast_sharing_to_pc">Sending file to PC&#8230;</string>
+    <string name="toast_files_sending_to_pc">Sending %1$d files to PC&#8230;</string>
     <string name="title_tether_phone">🔒 Tether Phone</string>
     <string name="status_starting">Starting&#8230;</string>
     <string name="status_ble_active">Wi-Fi LAN Active</string>

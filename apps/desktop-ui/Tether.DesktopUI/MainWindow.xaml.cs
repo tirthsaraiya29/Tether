@@ -1,10 +1,12 @@
 ﻿using Microsoft.Win32;
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
@@ -38,7 +40,6 @@ namespace Tether.DesktopUI
         private bool _isClosingAnimated = false;
         private uint _cachedBrightness = 50;
         private bool _supportsPowerSchemeBrightness = true;
-        private string _activeTransferId = "";
 
         [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
         internal class MMDeviceEnumerator { }
@@ -245,9 +246,8 @@ namespace Tether.DesktopUI
             TerminalList.ItemsSource = _terminalLogs;
 
             ResolveUserContext();
-            LogTerminal("SYSTEM // Tether Telemetry Workspace initialized (Zero-Shader Mode).");
+            LogTerminal("Tether is ready.");
             EnsureVaultDaclArchitecture();
-            UpdateDownloadFolderBtnText();
 
             StateChanged += MainWindow_StateChanged;
 
@@ -328,36 +328,33 @@ namespace Tether.DesktopUI
         {
             PollAndSynchronizeHardwareStates();
             var opacityAnim = new DoubleAnimation(0.0, 1.0, new Duration(TimeSpan.FromMilliseconds(160)));
-            opacityAnim.Completed += (_, _) => BeginAnimation(OpacityProperty, null); // Release animation clock
+            opacityAnim.Completed += (_, _) => BeginAnimation(OpacityProperty, null);
             BeginAnimation(OpacityProperty, opacityAnim);
         }
 
         private void NavRailList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (CardPipeline == null || CardHardware == null || CardVault == null) return;
-            if (NavRailList.SelectedItem is not ListBoxItem selected) return;
+            if (CardPipeline == null || CardHardware == null || CardVault == null || FilesContainer == null || LeftScrollViewer == null || RightColumnGrid == null) return;
 
-            string tag = selected.Tag as string ?? "All";
-            switch (tag)
+            var selected = (ListBoxItem)NavRailList.SelectedItem;
+            string tag = selected?.Tag as string ?? "";
+
+            if (tag == "Files")
             {
-                case "All":
-                    CardPipeline.Visibility = Visibility.Visible;
-                    CardHardware.Visibility = Visibility.Visible;
-                    CardVault.Visibility = Visibility.Visible;
-                    LeftScrollViewer?.ScrollToTop();
-                    break;
-                case "Hardware":
-                    CardPipeline.Visibility = Visibility.Collapsed;
-                    CardHardware.Visibility = Visibility.Visible;
-                    CardVault.Visibility = Visibility.Collapsed;
-                    LeftScrollViewer?.ScrollToTop();
-                    break;
-                case "Vault":
-                    CardPipeline.Visibility = Visibility.Collapsed;
-                    CardHardware.Visibility = Visibility.Collapsed;
-                    CardVault.Visibility = Visibility.Visible;
-                    LeftScrollViewer?.ScrollToTop();
-                    break;
+                if (TxtWorkspaceTitle != null) TxtWorkspaceTitle.Text = "File Transfer";
+                LeftScrollViewer.Visibility = Visibility.Collapsed;
+                RightColumnGrid.Visibility = Visibility.Collapsed;
+                FilesContainer.Visibility = Visibility.Visible;
+                LoadLocalFiles(TxtLocalPath.Text);
+                LoadRemoteFiles(TxtRemotePath.Text);
+            }
+            else
+            {
+                if (TxtWorkspaceTitle != null) TxtWorkspaceTitle.Text = "Dashboard";
+                FilesContainer.Visibility = Visibility.Collapsed;
+                LeftScrollViewer.Visibility = Visibility.Visible;
+                RightColumnGrid.Visibility = Visibility.Visible;
+                LeftScrollViewer?.ScrollToTop();
             }
         }
 
@@ -470,18 +467,34 @@ namespace Tether.DesktopUI
             switch (evt.EventType)
             {
                 case TetherEventType.PHONE_CONNECTED:
-                    TxtStatus.Text = "LINK ENFORCED";
-                    IndicatorNode.Fill = GetFluentBrush("StatusHealthyBrush", Color.FromRgb(52, 211, 153));
-                    IndicatorHalo.Fill = GetFluentBrush("HealthyHaloBrush", Color.FromArgb(90, 52, 211, 153));
-                    LogTerminal("✓ LINK // Cryptographic over-the-air validation chain locked.");
+                    var healthyBrush = GetFluentBrush("StatusHealthyBrush", Color.FromRgb(16, 185, 129));
+                    TxtStatus.Text = "CONNECTED";
+                    if (TxtStatusSub != null) TxtStatusSub.Text = $"Active ({DateTime.Now:HH:mm:ss})";
+                    if (TxtHeaderNodeBadge != null)
+                    {
+                        TxtHeaderNodeBadge.Text = "CONNECTED";
+                        TxtHeaderNodeBadge.Foreground = healthyBrush;
+                    }
+                    if (HeaderIndicatorDot != null) HeaderIndicatorDot.Fill = healthyBrush;
+                    IndicatorNode.Fill = healthyBrush;
+                    IndicatorHalo.Fill = GetFluentBrush("HealthyHaloBrush", Color.FromArgb(90, 16, 185, 129));
+                    LogTerminal("Phone connected.");
                     ForceTelemetrySyncToPhone();
                     break;
 
                 case TetherEventType.PHONE_DISCONNECTED:
-                    TxtStatus.Text = "NODE DISCONNECTED";
-                    IndicatorNode.Fill = GetFluentBrush("StatusCriticalBrush", Color.FromRgb(251, 113, 133));
-                    IndicatorHalo.Fill = GetFluentBrush("CriticalHaloBrush", Color.FromArgb(90, 251, 113, 133));
-                    LogTerminal("⚠ LINK // Target node dropped carrier radio links unexpectedly.");
+                    var criticalBrush = GetFluentBrush("StatusCriticalBrush", Color.FromRgb(244, 63, 94));
+                    TxtStatus.Text = "NOT CONNECTED";
+                    if (TxtStatusSub != null) TxtStatusSub.Text = "Looking for phone...";
+                    if (TxtHeaderNodeBadge != null)
+                    {
+                        TxtHeaderNodeBadge.Text = "DISCONNECTED";
+                        TxtHeaderNodeBadge.Foreground = criticalBrush;
+                    }
+                    if (HeaderIndicatorDot != null) HeaderIndicatorDot.Fill = criticalBrush;
+                    IndicatorNode.Fill = criticalBrush;
+                    IndicatorHalo.Fill = GetFluentBrush("CriticalHaloBrush", Color.FromArgb(90, 244, 63, 94));
+                    LogTerminal("Phone disconnected.");
                     break;
 
                 case TetherEventType.PAIRING_REQUESTED:
@@ -493,7 +506,7 @@ namespace Tether.DesktopUI
                             var root = document.RootElement;
                             string pin = root.TryGetProperty("pin", out var p) ? p.GetString() ?? "" : "";
                             string devName = root.TryGetProperty("displayName", out var d) ? d.GetString() ?? "Phone" : "Phone";
-                            LogTerminal($"⚠ PAIRING REQUEST // PIN: {pin} for device '{devName}'");
+                            LogTerminal($"Pairing request from {devName}. Enter PIN {pin} on your phone.");
 
                             string msg = $"Pairing Request from {devName}\n\nEnter this 6-digit PIN on your phone:\n\n      {pin}      \n";
                             _ = Task.Run(() =>
@@ -531,87 +544,7 @@ namespace Tether.DesktopUI
                     if (evt.PayloadJson?.Contains("wake_") == true)
                     {
                         WakeSystemDisplayAndInput();
-                        LogTerminal("✓ POWER // Interactive display wake sequence executed.");
-                    }
-                    break;
-
-                case TetherEventType.FILE_TRANSFER_PROGRESS:
-                    if (!string.IsNullOrEmpty(evt.PayloadJson))
-                    {
-                        try
-                        {
-                            using var doc = JsonDocument.Parse(evt.PayloadJson);
-                            var root = doc.RootElement;
-                            string transferId = root.GetProperty("TransferId").GetString() ?? "";
-                            string fileName = root.GetProperty("FileName").GetString() ?? "file";
-                            long fileSize = root.GetProperty("FileSize").GetInt64();
-                            long bytesTransferred = root.GetProperty("BytesTransferred").GetInt64();
-                            double speedBytesPerSec = root.GetProperty("SpeedBytesPerSec").GetDouble();
-                            string peerName = root.GetProperty("PeerName").GetString() ?? "";
-
-                            _activeTransferId = transferId;
-                            int pct = fileSize > 0 ? (int)((double)bytesTransferred / fileSize * 100.0) : 0;
-                            double speedMb = speedBytesPerSec / (1024.0 * 1024.0);
-
-                            Dispatcher.InvokeAsync(() =>
-                            {
-                                TxtTransferFileName.Text = $"Receiving: {fileName} (from {peerName})";
-                                TransferProgressBar.Value = Math.Clamp(pct, 0, 100);
-                                TxtTransferSpeed.Text = $"{speedMb:F1} MB/s";
-                                TxtTransferMeta.Text = $"{bytesTransferred / (1024 * 1024)} / {fileSize / (1024 * 1024)} MB ({pct}%)";
-                                BtnCancelActiveTransfer.Visibility = Visibility.Visible;
-                            });
-                        }
-                        catch { }
-                    }
-                    break;
-
-                case TetherEventType.FILE_TRANSFER_COMPLETED:
-                    if (!string.IsNullOrEmpty(evt.PayloadJson))
-                    {
-                        try
-                        {
-                            using var doc = JsonDocument.Parse(evt.PayloadJson);
-                            var root = doc.RootElement;
-                            string fileName = root.GetProperty("FileName").GetString() ?? "file";
-                            string destPath = root.TryGetProperty("DestinationPath", out var dp) ? dp.GetString() ?? "" : "";
-
-                            Dispatcher.InvokeAsync(() =>
-                            {
-                                TxtTransferFileName.Text = $"Completed: {fileName}";
-                                TransferProgressBar.Value = 100;
-                                TxtTransferSpeed.Text = "SHA-512 Verified";
-                                TxtTransferMeta.Text = string.IsNullOrEmpty(destPath) ? "Saved to Downloads/Tether" : $"Saved to {destPath}";
-                                BtnCancelActiveTransfer.Visibility = Visibility.Collapsed;
-                                LogTerminal($"✓ FILE TRANSFER // Received and verified '{fileName}' successfully.");
-                            });
-                        }
-                        catch { }
-                    }
-                    break;
-
-                case TetherEventType.FILE_TRANSFER_FAILED:
-                case TetherEventType.FILE_TRANSFER_CANCELLED:
-                    if (!string.IsNullOrEmpty(evt.PayloadJson))
-                    {
-                        try
-                        {
-                            using var doc = JsonDocument.Parse(evt.PayloadJson);
-                            var root = doc.RootElement;
-                            string fileName = root.GetProperty("FileName").GetString() ?? "file";
-                            string errMsg = root.TryGetProperty("ErrorMessage", out var em) ? em.GetString() ?? "Stopped" : "Stopped";
-
-                            Dispatcher.InvokeAsync(() =>
-                            {
-                                TxtTransferFileName.Text = $"Stopped: {fileName}";
-                                TransferProgressBar.Value = 0;
-                                TxtTransferSpeed.Text = "Stopped";
-                                TxtTransferMeta.Text = errMsg;
-                                BtnCancelActiveTransfer.Visibility = Visibility.Collapsed;
-                                LogTerminal($"⚠ FILE TRANSFER // '{fileName}' {errMsg}");
-                            });
-                        }
-                        catch { }
+                        LogTerminal("Screen woken.");
                     }
                     break;
             }
@@ -654,7 +587,6 @@ namespace Tether.DesktopUI
         private void ExecuteHardwareAction(string? action)
         {
             if (string.IsNullOrEmpty(action)) return;
-            LogTerminal($"⚙ SYSTEM // Executing hardware primitive context shift: {action}");
 
             float vol = GetSystemMasterVolume();
             uint bri = GetMonitorBrightnessLevel();
@@ -930,9 +862,9 @@ namespace Tether.DesktopUI
 
             var syncEvent = new TetherEvent
             {
-                EventType = TetherEventType.AUTH_SUCCESS,
+                EventType = TetherEventType.HARDWARE_SYNC_REQUESTED,
                 Source = "DesktopUI",
-                PayloadJson = $"{{\"SyncPayload\":\"sync_levels:vol={vol},bri={bri}\"}}"
+                PayloadJson = JsonSerializer.Serialize(new { vol = vol, bri = bri })
             };
             DispatchServiceBusPipe(syncEvent);
         }
@@ -946,6 +878,11 @@ namespace Tether.DesktopUI
                 _terminalLogs.RemoveAt(0);
             }
 
+            if (TxtLogCount != null)
+            {
+                TxtLogCount.Text = $"{_terminalLogs.Count} / {MaxTerminalEntries}";
+            }
+
             if (TerminalList.Items.Count > 0)
             {
                 TerminalList.ScrollIntoView(TerminalList.Items[^1]);
@@ -955,14 +892,14 @@ namespace Tether.DesktopUI
         private void BtnClearLogs_Click(object sender, RoutedEventArgs e)
         {
             _terminalLogs.Clear();
-            LogTerminal("SYSTEM // Diagnostic event ring buffer cleared.");
+            LogTerminal("Log cleared.");
         }
 
         private void BtnCopyLogs_Click(object sender, RoutedEventArgs e)
         {
             if (_terminalLogs.Count == 0) return;
             Clipboard.SetText(string.Join(Environment.NewLine, _terminalLogs));
-            LogTerminal("✓ BUFFER // Event stream copied to system clipboard.");
+            LogTerminal("Log copied to clipboard.");
         }
 
         private async void DispatchServiceBusPipe(TetherEvent evt)
@@ -989,12 +926,13 @@ namespace Tether.DesktopUI
                 }
                 catch (Exception ex)
                 {
-                    LogTerminal($"⚠ PIPE // Dispatch failed: {ex.Message}");
+                    Debug.WriteLine($"Dispatch failed: {ex.Message}");
+                    LogTerminal("Could not reach the Tether service. Retrying…");
                     break;
                 }
             }
             if (!_isListening) return;
-            LogTerminal("⚠ PIPE // Could not reach Tether service – verify service process status.");
+            LogTerminal("Tether service is not running. Click 'Restart Tether Service' to try again.");
         }
 
         private void BtnLockdownOverride_Click(object sender, RoutedEventArgs e)
@@ -1006,7 +944,7 @@ namespace Tether.DesktopUI
                 Source = "DesktopUI"
             };
             DispatchServiceBusPipe(evt);
-            LogTerminal("⚠ OVERRIDE // System lockdown event dispatched.");
+            LogTerminal("PC locked.");
         }
 
         private async void BtnRestartService_Click(object sender, RoutedEventArgs e)
@@ -1014,12 +952,59 @@ namespace Tether.DesktopUI
             BtnRestartService.IsEnabled = false;
             try
             {
-                LogTerminal($"⚙ SERVICE // Restart requested for '{CommServiceName}'...");
+                LogTerminal("Restarting the Tether service…");
                 await RestartCommServiceAsync();
             }
             finally
             {
                 BtnRestartService.IsEnabled = true;
+            }
+        }
+
+        private bool TryStartStandaloneCommService()
+        {
+            try
+            {
+                LogTerminal("Starting the Tether service directly…");
+                string appDir = AppDomain.CurrentDomain.BaseDirectory;
+                string serviceExePath = Path.Combine(appDir, "Tether.CommunicationService.exe");
+
+                if (!File.Exists(serviceExePath))
+                {
+                    string solutionDir = Path.GetFullPath(Path.Combine(appDir, "..", "..", "..", "..", ".."));
+                    string commBin = Path.Combine(solutionDir, "services", "communication-service", "Tether.CommunicationService", "bin", "Debug");
+                    if (Directory.Exists(commBin))
+                    {
+                        var matches = Directory.GetFiles(commBin, "Tether.CommunicationService.exe", SearchOption.AllDirectories);
+                        if (matches.Length > 0)
+                        {
+                            serviceExePath = matches[0];
+                        }
+                    }
+                }
+
+                if (File.Exists(serviceExePath))
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = serviceExePath,
+                        UseShellExecute = true,
+                        CreateNoWindow = false
+                    };
+                    Process.Start(psi);
+                    LogTerminal("Tether service started.");
+                    return true;
+                }
+                else
+                {
+                    LogTerminal("Could not find the Tether service program.");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"Could not start the Tether service: {ex.Message}");
+                return false;
             }
         }
 
@@ -1033,8 +1018,7 @@ namespace Tether.DesktopUI
                 scmHandle = OpenSCManager(null, null, SC_MANAGER_CONNECT);
                 if (scmHandle == IntPtr.Zero)
                 {
-                    LogTerminal("❌ SERVICE // Cannot open Service Control Manager. Run Tether Desktop as Administrator.");
-                    return false;
+                    return TryStartStandaloneCommService();
                 }
 
                 serviceHandle = OpenService(scmHandle, CommServiceName,
@@ -1042,14 +1026,12 @@ namespace Tether.DesktopUI
 
                 if (serviceHandle == IntPtr.Zero)
                 {
-                    int err = Marshal.GetLastWin32Error();
-                    LogTerminal($"❌ SERVICE // OpenService('{CommServiceName}') failed (Win32 {err}). Is it installed?");
-                    return false;
+                    return TryStartStandaloneCommService();
                 }
 
                 if (!QueryServiceStatus(serviceHandle, out SERVICE_STATUS status))
                 {
-                    LogTerminal("❌ SERVICE // QueryServiceStatus failed.");
+                    LogTerminal("Could not read the Tether service status.");
                     return false;
                 }
 
@@ -1058,12 +1040,11 @@ namespace Tether.DesktopUI
                     SERVICE_STATUS stopStatus = default;
                     if (!ControlService(serviceHandle, SERVICE_CONTROL_STOP, ref stopStatus))
                     {
-                        int err = Marshal.GetLastWin32Error();
-                        LogTerminal($"❌ SERVICE // Stop request rejected (Win32 {err}).");
+                        LogTerminal("Could not stop the Tether service.");
                         return false;
                     }
 
-                    LogTerminal($"⏳ SERVICE // Stop signal sent to '{CommServiceName}', awaiting STOPPED state...");
+                    LogTerminal("Stopping the Tether service…");
 
                     var sw = Stopwatch.StartNew();
                     while (sw.ElapsedMilliseconds < 15000)
@@ -1075,7 +1056,7 @@ namespace Tether.DesktopUI
 
                     if (status.dwCurrentState != SERVICE_STOPPED)
                     {
-                        LogTerminal("❌ SERVICE // Service did not reach STOPPED within 15s. Aborting restart.");
+                        LogTerminal("The Tether service did not stop in time.");
                         return false;
                     }
                 }
@@ -1085,17 +1066,17 @@ namespace Tether.DesktopUI
                     int err = Marshal.GetLastWin32Error();
                     if (err != ERROR_SERVICE_ALREADY_RUNNING)
                     {
-                        LogTerminal($"❌ SERVICE // StartService failed (Win32 {err}).");
+                        LogTerminal("Could not start the Tether service.");
                         return false;
                     }
                 }
 
-                LogTerminal($"✓ SERVICE // '{CommServiceName}' restart sequence executed successfully.");
+                LogTerminal("Tether service restarted.");
                 return true;
             }
             catch (Exception ex)
             {
-                LogTerminal($"❌ SERVICE // Exception while restarting: {ex.Message}");
+                LogTerminal($"Could not restart the Tether service: {ex.Message}");
                 return false;
             }
             finally
@@ -1143,109 +1124,13 @@ namespace Tether.DesktopUI
                     }
 
                     rootKey.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
-                    LogTerminal("⚠️ VAULT // Vault architecture upgraded to Secrets subkey (DACL v2). Please re-commit your Windows password.");
+                    LogTerminal("Password storage upgraded. Please re-enter your Windows password.");
                 }
             }
             catch (Exception ex)
             {
-                LogTerminal($"Vault DACL setup warning: {ex.Message}");
+                LogTerminal($"Password setup notice: {ex.Message}");
             }
-        }
-
-        private void BtnOpenDownloadsFolder_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                string targetFolder = GetCurrentDownloadFolder();
-                if (!Directory.Exists(targetFolder))
-                {
-                    Directory.CreateDirectory(targetFolder);
-                }
-                Process.Start("explorer.exe", targetFolder);
-            }
-            catch (Exception ex)
-            {
-                LogTerminal($"⚠ ERROR // Could not open Downloads folder: {ex.Message}");
-            }
-        }
-
-        private void MenuItem_ChangeDownloadFolder_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                var dialog = new Microsoft.Win32.OpenFolderDialog
-                {
-                    Title = "Select Default Download Folder for Tether",
-                    InitialDirectory = GetCurrentDownloadFolder()
-                };
-
-                if (dialog.ShowDialog() == true)
-                {
-                    string newPath = dialog.FolderName;
-                    string settingsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tether");
-                    Directory.CreateDirectory(settingsDir);
-                    string settingsFile = Path.Combine(settingsDir, "settings.json");
-
-                    string json = "{}";
-                    if (File.Exists(settingsFile)) json = File.ReadAllText(settingsFile);
-
-                    var doc = JsonNode.Parse(json)?.AsObject() ?? new JsonObject();
-                    doc["DownloadPath"] = newPath;
-
-                    File.WriteAllText(settingsFile, doc.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-
-                    UpdateDownloadFolderBtnText();
-                    LogTerminal($"Download folder changed to: {newPath}");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogTerminal($"⚠ ERROR // Could not change folder: {ex.Message}");
-            }
-        }
-
-        private string GetCurrentDownloadFolder()
-        {
-            try
-            {
-                string settingsFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tether", "settings.json");
-                if (File.Exists(settingsFile))
-                {
-                    var doc = JsonDocument.Parse(File.ReadAllText(settingsFile));
-                    if (doc.RootElement.TryGetProperty("DownloadPath", out var pathProp))
-                    {
-                        string customPath = pathProp.GetString() ?? "";
-                        if (!string.IsNullOrWhiteSpace(customPath) && Directory.Exists(customPath))
-                        {
-                            return customPath;
-                        }
-                    }
-                }
-            }
-            catch { }
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Tether");
-        }
-
-        private void UpdateDownloadFolderBtnText()
-        {
-            string current = GetCurrentDownloadFolder();
-            TxtDownloadFolderBtn.Text = $"Open {new DirectoryInfo(current).Name}";
-        }
-
-        private void BtnCancelActiveTransfer_Click(object sender, RoutedEventArgs e)
-        {
-            if (string.IsNullOrEmpty(_activeTransferId)) return;
-
-            var cancelEvt = new TetherEvent
-            {
-                EventType = TetherEventType.FILE_TRANSFER_CANCEL_REQUESTED,
-                Timestamp = DateTime.UtcNow,
-                Source = "DesktopUI",
-                PayloadJson = JsonSerializer.Serialize(new { transferId = _activeTransferId })
-            };
-
-            DispatchServiceBusPipe(cancelEvt);
-            LogTerminal($"⚠ CANCEL REQUEST // Dispatched cancellation request for transfer '{_activeTransferId}'");
         }
 
         private void BtnCommitVault_Click(object sender, RoutedEventArgs e)
@@ -1262,7 +1147,8 @@ namespace Tether.DesktopUI
 
                 if (!LogonUser(Environment.UserName, Environment.UserDomainName, Marshal.PtrToStringUni(unmanagedPasswordPtr), 2, 0, out IntPtr token))
                 {
-                    LogTerminal("❌ VAULT // Windows operational token assignment failed. Secret rejected.");
+                    if (TxtVaultBadge != null) TxtVaultBadge.Text = "INCORRECT PASSWORD";
+                    LogTerminal("Incorrect password. Please enter your valid Windows password.");
                     return;
                 }
                 CloseHandle(token);
@@ -1282,20 +1168,49 @@ namespace Tether.DesktopUI
                         byte[] protectedPayload = new byte[dataOut.cbData];
                         Marshal.Copy(dataOut.pbData, protectedPayload, 0, dataOut.cbData);
 
-                        EnsureVaultDaclArchitecture();
-
-                        using (RegistryKey? secretsKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true))
+                        try
                         {
-                            secretsKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
-                        }
+                            EnsureVaultDaclArchitecture();
 
-                        using (RegistryKey? rootKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
+                            using (RegistryKey? secretsKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true))
+                            {
+                                secretsKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
+                            }
+
+                            using (RegistryKey? rootKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
+                            {
+                                rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
+                            }
+
+                            if (TxtVaultBadge != null) TxtVaultBadge.Text = "PASSWORD SAVED";
+                            LogTerminal("Windows password saved securely.");
+                            TxtPassword.Clear();
+                        }
+                        catch (UnauthorizedAccessException)
                         {
-                            rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
-                        }
+                            try
+                            {
+                                string hexPayload = Convert.ToHexString(protectedPayload);
+                                string exePath = Environment.ProcessPath ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
 
-                        LogTerminal("✓ VAULT // Cryptographic alignment sealed in Secrets subkey with application entropy.");
-                        TxtPassword.Clear();
+                                var startInfo = new ProcessStartInfo
+                                {
+                                    FileName = exePath,
+                                    Arguments = $"--commit-vault-payload \"{hexPayload}\"",
+                                    Verb = "runas",
+                                    UseShellExecute = true
+                                };
+
+                                Process.Start(startInfo);
+                                if (TxtVaultBadge != null) TxtVaultBadge.Text = "PASSWORD SAVED";
+                                LogTerminal("Windows password saved securely.");
+                                TxtPassword.Clear();
+                            }
+                            catch (Exception ex)
+                            {
+                                LogTerminal($"Could not save password: {ex.Message}");
+                            }
+                        }
                     }
                     finally
                     {
@@ -1303,7 +1218,7 @@ namespace Tether.DesktopUI
                     }
                 }
             }
-            catch (Exception ex) { LogTerminal($"Fatal registry exception: {ex.Message}"); }
+            catch (Exception ex) { LogTerminal($"Could not save password: {ex.Message}"); }
             finally
             {
                 if (unmanagedEntropy != IntPtr.Zero)
@@ -1315,6 +1230,238 @@ namespace Tether.DesktopUI
                     byte[] zeroBuffer = new byte[TxtPassword.SecurePassword.Length * 2];
                     Marshal.Copy(zeroBuffer, 0, unmanagedPasswordPtr, zeroBuffer.Length);
                     Marshal.ZeroFreeGlobalAllocUnicode(unmanagedPasswordPtr);
+                }
+            }
+        }
+
+        // ==========================================
+        // FILE TRANSFER LOGIC
+        // ==========================================
+
+        private static readonly System.Net.Http.HttpClient _httpClient = new System.Net.Http.HttpClient(
+            new System.Net.Http.HttpClientHandler { ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true }
+        )
+        { BaseAddress = new Uri("https://localhost:37124") };
+
+        public class FileItem
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("name")]
+            public string Name { get; set; } = "";
+
+            [System.Text.Json.Serialization.JsonPropertyName("isDirectory")]
+            public bool IsDirectory { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("path")]
+            public string Path { get; set; } = "";
+
+            [System.Text.Json.Serialization.JsonIgnore]
+            public string FullPath => Path;
+
+            [System.Text.Json.Serialization.JsonPropertyName("size")]
+            public long RawSize { get; set; }
+
+            [System.Text.Json.Serialization.JsonIgnore]
+            public string Size => IsDirectory ? "Directory" : FormatByteSize(RawSize);
+
+            [System.Text.Json.Serialization.JsonIgnore]
+            public string Type => IsDirectory ? "Folder" : "File";
+
+            [System.Text.Json.Serialization.JsonIgnore]
+            public string Icon => IsDirectory ? "\uE8B7" : "\uE8A5";
+        }
+
+        private static string FormatByteSize(long bytes)
+        {
+            if (bytes < 1024) return $"{bytes} B";
+            if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+            return $"{bytes / (1024.0 * 1024.0):F2} MB";
+        }
+
+        private void LoadLocalFiles(string path)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    path = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                }
+
+                var dir = new DirectoryInfo(path);
+                if (!dir.Exists) return;
+
+                TxtLocalPath.Text = dir.FullName;
+                TxtLocalPath.CaretIndex = TxtLocalPath.Text.Length;
+                TxtLocalPath.ScrollToEnd();
+                TxtLocalPath.ToolTip = dir.FullName;
+
+                var items = new List<FileItem>();
+                foreach (var d in dir.GetDirectories())
+                {
+                    items.Add(new FileItem { Name = d.Name, Path = d.FullName, IsDirectory = true });
+                }
+                foreach (var f in dir.GetFiles())
+                {
+                    items.Add(new FileItem { Name = f.Name, Path = f.FullName, RawSize = f.Length, IsDirectory = false });
+                }
+
+                ListLocalFiles.ItemsSource = items;
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"Local file error: {ex.Message}");
+            }
+        }
+
+        private void BtnLocalUp_Click(object sender, RoutedEventArgs e)
+        {
+            var dir = new DirectoryInfo(TxtLocalPath.Text);
+            if (dir.Parent != null)
+            {
+                LoadLocalFiles(dir.Parent.FullName);
+            }
+        }
+
+        private void TxtLocalPath_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter) LoadLocalFiles(TxtLocalPath.Text);
+        }
+
+        private void ListLocalFiles_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (ListLocalFiles.SelectedItem is FileItem item && item.IsDirectory)
+            {
+                LoadLocalFiles(item.FullPath);
+            }
+        }
+
+        private async void LoadRemoteFiles(string path)
+        {
+            try
+            {
+                if (path == null) path = "";
+
+                TxtRemotePath.Text = path;
+                TxtRemotePath.CaretIndex = TxtRemotePath.Text.Length;
+                TxtRemotePath.ScrollToEnd();
+                TxtRemotePath.ToolTip = string.IsNullOrEmpty(path) ? "Storage Roots" : path;
+
+                var payload = new { path = path };
+                var content = new System.Net.Http.StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.PostAsync("/api/fs/remote/list", content);
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    var list = JsonSerializer.Deserialize<List<FileItem>>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    ListRemoteFiles.ItemsSource = list;
+                }
+                else
+                {
+                    LogTerminal($"Phone connection status: {response.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"Phone storage error: {ex.Message}");
+            }
+        }
+
+        private void BtnRemoteUp_Click(object sender, RoutedEventArgs e)
+        {
+            string p = TxtRemotePath.Text.TrimEnd('/');
+            int lastSlash = p.LastIndexOf('/');
+            if (lastSlash > 0)
+            {
+                LoadRemoteFiles(p.Substring(0, lastSlash));
+            }
+            else
+            {
+                LoadRemoteFiles("");
+            }
+        }
+
+        private void TxtRemotePath_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter) LoadRemoteFiles(TxtRemotePath.Text);
+        }
+
+        private void BtnRemoteRefresh_Click(object sender, RoutedEventArgs e)
+        {
+            LoadRemoteFiles(TxtRemotePath.Text);
+        }
+
+        private void ListRemoteFiles_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (ListRemoteFiles.SelectedItem is FileItem item && item.IsDirectory)
+            {
+                if (!string.IsNullOrWhiteSpace(item.FullPath))
+                {
+                    LoadRemoteFiles(item.FullPath);
+                }
+                else
+                {
+                    string current = TxtRemotePath.Text;
+                    string sep = string.IsNullOrEmpty(current) || current.EndsWith("/") ? "" : "/";
+                    string target = current + sep + item.Name;
+                    LoadRemoteFiles(target);
+                }
+            }
+        }
+
+        private async void BtnUpload_Click(object sender, RoutedEventArgs e)
+        {
+            if (ListLocalFiles.SelectedItem is FileItem item && !item.IsDirectory)
+            {
+                try
+                {
+                    LogTerminal($"Sending {item.Name} to phone...");
+                    var payload = new { localPath = item.FullPath, remoteDir = TxtRemotePath.Text };
+                    var content = new System.Net.Http.StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+                    var res = await _httpClient.PostAsync("/api/fs/remote/upload", content);
+                    if (res.IsSuccessStatusCode)
+                    {
+                        LogTerminal("File sent to phone.");
+                        await Task.Delay(2000);
+                        LoadRemoteFiles(TxtRemotePath.Text);
+                    }
+                    else
+                    {
+                        LogTerminal($"Upload error: {res.StatusCode}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogTerminal($"Upload error: {ex.Message}");
+                }
+            }
+        }
+
+        private async void BtnDownload_Click(object sender, RoutedEventArgs e)
+        {
+            if (ListRemoteFiles.SelectedItem is FileItem item && !item.IsDirectory)
+            {
+                try
+                {
+                    LogTerminal($"Downloading {item.Name} from phone...");
+                    string sep = TxtRemotePath.Text.EndsWith("/") ? "" : "/";
+                    string remotePath = TxtRemotePath.Text + sep + item.Name;
+                    var payload = new { remotePath = remotePath, localDir = TxtLocalPath.Text };
+                    var content = new System.Net.Http.StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+                    var res = await _httpClient.PostAsync("/api/fs/remote/download", content);
+                    if (res.IsSuccessStatusCode)
+                    {
+                        LogTerminal("File downloaded to PC.");
+                        await Task.Delay(2000);
+                        LoadLocalFiles(TxtLocalPath.Text);
+                    }
+                    else
+                    {
+                        LogTerminal($"Download error: {res.StatusCode}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogTerminal($"Download error: {ex.Message}");
                 }
             }
         }

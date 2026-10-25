@@ -131,7 +131,7 @@ Commands are authorized against granted capabilities prior to execution:
 | :--- | :--- | :--- |
 | `MEDIA` | Volume adjustment, brightness, playback control | Low |
 | `CLIPBOARD` | Read / write clipboard contents | Low |
-| `FILES` | Direct file transfers, file browsing | Medium |
+| `FILES` | Direct file transfers, file browsing (Discarded / Excluded) | Medium |
 | `NOTIFICATIONS` | Notification mirror & dismissal | Medium |
 | `TERMINAL` | Interactive CMD, PowerShell, WSL access | High |
 | `POWER_ELEVATED` | Shutdown, Reboot, Sleep, System Halt | High / Critical |
