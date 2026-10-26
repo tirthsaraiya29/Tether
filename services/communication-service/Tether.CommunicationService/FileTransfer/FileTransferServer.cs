@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using System;
@@ -14,6 +15,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Sessions;
+using Tether.CommunicationService.Trust;
 using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService.FileTransfer;
@@ -24,16 +26,18 @@ public class FileTransferServer : IHostedService
     private readonly WindowsIdentity _identity;
     private readonly TokenStore _tokenStore;
     private readonly SessionManager _sessionManager;
+    private readonly TrustStore _trustStore;
     private WebApplication? _app;
 
     private static readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingRequests = new();
 
-    public FileTransferServer(ITetherLogger logger, WindowsIdentity identity, TokenStore tokenStore, SessionManager sessionManager)
+    public FileTransferServer(ITetherLogger logger, WindowsIdentity identity, TokenStore tokenStore, SessionManager sessionManager, TrustStore trustStore)
     {
         _logger = logger;
         _identity = identity;
         _tokenStore = tokenStore;
         _sessionManager = sessionManager;
+        _trustStore = trustStore;
     }
 
     public static bool TryGetValidPath(string? inputPath, out string fullPath)
@@ -67,12 +71,12 @@ public class FileTransferServer : IHostedService
             string winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
             string progDataTether = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether");
 
-            if (!string.IsNullOrEmpty(winDir) && normalized.StartsWith(winDir, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(winDir) && (normalized.Equals(winDir, StringComparison.OrdinalIgnoreCase) || normalized.StartsWith(winDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
             {
                 return false;
             }
 
-            if (!string.IsNullOrEmpty(progDataTether) && normalized.StartsWith(progDataTether, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(progDataTether) && (normalized.Equals(progDataTether, StringComparison.OrdinalIgnoreCase) || normalized.StartsWith(progDataTether + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
             {
                 return false;
             }
@@ -123,11 +127,24 @@ public class FileTransferServer : IHostedService
         {
             options.Listen(IPAddress.IPv6Any, 37124, listenOptions =>
             {
-                listenOptions.UseHttps(_identity.Certificate);
+                listenOptions.UseHttps(httpsOptions =>
+                {
+                    if (_identity.Certificate != null && _identity.Certificate.HasPrivateKey)
+                    {
+                        httpsOptions.ServerCertificateSelector = (connectionContext, name) => _identity.Certificate;
+                    }
+                    else
+                    {
+                        httpsOptions.ServerCertificate = _identity.Certificate;
+                    }
+                    httpsOptions.ClientCertificateMode = ClientCertificateMode.AllowCertificate;
+                    httpsOptions.ClientCertificateValidation = (cert, chain, errors) => true;
+                });
             });
         });
 
         builder.Services.AddSingleton(_tokenStore);
+        builder.Services.AddSingleton(_trustStore);
         builder.Services.AddAuthorization();
 
         _app = builder.Build();
@@ -296,7 +313,9 @@ public class FileTransferServer : IHostedService
             var tcs = new TaskCompletionSource<string>();
             _pendingRequests[reqId] = tcs;
 
-            var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(60));
+            var activeDevice = _sessionManager.GetActiveSessions().Select(s => s.Device).FirstOrDefault(d => d != null);
+            string targetFingerprint = activeDevice?.Fingerprint ?? "";
+            var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(10), targetFingerprint);
             var fileName = Path.GetFileName(remotePath);
             var windowsDestPath = Path.Combine(localDir, fileName);
 
@@ -322,7 +341,9 @@ public class FileTransferServer : IHostedService
             var tcs = new TaskCompletionSource<string>();
             _pendingRequests[reqId] = tcs;
 
-            var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(60));
+            var activeDevice = _sessionManager.GetActiveSessions().Select(s => s.Device).FirstOrDefault(d => d != null);
+            string targetFingerprint = activeDevice?.Fingerprint ?? "";
+            var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(10), targetFingerprint);
             var fileName = Path.GetFileName(localPath);
 
             _sessionManager.BroadcastRawFrame(JsonSerializer.Serialize(new {

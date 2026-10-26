@@ -81,18 +81,53 @@ public class TokenStore
         {
             if (DateTimeOffset.UtcNow <= metadata.Expiry)
             {
-                if (expectedDeviceFingerprint != null &&
-                    metadata.DeviceFingerprint != null &&
-                    !string.Equals(metadata.DeviceFingerprint, "LOCAL_UI", StringComparison.Ordinal) &&
-                    !string.Equals(metadata.DeviceFingerprint, expectedDeviceFingerprint, StringComparison.OrdinalIgnoreCase))
+                if (expectedDeviceFingerprint != null)
                 {
-                    return false;
+                    if (string.Equals(expectedDeviceFingerprint, "LOCAL_UI", StringComparison.Ordinal))
+                    {
+                        if (metadata.DeviceFingerprint != null &&
+                            !string.Equals(metadata.DeviceFingerprint, "LOCAL_UI", StringComparison.Ordinal))
+                        {
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        if (metadata.DeviceFingerprint != null &&
+                            string.Equals(metadata.DeviceFingerprint, "LOCAL_UI", StringComparison.Ordinal))
+                        {
+                            return false;
+                        }
+                        if (metadata.DeviceFingerprint != null &&
+                            !string.Equals(metadata.DeviceFingerprint, expectedDeviceFingerprint, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return false;
+                        }
+                    }
                 }
                 return true;
             }
             _tokens.TryRemove(token, out _);
         }
         return false;
+    }
+
+    public bool TryGetTokenMetadata(string token, out (DateTimeOffset Expiry, string? DeviceFingerprint) metadata)
+    {
+        metadata = default;
+        if (string.IsNullOrWhiteSpace(token)) return false;
+        if (_tokens.TryGetValue(token, out var data))
+        {
+            metadata = (data.Expiry, data.DeviceFingerprint);
+            return true;
+        }
+        return false;
+    }
+
+    public bool RevokeToken(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return false;
+        return _tokens.TryRemove(token, out _);
     }
 
     private void Cleanup()
@@ -117,9 +152,11 @@ public class TokenStore
 
             var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
             var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var interactiveSid = new SecurityIdentifier(WellKnownSidType.InteractiveSid, null);
 
             sec.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, AccessControlType.Allow));
             sec.AddAccessRule(new FileSystemAccessRule(adminSid, FileSystemRights.FullControl, AccessControlType.Allow));
+            sec.AddAccessRule(new FileSystemAccessRule(interactiveSid, FileSystemRights.Read, AccessControlType.Allow));
 
             try
             {

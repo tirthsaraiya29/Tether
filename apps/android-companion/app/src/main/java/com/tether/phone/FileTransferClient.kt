@@ -11,15 +11,19 @@ import okio.source
 import org.json.JSONArray
 import java.net.Socket
 import java.security.MessageDigest
+import java.security.Principal
+import java.security.PrivateKey
 import java.security.SecureRandom
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.KeyManager
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.TrustManager
+import javax.net.ssl.X509ExtendedKeyManager
 import javax.net.ssl.X509ExtendedTrustManager
 
 data class FileNode(
@@ -85,6 +89,10 @@ object FileTransferClient {
 
     private val clientCache = ConcurrentHashMap<Int, OkHttpClient>()
 
+    fun clearCache() {
+        clientCache.clear()
+    }
+
     fun resolveContext(providedContext: Context?): Context? {
         return providedContext ?: try { TetherApplication.instance } catch (_: Exception) { null }
     }
@@ -106,20 +114,80 @@ object FileTransferClient {
             return storedKey
         }
 
-        // Fallback to active transport peer certificate if control channel is established
-        return try {
-            TetherLanService.instance?.getActivePeerPublicKeyBytes()
-        } catch (_: Exception) {
-            null
+        val service = TetherLanService.instance
+        if (service != null &&
+            (service.currentState == TransportState.READY || service.currentState == TransportState.AUTHENTICATED)) {
+            return try {
+                service.getActivePeerPublicKeyBytes()
+            } catch (_: Exception) {
+                null
+            }
         }
+
+        return null
+    }
+
+    private fun addAuthAndProofHeaders(
+        builder: Request.Builder,
+        token: String,
+        context: Context?,
+        customPinnedKey: ByteArray?
+    ) {
+        val timestampMs = System.currentTimeMillis().toString()
+        val pinnedKey = resolvePinnedKey(context, customPinnedKey)
+        val winSpkiBase64 = if (pinnedKey != null && pinnedKey.isNotEmpty()) {
+            android.util.Base64.encodeToString(pinnedKey, android.util.Base64.NO_WRAP)
+        } else ""
+
+        val proofData = "$token:$timestampMs:$winSpkiBase64".toByteArray(Charsets.UTF_8)
+        val signatureBytes = try {
+            ProductionSecurityEngine().signWithIdentityKey(proofData)
+        } catch (_: Exception) {
+            byteArrayOf()
+        }
+        val proofBase64 = android.util.Base64.encodeToString(signatureBytes, android.util.Base64.NO_WRAP)
+
+        builder
+            .header("Authorization", "Bearer $token")
+            .header("X-Tether-Client-Proof", proofBase64)
+            .header("X-Tether-Client-Timestamp", timestampMs)
     }
 
     fun getPinnedClient(context: Context?, customPinnedKey: ByteArray? = null): OkHttpClient {
-        val cacheKey = customPinnedKey?.contentHashCode() ?: 0
+        val pinnedKey = resolvePinnedKey(context, customPinnedKey)
+        val cacheKey = pinnedKey?.contentHashCode() ?: 0
+
         return clientCache.getOrPut(cacheKey) {
             val trustManager = TetherPinnedTrustManager(context, customPinnedKey)
-            val sslContext = SSLContext.getInstance("TLSv1.3").apply {
-                init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
+
+            val customKeyManager = object : X509ExtendedKeyManager() {
+                override fun getClientAliases(keyType: String?, issuers: Array<out Principal>?): Array<String> = arrayOf("TetherIdentity")
+                override fun chooseClientAlias(keyType: Array<out String>?, issuers: Array<out Principal>?, socket: Socket?): String = "TetherIdentity"
+                override fun chooseEngineClientAlias(keyType: Array<out String>?, issuers: Array<out Principal>?, engine: SSLEngine?): String = "TetherIdentity"
+                override fun getServerAliases(keyType: String?, issuers: Array<out Principal>?): Array<String> = emptyArray()
+                override fun chooseServerAlias(keyType: String?, issuers: Array<out Principal>?, socket: Socket?): String? = null
+                override fun chooseEngineServerAlias(keyType: String?, issuers: Array<out Principal>?, engine: SSLEngine?): String? = null
+
+                override fun getCertificateChain(alias: String?): Array<X509Certificate>? {
+                    return try {
+                        val engine = ProductionSecurityEngine()
+                        arrayOf(engine.getIdentityCertificate())
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+
+                override fun getPrivateKey(alias: String?): PrivateKey? {
+                    return try {
+                        ProductionSecurityEngine().getIdentityPrivateKey()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            }
+
+            val sslContext = SSLContext.getInstance("TLS").apply {
+                init(arrayOf<KeyManager>(customKeyManager), arrayOf<TrustManager>(trustManager), SecureRandom())
             }
 
             val hostnameVerifier = HostnameVerifier { _, session ->
@@ -127,9 +195,9 @@ object FileTransferClient {
                     val certs = session.peerCertificates
                     if (certs.isEmpty() || certs[0] !is X509Certificate) return@HostnameVerifier false
                     val leaf = certs[0] as X509Certificate
-                    val pinnedBytes = resolvePinnedKey(context, customPinnedKey)
-                    if (pinnedBytes == null || pinnedBytes.isEmpty()) return@HostnameVerifier false
-                    MessageDigest.isEqual(pinnedBytes, leaf.publicKey.encoded)
+                    val resolvedKey = resolvePinnedKey(context, customPinnedKey)
+                    if (resolvedKey == null || resolvedKey.isEmpty()) return@HostnameVerifier false
+                    MessageDigest.isEqual(resolvedKey, leaf.publicKey.encoded)
                 } catch (_: Exception) {
                     false
                 }
@@ -166,12 +234,10 @@ object FileTransferClient {
             urlBuilder.addQueryParameter("path", path)
         }
 
-        val request = Request.Builder()
-            .url(urlBuilder.build())
-            .header("Authorization", "Bearer $token")
-            .build()
+        val requestBuilder = Request.Builder().url(urlBuilder.build())
+        addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
 
-        client.newCall(request).execute().use { response ->
+        client.newCall(requestBuilder.build()).execute().use { response ->
             if (!response.isSuccessful) {
                 throw Exception("Failed to list directory: ${response.code} ${response.message}")
             }
@@ -214,12 +280,10 @@ object FileTransferClient {
             .addQueryParameter("path", path)
             .build()
 
-        val request = Request.Builder()
-            .url(url)
-            .header("Authorization", "Bearer $token")
-            .build()
+        val requestBuilder = Request.Builder().url(url)
+        addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
 
-        client.newCall(request).execute().use { response ->
+        client.newCall(requestBuilder.build()).execute().use { response ->
             if (!response.isSuccessful) {
                 throw Exception("Failed to download file: ${response.code} ${response.message}")
             }
@@ -268,13 +332,10 @@ object FileTransferClient {
             }
         }
 
-        val request = Request.Builder()
-            .url(url)
-            .header("Authorization", "Bearer $token")
-            .post(requestBody)
-            .build()
+        val requestBuilder = Request.Builder().url(url).post(requestBody)
+        addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
 
-        client.newCall(request).execute().use { response ->
+        client.newCall(requestBuilder.build()).execute().use { response ->
             if (!response.isSuccessful) {
                 throw Exception("Failed to upload file: ${response.code} ${response.message}")
             }
