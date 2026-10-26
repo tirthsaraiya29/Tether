@@ -11,8 +11,14 @@ import kotlinx.coroutines.launch
 
 class TetherApplication : Application() {
 
+    companion object {
+        lateinit var instance: TetherApplication
+            private set
+    }
+
     override fun onCreate() {
         super.onCreate()
+        instance = this
 
         // Initialize all notification channels idempotently
         TetherNotificationChannels.createAllChannels(this)

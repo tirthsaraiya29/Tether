@@ -36,7 +36,7 @@ public class FileTransferServer : IHostedService
         _sessionManager = sessionManager;
     }
 
-    private static bool TryGetValidPath(string? inputPath, out string fullPath)
+    public static bool TryGetValidPath(string? inputPath, out string fullPath)
     {
         fullPath = string.Empty;
         if (string.IsNullOrWhiteSpace(inputPath))
@@ -51,8 +51,28 @@ public class FileTransferServer : IHostedService
                 return false;
             }
 
+            // Block UNC paths (e.g. \\server\share or //server/share)
+            if (inputPath.StartsWith(@"\\") || inputPath.StartsWith("//"))
+            {
+                return false;
+            }
+
             var normalized = Path.GetFullPath(inputPath);
             if (!Path.IsPathRooted(normalized))
+            {
+                return false;
+            }
+
+            // Block Windows system directories and Tether application internal store
+            string winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            string progDataTether = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether");
+
+            if (!string.IsNullOrEmpty(winDir) && normalized.StartsWith(winDir, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(progDataTether) && normalized.StartsWith(progDataTether, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -88,16 +108,22 @@ public class FileTransferServer : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        if (_identity.Certificate == null)
+        {
+            _logger.Error("FileTransferServer: Failed to start HTTPS listener because identity certificate is unavailable.");
+            throw new InvalidOperationException("Identity certificate is required for HTTPS FileTransferServer.");
+        }
+
+        // Initialize local loopback token for DesktopUI
+        _tokenStore.GetOrCreateLocalUiToken();
+
         var builder = WebApplication.CreateBuilder();
 
         builder.WebHost.UseKestrel(options =>
         {
             options.Listen(IPAddress.IPv6Any, 37124, listenOptions =>
             {
-                if (_identity.Certificate != null)
-                {
-                    listenOptions.UseHttps(_identity.Certificate);
-                }
+                listenOptions.UseHttps(_identity.Certificate);
             });
         });
 
@@ -191,7 +217,7 @@ public class FileTransferServer : IHostedService
             {
                 if (!TryGetValidPath(path, out var fullPath))
                 {
-                    return Results.BadRequest("Path is required");
+                    return Results.BadRequest("Path is required or restricted");
                 }
 
                 var dir = Path.GetDirectoryName(fullPath);
@@ -200,8 +226,24 @@ public class FileTransferServer : IHostedService
                     Directory.CreateDirectory(dir);
                 }
 
-                using var fileStream = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
-                await context.Request.Body.CopyToAsync(fileStream);
+                string tempPath = fullPath + $".tmp_{Guid.NewGuid():N}";
+                try
+                {
+                    using (var tempStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+                    {
+                        await context.Request.Body.CopyToAsync(tempStream);
+                    }
+
+                    File.Move(tempPath, fullPath, overwrite: true);
+                }
+                catch
+                {
+                    if (File.Exists(tempPath))
+                    {
+                        try { File.Delete(tempPath); } catch { }
+                    }
+                    throw;
+                }
 
                 return Results.Ok();
             }
