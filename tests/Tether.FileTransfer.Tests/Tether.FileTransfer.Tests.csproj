@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\services\communication-service\Tether.CommunicationService\Tether.CommunicationService.csproj" />
+    <ProjectReference Include="..\..\apps\desktop-ui\Tether.DesktopUI\Tether.DesktopUI.csproj" />
     <ProjectReference Include="..\..\shared\Tether.Shared\Tether.Shared.csproj" />
   </ItemGroup>
 

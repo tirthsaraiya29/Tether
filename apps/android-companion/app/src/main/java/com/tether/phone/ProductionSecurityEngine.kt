@@ -206,6 +206,7 @@ class ProductionSecurityEngine {
             prefs.edit {
                 remove(PINNED_WINDOWS_KEY_PREF)
             }
+            FileTransferClient.clearCache()
             Log.i(TAG, "Cleared pinned Windows public keys from storage.")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear pinned keys: ${e.message}", e)
