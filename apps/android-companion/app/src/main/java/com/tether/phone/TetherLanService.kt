@@ -1480,6 +1480,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
     }
 
+    fun getActivePeerPublicKeyBytes(): ByteArray? {
+        val transport = activeTransport ?: return null
+        if (!transport.isConnected()) return null
+        return transport.getPeerCertificate()?.publicKey?.encoded
+    }
+
     fun dispatchCommand(actionCommand: String) {
         serviceScope.launch {
             try {
