@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Http;
-using System.Threading.Tasks;
 using System.Security.Claims;
-using System.Net;
+using System.Threading.Tasks;
 
 namespace Tether.CommunicationService.FileTransfer;
 
@@ -18,15 +17,7 @@ public class FileTransferAuthMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Allow local loopback connections (e.g. from Tether.DesktopUI) to bypass token auth
-        if (context.Connection.RemoteIpAddress != null && IPAddress.IsLoopback(context.Connection.RemoteIpAddress))
-        {
-            var identity = new ClaimsIdentity(new[] { new Claim(ClaimTypes.Name, "LocalWpfClient") }, "Loopback");
-            context.User = new ClaimsPrincipal(identity);
-            await _next(context);
-            return;
-        }
-
+        // Require explicit Bearer token authentication for ALL clients (both remote and local loopback)
         if (context.Request.Headers.TryGetValue("Authorization", out var authValues))
         {
             var authHeader = authValues.ToString();

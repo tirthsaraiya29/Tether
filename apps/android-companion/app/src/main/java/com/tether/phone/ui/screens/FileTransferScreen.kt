@@ -75,7 +75,7 @@ fun FileTransferScreen(
                     isLoading = true
                     FileTransferClient.uploadFile(hostIp, sourceUri, currentPath ?: "", context, token!!)
                     // Refresh
-                    files = FileTransferClient.listDirectory(hostIp, currentPath, token!!)
+                    files = FileTransferClient.listDirectory(hostIp, currentPath, token!!, context)
                 } catch (e: Exception) {
                     errorMessage = e.message
                 } finally {
@@ -89,7 +89,7 @@ fun FileTransferScreen(
         if (token != null && hostIp != null) {
             try {
                 isLoading = true
-                files = FileTransferClient.listDirectory(hostIp, currentPath, token!!)
+                files = FileTransferClient.listDirectory(hostIp, currentPath, token!!, context)
             } catch (e: Exception) {
                 errorMessage = e.message
             } finally {

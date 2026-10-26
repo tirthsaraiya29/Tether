@@ -1201,11 +1201,20 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 serviceScope.launch(Dispatchers.IO) {
                     try {
                         val hostIp = connectedHostAddress ?: throw Exception("No connected host IP")
+                        val safeFileName = File(fileName).name
+                        if (safeFileName.isBlank() || safeFileName == ".." || safeFileName == ".") {
+                            throw IllegalArgumentException("Invalid filename in file receive request")
+                        }
+
                         val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                         if (!downloadsDir.exists()) {
                             downloadsDir.mkdirs()
                         }
-                        val destFile = File(downloadsDir, fileName)
+                        val destFile = File(downloadsDir, safeFileName)
+                        if (!destFile.canonicalPath.startsWith(downloadsDir.canonicalPath)) {
+                            throw SecurityException("Path traversal attempt detected in file receive request")
+                        }
+
                         val destUri = Uri.fromFile(destFile)
                         
                         FileTransferClient.downloadFile(hostIp, windowsPath, destUri, this@TetherLanService, token)
@@ -1237,7 +1246,14 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     try {
                         val hostIp = connectedHostAddress ?: throw Exception("No connected host IP")
                         val sourceFile = File(androidPath)
-                        if (!sourceFile.exists()) throw Exception("Source file does not exist")
+                        if (!sourceFile.exists() || !sourceFile.isFile) throw Exception("Source file does not exist or is not a file")
+
+                        val canonicalPath = sourceFile.canonicalPath
+                        val extStorage = Environment.getExternalStorageDirectory().canonicalPath
+                        if (!canonicalPath.startsWith(extStorage)) {
+                            throw SecurityException("Access to path outside storage is restricted: $canonicalPath")
+                        }
+
                         val sourceUri = Uri.fromFile(sourceFile)
                         
                         FileTransferClient.uploadFile(hostIp, sourceUri, windowsDestPath, this@TetherLanService, token)
