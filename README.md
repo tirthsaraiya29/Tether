@@ -11,7 +11,7 @@
 >
 > **AN INDEPENDENT STATIC SECURITY AUDIT HAS IDENTIFIED MULTIPLE CRITICAL VULNERABILITIES ACROSS THE TETHER SERVICE AND PROTOCOL STACK.**
 >
-> **Do not install, deploy, or run Tether on any workstation or mobile device until a verified patched release is published.**
+> **Do not install, deploy, or run Tether on any workstation or mobile device until a verified patched release is published.**  
 >
 > ### Mandatory Actions for Existing Users:
 > 1. **Stop the Service:** Open an administrative PowerShell prompt and run:
@@ -22,7 +22,7 @@
 > 2. **Uninstall Immediately:** Run the uninstaller via Windows Settings or `C:\Program Files\Tether\unins000.exe` to remove `Tether.CommunicationService` and unregister `TetherCredentialProvider.dll`.
 > 3. **Verify Windows Sign-In:** Confirm standard Windows Password / PIN / Windows Hello sign-in functions normally before signing out.
 >
-> **Remediation roadmap and patched builds are actively being developed. **
+> Remediation roadmap and patched builds are actively being developed. 
 
 > [!WARNING]
 > **BETA DEVELOPMENT STATUS**
