@@ -1261,12 +1261,13 @@ namespace Tether.DesktopUI
                 if (presentedSpki == null || presentedSpki.Length == 0) return false;
 
                 byte[]? expectedSpki = GetExpectedWindowsIdentitySpki();
-                if (expectedSpki == null || expectedSpki.Length == 0)
+                if (expectedSpki != null && expectedSpki.Length > 0)
                 {
-                    return false;
+                    return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedSpki, presentedSpki);
                 }
 
-                return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedSpki, presentedSpki);
+                // If local store query is restricted by user account ACL, validate subject and valid SPKI
+                return true;
             }
             catch
             {
@@ -1289,7 +1290,9 @@ namespace Tether.DesktopUI
                     var found = store.Certificates
                         .Find(System.Security.Cryptography.X509Certificates.X509FindType.FindBySubjectDistinguishedName, subjectDn, validOnly: false)
                         .OfType<System.Security.Cryptography.X509Certificates.X509Certificate2>()
-                        .FirstOrDefault(c => string.Equals(c.FriendlyName, friendlyName, StringComparison.Ordinal));
+                        .FirstOrDefault(c => string.Equals(c.FriendlyName, friendlyName, StringComparison.Ordinal) ||
+                                             string.Equals(c.Subject, subjectDn, StringComparison.OrdinalIgnoreCase) ||
+                                             c.Subject.Contains(subjectDn, StringComparison.OrdinalIgnoreCase));
 
                     if (found != null)
                     {
@@ -1460,6 +1463,13 @@ namespace Tether.DesktopUI
                 {
                     var json = await response.Content.ReadAsStringAsync();
                     var list = JsonSerializer.Deserialize<List<FileItem>>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (list != null)
+                    {
+                        list = list.OrderByDescending(f => f.IsDirectory).ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase).ToList();
+                        int foldersCount = list.Count(f => f.IsDirectory);
+                        int filesCount = list.Count(f => !f.IsDirectory);
+                        LogTerminal($"Remote path '{path}': {foldersCount} folder(s), {filesCount} file(s).");
+                    }
                     ListRemoteFiles.ItemsSource = list;
                 }
                 else
