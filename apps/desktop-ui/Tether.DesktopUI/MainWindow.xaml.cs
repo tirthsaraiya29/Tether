@@ -1238,10 +1238,47 @@ namespace Tether.DesktopUI
         // FILE TRANSFER LOGIC
         // ==========================================
 
-        private static readonly System.Net.Http.HttpClient _httpClient = new System.Net.Http.HttpClient(
-            new System.Net.Http.HttpClientHandler { ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true }
-        )
-        { BaseAddress = new Uri("https://localhost:37124") };
+        private static readonly System.Net.Http.HttpClient _httpClient = CreateSecureLocalHttpClient();
+
+        private static System.Net.Http.HttpClient CreateSecureLocalHttpClient()
+        {
+            var handler = new System.Net.Http.HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
+                {
+                    if (cert == null) return false;
+                    bool isTetherCert = string.Equals(cert.Subject, "CN=Tether Windows Identity", StringComparison.OrdinalIgnoreCase)
+                        || cert.Subject.Contains("CN=Tether Windows Identity");
+                    return isTetherCert;
+                }
+            };
+
+            var client = new System.Net.Http.HttpClient(handler)
+            {
+                BaseAddress = new Uri("https://localhost:37124")
+            };
+
+            EnsureLocalAuthHeader(client);
+            return client;
+        }
+
+        private static void EnsureLocalAuthHeader(System.Net.Http.HttpClient client)
+        {
+            try
+            {
+                string dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether");
+                string localTokenFile = Path.Combine(dataDir, "local_ui_token.txt");
+                if (File.Exists(localTokenFile))
+                {
+                    string token = File.ReadAllText(localTokenFile).Trim();
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                    }
+                }
+            }
+            catch { }
+        }
 
         public class FileItem
         {
@@ -1338,6 +1375,7 @@ namespace Tether.DesktopUI
         {
             try
             {
+                EnsureLocalAuthHeader(_httpClient);
                 if (path == null) path = "";
 
                 TxtRemotePath.Text = path;
@@ -1414,6 +1452,7 @@ namespace Tether.DesktopUI
             {
                 try
                 {
+                    EnsureLocalAuthHeader(_httpClient);
                     LogTerminal($"Sending {item.Name} to phone...");
                     var payload = new { localPath = item.FullPath, remoteDir = TxtRemotePath.Text };
                     var content = new System.Net.Http.StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
@@ -1442,6 +1481,7 @@ namespace Tether.DesktopUI
             {
                 try
                 {
+                    EnsureLocalAuthHeader(_httpClient);
                     LogTerminal($"Downloading {item.Name} from phone...");
                     string sep = TxtRemotePath.Text.EndsWith("/") ? "" : "/";
                     string remotePath = TxtRemotePath.Text + sep + item.Name;
