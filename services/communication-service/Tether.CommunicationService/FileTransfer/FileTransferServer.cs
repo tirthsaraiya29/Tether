@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -125,7 +126,7 @@ public class FileTransferServer : IHostedService
 
         builder.WebHost.UseKestrel(options =>
         {
-            options.Listen(IPAddress.IPv6Any, 37124, listenOptions =>
+            options.ListenAnyIP(37124, listenOptions =>
             {
                 listenOptions.UseHttps(httpsOptions =>
                 {
@@ -137,12 +138,13 @@ public class FileTransferServer : IHostedService
                     {
                         httpsOptions.ServerCertificate = _identity.Certificate;
                     }
-                    httpsOptions.ClientCertificateMode = ClientCertificateMode.AllowCertificate;
-                    httpsOptions.ClientCertificateValidation = (cert, chain, errors) => true;
+                    httpsOptions.ClientCertificateMode = ClientCertificateMode.NoCertificate;
                 });
             });
         });
 
+        builder.Services.AddSingleton(_logger);
+        builder.Services.AddSingleton(_identity);
         builder.Services.AddSingleton(_tokenStore);
         builder.Services.AddSingleton(_trustStore);
         builder.Services.AddAuthorization();
@@ -209,7 +211,7 @@ public class FileTransferServer : IHostedService
             }
         });
 
-        _app.MapGet("/api/fs/download", (string path) =>
+        _app.MapGet("/api/fs/download", (string path, HttpContext context) =>
         {
             try
             {
@@ -217,6 +219,9 @@ public class FileTransferServer : IHostedService
                 {
                     return Results.NotFound("File not found");
                 }
+
+                string hashHex = ComputeSha512Hex(fullPath);
+                context.Response.Headers["X-Tether-File-SHA512"] = hashHex;
 
                 var contentType = "application/octet-stream";
                 return Results.File(fullPath, contentType, enableRangeProcessing: true);
@@ -244,11 +249,30 @@ public class FileTransferServer : IHostedService
                 }
 
                 string tempPath = fullPath + $".tmp_{Guid.NewGuid():N}";
+                string expectedHashHex = context.Request.Headers["X-Tether-File-SHA512"].ToString().Trim().ToLowerInvariant();
+
                 try
                 {
+                    using (var sha512 = IncrementalHash.CreateHash(HashAlgorithmName.SHA512))
                     using (var tempStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
                     {
-                        await context.Request.Body.CopyToAsync(tempStream);
+                        var buffer = new byte[81920];
+                        int bytesRead;
+                        while ((bytesRead = await context.Request.Body.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                        {
+                            await tempStream.WriteAsync(buffer, 0, bytesRead);
+                            sha512.AppendData(buffer, 0, bytesRead);
+                        }
+
+                        byte[] actualHash = sha512.GetHashAndReset();
+                        string actualHashHex = Convert.ToHexString(actualHash).ToLowerInvariant();
+
+                        if (!string.IsNullOrEmpty(expectedHashHex) && !string.Equals(expectedHashHex, actualHashHex, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _logger.Warning($"SHA-512 integrity check failed for upload to {fullPath}. Expected: {expectedHashHex}, Actual: {actualHashHex}");
+                            try { File.Delete(tempPath); } catch { }
+                            return Results.BadRequest("Integrity check failed: SHA-512 hash mismatch");
+                        }
                     }
 
                     File.Move(tempPath, fullPath, overwrite: true);
@@ -358,6 +382,13 @@ public class FileTransferServer : IHostedService
 
         await _app.StartAsync(cancellationToken);
         _logger.Info("FileTransferServer started on port 37124.");
+    }
+
+    public static string ComputeSha512Hex(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        byte[] hash = SHA512.HashData(stream);
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)

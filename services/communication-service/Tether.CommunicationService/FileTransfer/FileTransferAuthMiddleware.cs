@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -10,6 +11,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Trust;
+using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService.FileTransfer;
 
@@ -19,19 +21,30 @@ public class FileTransferAuthMiddleware
     private readonly TokenStore _tokenStore;
     private readonly TrustStore? _trustStore;
     private readonly WindowsIdentity? _identity;
+    private readonly ITetherLogger? _logger;
 
-    public FileTransferAuthMiddleware(RequestDelegate next, TokenStore tokenStore, TrustStore? trustStore = null, WindowsIdentity? identity = null)
+    public FileTransferAuthMiddleware(
+        RequestDelegate next,
+        TokenStore tokenStore,
+        TrustStore? trustStore = null,
+        WindowsIdentity? identity = null,
+        ITetherLogger? logger = null)
     {
         _next = next;
         _tokenStore = tokenStore;
         _trustStore = trustStore;
         _identity = identity;
+        _logger = logger;
     }
 
     public async Task InvokeAsync(HttpContext context)
     {
+        var remoteIp = context.Connection.RemoteIpAddress;
+        _logger?.Info($"FileTransferAuthMiddleware: Incoming {context.Request.Method} request for {context.Request.Path} from {remoteIp}");
+
         if (!context.Request.Headers.TryGetValue("Authorization", out var authValues))
         {
+            _logger?.Warning($"FileTransferAuthMiddleware: Missing Authorization header from {remoteIp}");
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsync("Unauthorized: Missing Authorization header");
             return;
@@ -40,6 +53,7 @@ public class FileTransferAuthMiddleware
         var authHeader = authValues.ToString();
         if (!authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
+            _logger?.Warning($"FileTransferAuthMiddleware: Invalid Authorization scheme from {remoteIp}");
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsync("Unauthorized: Invalid Authorization scheme");
             return;
@@ -48,12 +62,12 @@ public class FileTransferAuthMiddleware
         var token = authHeader.Substring("Bearer ".Length).Trim();
         if (string.IsNullOrEmpty(token))
         {
+            _logger?.Warning($"FileTransferAuthMiddleware: Empty Bearer token from {remoteIp}");
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsync("Unauthorized: Empty Bearer token");
             return;
         }
 
-        var remoteIp = context.Connection.RemoteIpAddress;
         bool isLoopback = remoteIp == null || IPAddress.IsLoopback(remoteIp);
 
         if (isLoopback)
@@ -105,43 +119,91 @@ public class FileTransferAuthMiddleware
         {
             string proofBase64 = proofHeader.ToString().Trim();
             string tsStr = tsHeader.ToString().Trim();
+            string clientWinSpki = context.Request.Headers.TryGetValue("X-Tether-Client-WinSpki", out var spkiH)
+                ? spkiH.ToString().Trim()
+                : "";
 
             if (long.TryParse(tsStr, out long tsMs))
             {
                 var clientTime = DateTimeOffset.FromUnixTimeMilliseconds(tsMs);
-                if (Math.Abs((DateTimeOffset.UtcNow - clientTime).TotalMinutes) <= 3)
-                {
-                    if (_tokenStore.TryGetTokenMetadata(token, out var meta) && !string.IsNullOrEmpty(meta.DeviceFingerprint))
-                    {
-                        string expectedFingerprint = meta.DeviceFingerprint;
-                        var pairedPhone = _trustStore?.All().FirstOrDefault(p =>
-                            string.Equals(p.Fingerprint, expectedFingerprint, StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(p.DeviceId, expectedFingerprint, StringComparison.OrdinalIgnoreCase));
+                var timeDelta = Math.Abs((DateTimeOffset.UtcNow - clientTime).TotalMinutes);
 
-                        if (pairedPhone != null)
+                if (timeDelta <= 5)
+                {
+                    if (_tokenStore.TryGetTokenMetadata(token, out var meta))
+                    {
+                        string? targetFingerprint = meta.DeviceFingerprint;
+                        var allPaired = _trustStore?.All() ?? Array.Empty<TrustedPhone>();
+                        var candidatePhones = !string.IsNullOrEmpty(targetFingerprint)
+                            ? allPaired.Where(p => string.Equals(p.Fingerprint, targetFingerprint, StringComparison.OrdinalIgnoreCase) ||
+                                                   string.Equals(p.DeviceId, targetFingerprint, StringComparison.OrdinalIgnoreCase)).ToList()
+                            : allPaired.ToList();
+
+                        foreach (var pairedPhone in candidatePhones)
                         {
                             string winSpki = _identity?.GetPublicKeySpkiBase64() ?? "";
-                            string proofData = $"{token}:{tsStr}:{winSpki}";
-
-                            if (VerifyEcdsaSignature(pairedPhone.PublicKeySpkiBase64, Encoding.UTF8.GetBytes(proofData), proofBase64))
+                            var proofCandidates = new List<string> { $"{token}:{tsStr}:{winSpki}" };
+                            if (!string.IsNullOrEmpty(clientWinSpki) && !string.Equals(clientWinSpki, winSpki, StringComparison.Ordinal))
                             {
-                                if (_tokenStore.ValidateToken(token, expectedFingerprint))
+                                proofCandidates.Add($"{token}:{tsStr}:{clientWinSpki}");
+                            }
+                            proofCandidates.Add($"{token}:{tsStr}:");
+
+                            bool validProof = false;
+                            foreach (var pData in proofCandidates.Distinct())
+                            {
+                                if (VerifyEcdsaSignature(pairedPhone.PublicKeySpkiBase64, Encoding.UTF8.GetBytes(pData), proofBase64))
                                 {
+                                    validProof = true;
+                                    break;
+                                }
+                            }
+
+                            if (validProof)
+                            {
+                                if (_tokenStore.ValidateToken(token, pairedPhone.Fingerprint) || _tokenStore.ValidateToken(token))
+                                {
+                                    _logger?.Info($"FileTransferAuthMiddleware: Authorized client '{pairedPhone.DisplayName}' ({pairedPhone.Fingerprint}) for {context.Request.Path}");
                                     var identity = new ClaimsIdentity(new[] {
                                         new Claim(ClaimTypes.Name, "TetherRemoteClient"),
-                                        new Claim("DeviceFingerprint", expectedFingerprint)
+                                        new Claim("DeviceFingerprint", pairedPhone.Fingerprint)
                                     }, "Bearer");
                                     context.User = new ClaimsPrincipal(identity);
                                     await _next(context);
                                     return;
                                 }
+                                else
+                                {
+                                    _logger?.Warning($"FileTransferAuthMiddleware: Token validation failed for client '{pairedPhone.DisplayName}' ({pairedPhone.Fingerprint})");
+                                }
+                            }
+                            else
+                            {
+                                _logger?.Warning($"FileTransferAuthMiddleware: Signature verification failed for client candidate '{pairedPhone.DisplayName}' ({pairedPhone.Fingerprint})");
                             }
                         }
                     }
+                    else
+                    {
+                        _logger?.Warning($"FileTransferAuthMiddleware: Token not found in TokenStore: '{token}'");
+                    }
+                }
+                else
+                {
+                    _logger?.Warning($"FileTransferAuthMiddleware: Client timestamp delta ({timeDelta:F1}m) exceeds 5 min limit from {remoteIp}");
                 }
             }
+            else
+            {
+                _logger?.Warning($"FileTransferAuthMiddleware: Malformed timestamp header '{tsStr}' from {remoteIp}");
+            }
+        }
+        else
+        {
+            _logger?.Warning($"FileTransferAuthMiddleware: Missing client proof headers from {remoteIp}");
         }
 
+        _logger?.Warning($"FileTransferAuthMiddleware: Authorization failed for request {context.Request.Path} from {remoteIp}");
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         await context.Response.WriteAsync("Unauthorized: Token validation failed or invalid device binding");
     }
@@ -155,7 +217,20 @@ public class FileTransferAuthMiddleware
 
             using var ecdsa = ECDsa.Create();
             ecdsa.ImportSubjectPublicKeyInfo(spkiDer, out _);
-            return ecdsa.VerifyData(data, signature, HashAlgorithmName.SHA256);
+
+            // Try ASN.1 DER sequence format (Standard Java/Android SHA256withECDSA)
+            if (ecdsa.VerifyData(data, signature, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence))
+            {
+                return true;
+            }
+
+            // Fallback default VerifyData
+            if (ecdsa.VerifyData(data, signature, HashAlgorithmName.SHA256))
+            {
+                return true;
+            }
+
+            return false;
         }
         catch
         {
