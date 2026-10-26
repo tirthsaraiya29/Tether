@@ -37,79 +37,96 @@ public sealed class WindowsIdentity : IDisposable
 
     private X509Certificate2 LoadOrCreate()
     {
-        StoreLocation storeLocation = IsAdministrator()
-            ? StoreLocation.LocalMachine
-            : StoreLocation.CurrentUser;
-
-        X509KeyStorageFlags keyFlags = storeLocation == StoreLocation.LocalMachine
-            ? X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable
-            : X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable;
-
-        try
+        var locationsToTry = new[]
         {
-            using var store = new X509Store(StoreName, storeLocation);
-            store.Open(OpenFlags.ReadWrite);
+            IsAdministrator() ? StoreLocation.LocalMachine : StoreLocation.CurrentUser,
+            IsAdministrator() ? StoreLocation.CurrentUser : StoreLocation.LocalMachine
+        }.Distinct();
 
-            var existing = store.Certificates
-                .Find(X509FindType.FindBySubjectDistinguishedName, SubjectDn, validOnly: false)
-                .OfType<X509Certificate2>()
-                .FirstOrDefault(c => string.Equals(c.FriendlyName, FriendlyName, StringComparison.Ordinal));
+        foreach (var storeLocation in locationsToTry)
+        {
+            X509KeyStorageFlags keyFlags = storeLocation == StoreLocation.LocalMachine
+                ? X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable
+                : X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable;
 
-            if (existing is { HasPrivateKey: true } && existing.NotAfter > DateTime.UtcNow.AddDays(30))
+            try
             {
-                if (CanSignWithPrivateKey(existing))
+                using var store = new X509Store(StoreName, storeLocation);
+                store.Open(OpenFlags.ReadWrite);
+
+                var existing = store.Certificates
+                    .Find(X509FindType.FindBySubjectDistinguishedName, SubjectDn, validOnly: false)
+                    .OfType<X509Certificate2>()
+                    .FirstOrDefault(c => string.Equals(c.FriendlyName, FriendlyName, StringComparison.Ordinal) ||
+                                         string.Equals(c.Subject, SubjectDn, StringComparison.OrdinalIgnoreCase));
+
+                if (existing is { HasPrivateKey: true } && existing.NotAfter > DateTime.UtcNow.AddDays(30))
                 {
-                    return existing;
+                    if (CanSignWithPrivateKey(existing))
+                    {
+                        return existing;
+                    }
+
+                    _logger.Warning("Existing cert private key signing test failed. Removing stale cert.");
                 }
 
-                _logger.Warning("Existing cert private key signing test failed. Removing stale cert.");
-            }
+                if (existing != null)
+                {
+                    try { store.Remove(existing); }
+                    catch (Exception ex) { _logger.Warning($"Could not remove stale identity cert: {ex.Message}"); }
+                }
 
-            if (existing != null)
-            {
-                try { store.Remove(existing); }
-                catch (Exception ex) { _logger.Warning($"Could not remove stale identity cert: {ex.Message}"); }
-            }
+                _logger.Warning($"Generating new Tether identity certificate (ECDSA P-256, self-signed, 10y, Store={storeLocation}).");
 
-            _logger.Warning($"Generating new Tether identity certificate (RSA 2048, self-signed, 10y, Store={storeLocation}).");
+                using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+                var req = new CertificateRequest(new X500DistinguishedName(SubjectDn), ecdsa, HashAlgorithmName.SHA256);
 
-            using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-            var req = new CertificateRequest(new X500DistinguishedName(SubjectDn), ecdsa, HashAlgorithmName.SHA256);
+                req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
+                req.CertificateExtensions.Add(new X509KeyUsageExtension(
+                    X509KeyUsageFlags.DigitalSignature, false));
+                req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+                    new OidCollection { new Oid(ServerAuthOid) }, false));
+                req.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(req.PublicKey, false));
 
-            req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
-            req.CertificateExtensions.Add(new X509KeyUsageExtension(
-                X509KeyUsageFlags.DigitalSignature, false));
-            req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
-                new OidCollection { new Oid(ServerAuthOid) }, false));
-            req.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(req.PublicKey, false));
+                var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
+                var notAfter = DateTimeOffset.UtcNow.AddYears(10);
 
-            var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
-            var notAfter = DateTimeOffset.UtcNow.AddYears(10);
-
-            using var ephemeral = req.CreateSelfSigned(notBefore, notAfter);
-            var pfx = ephemeral.Export(X509ContentType.Pfx, PfxPassword);
+                using var ephemeral = req.CreateSelfSigned(notBefore, notAfter);
+                var pfx = ephemeral.Export(X509ContentType.Pfx, PfxPassword);
 
 #pragma warning disable SYSLIB0057
-            var persisted = new X509Certificate2(pfx, PfxPassword, keyFlags);
+                var persisted = new X509Certificate2(pfx, PfxPassword, keyFlags);
 #pragma warning restore SYSLIB0057
 
-            persisted.FriendlyName = FriendlyName;
-            store.Add(persisted);
-            return persisted;
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Failed loading/creating identity cert in {storeLocation} store: {ex.Message}. Falling back to ephemeral cert.");
+                try { persisted.FriendlyName = FriendlyName; } catch { }
+                try { store.Add(persisted); } catch { }
 
-            using var rsa = RSA.Create(2048);
-            var req = new CertificateRequest(new X500DistinguishedName(SubjectDn), rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-            req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
-            req.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, false));
-            req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new Oid(ServerAuthOid) }, false));
-            req.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(req.PublicKey, false));
-
-            return req.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(10));
+                if (CanSignWithPrivateKey(persisted))
+                {
+                    return persisted;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Could not load/create identity cert in store location {storeLocation}: {ex.Message}");
+            }
         }
+
+        _logger.Error("Failed loading/creating identity cert in certificate stores. Creating ephemeral identity cert.");
+
+        using var fallbackRsa = RSA.Create(2048);
+        var fallbackReq = new CertificateRequest(new X500DistinguishedName(SubjectDn), fallbackRsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        fallbackReq.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
+        fallbackReq.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, false));
+        fallbackReq.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new Oid(ServerAuthOid) }, false));
+        fallbackReq.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(fallbackReq.PublicKey, false));
+
+        using var selfSigned = fallbackReq.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(10));
+        byte[] ephemeralPfx = selfSigned.Export(X509ContentType.Pfx, PfxPassword);
+
+#pragma warning disable SYSLIB0057
+        return new X509Certificate2(ephemeralPfx, PfxPassword, X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+#pragma warning restore SYSLIB0057
     }
 
     private static bool CanSignWithPrivateKey(X509Certificate2 cert)
