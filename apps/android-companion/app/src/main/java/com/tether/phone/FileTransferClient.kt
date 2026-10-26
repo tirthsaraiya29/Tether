@@ -68,8 +68,7 @@ class TetherPinnedTrustManager(
         val leaf = chain[0]
         leaf.checkValidity()
 
-        val pinnedBytes = overridePinnedKey
-            ?: context?.let { ProductionSecurityEngine().getPinnedKeyDecrypted(it) }
+        val pinnedBytes = FileTransferClient.resolvePinnedKey(context, overridePinnedKey)
 
         if (pinnedBytes == null || pinnedBytes.isEmpty()) {
             throw CertificateException("No pinned Windows public key found. Refusing untrusted peer connection.")
@@ -86,9 +85,38 @@ object FileTransferClient {
 
     private val clientCache = ConcurrentHashMap<Int, OkHttpClient>()
 
+    fun resolveContext(providedContext: Context?): Context? {
+        return providedContext ?: try { TetherApplication.instance } catch (_: Exception) { null }
+    }
+
+    fun resolvePinnedKey(providedContext: Context?, customPinnedKey: ByteArray?): ByteArray? {
+        if (customPinnedKey != null && customPinnedKey.isNotEmpty()) {
+            return customPinnedKey
+        }
+
+        val targetContext = resolveContext(providedContext)
+        val storedKey = targetContext?.let {
+            try {
+                ProductionSecurityEngine().getPinnedKeyDecrypted(it)
+            } catch (_: Exception) {
+                null
+            }
+        }
+        if (storedKey != null && storedKey.isNotEmpty()) {
+            return storedKey
+        }
+
+        // Fallback to active transport peer certificate if control channel is established
+        return try {
+            TetherLanService.instance?.getActivePeerPublicKeyBytes()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun getPinnedClient(context: Context?, customPinnedKey: ByteArray? = null): OkHttpClient {
-        val keyHash = customPinnedKey?.contentHashCode() ?: context?.hashCode() ?: 0
-        return clientCache.getOrPut(keyHash) {
+        val cacheKey = customPinnedKey?.contentHashCode() ?: 0
+        return clientCache.getOrPut(cacheKey) {
             val trustManager = TetherPinnedTrustManager(context, customPinnedKey)
             val sslContext = SSLContext.getInstance("TLSv1.3").apply {
                 init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
@@ -99,8 +127,7 @@ object FileTransferClient {
                     val certs = session.peerCertificates
                     if (certs.isEmpty() || certs[0] !is X509Certificate) return@HostnameVerifier false
                     val leaf = certs[0] as X509Certificate
-                    val pinnedBytes = customPinnedKey
-                        ?: context?.let { ProductionSecurityEngine().getPinnedKeyDecrypted(it) }
+                    val pinnedBytes = resolvePinnedKey(context, customPinnedKey)
                     if (pinnedBytes == null || pinnedBytes.isEmpty()) return@HostnameVerifier false
                     MessageDigest.isEqual(pinnedBytes, leaf.publicKey.encoded)
                 } catch (_: Exception) {
