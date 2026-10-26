@@ -41,6 +41,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.nio.charset.StandardCharsets
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -1128,52 +1129,66 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             }
             "FS_LIST" -> {
-                val reqPath = json.optString("path", "")
+                val reqPath = json.optString("path", "").trim()
                 serviceScope.launch(Dispatchers.IO) {
                     try {
                         val itemsArray = JSONArray()
-                        if (reqPath.isEmpty()) {
+                        val isRootPath = reqPath.isEmpty() || reqPath == "/" || reqPath.equals("root", ignoreCase = true)
+
+                        if (isRootPath) {
                             val roots = mutableListOf<File>()
-                            roots.add(Environment.getExternalStorageDirectory())
-                            val externalDirs = getExternalFilesDirs(null)
-                            for (dir in externalDirs) {
-                                if (dir != null) {
-                                    val rootPath = dir.absolutePath.substringBefore("/Android/")
-                                    val rootFile = File(rootPath)
-                                    if (!roots.contains(rootFile)) {
-                                        roots.add(rootFile)
-                                    }
-                                }
+                            val primaryStorage = Environment.getExternalStorageDirectory()
+                            if (primaryStorage != null && primaryStorage.exists()) {
+                                roots.add(primaryStorage)
                             }
-                            for (root in roots) {
-                                if (root.exists()) {
-                                    val item = JSONObject().apply {
-                                        val isPrimary = root.absolutePath == Environment.getExternalStorageDirectory().absolutePath
-                                        put("name", if (isPrimary) "Primary Storage" else root.name)
-                                        put("path", root.absolutePath)
-                                        put("isDirectory", true)
-                                        put("size", root.totalSpace)
-                                        put("lastModified", root.lastModified())
+
+                            try {
+                                val externalDirs = getExternalFilesDirs(null)
+                                for (dir in externalDirs) {
+                                    if (dir != null) {
+                                        val rootPath = dir.absolutePath.substringBefore("/Android/")
+                                        val rootFile = File(rootPath)
+                                        if (!roots.contains(rootFile) && rootFile.exists()) {
+                                            roots.add(rootFile)
+                                        }
                                     }
-                                    itemsArray.put(item)
                                 }
+                            } catch (_: Exception) {}
+
+                            for (root in roots) {
+                                val isPrimary = root.absolutePath == Environment.getExternalStorageDirectory()?.absolutePath
+                                val item = JSONObject().apply {
+                                    put("name", if (isPrimary) "Primary Storage" else root.name)
+                                    put("path", root.absolutePath)
+                                    put("isDirectory", true)
+                                    put("size", root.totalSpace)
+                                    put("lastModified", root.lastModified())
+                                }
+                                itemsArray.put(item)
                             }
                         } else {
                             val dir = File(reqPath)
                             if (dir.exists() && dir.isDirectory) {
-                                dir.listFiles()?.forEach { file ->
-                                    val item = JSONObject().apply {
-                                        put("name", file.name)
-                                        put("path", file.absolutePath)
-                                        put("isDirectory", file.isDirectory)
-                                        put("size", if (file.isDirectory) 0L else file.length())
-                                        put("lastModified", file.lastModified())
+                                val files = dir.listFiles()
+                                if (files != null) {
+                                    files.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase(Locale.US) })).forEach { file ->
+                                        val item = JSONObject().apply {
+                                            put("name", file.name)
+                                            put("path", file.absolutePath)
+                                            put("isDirectory", file.isDirectory)
+                                            put("size", if (file.isDirectory) 0L else file.length())
+                                            put("lastModified", file.lastModified())
+                                        }
+                                        itemsArray.put(item)
                                     }
-                                    itemsArray.put(item)
+                                } else {
+                                    Log.w(TAG, "dir.listFiles() returned null for path: $reqPath")
                                 }
+                            } else {
+                                Log.w(TAG, "Directory does not exist or is not a directory: $reqPath")
                             }
                         }
-                        
+
                         val responseJson = JSONObject().apply {
                             put("type", "FS_LIST_RESULT")
                             put("requestId", requestId)
@@ -1182,12 +1197,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         }
                         transport.sendFrame(responseJson.toString().toByteArray(StandardCharsets.UTF_8))
                     } catch (e: Exception) {
-                        Log.e(TAG, "FS_LIST error: ${sanitizeLog(e.message)}")
+                        Log.e(TAG, "FS_LIST error: ${sanitizeLog(e.message)}", e)
                         val errorJson = JSONObject().apply {
                             put("type", "FS_LIST_RESULT")
                             put("requestId", requestId)
                             put("path", reqPath)
-                            put("error", e.message)
+                            put("error", e.message ?: "Unknown error")
                         }
                         transport.sendFrame(errorJson.toString().toByteArray(StandardCharsets.UTF_8))
                     }

@@ -1107,14 +1107,13 @@ class MainActivity : FragmentActivity() {
             )
         }
 
-        /* Discarded/Excluded: File transfer feature disabled, storage access permission not required
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val isAllFilesGranted = Environment.isExternalStorageManager()
             list.add(
                 PermissionItemState(
                     id = "all_files_storage_access",
                     title = "All Files Storage Access",
-                    description = "Required to browse, read, and save files across all internal and SD card storage folders.",
+                    description = "Required to browse, read, and transfer files across all internal and SD card storage folders.",
                     level = PermissionLevel.HIGH,
                     isGranted = isAllFilesGranted,
                     actionText = "GRANT",
@@ -1134,7 +1133,6 @@ class MainActivity : FragmentActivity() {
                 )
             )
         }
-        */
 
         val isBatteryIgnored = powerManager.isIgnoringBatteryOptimizations(packageName)
         list.add(
