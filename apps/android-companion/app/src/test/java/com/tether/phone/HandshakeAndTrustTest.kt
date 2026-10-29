@@ -188,4 +188,46 @@ class HandshakeAndTrustTest {
             phoneProof.contentEquals(proofSwappedKeys),
         )
     }
+
+    @Test
+    fun testHandshakeTranscriptEncoding() {
+        val serverNonce = ByteArray(32) { 0x01 }
+        val clientNonce = ByteArray(32) { 0x02 }
+        val winPubKeyB64 = "WIN_PUB_KEY_B64"
+        val phonePubKeyB64 = "PHONE_PUB_KEY_B64"
+
+        val transcript = TetherPairingManager.buildHandshakeTranscript(
+            serverNonce,
+            clientNonce,
+            winPubKeyB64,
+            phonePubKeyB64,
+        )
+
+        assertNotNull(transcript)
+        val expectedSize = 4 + 32 + 4 + 32 + 4 + winPubKeyB64.toByteArray().size + 4 + phonePubKeyB64.toByteArray().size
+        assertEquals(expectedSize, transcript.size)
+
+        val buffer = java.nio.ByteBuffer.wrap(transcript).order(java.nio.ByteOrder.BIG_ENDIAN)
+        assertEquals(32, buffer.int)
+        val sNonce = ByteArray(32)
+        buffer.get(sNonce)
+        assertArrayEquals(serverNonce, sNonce)
+
+        assertEquals(32, buffer.int)
+        val cNonce = ByteArray(32)
+        buffer.get(cNonce)
+        assertArrayEquals(clientNonce, cNonce)
+
+        val winLen = buffer.int
+        assertEquals(winPubKeyB64.toByteArray().size, winLen)
+        val winBytes = ByteArray(winLen)
+        buffer.get(winBytes)
+        assertEquals(winPubKeyB64, String(winBytes, Charsets.UTF_8))
+
+        val phoneLen = buffer.int
+        assertEquals(phonePubKeyB64.toByteArray().size, phoneLen)
+        val phoneBytes = ByteArray(phoneLen)
+        buffer.get(phoneBytes)
+        assertEquals(phonePubKeyB64, String(phoneBytes, Charsets.UTF_8))
+    }
 }

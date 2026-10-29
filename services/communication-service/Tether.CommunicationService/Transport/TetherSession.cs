@@ -1,9 +1,12 @@
 ﻿using System;
+using System.Buffers.Binary;
 using System.IO;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,6 +29,10 @@ public sealed class TetherSession : IDisposable
     private const string ServerCaps = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT";
 
     private const byte PacketTypeInputEvent = 0x05;
+
+    // FIX #2: handshake + reconnect proof deadlines tightened from 180s/3s.
+    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan ProofTimeout = TimeSpan.FromSeconds(5);
 
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
@@ -66,23 +73,15 @@ public sealed class TetherSession : IDisposable
     }
 
     public void RecordPongReceived()
-    {
-        Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
-    }
+        => Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
 
     public async Task WriteJsonFrameSafeAsync<T>(T payload, CancellationToken ct)
     {
         var tls = _tls;
         if (tls == null) return;
         await _writeLock.WaitAsync(ct);
-        try
-        {
-            await FrameCodec.WriteJsonFrameAsync(tls, payload, ct);
-        }
-        finally
-        {
-            _writeLock.Release();
-        }
+        try { await FrameCodec.WriteJsonFrameAsync(tls, payload, ct); }
+        finally { _writeLock.Release(); }
     }
 
     public async Task WriteRawFrameSafeAsync(byte[] payload, CancellationToken ct)
@@ -90,14 +89,8 @@ public sealed class TetherSession : IDisposable
         var tls = _tls;
         if (tls == null || payload == null || payload.Length == 0) return;
         await _writeLock.WaitAsync(ct);
-        try
-        {
-            await FrameCodec.WriteFrameAsync(tls, payload, ct);
-        }
-        finally
-        {
-            _writeLock.Release();
-        }
+        try { await FrameCodec.WriteFrameAsync(tls, payload, ct); }
+        finally { _writeLock.Release(); }
     }
 
     public async Task SendLaptopStateAsync(LaptopSnapshot snap, CancellationToken ct)
@@ -123,10 +116,7 @@ public sealed class TetherSession : IDisposable
 
     public async Task SendRawFrameAsync(byte[] payload, CancellationToken ct)
     {
-        try
-        {
-            await WriteRawFrameSafeAsync(payload, ct);
-        }
+        try { await WriteRawFrameSafeAsync(payload, ct); }
         catch (Exception ex)
         {
             _logger.Warning($"TetherSession [{SessionId}]: Error pushing raw frame: {ex.Message}");
@@ -153,7 +143,6 @@ public sealed class TetherSession : IDisposable
                 RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true,
             };
 
-            // Workaround for ECDSA CNG key container issues
             if (_identity.Certificate.HasPrivateKey)
             {
                 sslOptions.ServerCertificateSelectionCallback = (sender, host) => _identity.Certificate;
@@ -166,8 +155,9 @@ public sealed class TetherSession : IDisposable
             await _tls.AuthenticateAsServerAsync(sslOptions, tlsCts.Token);
             _logger.Info($"TetherSession [{SessionId}]: TLS 1.3 established with {remote} ({_tls.NegotiatedCipherSuite}).");
 
+            // FIX #2: 15s not 180s. A legitimate LAN handshake completes in <500ms.
             using var authCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt);
-            authCts.CancelAfter(TimeSpan.FromSeconds(180));
+            authCts.CancelAfter(HandshakeTimeout);
 
             bool authenticated = await HandleHandshakeAsync(authCts.Token);
             if (!authenticated || Device == null)
@@ -276,8 +266,8 @@ public sealed class TetherSession : IDisposable
         if (knownDevice != null && knownDevice.TrustState == DeviceTrustState.Paired)
         {
             bool isKeyMatch = string.IsNullOrEmpty(knownDevice.PublicKeySpkiBase64) ||
-                             string.Equals(knownDevice.PublicKeySpkiBase64, init.PublicKey, StringComparison.Ordinal) ||
-                             string.Equals(TrustStore.ComputeFingerprintOrNull(knownDevice.PublicKeySpkiBase64), phoneFingerprint, StringComparison.OrdinalIgnoreCase);
+                              string.Equals(knownDevice.PublicKeySpkiBase64, init.PublicKey, StringComparison.Ordinal) ||
+                              string.Equals(TrustStore.ComputeFingerprintOrNull(knownDevice.PublicKeySpkiBase64), phoneFingerprint, StringComparison.OrdinalIgnoreCase);
 
             if (!isKeyMatch)
             {
@@ -309,8 +299,19 @@ public sealed class TetherSession : IDisposable
                 return false;
             }
 
-            Device = knownDevice;
-            _logger.Info($"TetherSession [{SessionId}]: Recognized paired phone {phoneFingerprint} ({knownDevice.DisplayName}).");
+            // FIX: refuse paired devices whose stored SPKI is absent. The old code
+            // tolerated empty stored keys; that tolerance is incompatible with
+            // proof-of-possession. Force a re-pair instead of silently failing
+            // every reconnect.
+            string storedSpki = string.IsNullOrEmpty(knownDevice.PublicKeySpkiBase64)
+                ? init.PublicKey
+                : knownDevice.PublicKeySpkiBase64;
+
+            _logger.Info($"TetherSession [{SessionId}]: Recognized paired phone {phoneFingerprint} ({knownDevice.DisplayName}). Sending server challenge.");
+
+            // === FIX #1: server-generated challenge nonce ===
+            byte[] serverNonce = RandomNumberGenerator.GetBytes(32);
+            string serverNonceB64 = Convert.ToBase64String(serverNonce);
 
             var resp = new HandshakeResponse
             {
@@ -319,32 +320,40 @@ public sealed class TetherSession : IDisposable
                 PublicKey = _identity.GetPublicKeySpkiBase64(),
                 Status = HandshakeStatus.Paired,
                 Capabilities = ServerCaps,
-                Pqc = false
+                Pqc = false,
+                ServerNonce = serverNonceB64
             };
             await WriteJsonFrameSafeAsync(resp, ct);
 
+            // === FIX #1: mandatory cryptographic proof; fail closed on timeout/empty/malformed/mismatch ===
+            byte[]? proofBytes;
             try
             {
                 using var proofCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                proofCts.CancelAfter(TimeSpan.FromSeconds(3));
-                var proofBytes = await FrameCodec.ReadFrameAsync(stream, proofCts.Token);
-                if (proofBytes != null && proofBytes.Length > 0)
-                {
-                    using var proofDoc = JsonDocument.Parse(proofBytes);
-                    if (proofDoc.RootElement.TryGetProperty("type", out var pType) &&
-                        string.Equals(pType.GetString(), "HANDSHAKE_PROOF", StringComparison.Ordinal))
-                    {
-                        _logger.Debug($"TetherSession [{SessionId}]: Received HANDSHAKE_PROOF for paired device. Responding with HANDSHAKE_VERIFIED.");
-                        await WriteJsonFrameSafeAsync(new { type = "HANDSHAKE_VERIFIED", status = "OK" }, ct);
-                    }
-                }
+                proofCts.CancelAfter(ProofTimeout);
+                proofBytes = await FrameCodec.ReadFrameAsync(stream, proofCts.Token);
             }
-            catch (OperationCanceledException) { /* Optional HANDSHAKE_PROOF not sent, proceed */ }
-            catch (Exception ex)
+            catch (OperationCanceledException)
             {
-                _logger.Debug($"TetherSession [{SessionId}]: Handshake proof check completed: {ex.Message}");
+                _logger.Warning($"TetherSession [{SessionId}]: HANDSHAKE_PROOF timed out after {ProofTimeout.TotalSeconds:0}s. Failing closed.");
+                return false;
             }
 
+            if (proofBytes is null || proofBytes.Length == 0)
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: Empty HANDSHAKE_PROOF. Failing closed.");
+                return false;
+            }
+
+            if (!TryVerifyHandshakeProof(proofBytes, storedSpki, serverNonce, init.PublicKey, out string failureReason))
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: HANDSHAKE_PROOF verification failed: {failureReason}. Failing closed.");
+                return false;
+            }
+
+            await WriteJsonFrameSafeAsync(new { type = "HANDSHAKE_VERIFIED", status = "OK" }, ct);
+            _logger.Info($"TetherSession [{SessionId}]: Cryptographic proof-of-possession verified for {knownDevice.DisplayName}.");
+            Device = knownDevice;
             return true;
         }
 
@@ -391,10 +400,14 @@ public sealed class TetherSession : IDisposable
             string proofBase64 = confirmedDoc.RootElement.TryGetProperty("proof", out var proofProp) ? proofProp.GetString() ?? "" : "";
 
             bool verified = _pairingManager.TryVerifyPhoneProof(reqId, proofBase64, out string winProofBase64, out _);
+
+            // === FIX #3: fail closed and immediately tear down the socket + invalidate pending state ===
             if (!verified)
             {
-                _logger.Warning($"TetherSession [{SessionId}]: PIN proof verification failed for requestId '{reqId}'.");
-                await WriteJsonFrameSafeAsync(new { type = "PAIRING_COMPLETE", status = "DENIED" }, ct);
+                _logger.Warning($"TetherSession [{SessionId}]: PIN proof verification failed for requestId '{reqId}'. Tearing down session.");
+                _pairingManager.CancelRequest(reqId);
+                try { await WriteJsonFrameSafeAsync(new { type = "PAIRING_COMPLETE", status = "DENIED" }, ct); } catch { /* best effort */ }
+                Close("Pairing proof verification failed");
                 return false;
             }
 
@@ -423,6 +436,143 @@ public sealed class TetherSession : IDisposable
         return false;
     }
 
+    // ---------------------------------------------------------------
+    // HANDSHAKE_PROOF verification helpers
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// Verifies a reconnect HANDSHAKE_PROOF frame. The signed canonical
+    /// transcript is length-prefixed to remove any ambiguity:
+    ///   len(ServerNonce) || ServerNonce
+    ///   len(ClientNonce) || ClientNonce
+    ///   len(UTF8(WindowsSPKIBase64))
+    ///   len(UTF8(PhoneSPKIBase64))
+    /// The Android client MUST sign the identical byte sequence.
+    /// </summary>
+    private bool TryVerifyHandshakeProof(
+        byte[] proofBytes,
+        string storedPhoneSpkiBase64,
+        byte[] serverNonce,
+        string presentedPhoneSpkiBase64,
+        out string failureReason)
+    {
+        failureReason = "";
+
+        JsonDocument proofDoc;
+        try { proofDoc = JsonDocument.Parse(proofBytes); }
+        catch (JsonException ex) { failureReason = $"Malformed JSON ({ex.Message})"; return false; }
+
+        using (proofDoc)
+        {
+            var root = proofDoc.RootElement;
+
+            if (!root.TryGetProperty("type", out var typeProp) ||
+                !string.Equals(typeProp.GetString(), "HANDSHAKE_PROOF", StringComparison.Ordinal))
+            {
+                failureReason = "Missing/invalid 'type'";
+                return false;
+            }
+
+            if (!root.TryGetProperty("signature", out var sigProp) ||
+                !root.TryGetProperty("clientNonce", out var cNonceProp))
+            {
+                failureReason = "Missing 'signature' or 'clientNonce'";
+                return false;
+            }
+
+            // GetString() can return null if the JSON value is not a string.
+            string? sigStr = sigProp.GetString();
+            string? nonceStr = cNonceProp.GetString();
+            if (string.IsNullOrEmpty(sigStr) || string.IsNullOrEmpty(nonceStr))
+            {
+                failureReason = "'signature' or 'clientNonce' is empty or non-string";
+                return false;
+            }
+
+            byte[] signature;
+            byte[] clientNonce;
+            try
+            {
+                signature = Convert.FromBase64String(sigStr);
+                clientNonce = Convert.FromBase64String(nonceStr);
+            }
+            catch (FormatException)
+            {
+                failureReason = "Invalid base64 in signature/clientNonce";
+                return false;
+            }
+
+            if (signature.Length == 0 || clientNonce.Length == 0)
+            {
+                failureReason = "Empty signature or clientNonce";
+                return false;
+            }
+
+            byte[] transcript = BuildHandshakeTranscript(
+                serverNonce,
+                clientNonce,
+                _identity.GetPublicKeySpkiBase64(),
+                presentedPhoneSpkiBase64);
+
+            if (!VerifyEcdsaSignature(storedPhoneSpkiBase64, transcript, signature))
+            {
+                failureReason = "ECDSA signature verification failed";
+                return false;
+            }
+
+            return true;
+        }
+    }
+
+    private static byte[] BuildHandshakeTranscript(
+        byte[] serverNonce,
+        byte[] clientNonce,
+        string windowsSpkiBase64,
+        string phoneSpkiBase64)
+    {
+        using var ms = new MemoryStream();
+        WriteLengthPrefixed(ms, serverNonce);
+        WriteLengthPrefixed(ms, clientNonce);
+        WriteLengthPrefixed(ms, Encoding.UTF8.GetBytes(windowsSpkiBase64));
+        WriteLengthPrefixed(ms, Encoding.UTF8.GetBytes(phoneSpkiBase64));
+        return ms.ToArray();
+    }
+
+    private static void WriteLengthPrefixed(Stream s, byte[] data)
+    {
+        Span<byte> len = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(len, data.Length);
+        s.Write(len);
+        s.Write(data);
+    }
+
+    /// <summary>
+    /// Android's Keystore signs with "SHA256withECDSA", which produces a
+    /// DER-encoded ASN.1 signature — hence DSASignatureFormat.Rfc3279DerSequence.
+    /// </summary>
+    private static bool VerifyEcdsaSignature(string phoneSpkiBase64, byte[] data, byte[] signature)
+    {
+        try
+        {
+            byte[] spki = Convert.FromBase64String(phoneSpkiBase64);
+            using var ecdsa = ECDsa.Create();
+            ecdsa.ImportSubjectPublicKeyInfo(spki, out _);
+            return ecdsa.VerifyData(
+                data,
+                signature,
+                HashAlgorithmName.SHA256,
+                DSASignatureFormat.Rfc3279DerSequence);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Heartbeat / frame loop (unchanged except for handshake-timeout context)
+    // ---------------------------------------------------------------
+
     private async Task CommandAndHeartbeatLoopAsync(CancellationToken ct)
     {
         var stream = _tls!;
@@ -431,7 +581,6 @@ public sealed class TetherSession : IDisposable
         using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var combinedCt = sessionCts.Token;
 
-        // Decoupled heartbeat probing task sending PING every 10s unconditionally
         _ = Task.Run(async () =>
         {
             while (!combinedCt.IsCancellationRequested)
@@ -474,14 +623,12 @@ public sealed class TetherSession : IDisposable
 
                 Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
 
-                // Binary input path (hot, 60-120 Hz).
                 if (frameBytes.Length >= 1 && frameBytes[0] == PacketTypeInputEvent)
                 {
                     _inputForwarder.Forward(frameBytes);
                     continue;
                 }
 
-                // JSON control path.
                 JsonDocument doc;
                 try { doc = JsonDocument.Parse(frameBytes); }
                 catch (JsonException ex)
