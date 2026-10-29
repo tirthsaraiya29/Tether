@@ -5,11 +5,14 @@ import android.os.Build
 import android.util.Base64
 import android.util.Log
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 sealed class PairingResult {
     data class Authenticated(
@@ -177,18 +180,12 @@ class TetherPairingManager(
                     )
                 }
 
-                // NEW: server now issues a fresh challenge nonce; refuse to proceed without it.
                 val serverNonceB64 = respJson.optString("serverNonce", "")
                 if (serverNonceB64.isBlank()) {
                     return PairingResult.Error("Windows host did not provide serverNonce challenge")
                 }
                 val serverNonce = Base64.decode(serverNonceB64, Base64.NO_WRAP)
 
-                // Canonical transcript must match TetherSession.BuildHandshakeTranscript():
-                //   len(ServerNonce) || ServerNonce
-                //   len(ClientNonce) || ClientNonce
-                //   len(UTF8(WindowsSPKIBase64))
-                //   len(UTF8(PhoneSPKIBase64))
                 val transcript = buildHandshakeTranscript(
                     serverNonce,
                     clientNonce,
@@ -196,7 +193,7 @@ class TetherPairingManager(
                     phonePubKeyBase64,
                 )
 
-                val signature = securityEngine.signWithIdentityKey(transcript)   // SHA256withECDSA
+                val signature = securityEngine.signWithIdentityKey(transcript)
                 val signatureBase64 = Base64.encodeToString(signature, Base64.NO_WRAP)
 
                 val proofJson = JSONObject().apply {
@@ -286,8 +283,28 @@ class TetherPairingManager(
             val reqIdBytes = requestId.toByteArray(StandardCharsets.UTF_8)
             val pinBytes = userEnteredPin.trim().toByteArray(StandardCharsets.UTF_8)
 
-            val phoneProof = computeSha512(pinBytes, phonePubKeyBytes, winEcPubKeyBytes, reqIdBytes, transcriptHash)
-            val phoneProofBase64 = Base64.encodeToString(phoneProof, Base64.NO_WRAP)
+            // 1. Compute PIN-bound authentication token
+            val mac = Mac.getInstance("HmacSHA256").apply {
+                init(SecretKeySpec(pinBytes, "HmacSHA256"))
+            }
+            mac.update("TETHER-PAIRING-v2".toByteArray(StandardCharsets.UTF_8))
+            mac.update(transcriptHash)
+            mac.update(reqIdBytes)
+            mac.update(winEcPubKeyBytes)
+            mac.update(phonePubKeyBytes)
+            val authKey = mac.doFinal()
+
+            // 2. Sign authentication token using Android Keystore private key
+            val signature = securityEngine.signWithIdentityKey(authKey)
+
+            // 3. Package: len(authKey) || authKey || len(signature) || signature
+            val proofBuffer = ByteBuffer.allocate(4 + authKey.size + 4 + signature.size).order(ByteOrder.BIG_ENDIAN)
+            proofBuffer.putInt(authKey.size)
+            proofBuffer.put(authKey)
+            proofBuffer.putInt(signature.size)
+            proofBuffer.put(signature)
+
+            val phoneProofBase64 = Base64.encodeToString(proofBuffer.array(), Base64.NO_WRAP)
 
             val confirmedJson = JSONObject().apply {
                 put("type", "PAIRING_CONFIRMED")
@@ -306,15 +323,17 @@ class TetherPairingManager(
                 return PairingResult.Error("Pairing complete failed with status: $status")
             }
 
+            // 4. Verify mutual server proof
             val winProofBase64 = completeJson.optString("proof", "")
             if (winProofBase64.isNotBlank()) {
-                val expectedWinProof = computeSha512(
-                    "SERVER-OK".toByteArray(StandardCharsets.UTF_8),
-                    userEnteredPin.trim().toByteArray(StandardCharsets.UTF_8),
-                    winEcPubKeyBytes,
-                    securityEngine.getPublicKeyBytes(),
-                    requestId.toByteArray(StandardCharsets.UTF_8),
-                )
+                val serverMac = Mac.getInstance("HmacSHA256").apply {
+                    init(SecretKeySpec(pinBytes, "HmacSHA256"))
+                }
+                serverMac.update("SERVER-OK".toByteArray(StandardCharsets.UTF_8))
+                serverMac.update(authKey)
+                serverMac.update(winEcPubKeyBytes)
+                serverMac.update(phonePubKeyBytes)
+                val expectedWinProof = serverMac.doFinal()
 
                 val presentedWinProof = try {
                     Base64.decode(winProofBase64, Base64.NO_WRAP)
@@ -327,11 +346,11 @@ class TetherPairingManager(
                     return PairingResult.Error("Windows proof verification failed")
                 }
             } else {
-                Log.w(TAG, "Windows did not return pairing proof; continuing with caution.")
+                return PairingResult.Error("Windows did not provide pairing proof")
             }
 
             securityEngine.storePinnedKeySecurely(context, winEcPubKeyBytes)
-            Log.i(TAG, "Successfully pinned Windows public key after interactive 6-digit PIN confirmation!")
+            Log.i(TAG, "Successfully pinned Windows public key after dual PIN + ECDSA confirmation!")
 
             val winFp = securityEngine.computePublicKeyFingerprint(winEcPubKeyBytes)
             val winCaps = completeJson.optString("capabilities", "")
