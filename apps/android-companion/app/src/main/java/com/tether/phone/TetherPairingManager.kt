@@ -5,7 +5,6 @@ import android.os.Build
 import android.util.Base64
 import android.util.Log
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
@@ -157,9 +156,22 @@ class TetherPairingManager(
                 return PairingResult.Error("Windows host returned empty public key")
             }
 
-            val winPubKeyBytes = Base64.decode(winPubKeyBase64, Base64.NO_WRAP)
-            val winFingerprint = securityEngine.computePublicKeyFingerprint(winPubKeyBytes)
+            val winPubKeyBytes = try {
+                Base64.decode(winPubKeyBase64, Base64.NO_WRAP)
+            } catch (_: IllegalArgumentException) {
+                return PairingResult.Error("Malformed Windows public key base64")
+            }
 
+            // TETH-003 FIX 1: Cryptographically bind TLS peer certificate to application-level SPKI
+            val peerCert = transport.getPeerCertificate()
+                ?: return PairingResult.Error("No TLS peer certificate available on transport")
+            val tlsPubKeyBytes = peerCert.publicKey.encoded
+            if (!MessageDigest.isEqual(tlsPubKeyBytes, winPubKeyBytes)) {
+                Log.e(TAG, "SECURITY ALERT: TLS certificate public key does not match application-layer Windows public key!")
+                return PairingResult.Error("TLS certificate identity mismatch with application handshake SPKI")
+            }
+
+            val winFingerprint = securityEngine.computePublicKeyFingerprint(winPubKeyBytes)
             val safeName = sanitizeLog(winName)
             val safeDevId = sanitizeLog(winDeviceId)
             val safeFp = sanitizeLog(winFingerprint)
@@ -171,10 +183,11 @@ class TetherPairingManager(
                 respBytes,
             )
 
-            // If the host presented a pinned key verification or issues a challenge under PAIRED state
-            val serverNonceB64 = respJson.optString("serverNonce", "")
-            if (isAlreadyPinned || (pairingStatus == "PAIRED" && serverNonceB64.isNotBlank())) {
-                if (isAlreadyPinned && !MessageDigest.isEqual(winPubKeyBytes, pinnedKeyBytes)) {
+            // =========================================================================
+            // PATH 1: KNOWN PAIRED DEVICE RECONNECT
+            // =========================================================================
+            if (isAlreadyPinned) {
+                if (!MessageDigest.isEqual(winPubKeyBytes, pinnedKeyBytes)) {
                     Log.e(TAG, "SECURITY ALERT: Windows identity key mismatch! Presented: $winFingerprint, Pinned: $pinnedFingerprint")
                     return PairingResult.KeyMismatch(
                         presentedFingerprint = winFingerprint,
@@ -182,6 +195,12 @@ class TetherPairingManager(
                     )
                 }
 
+                if (pairingStatus != "PAIRED") {
+                    Log.w(TAG, "Windows host returned unexpected status '$safeStatus' for pinned device")
+                    return PairingResult.Error("Unexpected status '$safeStatus' from pinned Windows host")
+                }
+
+                val serverNonceB64 = respJson.optString("serverNonce", "")
                 if (serverNonceB64.isBlank()) {
                     return PairingResult.Error("Windows host did not provide serverNonce challenge")
                 }
@@ -215,17 +234,21 @@ class TetherPairingManager(
                     return PairingResult.Error("Windows host rejected HANDSHAKE_PROOF")
                 }
 
-                // If this reconnect challenge proved successful, ensure key is saved locally
-                if (!isAlreadyPinned) {
-                    securityEngine.storePinnedKeySecurely(context, winPubKeyBytes)
-                }
-
-                Log.i(TAG, "Cryptographic proof-of-possession verified against Windows host!")
+                Log.i(TAG, "Cryptographic proof-of-possession verified against pinned Windows key!")
                 return PairingResult.Authenticated(
                     peerDeviceId = winDeviceId,
                     peerFingerprint = winFingerprint,
                     peerCapabilities = winCapabilities,
                 )
+            }
+
+            // =========================================================================
+            // PATH 2: UNPINNED FIRST-CONTACT / NEW PAIRING (FAIL-CLOSED)
+            // =========================================================================
+            // TETH-003 FIX 2: Never allow an unpinned device to auto-authenticate on PAIRED status
+            if (pairingStatus == "PAIRED" || pairingStatus == "PAIRING_ACCEPTED") {
+                Log.e(TAG, "SECURITY ALERT: Windows host reported PAIRED status, but device has no pinned key locally. Refusing auto-pinning.")
+                return PairingResult.Error("Windows host claims paired status, but no trusted key is pinned locally. Full interactive pairing required.")
             }
 
             when (pairingStatus) {
@@ -247,15 +270,7 @@ class TetherPairingManager(
                     return PairingResult.PairingDenied("Pairing request rejected on Windows PC")
                 }
                 else -> {
-                    val reqId = respJson.optString("requestId", "REQ_UNKNOWN")
-                    return PairingResult.PairingPending(
-                        requestId = reqId,
-                        peerDeviceId = winDeviceId,
-                        peerFingerprint = winFingerprint,
-                        peerName = winName,
-                        winEcPubKeyBytes = winPubKeyBytes,
-                        transcriptHash = transcriptHash,
-                    )
+                    return PairingResult.Error("Unrecognized handshake status from Windows host: $safeStatus")
                 }
             }
 
@@ -275,6 +290,15 @@ class TetherPairingManager(
         try {
             if ((winEcPubKeyBytes == null) || winEcPubKeyBytes.isEmpty()) {
                 return PairingResult.Error("Windows public key missing for pairing confirmation")
+            }
+
+            // TETH-003 FIX 3: Bind TLS certificate to pairing identity key during finalization
+            val peerCert = transport.getPeerCertificate()
+                ?: return PairingResult.Error("No active TLS peer certificate to verify against pairing key")
+            val tlsPubKeyBytes = peerCert.publicKey.encoded
+            if (!MessageDigest.isEqual(tlsPubKeyBytes, winEcPubKeyBytes)) {
+                Log.e(TAG, "SECURITY ALERT: TLS certificate public key does not match Windows pairing identity key!")
+                return PairingResult.Error("TLS certificate mismatch with Windows pairing identity")
             }
 
             val phonePubKeyBytes = securityEngine.getPublicKeyBytes()
@@ -315,39 +339,46 @@ class TetherPairingManager(
 
             val completeBytes = transport.readFrame() ?: return PairingResult.Error("No PAIRING_COMPLETE response from Windows")
             val completeJson = JSONObject(String(completeBytes, StandardCharsets.UTF_8))
-            val status = completeJson.optString("status", "OK")
+            val status = completeJson.optString("status", "")
 
-            if ((status != "OK") && (status != "PAIRING_COMPLETE")) {
-                return PairingResult.Error("Pairing complete failed with status: $status")
+            if (status != "OK" && status != "PAIRING_COMPLETE") {
+                return PairingResult.Error("Pairing complete rejected by Windows with status: $status")
             }
 
-            // 4. Verify mutual server proof
+            // TETH-003 FIX 4: Require mutual server proof and fail closed if missing or invalid
             val winProofBase64 = completeJson.optString("proof", "")
-            if (winProofBase64.isNotBlank()) {
-                val serverMac = Mac.getInstance("HmacSHA256").apply {
-                    init(SecretKeySpec(pinBytes, "HmacSHA256"))
-                }
-                serverMac.update("SERVER-OK".toByteArray(StandardCharsets.UTF_8))
-                serverMac.update(authKey)
-                serverMac.update(winEcPubKeyBytes)
-                serverMac.update(phonePubKeyBytes)
-                val expectedWinProof = serverMac.doFinal()
-
-                val presentedWinProof = try {
-                    Base64.decode(winProofBase64, Base64.NO_WRAP)
-                } catch (_: IllegalArgumentException) {
-                    return PairingResult.Error("Malformed Windows proof encoding")
-                }
-
-                if (!MessageDigest.isEqual(expectedWinProof, presentedWinProof)) {
-                    Log.e(TAG, "SECURITY ALERT: Windows pairing proof mismatch. Possible MITM.")
-                    return PairingResult.Error("Windows proof verification failed")
-                }
-            } else {
-                return PairingResult.Error("Windows did not provide pairing proof")
+            if (winProofBase64.isBlank()) {
+                Log.e(TAG, "SECURITY ALERT: Windows host omitted mutual pairing proof in PAIRING_COMPLETE frame!")
+                return PairingResult.Error("Windows host did not provide required mutual pairing proof")
             }
 
-            securityEngine.storePinnedKeySecurely(context, winEcPubKeyBytes)
+            val serverMac = Mac.getInstance("HmacSHA256").apply {
+                init(SecretKeySpec(pinBytes, "HmacSHA256"))
+            }
+            serverMac.update("SERVER-OK".toByteArray(StandardCharsets.UTF_8))
+            serverMac.update(authKey)
+            serverMac.update(winEcPubKeyBytes)
+            serverMac.update(phonePubKeyBytes)
+            val expectedWinProof = serverMac.doFinal()
+
+            val presentedWinProof = try {
+                Base64.decode(winProofBase64, Base64.NO_WRAP)
+            } catch (_: IllegalArgumentException) {
+                return PairingResult.Error("Malformed Windows proof encoding")
+            }
+
+            if (!MessageDigest.isEqual(expectedWinProof, presentedWinProof)) {
+                Log.e(TAG, "SECURITY ALERT: Windows pairing proof mismatch. Possible MITM or incorrect PIN.")
+                return PairingResult.Error("Windows proof verification failed: invalid server proof")
+            }
+
+            // TETH-003 FIX 5: Fail closed if persistent storage verification fails
+            val storeSuccess = securityEngine.storePinnedKeySecurely(context, winEcPubKeyBytes)
+            if (!storeSuccess) {
+                Log.e(TAG, "SECURITY ALERT: Failed to securely persist and verify pinned Windows key!")
+                return PairingResult.Error("Failed to store trusted Windows identity key securely on device")
+            }
+
             Log.i(TAG, "Successfully pinned Windows public key after dual PIN + ECDSA confirmation!")
 
             val winFp = securityEngine.computePublicKeyFingerprint(winEcPubKeyBytes)

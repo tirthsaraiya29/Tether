@@ -6,11 +6,11 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
 import androidx.biometric.BiometricPrompt
-import androidx.core.content.edit
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.KeyPairGenerator
+import java.security.SecureRandom
 import java.security.Signature
 import java.security.cert.X509Certificate
 import java.util.Locale
@@ -137,7 +137,6 @@ class ProductionSecurityEngine {
     private fun encryptBytes(data: ByteArray): String {
         val secretKey = loadStorageKey()
         val cipher = newGcmCipher()
-        // Allow Android KeyStore to generate the cryptographically random IV internally
         cipher.init(Cipher.ENCRYPT_MODE, secretKey)
         val iv = cipher.iv ?: throw IllegalStateException("Cipher failed to generate IV")
         val encryptedBytes = cipher.doFinal(data)
@@ -168,14 +167,27 @@ class ProductionSecurityEngine {
         }
     }
 
-    fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray) {
-        try {
+    fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray): Boolean {
+        return try {
             val encodedStr = encryptBytes(publicKeyBytes)
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit(commit = true) { putString(PINNED_WINDOWS_KEY_PREF, encodedStr) }
-            Log.i(TAG, "Pinned Windows public identity key encrypted and saved to secure storage.")
+            val committed = prefs.edit().putString(PINNED_WINDOWS_KEY_PREF, encodedStr).commit()
+            if (!committed) {
+                Log.e(TAG, "Failed committing pinned Windows key to storage")
+                return false
+            }
+
+            val readBack = getPinnedKeyDecrypted(context)
+            if (readBack == null || !MessageDigest.isEqual(readBack, publicKeyBytes)) {
+                Log.e(TAG, "Read-back verification of pinned Windows key failed")
+                return false
+            }
+
+            Log.i(TAG, "Pinned Windows public identity key encrypted, saved, and verified in secure storage.")
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to store pinned key securely: ${e.message}", e)
+            false
         }
     }
 
@@ -188,9 +200,7 @@ class ProductionSecurityEngine {
     fun clearPinnedKey(context: Context) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit(commit = true) {
-                remove(PINNED_WINDOWS_KEY_PREF)
-            }
+            prefs.edit().remove(PINNED_WINDOWS_KEY_PREF).commit()
             FileTransferClient.clearCache()
             Log.i(TAG, "Cleared pinned Windows public keys from storage.")
         } catch (e: Exception) {
