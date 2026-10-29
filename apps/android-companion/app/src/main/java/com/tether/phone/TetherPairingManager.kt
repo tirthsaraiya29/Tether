@@ -171,8 +171,10 @@ class TetherPairingManager(
                 respBytes,
             )
 
-            if (isAlreadyPinned) {
-                if (!MessageDigest.isEqual(winPubKeyBytes, pinnedKeyBytes)) {
+            // If the host presented a pinned key verification or issues a challenge under PAIRED state
+            val serverNonceB64 = respJson.optString("serverNonce", "")
+            if (isAlreadyPinned || (pairingStatus == "PAIRED" && serverNonceB64.isNotBlank())) {
+                if (isAlreadyPinned && !MessageDigest.isEqual(winPubKeyBytes, pinnedKeyBytes)) {
                     Log.e(TAG, "SECURITY ALERT: Windows identity key mismatch! Presented: $winFingerprint, Pinned: $pinnedFingerprint")
                     return PairingResult.KeyMismatch(
                         presentedFingerprint = winFingerprint,
@@ -180,7 +182,6 @@ class TetherPairingManager(
                     )
                 }
 
-                val serverNonceB64 = respJson.optString("serverNonce", "")
                 if (serverNonceB64.isBlank()) {
                     return PairingResult.Error("Windows host did not provide serverNonce challenge")
                 }
@@ -201,6 +202,7 @@ class TetherPairingManager(
                     put("signature", signatureBase64)
                     put("clientNonce", Base64.encodeToString(clientNonce, Base64.NO_WRAP))
                 }
+                Log.i(TAG, "Transmitting HANDSHAKE_PROOF cryptographic challenge response...")
                 transport.sendFrame(proofJson.toString().toByteArray(StandardCharsets.UTF_8))
 
                 val verifiedBytes = try { transport.readFrame() } catch (e: Exception) { null }
@@ -213,7 +215,12 @@ class TetherPairingManager(
                     return PairingResult.Error("Windows host rejected HANDSHAKE_PROOF")
                 }
 
-                Log.i(TAG, "Cryptographic proof-of-possession verified against pinned Windows key!")
+                // If this reconnect challenge proved successful, ensure key is saved locally
+                if (!isAlreadyPinned) {
+                    securityEngine.storePinnedKeySecurely(context, winPubKeyBytes)
+                }
+
+                Log.i(TAG, "Cryptographic proof-of-possession verified against Windows host!")
                 return PairingResult.Authenticated(
                     peerDeviceId = winDeviceId,
                     peerFingerprint = winFingerprint,
@@ -222,19 +229,10 @@ class TetherPairingManager(
             }
 
             when (pairingStatus) {
-                "PAIRED", "PAIRING_ACCEPTED" -> {
-                    Log.i(TAG, "First pairing auto-accepted by Windows. Pinning keys...")
-                    securityEngine.storePinnedKeySecurely(context, winPubKeyBytes)
-                    return PairingResult.Authenticated(
-                        peerDeviceId = winDeviceId,
-                        peerFingerprint = winFingerprint,
-                        peerCapabilities = winCapabilities,
-                    )
-                }
                 "PAIRING_PENDING" -> {
                     val reqId = respJson.optString("requestId", "REQ_UNKNOWN")
                     val safeReqId = sanitizeLog(reqId)
-                    Log.i(TAG, "Windows host returned PAIRING_PENDING (reqId=$safeReqId). User PIN entry required.")
+                    Log.i(TAG, "Windows host returned PAIRING_PENDING (reqId=$safeReqId). PIN entry required.")
                     return PairingResult.PairingPending(
                         requestId = reqId,
                         peerDeviceId = winDeviceId,

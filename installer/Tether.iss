@@ -26,6 +26,12 @@
 #define MyCredProvGuid      "{{c8c8d282-f4f1-451d-96fc-a8b1f783117b}"
 #define MyCredProvName      "TetherCredentialProvider"
 
+; Standardized Firewall Rule Names matching Worker.cs
+#define RuleControlTcp      "Tether Control (TCP-In 37123)"
+#define RuleDiscoveryUdp    "Tether Discovery (UDP-In 37124)"
+#define RuleMdnsUdp         "Tether mDNS (UDP-In 5353)"
+#define RuleFileTransferTcp "Tether File Transfer (TCP-In 37124)"
+
 ; Compile-time relative path to published files
 #define PackDir             "pack"
 
@@ -81,7 +87,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [CustomMessages]
 english.InstallServiceTask=Install and configure Tether background service
-english.FirewallTask=Add Windows Firewall rules (TCP 37123, UDP 37124)
+english.FirewallTask=Configure Windows Firewall rules (TCP 37123, UDP 37124, UDP 5353, TCP 37124 on Private/Domain profiles)
 english.DesktopShortcutTask=Create a desktop shortcut for Tether
 english.LaunchUITask=Launch Tether Desktop UI with administrator privileges
 english.VaultUninstallPrompt=Tether stores encrypted credentials in HKLM\SOFTWARE\Tether.%n%nDo you want to permanently erase this stored vault data?%n%nSelect 'No' to preserve your pairing for future installations.
@@ -157,14 +163,39 @@ Root: HKCR; Subkey: "Directory\shell\TetherSendToPhone"; ValueType: string; Valu
 Root: HKCR; Subkey: "Directory\shell\TetherSendToPhone\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyDesktopUIExeName}"" ""--send"" ""%1"""
 
 [Run]
-; Firewall Configuration
+; ---------------------------------------------------------------------------
+;  Firewall Configuration (Scoped to Executable + Port + Private/Domain profiles)
+; ---------------------------------------------------------------------------
+; Clean legacy or duplicate rules first
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#RuleControlTcp}"""; Flags: runhidden waituntilterminated; Tasks: firewall
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#RuleDiscoveryUdp}"""; Flags: runhidden waituntilterminated; Tasks: firewall
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#RuleMdnsUdp}"""; Flags: runhidden waituntilterminated; Tasks: firewall
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#RuleFileTransferTcp}"""; Flags: runhidden waituntilterminated; Tasks: firewall
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Tether Protocol (TCP-In)"""; Flags: runhidden waituntilterminated; Tasks: firewall
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Tether Discovery (UDP-In)"""; Flags: runhidden waituntilterminated; Tasks: firewall
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Tether Service Exe"""; Flags: runhidden waituntilterminated; Tasks: firewall
+
+; Port 37123 TCP: Primary Control Channel
 Filename: "{sys}\netsh.exe"; \
-    Parameters: "advfirewall firewall add rule name=""Tether Protocol (TCP-In)"" dir=in action=allow protocol=TCP localport=37123 profile=any"; \
+    Parameters: "advfirewall firewall add rule name=""{#RuleControlTcp}"" dir=in action=allow protocol=TCP localport=37123 program=""{app}\{#MyAppExeName}"" profile=private,domain enable=yes"; \
     Flags: runhidden waituntilterminated; \
     Tasks: firewall
 
+; Port 37124 UDP: Local Broadcast Discovery
 Filename: "{sys}\netsh.exe"; \
-    Parameters: "advfirewall firewall add rule name=""Tether Discovery (UDP-In)"" dir=in action=allow protocol=UDP localport=37124 profile=any"; \
+    Parameters: "advfirewall firewall add rule name=""{#RuleDiscoveryUdp}"" dir=in action=allow protocol=UDP localport=37124 program=""{app}\{#MyAppExeName}"" profile=private,domain enable=yes"; \
+    Flags: runhidden waituntilterminated; \
+    Tasks: firewall
+
+; Port 5353 UDP: Multicast DNS (mDNS)
+Filename: "{sys}\netsh.exe"; \
+    Parameters: "advfirewall firewall add rule name=""{#RuleMdnsUdp}"" dir=in action=allow protocol=UDP localport=5353 program=""{app}\{#MyAppExeName}"" profile=private,domain enable=yes"; \
+    Flags: runhidden waituntilterminated; \
+    Tasks: firewall
+
+; Port 37124 TCP: HTTPS File Transfer API
+Filename: "{sys}\netsh.exe"; \
+    Parameters: "advfirewall firewall add rule name=""{#RuleFileTransferTcp}"" dir=in action=allow protocol=TCP localport=37124 program=""{app}\{#MyAppExeName}"" profile=private,domain enable=yes"; \
     Flags: runhidden waituntilterminated; \
     Tasks: firewall
 
@@ -176,16 +207,22 @@ Filename: "{app}\{#MyDesktopUIExeName}"; \
     Tasks: launchui
 
 [UninstallRun]
-; Clean firewall rules
-Filename: "{sys}\netsh.exe"; \
-    Parameters: "advfirewall firewall delete rule name=""Tether Protocol (TCP-In)"""; \
-    Flags: runhidden waituntilterminated; \
-    RunOnceId: "RemoveTetherTcpRule"
+; ---------------------------------------------------------------------------
+;  Firewall Cleanup (Purge all current and legacy rules)
+; ---------------------------------------------------------------------------
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#RuleControlTcp}"""; Flags: runhidden waituntilterminated; RunOnceId: "DelRuleControlTcp"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#RuleDiscoveryUdp}"""; Flags: runhidden waituntilterminated; RunOnceId: "DelRuleDiscoveryUdp"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#RuleMdnsUdp}"""; Flags: runhidden waituntilterminated; RunOnceId: "DelRuleMdnsUdp"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#RuleFileTransferTcp}"""; Flags: runhidden waituntilterminated; RunOnceId: "DelRuleFileTransferTcp"
 
-Filename: "{sys}\netsh.exe"; \
-    Parameters: "advfirewall firewall delete rule name=""Tether Discovery (UDP-In)"""; \
-    Flags: runhidden waituntilterminated; \
-    RunOnceId: "RemoveTetherUdpRule"
+; Clean legacy rule names if present
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Tether Protocol (TCP-In)"""; Flags: runhidden waituntilterminated; RunOnceId: "DelLegacyTcpRule"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Tether Discovery (UDP-In)"""; Flags: runhidden waituntilterminated; RunOnceId: "DelLegacyUdpRule"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Tether Service Exe"""; Flags: runhidden waituntilterminated; RunOnceId: "DelLegacyExeRule"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Tether TCP 37123"""; Flags: runhidden waituntilterminated; RunOnceId: "DelOldTcp37123"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Tether UDP 37124"""; Flags: runhidden waituntilterminated; RunOnceId: "DelOldUdp37124"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Tether QUIC UDP 37125"""; Flags: runhidden waituntilterminated; RunOnceId: "DelOldQuicUdp"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Tether QUIC TCP 37125"""; Flags: runhidden waituntilterminated; RunOnceId: "DelOldQuicTcp"
 
 [UninstallDelete]
 Type: files;          Name: "{sys}\{#MyCredProvDll}"
@@ -356,14 +393,12 @@ begin
 
     if Svc = 0 then
     begin
-      { If creation failed because it already exists, open it }
       Svc := OpenService(SCM, '{#MyServiceName}', SERVICE_ALL_ACCESS);
     end;
 
     if Svc <> 0 then
     begin
       try
-        { Configure description and recovery actions }
         Exec(ExpandConstant('{sys}\sc.exe'),
              'description {#MyServiceName} "{#MyServiceDesc}"',
              '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -372,7 +407,6 @@ begin
              'failure {#MyServiceName} reset= 86400 actions= restart/5000/restart/10000/restart/30000',
              '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
-        { Start the service }
         StartService(Svc, 0, 0);
         Result := True;
       finally
@@ -530,7 +564,6 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    { Direct Win32 API installation of the Windows Service }
     if WizardIsTaskSelected('installservice') then
     begin
       WizardForm.StatusLabel.Caption := ExpandConstant('{cm:ServiceStarting}');
@@ -547,13 +580,11 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
-    { Stop and remove background service before files get cleaned }
     StopServiceIfRunning('{#MyServiceName}');
     DeleteServiceSilently('{#MyServiceName}');
 
     StopAllTetherProcesses();
 
-    { Optional purge of the encrypted credentials vault }
     VaultKey := 'SOFTWARE\{#MyAppName}';
     if RegKeyExists(HKLM64, VaultKey) then
     begin

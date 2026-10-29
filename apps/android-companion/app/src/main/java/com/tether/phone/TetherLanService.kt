@@ -1506,49 +1506,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             try {
                 val normCmd = normalizeCommand(actionCommand)
 
-                if (normCmd in setOf("shutdown", "reboot", "sleep")) {
-                    lastPowerCommand = normCmd
-                    lastPowerCommandAtMs = System.currentTimeMillis()
-                    rebootTimeoutJob?.cancel()
-                    shutdownTimeoutJob?.cancel()
-
-                    if (normCmd == "shutdown") {
-                        currentPowerState = LaptopPowerState.SHUTTING_DOWN
-                        shutdownTimeoutJob = serviceScope.launch {
-                            delay(30.seconds)
-                            if (currentPowerState == LaptopPowerState.SHUTTING_DOWN) {
-                                currentPowerState = LaptopPowerState.POWERED_OFF
-                                getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
-                                    putString("laptop_power_state", LaptopPowerState.POWERED_OFF.name)
-                                }
-                                notifyStateToInterface()
-                            }
-                        }
-                    } else if (normCmd == "reboot") {
-                        currentPowerState = LaptopPowerState.RESTARTING
-                        rebootTimeoutJob = serviceScope.launch {
-                            delay(180.seconds)
-                            if (currentPowerState == LaptopPowerState.RESTARTING) {
-                                currentPowerState = LaptopPowerState.DISCONNECTED
-                                getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
-                                    putString("laptop_power_state", LaptopPowerState.DISCONNECTED.name)
-                                }
-                                notifyStateToInterface()
-                            }
-                        }
-                    }
-                    getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
-                        putString("last_power_command", normCmd)
-                        putLong("last_power_command_at_ms", lastPowerCommandAtMs)
-                        putString("laptop_power_state", currentPowerState.name)
-                    }
-                    notifyStateToInterface()
-                }
-
                 if ((currentState != TransportState.READY) && (currentState != TransportState.AUTHENTICATED)) {
-                    Log.w(TAG, "Transport not ready ($currentState). Queuing command and starting discovery...")
-                    startDiscovery()
-                    delay(1.seconds)
+                    Log.w(TAG, "Transport not ready ($currentState). Command '$normCmd' discarded.")
+                    return@launch
                 }
 
                 if (!capabilityManager.canExecuteCommand(normCmd)) {
@@ -1568,11 +1528,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 if ((transport != null) && transport.isConnected()) {
                     transport.sendFrame(cmdJson.toString().toByteArray(StandardCharsets.UTF_8))
                     Log.i(TAG, "Dispatched command frame over TLS 1.3: ${sanitizeLog(normCmd)} (reqId=$reqId)")
-                } else {
-                    Log.w(TAG, "Active transport disconnected. Re-initiating discovery...")
-                    startDiscovery()
                 }
-
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to dispatch command (${sanitizeLog(actionCommand)}): ${e.message}")
             }
