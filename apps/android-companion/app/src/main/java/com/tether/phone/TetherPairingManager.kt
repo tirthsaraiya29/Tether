@@ -5,6 +5,8 @@ import android.os.Build
 import android.util.Base64
 import android.util.Log
 import org.json.JSONObject
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -74,6 +76,32 @@ class TetherPairingManager(
                 digest.update(array)
             }
             return digest.digest()
+        }
+
+        fun buildHandshakeTranscript(
+            serverNonce: ByteArray,
+            clientNonce: ByteArray,
+            winPubKeyBase64: String,
+            phonePubKeyBase64: String,
+        ): ByteArray {
+            val winPubKeyBytes = winPubKeyBase64.toByteArray(StandardCharsets.UTF_8)
+            val phonePubKeyBytes = phonePubKeyBase64.toByteArray(StandardCharsets.UTF_8)
+
+            val totalSize = 4 + serverNonce.size +
+                    4 + clientNonce.size +
+                    4 + winPubKeyBytes.size +
+                    4 + phonePubKeyBytes.size
+
+            val buffer = ByteBuffer.allocate(totalSize).order(ByteOrder.BIG_ENDIAN)
+            buffer.putInt(serverNonce.size)
+            buffer.put(serverNonce)
+            buffer.putInt(clientNonce.size)
+            buffer.put(clientNonce)
+            buffer.putInt(winPubKeyBytes.size)
+            buffer.put(winPubKeyBytes)
+            buffer.putInt(phonePubKeyBytes.size)
+            buffer.put(phonePubKeyBytes)
+            return buffer.array()
         }
     }
 
@@ -149,40 +177,46 @@ class TetherPairingManager(
                     )
                 }
 
-                val proofPayload = transcriptHash + winPubKeyBytes
-                val signature = securityEngine.signWithIdentityKey(proofPayload)
-                val proofBase64 = Base64.encodeToString(signature, Base64.NO_WRAP)
+                // NEW: server now issues a fresh challenge nonce; refuse to proceed without it.
+                val serverNonceB64 = respJson.optString("serverNonce", "")
+                if (serverNonceB64.isBlank()) {
+                    return PairingResult.Error("Windows host did not provide serverNonce challenge")
+                }
+                val serverNonce = Base64.decode(serverNonceB64, Base64.NO_WRAP)
+
+                // Canonical transcript must match TetherSession.BuildHandshakeTranscript():
+                //   len(ServerNonce) || ServerNonce
+                //   len(ClientNonce) || ClientNonce
+                //   len(UTF8(WindowsSPKIBase64))
+                //   len(UTF8(PhoneSPKIBase64))
+                val transcript = buildHandshakeTranscript(
+                    serverNonce,
+                    clientNonce,
+                    winPubKeyBase64,
+                    phonePubKeyBase64,
+                )
+
+                val signature = securityEngine.signWithIdentityKey(transcript)   // SHA256withECDSA
+                val signatureBase64 = Base64.encodeToString(signature, Base64.NO_WRAP)
 
                 val proofJson = JSONObject().apply {
                     put("type", "HANDSHAKE_PROOF")
-                    put("nonce", Base64.encodeToString(clientNonce, Base64.NO_WRAP))
-                    put("proof", proofBase64)
+                    put("signature", signatureBase64)
+                    put("clientNonce", Base64.encodeToString(clientNonce, Base64.NO_WRAP))
                 }
                 transport.sendFrame(proofJson.toString().toByteArray(StandardCharsets.UTF_8))
 
-                val verifiedBytes = try {
-                    transport.readFrame()
-                } catch (e: Exception) {
-                    Log.w(TAG, "HANDSHAKE_VERIFIED read timed out or failed; fallback to legacy flow: ${e.message}")
-                    null
+                val verifiedBytes = try { transport.readFrame() } catch (e: Exception) { null }
+                if (verifiedBytes == null) {
+                    return PairingResult.Error("Windows host closed connection during HANDSHAKE_PROOF verification")
+                }
+                val verifiedJson = JSONObject(String(verifiedBytes, StandardCharsets.UTF_8))
+                if (verifiedJson.optString("type") != "HANDSHAKE_VERIFIED" ||
+                    verifiedJson.optString("status") != "OK") {
+                    return PairingResult.Error("Windows host rejected HANDSHAKE_PROOF")
                 }
 
-                if (verifiedBytes != null) {
-                    try {
-                        val verifiedJson = JSONObject(String(verifiedBytes, StandardCharsets.UTF_8))
-                        val verifiedType = verifiedJson.optString("type")
-                        val verifiedStatus = verifiedJson.optString("status")
-                        if (verifiedType == "HANDSHAKE_VERIFIED" && verifiedStatus != "OK") {
-                            return PairingResult.Error("Windows host rejected handshake proof verification")
-                        } else if (verifiedType == "HANDSHAKE_VERIFIED") {
-                            Log.i(TAG, "Received HANDSHAKE_VERIFIED confirmation from Windows host.")
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Non-JSON response to HANDSHAKE_PROOF; proceeding with authenticated session: ${e.message}")
-                    }
-                }
-
-                Log.i(TAG, "Cryptographic identity verified against pinned Windows public key!")
+                Log.i(TAG, "Cryptographic proof-of-possession verified against pinned Windows key!")
                 return PairingResult.Authenticated(
                     peerDeviceId = winDeviceId,
                     peerFingerprint = winFingerprint,
