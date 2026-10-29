@@ -11,7 +11,6 @@ import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.KeyPairGenerator
-import java.security.SecureRandom
 import java.security.Signature
 import java.security.cert.X509Certificate
 import java.util.Locale
@@ -33,8 +32,6 @@ class ProductionSecurityEngine {
 
         private const val GCM_IV_LENGTH_BYTES = 12
         private const val GCM_TAG_LENGTH_BITS = 128
-
-        private val secureRandom = SecureRandom()
 
         @Volatile
         private var cachedPublicKeyBytes: ByteArray? = null
@@ -82,6 +79,7 @@ class ProductionSecurityEngine {
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
                 .setKeySize(256)
                 .build()
 
@@ -90,15 +88,7 @@ class ProductionSecurityEngine {
         }
     }
 
-    private fun newRandomGcmIv(): ByteArray {
-        val iv = ByteArray(GCM_IV_LENGTH_BYTES)
-        secureRandom.nextBytes(iv)
-        return iv
-    }
-
-    // nosemgrep: kotlin.lang.security.gcm-detection.gcm-detection, kotlin.lang.security.ecb-cipher.ecb-cipher
-    private fun newGcmCipher(): Cipher =
-        Cipher.getInstance("AES/GCM/NoPadding")
+    private fun newGcmCipher(): Cipher = Cipher.getInstance("AES/GCM/NoPadding")
 
     private fun loadStorageKey(): SecretKey {
         ensureStorageKeyExists()
@@ -113,11 +103,8 @@ class ProductionSecurityEngine {
     fun createCryptoObjectForAuthentication(): BiometricPrompt.CryptoObject? {
         return try {
             val secretKey = loadStorageKey()
-            val iv = newRandomGcmIv()
-
             val cipher = newGcmCipher()
-            val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
             BiometricPrompt.CryptoObject(cipher)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create CryptoObject for biometric auth: ${e.message}")
@@ -149,11 +136,10 @@ class ProductionSecurityEngine {
 
     private fun encryptBytes(data: ByteArray): String {
         val secretKey = loadStorageKey()
-        val iv = newRandomGcmIv()
-
         val cipher = newGcmCipher()
-        val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
+        // Allow Android KeyStore to generate the cryptographically random IV internally
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+        val iv = cipher.iv ?: throw IllegalStateException("Cipher failed to generate IV")
         val encryptedBytes = cipher.doFinal(data)
 
         val combined = ByteArray(iv.size + encryptedBytes.size)
@@ -172,7 +158,6 @@ class ProductionSecurityEngine {
             val ciphertext = combined.copyOfRange(GCM_IV_LENGTH_BYTES, combined.size)
 
             val secretKey = loadStorageKey()
-
             val cipher = newGcmCipher()
             val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
             cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
@@ -187,7 +172,7 @@ class ProductionSecurityEngine {
         try {
             val encodedStr = encryptBytes(publicKeyBytes)
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit { putString(PINNED_WINDOWS_KEY_PREF, encodedStr) }
+            prefs.edit(commit = true) { putString(PINNED_WINDOWS_KEY_PREF, encodedStr) }
             Log.i(TAG, "Pinned Windows public identity key encrypted and saved to secure storage.")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to store pinned key securely: ${e.message}", e)
@@ -203,7 +188,7 @@ class ProductionSecurityEngine {
     fun clearPinnedKey(context: Context) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit {
+            prefs.edit(commit = true) {
                 remove(PINNED_WINDOWS_KEY_PREF)
             }
             FileTransferClient.clearCache()

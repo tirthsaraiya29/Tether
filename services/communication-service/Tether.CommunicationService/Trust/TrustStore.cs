@@ -20,7 +20,7 @@ public sealed record TrustedPhone
     [JsonPropertyName("pairedAtUtc")] public DateTime PairedAtUtc { get; init; }
     [JsonPropertyName("lastSeenUtc")] public DateTime LastSeenUtc { get; set; }
     [JsonPropertyName("capabilities")] public List<string> Capabilities { get; init; } = new();
-    [JsonPropertyName("protocolVersion")] public string ProtocolVersion { get; init; } = "1.0";
+    [JsonPropertyName("protocolVersion")] public string ProtocolVersion { get; init; } = "2.0";
 }
 
 public sealed class TrustStore
@@ -127,10 +127,23 @@ public sealed class TrustStore
             EnsureStorageAcls();
 
             if (!File.Exists(DataFile)) return;
-            var json = File.ReadAllText(DataFile);
+
+            string json;
+            using (var fs = new FileStream(DataFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var sr = new StreamReader(fs))
+            {
+                json = sr.ReadToEnd();
+            }
+
             var list = JsonSerializer.Deserialize<List<TrustedPhone>>(json) ?? new();
-            foreach (var entry in list)
-                _byFingerprint[entry.Fingerprint] = entry;
+            lock (_gate)
+            {
+                _byFingerprint.Clear();
+                foreach (var entry in list)
+                {
+                    _byFingerprint[entry.Fingerprint] = entry;
+                }
+            }
             _logger.Info($"Trust store loaded: {_byFingerprint.Count} paired phone(s).");
         }
         catch (Exception ex)
@@ -148,7 +161,22 @@ public sealed class TrustStore
 
             var snapshot = All();
             var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(DataFile, json);
+
+            string tempFile = Path.Combine(DataDir, $"trust_{Guid.NewGuid():N}.tmp");
+            using (var fs = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var sw = new StreamWriter(fs))
+            {
+                sw.Write(json);
+                sw.Flush();
+            }
+
+            if (File.Exists(DataFile))
+            {
+                File.SetAttributes(DataFile, FileAttributes.Normal);
+            }
+
+            File.Move(tempFile, DataFile, overwrite: true);
+            EnsureFileAcl(DataFile);
         }
         catch (Exception ex)
         {
@@ -162,26 +190,62 @@ public sealed class TrustStore
         {
             var di = new DirectoryInfo(DataDir);
             var sec = di.GetAccessControl();
-            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
 
             var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
             var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var currentIdentity = WindowsIdentity.GetCurrent().User;
+
+            sec.AddAccessRule(new FileSystemAccessRule(
+                systemSid,
+                FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None,
+                AccessControlType.Allow));
+
+            sec.AddAccessRule(new FileSystemAccessRule(
+                adminSid,
+                FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None,
+                AccessControlType.Allow));
+
+            if (currentIdentity != null && !currentIdentity.Equals(systemSid) && !currentIdentity.Equals(adminSid))
+            {
+                sec.AddAccessRule(new FileSystemAccessRule(
+                    currentIdentity,
+                    FileSystemRights.FullControl,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                    PropagationFlags.None,
+                    AccessControlType.Allow));
+            }
+
+            di.SetAccessControl(sec);
+        }
+        catch { /* best effort */ }
+    }
+
+    private static void EnsureFileAcl(string filePath)
+    {
+        try
+        {
+            if (!File.Exists(filePath)) return;
+
+            var fi = new FileInfo(filePath);
+            var sec = fi.GetAccessControl();
+
+            var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var currentIdentity = WindowsIdentity.GetCurrent().User;
 
             sec.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, AccessControlType.Allow));
             sec.AddAccessRule(new FileSystemAccessRule(adminSid, FileSystemRights.FullControl, AccessControlType.Allow));
 
-            di.SetAccessControl(sec);
-
-            if (File.Exists(DataFile))
+            if (currentIdentity != null && !currentIdentity.Equals(systemSid) && !currentIdentity.Equals(adminSid))
             {
-                File.SetAttributes(DataFile, FileAttributes.Normal);
-                var fi = new FileInfo(DataFile);
-                var fileSec = fi.GetAccessControl();
-                fileSec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-                fileSec.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, AccessControlType.Allow));
-                fileSec.AddAccessRule(new FileSystemAccessRule(adminSid, FileSystemRights.FullControl, AccessControlType.Allow));
-                fi.SetAccessControl(fileSec);
+                sec.AddAccessRule(new FileSystemAccessRule(currentIdentity, FileSystemRights.FullControl, AccessControlType.Allow));
             }
+
+            fi.SetAccessControl(sec);
         }
         catch { /* best effort */ }
     }
