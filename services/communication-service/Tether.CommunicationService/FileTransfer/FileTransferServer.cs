@@ -4,13 +4,16 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Win32.SafeHandles;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,6 +26,10 @@ namespace Tether.CommunicationService.FileTransfer;
 
 public class FileTransferServer : IHostedService
 {
+    private const long MaxUploadSizeBytes = 4L * 1024L * 1024L * 1024L; // 4 GB per transfer
+    private const long MinimumDiskBufferBytes = 250L * 1024L * 1024L;   // 250 MB free space safety margin
+    private const int MaxConcurrentTransfers = 4;
+
     private readonly ITetherLogger _logger;
     private readonly WindowsIdentity _identity;
     private readonly TokenStore _tokenStore;
@@ -30,7 +37,78 @@ public class FileTransferServer : IHostedService
     private readonly TrustStore _trustStore;
     private WebApplication? _app;
 
+    private static readonly SemaphoreSlim _transferThrottle = new(MaxConcurrentTransfers, MaxConcurrentTransfers);
     private static readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingRequests = new();
+
+    private static readonly HashSet<string> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
+
+    private static readonly string[] BlockedDirectoryPrefixes = InitializeBlockedPrefixes();
+
+    #region Win32 Final Path Resolution
+    [DllImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern SafeFileHandle CreateFile(
+        string lpFileName,
+        uint dwDesiredAccess,
+        uint dwShareMode,
+        IntPtr lpSecurityAttributes,
+        uint dwCreationDisposition,
+        uint dwFlagsAndAttributes,
+        IntPtr hTemplateFile);
+
+    [DllImport("kernel32.dll", EntryPoint = "GetFinalPathNameByHandleW", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern uint GetFinalPathNameByHandle(
+        SafeFileHandle hFile,
+        [Out] StringBuilder lpszFilePath,
+        uint cchFilePath,
+        uint dwFlags);
+
+    private const uint FILE_SHARE_READ = 0x00000001;
+    private const uint FILE_SHARE_WRITE = 0x00000002;
+    private const uint FILE_SHARE_DELETE = 0x00000004;
+    private const uint OPEN_EXISTING = 3;
+    private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+    private const uint FILE_NAME_NORMALIZED = 0x0;
+
+    private static string? GetFinalResolvedPath(string path)
+    {
+        using var handle = CreateFile(
+            path,
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            IntPtr.Zero,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            IntPtr.Zero);
+
+        if (handle.IsInvalid)
+        {
+            return null;
+        }
+
+        var sb = new StringBuilder(1024);
+        uint result = GetFinalPathNameByHandle(handle, sb, (uint)sb.Capacity, FILE_NAME_NORMALIZED);
+        if (result == 0 || result >= sb.Capacity)
+        {
+            return null;
+        }
+
+        string resolved = sb.ToString();
+        if (resolved.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+        {
+            return @"\\" + resolved[8..];
+        }
+        if (resolved.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
+        {
+            return resolved[4..];
+        }
+        return resolved;
+    }
+    #endregion
 
     public FileTransferServer(ITetherLogger logger, WindowsIdentity identity, TokenStore tokenStore, SessionManager sessionManager, TrustStore trustStore)
     {
@@ -41,7 +119,92 @@ public class FileTransferServer : IHostedService
         _trustStore = trustStore;
     }
 
-    public static bool TryGetValidPath(string? inputPath, out string fullPath)
+    private static string[] InitializeBlockedPrefixes()
+    {
+        var list = new List<string>();
+
+        void AddIfValid(string? path)
+        {
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                try
+                {
+                    var full = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    list.Add(full);
+                }
+                catch { }
+            }
+        }
+
+        AddIfValid(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+        AddIfValid(Environment.GetFolderPath(Environment.SpecialFolder.System));
+        AddIfValid(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+        AddIfValid(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
+        AddIfValid(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether"));
+        AddIfValid(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tether"));
+        AddIfValid(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Tether"));
+        AddIfValid(Environment.GetFolderPath(Environment.SpecialFolder.Startup));
+        AddIfValid(Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup));
+
+        return list.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static bool IsPathInBlockedPrefix(string normalizedPath)
+    {
+        string pathWithSep = normalizedPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+        foreach (var blocked in BlockedDirectoryPrefixes)
+        {
+            string blockedWithSep = blocked + Path.DirectorySeparatorChar;
+            if (pathWithSep.StartsWith(blockedWithSep, StringComparison.OrdinalIgnoreCase) ||
+                normalizedPath.Equals(blocked, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        if (normalizedPath.Contains("System Volume Information", StringComparison.OrdinalIgnoreCase) ||
+            normalizedPath.Contains("$Recycle.Bin", StringComparison.OrdinalIgnoreCase) ||
+            normalizedPath.Contains("$RECYCLE.BIN", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasReparsePointInHierarchy(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                var fi = new FileInfo(path);
+                if (fi.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    return true;
+                }
+            }
+
+            var dir = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path).Directory;
+            while (dir != null && dir.Parent != null)
+            {
+                if (dir.Exists && dir.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    return true;
+                }
+                dir = dir.Parent;
+            }
+        }
+        catch
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    public static bool TryGetValidPath(string? inputPath, out string fullPath, bool isUpload = false)
     {
         fullPath = string.Empty;
         if (string.IsNullOrWhiteSpace(inputPath))
@@ -56,8 +219,14 @@ public class FileTransferServer : IHostedService
                 return false;
             }
 
-            // Block UNC paths (e.g. \\server\share or //server/share)
+            // Block UNC network paths
             if (inputPath.StartsWith(@"\\") || inputPath.StartsWith("//"))
+            {
+                return false;
+            }
+
+            // Block Alternate Data Streams (ADS)
+            if (inputPath.Length > 2 && inputPath.IndexOf(':', 2) >= 0)
             {
                 return false;
             }
@@ -68,18 +237,56 @@ public class FileTransferServer : IHostedService
                 return false;
             }
 
-            // Block Windows system directories and Tether application internal store
-            string winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-            string progDataTether = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether");
-
-            if (!string.IsNullOrEmpty(winDir) && (normalized.Equals(winDir, StringComparison.OrdinalIgnoreCase) || normalized.StartsWith(winDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            // Block DOS device reserved names
+            string fileName = Path.GetFileNameWithoutExtension(normalized);
+            if (ReservedDeviceNames.Contains(fileName))
             {
                 return false;
             }
 
-            if (!string.IsNullOrEmpty(progDataTether) && (normalized.Equals(progDataTether, StringComparison.OrdinalIgnoreCase) || normalized.StartsWith(progDataTether + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            // Block lexical root traversal into system-protected paths
+            if (IsPathInBlockedPrefix(normalized))
             {
                 return false;
+            }
+
+            // Reject any reparse points in path hierarchy
+            if (HasReparsePointInHierarchy(normalized))
+            {
+                return false;
+            }
+
+            // Validate resolved physical destination via OS file handle
+            if (File.Exists(normalized) || Directory.Exists(normalized))
+            {
+                string? physicalPath = GetFinalResolvedPath(normalized);
+                if (physicalPath == null || IsPathInBlockedPrefix(physicalPath))
+                {
+                    return false;
+                }
+            }
+            else if (isUpload)
+            {
+                // For new uploads, verify the parent container resolution
+                string? parentDir = Path.GetDirectoryName(normalized);
+                while (!string.IsNullOrEmpty(parentDir) && !Directory.Exists(parentDir))
+                {
+                    parentDir = Path.GetDirectoryName(parentDir);
+                }
+
+                if (!string.IsNullOrEmpty(parentDir))
+                {
+                    if (HasReparsePointInHierarchy(parentDir))
+                    {
+                        return false;
+                    }
+
+                    string? physicalParent = GetFinalResolvedPath(parentDir);
+                    if (physicalParent == null || IsPathInBlockedPrefix(physicalParent))
+                    {
+                        return false;
+                    }
+                }
             }
 
             fullPath = normalized;
@@ -119,13 +326,15 @@ public class FileTransferServer : IHostedService
             throw new InvalidOperationException("Identity certificate is required for HTTPS FileTransferServer.");
         }
 
-        // Initialize local loopback token for DesktopUI
         _tokenStore.GetOrCreateLocalUiToken();
 
         var builder = WebApplication.CreateBuilder();
 
         builder.WebHost.UseKestrel(options =>
         {
+            options.Limits.MaxRequestBodySize = MaxUploadSizeBytes;
+            options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(30);
+
             options.ListenAnyIP(37124, listenOptions =>
             {
                 listenOptions.UseHttps(httpsOptions =>
@@ -159,27 +368,39 @@ public class FileTransferServer : IHostedService
             {
                 if (string.IsNullOrWhiteSpace(path))
                 {
-                    var drives = DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => new
-                    {
-                        name = d.Name,
-                        path = d.Name,
-                        isDirectory = true,
-                        size = d.TotalSize,
-                        lastModified = (DateTimeOffset?)null
-                    }).ToList();
+                    var drives = DriveInfo.GetDrives()
+                        .Where(d => d.IsReady && d.DriveType != DriveType.CDRom)
+                        .Select(d => new
+                        {
+                            name = d.Name,
+                            path = d.Name,
+                            isDirectory = true,
+                            size = d.TotalSize,
+                            lastModified = (DateTimeOffset?)null
+                        }).ToList();
                     return Results.Ok(drives);
                 }
 
                 if (!TryGetValidPath(path, out var fullPath) || !Directory.Exists(fullPath))
                 {
-                    return Results.NotFound(new { error = "Directory not found" });
+                    return Results.NotFound(new { error = "Directory not found or access restricted" });
                 }
 
                 var dirInfo = new DirectoryInfo(fullPath);
-
                 var entries = new List<object>();
-                foreach (var dir in dirInfo.GetDirectories())
+
+                foreach (var dir in dirInfo.GetDirectories().Take(2000))
                 {
+                    if ((dir.Attributes & FileAttributes.ReparsePoint) != 0 || (dir.Attributes & FileAttributes.Hidden) != 0)
+                    {
+                        continue;
+                    }
+
+                    if (IsPathInBlockedPrefix(dir.FullName))
+                    {
+                        continue;
+                    }
+
                     entries.Add(new
                     {
                         name = dir.Name,
@@ -190,8 +411,13 @@ public class FileTransferServer : IHostedService
                     });
                 }
 
-                foreach (var file in dirInfo.GetFiles())
+                foreach (var file in dirInfo.GetFiles().Take(5000))
                 {
+                    if ((file.Attributes & FileAttributes.ReparsePoint) != 0 || (file.Attributes & FileAttributes.Hidden) != 0)
+                    {
+                        continue;
+                    }
+
                     entries.Add(new
                     {
                         name = file.Name,
@@ -207,39 +433,94 @@ public class FileTransferServer : IHostedService
             catch (Exception ex)
             {
                 _logger.Error($"Error listing directory {path}: {ex.Message}");
-                return Results.Problem(ex.Message);
+                return Results.Problem("Directory listing failed or access denied");
             }
         });
 
-        _app.MapGet("/api/fs/download", (string path, HttpContext context) =>
+        _app.MapGet("/api/fs/download", async (string path, HttpContext context) =>
         {
+            if (!await _transferThrottle.WaitAsync(TimeSpan.FromSeconds(5)))
+            {
+                return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            }
+
             try
             {
                 if (!TryGetValidPath(path, out var fullPath) || !File.Exists(fullPath))
                 {
-                    return Results.NotFound("File not found");
+                    return Results.NotFound("File not found or access restricted");
+                }
+
+                var fi = new FileInfo(fullPath);
+                if (fi.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    return Results.BadRequest("Access to reparse points is denied");
                 }
 
                 string hashHex = ComputeSha512Hex(fullPath);
                 context.Response.Headers["X-Tether-File-SHA512"] = hashHex;
 
-                var contentType = "application/octet-stream";
-                return Results.File(fullPath, contentType, enableRangeProcessing: true);
+                return Results.File(fullPath, "application/octet-stream", enableRangeProcessing: true);
             }
             catch (Exception ex)
             {
                 _logger.Error($"Error downloading {path}: {ex.Message}");
-                return Results.Problem(ex.Message);
+                return Results.Problem("File download failed");
+            }
+            finally
+            {
+                _transferThrottle.Release();
             }
         });
 
         _app.MapPost("/api/fs/upload", async (string path, HttpContext context) =>
         {
+            if (!await _transferThrottle.WaitAsync(TimeSpan.FromSeconds(5)))
+            {
+                return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            }
+
+            string tempPath = "";
             try
             {
-                if (!TryGetValidPath(path, out var fullPath))
+                if (!TryGetValidPath(path, out var fullPath, isUpload: true))
                 {
-                    return Results.BadRequest("Path is required or restricted");
+                    return Results.BadRequest("Destination path is invalid, restricted, or traverses a reparse point");
+                }
+
+                // Disallow overwriting read-only, hidden, or reparse point files
+                if (File.Exists(fullPath))
+                {
+                    var existingAttrs = File.GetAttributes(fullPath);
+                    if ((existingAttrs & FileAttributes.ReparsePoint) != 0 ||
+                        (existingAttrs & FileAttributes.ReadOnly) != 0 ||
+                        (existingAttrs & FileAttributes.System) != 0)
+                    {
+                        return Results.BadRequest("Cannot overwrite protected or reparse destination file");
+                    }
+                }
+
+                // Check free space on target volume
+                string? root = Path.GetPathRoot(fullPath);
+                if (!string.IsNullOrEmpty(root))
+                {
+                    var drive = new DriveInfo(root);
+                    if (drive.IsReady)
+                    {
+                        long expectedLength = context.Request.ContentLength ?? 0L;
+                        long requiredSpace = expectedLength + MinimumDiskBufferBytes;
+                        if (drive.AvailableFreeSpace < requiredSpace)
+                        {
+                            _logger.Warning($"Upload rejected: Insufficient disk space on drive {drive.Name}.");
+                            return Results.StatusCode(StatusCodes.Status507InsufficientStorage);
+                        }
+                    }
+                }
+
+                string expectedHashHex = context.Request.Headers["X-Tether-File-SHA512"].ToString().Trim().ToLowerInvariant();
+                if (string.IsNullOrEmpty(expectedHashHex) || expectedHashHex.Length != 128 || !expectedHashHex.All(Uri.IsHexDigit))
+                {
+                    return Results.BadRequest("Missing or malformed required header: X-Tether-File-SHA512");
                 }
 
                 var dir = Path.GetDirectoryName(fullPath);
@@ -248,50 +529,62 @@ public class FileTransferServer : IHostedService
                     Directory.CreateDirectory(dir);
                 }
 
-                string tempPath = fullPath + $".tmp_{Guid.NewGuid():N}";
-                string expectedHashHex = context.Request.Headers["X-Tether-File-SHA512"].ToString().Trim().ToLowerInvariant();
+                tempPath = fullPath + $".tether_tmp_{Guid.NewGuid():N}";
 
-                try
+                using (var sha512 = IncrementalHash.CreateHash(HashAlgorithmName.SHA512))
+                using (var tempStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
                 {
-                    using (var sha512 = IncrementalHash.CreateHash(HashAlgorithmName.SHA512))
-                    using (var tempStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+                    var buffer = new byte[81920];
+                    int bytesRead;
+                    long totalBytesRead = 0L;
+
+                    while ((bytesRead = await context.Request.Body.ReadAsync(buffer, 0, buffer.Length, context.RequestAborted)) > 0)
                     {
-                        var buffer = new byte[81920];
-                        int bytesRead;
-                        while ((bytesRead = await context.Request.Body.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                        totalBytesRead += bytesRead;
+                        if (totalBytesRead > MaxUploadSizeBytes)
                         {
-                            await tempStream.WriteAsync(buffer, 0, bytesRead);
-                            sha512.AppendData(buffer, 0, bytesRead);
-                        }
-
-                        byte[] actualHash = sha512.GetHashAndReset();
-                        string actualHashHex = Convert.ToHexString(actualHash).ToLowerInvariant();
-
-                        if (!string.IsNullOrEmpty(expectedHashHex) && !string.Equals(expectedHashHex, actualHashHex, StringComparison.OrdinalIgnoreCase))
-                        {
-                            _logger.Warning($"SHA-512 integrity check failed for upload to {fullPath}. Expected: {expectedHashHex}, Actual: {actualHashHex}");
                             try { File.Delete(tempPath); } catch { }
-                            return Results.BadRequest("Integrity check failed: SHA-512 hash mismatch");
+                            return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
                         }
+
+                        await tempStream.WriteAsync(buffer, 0, bytesRead, context.RequestAborted);
+                        sha512.AppendData(buffer, 0, bytesRead);
                     }
 
-                    File.Move(tempPath, fullPath, overwrite: true);
-                }
-                catch
-                {
-                    if (File.Exists(tempPath))
+                    byte[] actualHash = sha512.GetHashAndReset();
+                    string actualHashHex = Convert.ToHexString(actualHash).ToLowerInvariant();
+
+                    if (!string.Equals(expectedHashHex, actualHashHex, StringComparison.OrdinalIgnoreCase))
                     {
+                        _logger.Warning($"SHA-512 check failed for upload to {fullPath}. Expected: {expectedHashHex}, Actual: {actualHashHex}");
                         try { File.Delete(tempPath); } catch { }
+                        return Results.BadRequest("Integrity check failed: SHA-512 mismatch");
                     }
-                    throw;
                 }
 
+                File.Move(tempPath, fullPath, overwrite: true);
                 return Results.Ok();
+            }
+            catch (OperationCanceledException)
+            {
+                if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+                {
+                    try { File.Delete(tempPath); } catch { }
+                }
+                return Results.StatusCode(StatusCodes.Status408RequestTimeout);
             }
             catch (Exception ex)
             {
+                if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+                {
+                    try { File.Delete(tempPath); } catch { }
+                }
                 _logger.Error($"Error uploading {path}: {ex.Message}");
-                return Results.Problem(ex.Message);
+                return Results.Problem("File upload failed");
+            }
+            finally
+            {
+                _transferThrottle.Release();
             }
         });
 
@@ -313,10 +606,12 @@ public class FileTransferServer : IHostedService
             if (completedTask == tcs.Task)
             {
                 var resultJson = await tcs.Task;
-                try {
+                try
+                {
                     var items = JsonDocument.Parse(resultJson).RootElement.GetProperty("items");
                     return Results.Content(items.GetRawText(), "application/json");
-                } catch { return Results.Ok(new object[0]); }
+                }
+                catch { return Results.Ok(new object[0]); }
             }
             else
             {
@@ -343,7 +638,8 @@ public class FileTransferServer : IHostedService
             var fileName = Path.GetFileName(remotePath);
             var windowsDestPath = Path.Combine(localDir, fileName);
 
-            _sessionManager.BroadcastRawFrame(JsonSerializer.Serialize(new {
+            _sessionManager.BroadcastRawFrame(JsonSerializer.Serialize(new
+            {
                 type = "FS_SEND_FILE",
                 requestId = reqId,
                 androidPath = remotePath,
@@ -370,7 +666,8 @@ public class FileTransferServer : IHostedService
             var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(10), targetFingerprint);
             var fileName = Path.GetFileName(localPath);
 
-            _sessionManager.BroadcastRawFrame(JsonSerializer.Serialize(new {
+            _sessionManager.BroadcastRawFrame(JsonSerializer.Serialize(new
+            {
                 type = "FS_RECEIVE_FILE",
                 requestId = reqId,
                 windowsPath = localPath,
