@@ -74,10 +74,29 @@ public class FileTransferAuthMiddleware
         {
             if (_tokenStore.ValidateToken(token, "LOCAL_UI"))
             {
-                var identity = new ClaimsIdentity(new[] {
+                var path = context.Request.Path.Value ?? "";
+                if (path.StartsWith("/api/fs/download", StringComparison.OrdinalIgnoreCase) ||
+                    path.StartsWith("/api/fs/upload", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger?.Warning($"FileTransferAuthMiddleware: Rejected privileged direct filesystem access via LOCAL_UI token from {remoteIp} for {path}");
+                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    await context.Response.WriteAsync("Forbidden: Local UI tokens are not authorized for direct file read/write endpoints");
+                    return;
+                }
+
+                var claims = new List<Claim>
+                {
                     new Claim(ClaimTypes.Name, "TetherLocalUI"),
                     new Claim("DeviceFingerprint", "LOCAL_UI")
-                }, "Bearer");
+                };
+
+                var consoleUserSid = TokenStore.GetActiveConsoleUserSid();
+                if (consoleUserSid != null)
+                {
+                    claims.Add(new Claim(ClaimTypes.PrimarySid, consoleUserSid.Value));
+                }
+
+                var identity = new ClaimsIdentity(claims, "Bearer");
                 context.User = new ClaimsPrincipal(identity);
                 await _next(context);
                 return;
@@ -218,13 +237,11 @@ public class FileTransferAuthMiddleware
             using var ecdsa = ECDsa.Create();
             ecdsa.ImportSubjectPublicKeyInfo(spkiDer, out _);
 
-            // Try ASN.1 DER sequence format (Standard Java/Android SHA256withECDSA)
             if (ecdsa.VerifyData(data, signature, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence))
             {
                 return true;
             }
 
-            // Fallback default VerifyData
             if (ecdsa.VerifyData(data, signature, HashAlgorithmName.SHA256))
             {
                 return true;

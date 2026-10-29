@@ -1,5 +1,4 @@
-﻿// services/communication-service/Tether.CommunicationService/Trust/TrustStore.cs
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -124,6 +123,9 @@ public sealed class TrustStore
     {
         try
         {
+            Directory.CreateDirectory(DataDir);
+            EnsureStorageAcls();
+
             if (!File.Exists(DataFile)) return;
             var json = File.ReadAllText(DataFile);
             var list = JsonSerializer.Deserialize<List<TrustedPhone>>(json) ?? new();
@@ -142,7 +144,8 @@ public sealed class TrustStore
         try
         {
             Directory.CreateDirectory(DataDir);
-            EnsureDirAcl();
+            EnsureStorageAcls();
+
             var snapshot = All();
             var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(DataFile, json);
@@ -153,7 +156,7 @@ public sealed class TrustStore
         }
     }
 
-    private static void EnsureDirAcl()
+    private static void EnsureStorageAcls()
     {
         try
         {
@@ -164,12 +167,21 @@ public sealed class TrustStore
             var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
             var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
 
-            sec.AddAccessRule(new FileSystemAccessRule(systemSid,
-                FileSystemRights.FullControl, AccessControlType.Allow));
-            sec.AddAccessRule(new FileSystemAccessRule(adminSid,
-                FileSystemRights.FullControl, AccessControlType.Allow));
+            sec.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, AccessControlType.Allow));
+            sec.AddAccessRule(new FileSystemAccessRule(adminSid, FileSystemRights.FullControl, AccessControlType.Allow));
 
             di.SetAccessControl(sec);
+
+            if (File.Exists(DataFile))
+            {
+                File.SetAttributes(DataFile, FileAttributes.Normal);
+                var fi = new FileInfo(DataFile);
+                var fileSec = fi.GetAccessControl();
+                fileSec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                fileSec.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, AccessControlType.Allow));
+                fileSec.AddAccessRule(new FileSystemAccessRule(adminSid, FileSystemRights.FullControl, AccessControlType.Allow));
+                fi.SetAccessControl(fileSec);
+            }
         }
         catch { /* best effort */ }
     }

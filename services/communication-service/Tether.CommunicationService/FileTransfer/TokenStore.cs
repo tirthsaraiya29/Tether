@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
@@ -20,6 +21,18 @@ public class TokenStore
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether");
     private static readonly string LocalTokenFile = Path.Combine(DataDir, "local_ui_token.txt");
 
+    // FIX: WTSGetActiveConsoleSessionId is exported by kernel32.dll, NOT wtsapi32.dll
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint WTSGetActiveConsoleSessionId();
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool WTSQueryUserToken(uint sessionId, out IntPtr phToken);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
     public string GenerateToken(TimeSpan validFor, string? deviceFingerprint = null)
     {
         byte[] bytes = new byte[32];
@@ -35,26 +48,28 @@ public class TokenStore
     {
         lock (_lock)
         {
-            if (!string.IsNullOrEmpty(_localUiToken) && ValidateToken(_localUiToken))
+            if (!string.IsNullOrEmpty(_localUiToken) && ValidateToken(_localUiToken, "LOCAL_UI"))
             {
                 return _localUiToken;
             }
 
-            try
+            Directory.CreateDirectory(DataDir);
+
+            if (File.Exists(LocalTokenFile))
             {
-                Directory.CreateDirectory(DataDir);
-                if (File.Exists(LocalTokenFile))
+                try
                 {
+                    EnsureFileAcl(LocalTokenFile);
                     var existing = File.ReadAllText(LocalTokenFile).Trim();
                     if (!string.IsNullOrEmpty(existing) && existing.Length >= 32)
                     {
                         _localUiToken = existing;
-                        _tokens[_localUiToken] = new TokenMetaData(DateTimeOffset.UtcNow.AddDays(365), "LOCAL_UI");
+                        _tokens[_localUiToken] = new TokenMetaData(DateTimeOffset.UtcNow.AddDays(7), "LOCAL_UI");
                         return _localUiToken;
                     }
                 }
+                catch { }
             }
-            catch { }
 
             byte[] bytes = new byte[32];
             RandomNumberGenerator.Fill(bytes);
@@ -62,13 +77,12 @@ public class TokenStore
 
             try
             {
-                Directory.CreateDirectory(DataDir);
                 File.WriteAllText(LocalTokenFile, _localUiToken);
                 EnsureFileAcl(LocalTokenFile);
             }
             catch { }
 
-            _tokens[_localUiToken] = new TokenMetaData(DateTimeOffset.UtcNow.AddDays(365), "LOCAL_UI");
+            _tokens[_localUiToken] = new TokenMetaData(DateTimeOffset.UtcNow.AddDays(7), "LOCAL_UI");
             return _localUiToken;
         }
     }
@@ -142,28 +156,93 @@ public class TokenStore
         }
     }
 
-    private static void EnsureFileAcl(string filePath)
+    public static SecurityIdentifier? GetActiveConsoleUserSid()
+    {
+        // 1. Try active console session first
+        try
+        {
+            uint consoleSessionId = WTSGetActiveConsoleSessionId();
+            if (consoleSessionId != 0xFFFFFFFF && TryGetSidFromSession(consoleSessionId, out var sid))
+            {
+                return sid;
+            }
+        }
+        catch { }
+
+        // 2. Fallback: Search common interactive user session IDs (e.g., Session 1 to 10)
+        for (uint s = 1; s <= 10; s++)
+        {
+            try
+            {
+                if (TryGetSidFromSession(s, out var sid))
+                {
+                    return sid;
+                }
+            }
+            catch { }
+        }
+
+        return null;
+    }
+
+    private static bool TryGetSidFromSession(uint sessionId, out SecurityIdentifier? userSid)
+    {
+        userSid = null;
+        if (WTSQueryUserToken(sessionId, out IntPtr hToken))
+        {
+            try
+            {
+                using var wi = new System.Security.Principal.WindowsIdentity(hToken);
+                if (wi.User != null &&
+                    !wi.User.IsWellKnown(WellKnownSidType.LocalSystemSid) &&
+                    !wi.User.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid))
+                {
+                    userSid = wi.User;
+                    return true;
+                }
+            }
+            finally
+            {
+                CloseHandle(hToken);
+            }
+        }
+        return false;
+    }
+
+    public static void EnsureFileAcl(string filePath)
     {
         try
         {
             var fi = new FileInfo(filePath);
-            var sec = fi.GetAccessControl();
+            if (fi.Exists)
+            {
+                fi.Attributes = FileAttributes.Normal;
+            }
+
+            var sec = new FileSecurity();
             sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
 
             var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
             var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
-            var interactiveSid = new SecurityIdentifier(WellKnownSidType.InteractiveSid, null);
 
             sec.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, AccessControlType.Allow));
             sec.AddAccessRule(new FileSystemAccessRule(adminSid, FileSystemRights.FullControl, AccessControlType.Allow));
-            sec.AddAccessRule(new FileSystemAccessRule(interactiveSid, FileSystemRights.Read, AccessControlType.Allow));
+
+            // Grant Read strictly to the active logged-in desktop user
+            var consoleUserSid = GetActiveConsoleUserSid();
+            if (consoleUserSid != null)
+            {
+                sec.AddAccessRule(new FileSystemAccessRule(consoleUserSid, FileSystemRights.Read, AccessControlType.Allow));
+            }
 
             try
             {
-                var userSid = System.Security.Principal.WindowsIdentity.GetCurrent().User;
-                if (userSid != null)
+                var currentSid = System.Security.Principal.WindowsIdentity.GetCurrent().User;
+                if (currentSid != null &&
+                    !currentSid.IsWellKnown(WellKnownSidType.LocalSystemSid) &&
+                    !currentSid.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid))
                 {
-                    sec.AddAccessRule(new FileSystemAccessRule(userSid, FileSystemRights.FullControl, AccessControlType.Allow));
+                    sec.AddAccessRule(new FileSystemAccessRule(currentSid, FileSystemRights.FullControl, AccessControlType.Allow));
                 }
             }
             catch { }
