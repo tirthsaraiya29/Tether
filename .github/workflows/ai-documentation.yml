@@ -29,7 +29,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
-    # Only run for trusted pushes to the repository.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (
@@ -40,13 +39,13 @@ jobs:
 
     steps:
       - name: Check out repository history
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 
         with:
           python-version: "3.12"
 
@@ -65,16 +64,14 @@ jobs:
 
       - name: Create documentation pull request
         if: steps.docs.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-          # Separate PR for each source branch.
           branch: automation/ai-docs-${{ github.ref_name }}
           base: ${{ github.ref_name }}
           delete-branch: true
 
-          # Never include application source or workflow files.
           add-paths: |
             README.md
             index.html
