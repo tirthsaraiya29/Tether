@@ -543,6 +543,7 @@ jobs:
             --agent security-auditor \
             --title "Tether Security Audit $GITHUB_RUN_NUMBER" \
             --file .audit-input/AUDIT_PROMPT.md \
+            -- \
             "$(cat "$RUNNER_TEMP/beam-task.txt")" \
             > "$OUTPUT" \
             2> "$STDERR_LOG"
