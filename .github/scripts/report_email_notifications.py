@@ -19,7 +19,7 @@ from urllib.parse import quote
 ROOT = Path.cwd()
 
 OLLAMA_URL = "https://ollama.com/api/chat"
-OLLAMA_MODEL = "gpt-oss:120b"
+OLLAMA_MODEL = "gpt-oss:120b-cloud"
 
 RECIPIENT = "tirthsaraiya29@gmail.com"
 SMTP_HOST = "smtp.gmail.com"
