@@ -48,7 +48,7 @@ Tether employs a dual-channel network architecture for control and high-throughp
 +------------|------------------------|---------------------|-----------+
              |                        |                     |
              | Local Wi-Fi / LAN      |                     |
-             | TCP 37123 (TLS 1.3)    | UDP 37124 / 5353    | TCP 37125 (File)
+             | TCP 37123 (TLS 1.3)    | UDP 37124 / 5353    | TCP 37124 (File HTTPS)
              v                        v                     v
 +-----------------------------------------------------------------------+
 |                         WINDOWS WORKSTATION                           |
@@ -86,7 +86,7 @@ Tether employs a dual-channel network architecture for control and high-throughp
 * **Discovery Channels**:
   * **mDNS**: Advertises service type `_tether._tcp.` over UDP Port `5353`.
   * **UDP Broadcast**: Port `37124` for instant peer discovery on local subnets.
-* **File Transfer Channel**: TCP Port `37125`. Uses `FileTransferAuthMiddleware` and `TokenStore` for short-lived token-based transfer authorization with ALPN `tether-quic-v1`.
+* **File Transfer Channel**: TCP Port `37124`. Driven by Kestrel HTTPS server with `FileTransferAuthMiddleware`, `TokenStore` short-lived token authorization, 4GB size limits, Win32 handle resolution to prevent symlink escape, and public key certificate pinning (`TetherPinnedTrustManager`).
 
 ### Frame Structure & Packet Codec
 Network payloads are framed using length-prefixed binary encoding (`FrameCodec.cs`):
@@ -102,7 +102,7 @@ Network payloads are framed using length-prefixed binary encoding (`FrameCodec.c
 1. **Discovery**: Android discovers Windows workstation via mDNS or UDP broadcast.
 2. **Session Initiation**: Android opens TCP TLS connection to Port `37123`.
 3. **Short Authentication String (SAS)**: A 6-digit numeric pairing code is displayed on `Tether.DesktopUI`.
-4. **Key Exchange & Signing**: Android sends its EC public key (`TetherIdentityKey_v1`). Windows verifies the SAS code, generates an RSA-2048 key pair, signs the handshake nonce, and stores the trusted device record in `TrustStore`.
+4. **Key Exchange & Signing**: Android sends its EC public key (`TetherIdentityKey_v1`). Windows verifies the SAS code, verifies its self-signed ECDSA P-256 identity certificate (`CN=Tether Windows Identity`), signs the handshake nonce, and stores the trusted device record in `TrustStore`.
 5. **Fingerprint Verification**: Both devices compute and display a SHA-256 public key fingerprint formatted as `XX:XX:XX:...:XX`.
 
 ---
