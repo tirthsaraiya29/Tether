@@ -539,7 +539,6 @@ jobs:
           set +e
 
           opencode run \
-            --standalone \
             --model ollama-cloud/beam:cloud \
             --agent security-auditor \
             --title "Tether Security Audit $GITHUB_RUN_NUMBER" \
