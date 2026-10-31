@@ -26,7 +26,7 @@ Before deploying Tether, verify that your hardware, operating systems, and local
   * `TCP 37123`: Control channel (TLS 1.3).
   * `UDP 37124`: Local device discovery.
   * `UDP 5353`: mDNS service advertisement (`_tether._tcp.`).
-  * `TCP 37124` / `TCP 37125`: File transfer server.
+  * `TCP 37124`: File transfer server (HTTPS).
 
 ---
 

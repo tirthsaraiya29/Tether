@@ -46,7 +46,7 @@ When fulfilling user requests or modifying code, locate files according to this 
   * `TetherPairingManager.kt`: Mobile-side cryptographic pairing state machine.
   * `DeviceIntegrityRegistry.kt`: System integrity auditor (root check, developer options, biometric status).
   * `RemoteInputEngine.kt`: Trackpad gesture and modifier key packet generator.
-  * `FileTransferClient.kt`: Encrypted file transfer client (ALPN `tether-quic-v1` on Port 37125).
+  * `FileTransferClient.kt`: Encrypted file transfer client (HTTPS on Port 37124 with public key pinning).
   * `ui/screens/MainScreens.kt`: Jetpack Compose main dashboard and control center.
   * `ui/screens/RemoteInputScreen.kt`: Remote trackpad, scroll canvas, and keyboard interface.
   * `ui/screens/PermissionsScreen.kt`: Runtime permissions dashboard and grant manager.

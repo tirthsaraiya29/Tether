@@ -118,8 +118,8 @@ Download prebuilt binaries directly from the official releases:
 ### Android Trust Anchor and Pairing
 
 - **Android Keystore Integration:** Uses Android Keystore for cryptographic key management, with hardware-backed storage or StrongBox where supported and configured.
-- **RSA-2048 Key Material:** Uses the `TetherAsymmetricKey_v3` alias for key generation and signing.
-- **Local Device Discovery:** Supports mDNS discovery using `_tether._tcp.` and UDP broadcast discovery on port `37123`.
+- **ECDSA P-256 Key Material:** Uses hardware-backed ECDSA P-256 (`TetherIdentityKey_v1`) in AndroidKeyStore for signing identity nonces with `SHA256withECDSA`.
+- **Local Device Discovery:** Supports mDNS discovery using `_tether._tcp.` (port 5353) and UDP broadcast discovery on port `37124`.
 - **Device Integrity Checks:** Evaluates selected security signals, including root status, developer settings, and biometric availability.
 - **Persistent Device Identity:** Binds paired devices to cryptographic identities for subsequent connections.
 
@@ -469,7 +469,7 @@ Named pipes must be hardened with strict ACLs, process identity validation, and 
 ## Security Model
 
 ### 1. TLS 1.3 & Cryptographic Handshake
-All control traffic is encapsulated within TLS over direct TCP (37123). TLS 1.3 is preferred; TLS 1.2 is also accepted for compatibility with clients that do not offer TLS 1.3. File transfers use a parallel channel on TCP 37125 with ALPN tether-quic-v1. Mutual identity validation relies on stored RSA-2048 public keys paired with device-unique nonces (`phoneNonce`, `windowsNonce`).
+All control traffic is encapsulated within TLS over direct TCP (37123). TLS 1.3 is preferred; TLS 1.2 is also accepted for compatibility with clients that do not offer TLS 1.3. File transfers operate over a dedicated HTTPS channel on TCP 37124 with short-lived tokens and certificate pinning. Mutual identity validation relies on hardware-backed ECDSA P-256 public key certificates (`TetherIdentityKey_v1` on Android, `CN=Tether Windows Identity` on Windows) paired with device-unique nonces (`phoneNonce`, `windowsNonce`).
 
 ### 2. Hardware Keystore Binding
 Android private keys are generated inside the Android Keystore with StrongBox hardware protection enabled where supported by hardware. Keys never leave secure enclave boundaries.
