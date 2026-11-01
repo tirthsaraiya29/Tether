@@ -249,106 +249,114 @@ Tether connects an Android companion application to a Windows workstation throug
 ### Component Interaction Diagram
 
 ```mermaid
-flowchart TD
 
 subgraph group_android["Android companion"]
-  node_phone_ui["Companion UI<br/>[MainScreens.kt]"]
-  node_phone_service["LAN service"]
-  node_discovery["Device discovery"]
-  node_phone_pair["Phone pairing"]
-  node_security["Security engine"]
+  node_android_ui["Companion UI<br/>[MainActivity.kt]"]
+  node_identity["Phone identity"]
+  node_discovery["LAN discovery"]
+  node_phone_service["Phone session service"]
+  node_phone_transport["Phone transport<br/>[TetherTransport.kt]"]
   node_remote_input["Remote input"]
-  node_permissions["Permissions dashboard"]
-  node_updates["Update checks"]
+  node_phone_files["Phone file transfer"]
 end
 
-subgraph group_windows["Windows communication"]
-  node_ipc["Named-pipe IPC<br/>[PipeServer.cs]"]
-  node_service["Communication service<br/>[Worker.cs]"]
-  node_discovery_win["Windows discovery<br/>[UdpDiscovery.cs]"]
-  node_pairing_win["Windows pairing<br/>[PairingManager.cs]"]
-  node_transport["TLS sessions<br/>[TetherTcpServer.cs]"]
-  node_router["Packet routing<br/>[PacketRouter.cs]"]
-  node_devices["Device registry<br/>[DeviceManager.cs]"]
+subgraph group_windows["Windows connectivity"]
+  node_desktop_ui["Desktop UI<br/>[MainWindow.xaml.cs]"]
+  node_service["Communication service<br/>[Program.cs]"]
+  node_server["TLS session server<br/>[TetherTcpServer.cs]"]
+  node_session["Authenticated session<br/>[TetherSession.cs]"]
+  node_router["Packet router<br/>[PacketRouter.cs]"]
+  node_device_registry["Paired device registry<br/>[DeviceManager.cs]"]
 end
 
-subgraph group_control["Workstation control"]
-  node_desktop_ui["Desktop configuration UI<br/>[MainWindow.xaml.cs]"]
-  node_capabilities["Capability checks"]
-  node_hardware["Hardware execution"]
-  node_session_helper["Session helper<br/>[Program.cs]"]
-end
-
-subgraph group_trust["Trust and recovery"]
+subgraph group_security["Trust and security"]
   node_trust_store[("Trust store<br/>[TrustStore.cs]")]
-  node_trust_state["Trust state"]
+  node_pairing["Pairing manager<br/>[PairingManager.cs]"]
+  node_identity_win["Windows identity<br/>[WindowsIdentity.cs]"]
+  node_event_bus["Event bus"]
+  node_trust_engine["Trust state"]
   node_panic["Panic workflow<br/>[PanicManager.cs]"]
   node_recovery["Recovery workflow<br/>[RecoveryManager.cs]"]
+  node_enforcement["Lock enforcement"]
 end
 
-subgraph group_shared["Shared contracts"]
-  node_event_bus["Event bus"]
-  node_event_model["Event model<br/>[TetherEvent.cs]"]
+subgraph group_control["Control and sharing"]
+  node_capabilities["Capability dispatch"]
+  node_hardware["Hardware actions"]
+  node_laptop_state["Laptop state"]
+  node_session_helper["Interactive session helper<br/>[Program.cs]"]
+  node_file_server["File transfer server"]
+  node_token_store[("Transfer tokens<br/>[TokenStore.cs]")]
 end
 
 node_user(("Phone user"))
-node_lan{{"Local network"}}
+node_phone(("Android device"))
+node_workstation(("Windows workstation"))
 
-node_user -->|"uses"| node_phone_ui
-node_phone_ui -.->|"controls"| node_phone_service
-node_phone_service -->|"discovers devices"| node_discovery
-node_phone_service -->|"coordinates pairing"| node_phone_pair
-node_phone_service -->|"uses security"| node_security
-node_phone_service -->|"sends frames"| node_lan
-node_phone_service -->|"supports input"| node_remote_input
-node_phone_service -.->|"offers permissions"| node_permissions
-node_phone_service -.->|"offers updates"| node_updates
-node_lan -.->|"carries discovery"| node_discovery_win
-node_lan -->|"carries TLS traffic"| node_transport
-node_desktop_ui -->|"communicates via"| node_ipc
-node_service -->|"hosts IPC"| node_ipc
-node_service -->|"starts discovery"| node_discovery_win
-node_service -->|"starts server"| node_transport
-node_transport -.->|"handles pairing"| node_pairing_win
-node_transport -.->|"routes frames"| node_router
-node_pairing_win -->|"registers paired devices"| node_devices
-node_devices -->|"persists trust"| node_trust_store
-node_router -->|"checks commands"| node_capabilities
+node_user -->|"uses"| node_android_ui
+node_android_ui -.->|"starts session"| node_phone_service
+node_phone_service -->|"uses keys"| node_identity
+node_phone_service -->|"discovers peers"| node_discovery
+node_phone_service -->|"sends frames"| node_phone_transport
+node_phone -.->|"advertises presence"| node_discovery
+node_discovery -.->|"finds service"| node_server
+node_desktop_ui -.->|"configures"| node_service
+node_service -->|"starts listener"| node_server
+node_server -.->|"creates sessions"| node_session
+node_session -->|"authenticates identity"| node_identity_win
+node_session -->|"resolves device"| node_device_registry
+node_device_registry -->|"loads and persists"| node_trust_store
+node_session -.->|"routes frames"| node_router
+node_router -->|"checks capability"| node_capabilities
+node_router -->|"collects state"| node_laptop_state
 node_router -->|"executes commands"| node_hardware
-node_service -.->|"starts helper"| node_session_helper
-node_trust_state -->|"subscribes and publishes"| node_event_bus
-node_panic -->|"publishes panic"| node_event_bus
-node_recovery -->|"subscribes"| node_event_bus
-node_event_bus -->|"dispatches events"| node_event_model
-node_service -->|"enables trust state"| node_trust_state
-node_service -->|"enables panic"| node_panic
-node_service -->|"enables recovery"| node_recovery
+node_router -->|"handles transfer"| node_file_server
+node_router -->|"requests tokens"| node_token_store
+node_file_server -.->|"transfers files"| node_phone_files
+node_session -.->|"exchanges frames"| node_phone_service
+node_phone_service -.->|"dispatches input"| node_remote_input
+node_hardware -.->|"delegates actions"| node_session_helper
+node_session_helper -.->|"controls session"| node_workstation
+node_pairing -->|"uses identity"| node_identity_win
+node_pairing -->|"registers device"| node_device_registry
+node_pairing -->|"persists pairing"| node_trust_store
+node_pairing -->|"publishes events"| node_event_bus
+node_event_bus -->|"delivers events"| node_trust_engine
+node_event_bus -->|"delivers events"| node_panic
+node_event_bus -->|"delivers events"| node_recovery
+node_event_bus -->|"delivers events"| node_enforcement
+node_event_bus -->|"publishes transitions"| node_trust_engine
+node_event_bus -.->|"signals lockdown"| node_enforcement
+node_phone_service -.->|"shows pairing prompt"| node_user
+node_workstation -.->|"local Wi-Fi"| node_phone
 
-click node_phone_ui "https://github.com/tirthsaraiya29/tether/blob/main/apps/android-companion/app/src/main/java/com/tether/phone/ui/screens/MainScreens.kt"
-click node_phone_service "https://github.com/tirthsaraiya29/tether/blob/main/apps/android-companion/app/src/main/java/com/tether/phone/TetherLanService.kt"
-click node_discovery "https://github.com/tirthsaraiya29/tether/blob/main/apps/android-companion/app/src/main/java/com/tether/phone/TetherDiscoveryManager.kt"
-click node_phone_pair "https://github.com/tirthsaraiya29/tether/blob/main/apps/android-companion/app/src/main/java/com/tether/phone/TetherPairingManager.kt"
-click node_security "https://github.com/tirthsaraiya29/tether/blob/main/apps/android-companion/app/src/main/java/com/tether/phone/ProductionSecurityEngine.kt"
-click node_remote_input "https://github.com/tirthsaraiya29/tether/blob/main/apps/android-companion/app/src/main/java/com/tether/phone/RemoteInputEngine.kt"
-click node_permissions "https://github.com/tirthsaraiya29/tether/blob/main/apps/android-companion/app/src/main/java/com/tether/phone/ui/screens/PermissionsScreen.kt"
-click node_updates "https://github.com/tirthsaraiya29/tether/blob/main/apps/android-companion/app/src/main/java/com/tether/phone/UpdateCheckService.kt"
-click node_desktop_ui "https://github.com/tirthsaraiya29/tether/blob/main/apps/desktop-ui/Tether.DesktopUI/MainWindow.xaml.cs"
-click node_ipc "https://github.com/tirthsaraiya29/tether/blob/main/services/communication-service/Tether.CommunicationService/PipeServer.cs"
-click node_service "https://github.com/tirthsaraiya29/tether/blob/main/services/communication-service/Tether.CommunicationService/Worker.cs"
-click node_discovery_win "https://github.com/tirthsaraiya29/tether/blob/main/services/communication-service/Tether.CommunicationService/Discovery/UdpDiscovery.cs"
-click node_pairing_win "https://github.com/tirthsaraiya29/tether/blob/main/services/communication-service/Tether.CommunicationService/Pairing/PairingManager.cs"
-click node_transport "https://github.com/tirthsaraiya29/tether/blob/main/services/communication-service/Tether.CommunicationService/Transport/TetherTcpServer.cs"
-click node_router "https://github.com/tirthsaraiya29/tether/blob/main/services/communication-service/Tether.CommunicationService/Protocol/PacketRouter.cs"
-click node_devices "https://github.com/tirthsaraiya29/tether/blob/main/services/communication-service/Tether.CommunicationService/Devices/DeviceManager.cs"
-click node_trust_store "https://github.com/tirthsaraiya29/tether/blob/main/services/communication-service/Tether.CommunicationService/Trust/TrustStore.cs"
-click node_capabilities "https://github.com/tirthsaraiya29/tether/blob/main/services/communication-service/Tether.CommunicationService/Capabilities/CapabilityManager.cs"
-click node_hardware "https://github.com/tirthsaraiya29/tether/blob/main/services/communication-service/Tether.CommunicationService/Capabilities/HardwareExecutor.cs"
-click node_session_helper "https://github.com/tirthsaraiya29/tether/blob/main/services/communication-service/Tether.SessionHelper/Program.cs"
-click node_trust_state "https://github.com/tirthsaraiya29/tether/blob/main/services/trust-engine/Tether.TrustEngine/TrustStateManager.cs"
-click node_panic "https://github.com/tirthsaraiya29/tether/blob/main/services/panic-engine/Tether.PanicEngine/PanicManager.cs"
-click node_recovery "https://github.com/tirthsaraiya29/tether/blob/main/services/recovery-engine/Tether.RecoveryEngine/RecoveryManager.cs"
-click node_event_bus "https://github.com/tirthsaraiya29/tether/blob/main/services/event-bus/Tether.EventBus/InMemoryEventBus.cs"
-click node_event_model "https://github.com/tirthsaraiya29/tether/blob/main/shared/Tether.Shared/Events/TetherEvent.cs"
+click node_android_ui "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/MainActivity.kt"
+click node_identity "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/ProductionSecurityEngine.kt"
+click node_discovery "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/TetherDiscoveryManager.kt"
+click node_phone_service "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/TetherLanService.kt"
+click node_phone_transport "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/TetherTransport.kt"
+click node_remote_input "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/RemoteInputEngine.kt"
+click node_phone_files "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/FileTransferClient.kt"
+click node_desktop_ui "https://github.com/tirthsaraiya29/tether/blob/beta/apps/desktop-ui/Tether.DesktopUI/MainWindow.xaml.cs"
+click node_service "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Program.cs"
+click node_server "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Transport/TetherTcpServer.cs"
+click node_session "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Transport/TetherSession.cs"
+click node_router "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Protocol/PacketRouter.cs"
+click node_device_registry "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Devices/DeviceManager.cs"
+click node_trust_store "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Trust/TrustStore.cs"
+click node_pairing "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Pairing/PairingManager.cs"
+click node_identity_win "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Security/WindowsIdentity.cs"
+click node_event_bus "https://github.com/tirthsaraiya29/tether/blob/beta/services/event-bus/Tether.EventBus/InMemoryEventBus.cs"
+click node_trust_engine "https://github.com/tirthsaraiya29/tether/blob/beta/services/trust-engine/Tether.TrustEngine/TrustStateManager.cs"
+click node_panic "https://github.com/tirthsaraiya29/tether/blob/beta/services/panic-engine/Tether.PanicEngine/PanicManager.cs"
+click node_recovery "https://github.com/tirthsaraiya29/tether/blob/beta/services/recovery-engine/Tether.RecoveryEngine/RecoveryManager.cs"
+click node_enforcement "https://github.com/tirthsaraiya29/tether/blob/beta/services/enforcement-engine/Tether.EnforcementEngine/EnforcementManager.cs"
+click node_capabilities "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Capabilities/CapabilityManager.cs"
+click node_hardware "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Capabilities/HardwareExecutor.cs"
+click node_laptop_state "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Capabilities/LaptopStateCollector.cs"
+click node_session_helper "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.SessionHelper/Program.cs"
+click node_file_server "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/FileTransfer/FileTransferServer.cs"
+click node_token_store "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/FileTransfer/TokenStore.cs"
 
 classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
 classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
@@ -357,14 +365,13 @@ classDef toneMint fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
 classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
 classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
 classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
-class node_phone_ui,node_phone_service,node_discovery,node_phone_pair,node_security,node_remote_input,node_permissions,node_updates,node_user toneBlue
-class node_ipc,node_service,node_discovery_win,node_pairing_win,node_transport,node_router,node_devices toneAmber
-class node_desktop_ui,node_capabilities,node_hardware,node_session_helper toneMint
-class node_trust_store,node_trust_state,node_panic,node_recovery toneRose
-class node_event_bus,node_event_model,node_lan toneIndigo
+class node_android_ui,node_identity,node_discovery,node_phone_service,node_phone_transport,node_remote_input,node_phone_files,node_user toneBlue
+class node_desktop_ui,node_service,node_server,node_session,node_router,node_device_registry toneAmber
+class node_trust_store,node_pairing,node_identity_win,node_event_bus,node_trust_engine,node_panic,node_recovery,node_enforcement toneMint
+class node_capabilities,node_hardware,node_laptop_state,node_session_helper,node_file_server,node_token_store toneRose
+class node_phone,node_workstation toneIndigo
 ```
 
-> **Interactive Visualization:** You can also explore this architecture directly on [GitDiagram](https://gitdiagram.com/tirthsaraiya29/tether).
 
 ### Network Design Principles
 
