@@ -1,6 +1,7 @@
 package com.tether.phone
 
 import android.content.Context
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -50,14 +51,26 @@ class ProductionSecurityEngine {
                 ANDROID_KEYSTORE,
             )
 
-            val parameterSpec = KeyGenParameterSpec.Builder(
+            val builder = KeyGenParameterSpec.Builder(
                 EC_IDENTITY_ALIAS,
                 KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
             )
                 .setCertificateSubject(X500Principal("CN=TetherAndroidDevice, O=Tether, OU=Mobile"))
                 .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
                 .setKeySize(256)
-                .build()
+                .setUserAuthenticationRequired(true)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                builder.setUserAuthenticationParameters(
+                    300,
+                    KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                builder.setUserAuthenticationValidityDurationSeconds(300)
+            }
+
+            val parameterSpec = builder.build()
 
             kpg.initialize(parameterSpec)
             kpg.generateKeyPair()

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Tether.Shared.Logging;
@@ -12,7 +13,6 @@ public sealed class WindowsIdentity : IDisposable
     private const string FriendlyName = "Tether Windows Identity";
     private const string StoreName = "My";
     private const string ServerAuthOid = "1.3.6.1.5.5.7.3.1";
-    private const string PfxPassword = "tether-identity-pass";
 
     private readonly ITetherLogger _logger;
     private readonly X509Certificate2 _certificate;
@@ -46,8 +46,8 @@ public sealed class WindowsIdentity : IDisposable
         foreach (var storeLocation in locationsToTry)
         {
             X509KeyStorageFlags keyFlags = storeLocation == StoreLocation.LocalMachine
-                ? X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable
-                : X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable;
+                ? X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet
+                : X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet;
 
             try
             {
@@ -60,7 +60,8 @@ public sealed class WindowsIdentity : IDisposable
                     .FirstOrDefault(c => string.Equals(c.FriendlyName, FriendlyName, StringComparison.Ordinal) ||
                                          string.Equals(c.Subject, SubjectDn, StringComparison.OrdinalIgnoreCase));
 
-                if (existing is { HasPrivateKey: true } && existing.NotAfter > DateTime.UtcNow.AddDays(30))
+                bool hasSan = existing?.Extensions.OfType<X509SubjectAlternativeNameExtension>().Any() == true;
+                if (existing is { HasPrivateKey: true } && existing.NotAfter > DateTime.UtcNow.AddDays(30) && hasSan)
                 {
                     if (CanSignWithPrivateKey(existing))
                     {
@@ -88,14 +89,36 @@ public sealed class WindowsIdentity : IDisposable
                     new OidCollection { new Oid(ServerAuthOid) }, false));
                 req.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(req.PublicKey, false));
 
+                // Add Subject Alternative Names for Hostname and Network IP addresses
+                var sanBuilder = new SubjectAlternativeNameBuilder();
+                sanBuilder.AddDnsName(Environment.MachineName);
+                sanBuilder.AddDnsName("localhost");
+                try
+                {
+                    foreach (var netIf in NetworkInterface.GetAllNetworkInterfaces()
+                        .Where(n => n.OperationalStatus == OperationalStatus.Up))
+                    {
+                        foreach (var u in netIf.GetIPProperties().UnicastAddresses)
+                        {
+                            sanBuilder.AddIpAddress(u.Address);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"Could not enumerate network interfaces for cert SAN: {ex.Message}");
+                }
+                req.CertificateExtensions.Add(sanBuilder.Build());
+
                 var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
                 var notAfter = DateTimeOffset.UtcNow.AddYears(10);
 
+                string ephemeralPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
                 using var ephemeral = req.CreateSelfSigned(notBefore, notAfter);
-                var pfx = ephemeral.Export(X509ContentType.Pfx, PfxPassword);
+                var pfx = ephemeral.Export(X509ContentType.Pfx, ephemeralPassword);
 
 #pragma warning disable SYSLIB0057
-                var persisted = new X509Certificate2(pfx, PfxPassword, keyFlags);
+                var persisted = new X509Certificate2(pfx, ephemeralPassword, keyFlags);
 #pragma warning restore SYSLIB0057
 
                 try { persisted.FriendlyName = FriendlyName; } catch { }
@@ -121,11 +144,17 @@ public sealed class WindowsIdentity : IDisposable
         fallbackReq.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new Oid(ServerAuthOid) }, false));
         fallbackReq.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(fallbackReq.PublicKey, false));
 
+        var fallbackSan = new SubjectAlternativeNameBuilder();
+        fallbackSan.AddDnsName(Environment.MachineName);
+        fallbackSan.AddDnsName("localhost");
+        fallbackReq.CertificateExtensions.Add(fallbackSan.Build());
+
         using var selfSigned = fallbackReq.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(10));
-        byte[] ephemeralPfx = selfSigned.Export(X509ContentType.Pfx, PfxPassword);
+        string fallbackPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        byte[] ephemeralPfx = selfSigned.Export(X509ContentType.Pfx, fallbackPassword);
 
 #pragma warning disable SYSLIB0057
-        return new X509Certificate2(ephemeralPfx, PfxPassword, X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+        return new X509Certificate2(ephemeralPfx, fallbackPassword, X509KeyStorageFlags.EphemeralKeySet);
 #pragma warning restore SYSLIB0057
     }
 

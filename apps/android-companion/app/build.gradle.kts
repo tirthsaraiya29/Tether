@@ -17,10 +17,26 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("TETHER_RELEASE_STORE_FILE")
+                ?: project.findProperty("TETHER_RELEASE_STORE_FILE") as? String
+            if (!keystorePath.isNullOrBlank() && file(keystorePath).exists()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("TETHER_RELEASE_STORE_PASSWORD")
+                    ?: project.findProperty("TETHER_RELEASE_STORE_PASSWORD") as? String
+                keyAlias = System.getenv("TETHER_RELEASE_KEY_ALIAS")
+                    ?: project.findProperty("TETHER_RELEASE_KEY_ALIAS") as? String
+                keyPassword = System.getenv("TETHER_RELEASE_KEY_PASSWORD")
+                    ?: project.findProperty("TETHER_RELEASE_KEY_PASSWORD") as? String
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

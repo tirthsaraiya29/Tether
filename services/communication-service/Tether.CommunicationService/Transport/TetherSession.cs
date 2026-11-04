@@ -164,7 +164,7 @@ public sealed class TetherSession : IDisposable
             }
 
             using var tlsCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt);
-            tlsCts.CancelAfter(TimeSpan.FromSeconds(15));
+            tlsCts.CancelAfter(TimeSpan.FromSeconds(5));
 
             await _tls.AuthenticateAsServerAsync(sslOptions, tlsCts.Token);
             _logger.Info($"TetherSession [{SessionId}]: TLS established with {remote} ({_tls.NegotiatedCipherSuite}).");

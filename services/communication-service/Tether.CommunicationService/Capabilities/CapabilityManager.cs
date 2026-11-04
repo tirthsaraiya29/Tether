@@ -27,8 +27,10 @@ public sealed class CapabilityManager
             "shutdown" or "reboot" or "sleep" or "halt"
                 or "pwr_shutdown" or "pwr_reboot" or "pwr_sleep" => "POWER_ELEVATED",
 
-            "lock_now" or "panic" or "unlock" or "auth_ok"
+            "lock_now" or "panic"
                 or "reset_pending" or "laptop_state_get" or "get_laptop_state" or "laptop_state" => "MEDIA",
+
+            "unlock" or "auth_ok" => "SYSTEM_UNLOCK",
 
             "volume_up" or "volume_down" or "vol_up" or "vol_down"
                 or "volume_mute" or "mute" or "brightness_up" or "brightness_down"
