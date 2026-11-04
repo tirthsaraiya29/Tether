@@ -110,14 +110,14 @@ public class AuditRun10SecurityTests
     }
 
     [Fact]
-    public void TETHER_2026_001_UnlockCommand_RequiresSystemUnlockCapability_NotMedia()
+    public void TETHER_2026_001_UnlockCommand_RequiresElevatedCapability_NotMedia()
     {
         // 1. Verify capability mapping
         string? unlockCap = CapabilityManager.MapCommandToCapability("unlock");
         string? authOkCap = CapabilityManager.MapCommandToCapability("auth_ok");
 
-        Assert.Equal("SYSTEM_UNLOCK", unlockCap);
-        Assert.Equal("SYSTEM_UNLOCK", authOkCap);
+        Assert.Equal("POWER_ELEVATED", unlockCap);
+        Assert.Equal("POWER_ELEVATED", authOkCap);
         Assert.NotEqual("MEDIA", unlockCap);
 
         // 2. Verify device permission evaluation
@@ -131,15 +131,28 @@ public class AuditRun10SecurityTests
             Capabilities = new List<string> { "MEDIA" }
         };
 
-        var unlockedDevice = new TetherDevice
+        var elevatedDevice = new TetherDevice
         {
             DeviceId = "trusted-phone",
             DisplayName = "Trusted Phone",
+            Capabilities = new List<string> { "POWER_ELEVATED", "MEDIA" }
+        };
+
+        var systemUnlockDevice = new TetherDevice
+        {
+            DeviceId = "system-unlock-phone",
+            DisplayName = "System Unlock Phone",
             Capabilities = new List<string> { "SYSTEM_UNLOCK", "MEDIA" }
         };
 
         Assert.False(capManager.CanDeviceExecuteCommand(mediaOnlyDevice, "unlock"));
-        Assert.True(capManager.CanDeviceExecuteCommand(unlockedDevice, "unlock"));
+        Assert.False(capManager.CanDeviceExecuteCommand(mediaOnlyDevice, "auth_ok"));
+
+        Assert.True(capManager.CanDeviceExecuteCommand(elevatedDevice, "unlock"));
+        Assert.True(capManager.CanDeviceExecuteCommand(elevatedDevice, "auth_ok"));
+
+        Assert.True(capManager.CanDeviceExecuteCommand(systemUnlockDevice, "unlock"));
+        Assert.True(capManager.CanDeviceExecuteCommand(systemUnlockDevice, "auth_ok"));
     }
 
     [Fact]

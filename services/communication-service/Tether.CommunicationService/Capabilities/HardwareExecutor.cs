@@ -582,7 +582,7 @@ public static class HardwareExecutor
             {
                 var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
                 sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
-                using var evt = EventWaitHandleAcl.Create(false, EventResetMode.AutoReset, eventName, out bool createdNew, sec);
+                using var evt = EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, eventName, out bool createdNew, sec);
                 bool setOk = evt.Set();
                 logger.Info($"HardwareExecutor: Created & Signaled unlock event '{eventName}', createdNew={createdNew}, setOk={setOk}");
                 return setOk;
