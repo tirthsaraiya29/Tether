@@ -571,25 +571,25 @@ public static class HardwareExecutor
     {
         try
         {
-            using var evt = EventWaitHandle.OpenExisting(eventName);
+            var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
+            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
+            using var evt = EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, eventName, out bool createdNew, sec);
             bool setOk = evt.Set();
-            logger.Info($"HardwareExecutor: Signaled unlock event '{eventName}', setOk={setOk}");
+            logger.Info($"HardwareExecutor: {(createdNew ? "Created & " : "")}Signaled unlock event '{eventName}', setOk={setOk}");
             return setOk;
         }
-        catch (Exception ex)
+        catch (Exception createEx)
         {
             try
             {
-                var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
-                sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
-                using var evt = EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, eventName, out bool createdNew, sec);
+                using var evt = EventWaitHandle.OpenExisting(eventName);
                 bool setOk = evt.Set();
-                logger.Info($"HardwareExecutor: Created & Signaled unlock event '{eventName}', createdNew={createdNew}, setOk={setOk}");
+                logger.Info($"HardwareExecutor: Opened existing & signaled unlock event '{eventName}', setOk={setOk}");
                 return setOk;
             }
-            catch (Exception createEx)
+            catch (Exception ex)
             {
-                logger.Error($"HardwareExecutor: Failed to signal unlock event '{eventName}': {ex.Message} / {createEx.Message}");
+                logger.Error($"HardwareExecutor: Failed to signal unlock event '{eventName}': {createEx.Message} / {ex.Message}");
                 return false;
             }
         }
