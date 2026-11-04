@@ -189,7 +189,9 @@ public sealed class TrustStore
         try
         {
             var di = new DirectoryInfo(DataDir);
-            var sec = di.GetAccessControl();
+            var sec = new DirectorySecurity();
+            // Explicitly strip inherited and stale entries
+            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
 
             var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
             var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
@@ -231,7 +233,11 @@ public sealed class TrustStore
             if (!File.Exists(filePath)) return;
 
             var fi = new FileInfo(filePath);
-            var sec = fi.GetAccessControl();
+            fi.Attributes = FileAttributes.Normal;
+
+            var sec = new FileSecurity();
+            // Explicitly strip inherited and stale entries
+            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
 
             var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
             var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);

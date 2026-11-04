@@ -89,7 +89,7 @@ class TetherQuicTransportImpl(
         sslSock.useClientMode = true
 
         val sslParams = sslSock.sslParameters
-        sslParams.endpointIdentificationAlgorithm = null
+        sslParams.endpointIdentificationAlgorithm = "HTTPS"
         try {
             sslParams.applicationProtocols = arrayOf(ALPN_PROTOCOL)
         } catch (e: Exception) {

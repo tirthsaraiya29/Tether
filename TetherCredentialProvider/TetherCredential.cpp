@@ -782,27 +782,43 @@ void CSampleCredential::_StartBackgroundIPCListeners()
     if (g_fAutoLogonReady.load() || g_fPhoneAppTriggered.load())
         return;
 
-    _hAppEvent = OpenEventW(EVENT_MODIFY_STATE | SYNCHRONIZE, FALSE, L"Global\\TetherPhoneAppUnlocked");
-    if (_hAppEvent == nullptr)
+    PSECURITY_DESCRIPTOR pSD = nullptr;
+    // D:P(A;;GA;;;SY)(A;;GA;;;BA) -> Protected DACL, Grant Generic All to SYSTEM and Builtin Admins only
+    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        L"D:P(A;;GA;;;SY)(A;;GA;;;BA)",
+        SDDL_REVISION_1,
+        &pSD,
+        nullptr))
     {
-        PSECURITY_DESCRIPTOR pSD = nullptr;
-        // D:P(A;;GA;;;SY)(A;;GA;;;BA) -> Protected DACL, Grant Generic All to SYSTEM and Builtin Admins only
-        if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"D:P(A;;GA;;;SY)(A;;GA;;;BA)",
-            SDDL_REVISION_1,
-            &pSD,
-            nullptr))
+        SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), pSD, FALSE };
+        _hAppEvent = CreateEventW(&sa, TRUE, FALSE, L"Global\\TetherPhoneAppUnlocked");
+        DWORD dwErr = GetLastError();
+        LocalFree(pSD);
+
+        if (_hAppEvent != nullptr)
         {
-            SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), pSD, FALSE };
-            _hAppEvent = CreateEventW(&sa, TRUE, FALSE, L"Global\\TetherPhoneAppUnlocked");
-            LocalFree(pSD);
+            if (dwErr == ERROR_ALREADY_EXISTS)
+            {
+                WriteDebugLog(L"Opened existing global event with secure attributes: TetherPhoneAppUnlocked");
+            }
+            else
+            {
+                WriteDebugLog(L"Created secure global event: TetherPhoneAppUnlocked");
+            }
         }
         else
         {
-            WriteDebugLog(L"ConvertStringSecurityDescriptorToSecurityDescriptorW failed (%u)", GetLastError());
+            WriteDebugLog(L"CreateEventW failed (%u)", dwErr);
         }
-        if (_hAppEvent)
-            WriteDebugLog(L"Created secure global event: TetherPhoneAppUnlocked");
+    }
+    else
+    {
+        WriteDebugLog(L"ConvertStringSecurityDescriptorToSecurityDescriptorW failed (%u)", GetLastError());
+    }
+
+    if (_hAppEvent == nullptr)
+    {
+        _hAppEvent = OpenEventW(EVENT_MODIFY_STATE | SYNCHRONIZE, FALSE, L"Global\\TetherPhoneAppUnlocked");
     }
 
     if (_hAppEvent)

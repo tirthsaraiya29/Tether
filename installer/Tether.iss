@@ -378,6 +378,10 @@ begin
   if SCM = 0 then Exit;
 
   try
+    // Security note: lpServiceStartName is explicitly NULL/empty (LocalSystem).
+    // LocalSystem is strictly required because Tether.CommunicationService performs
+    // WTSQueryUserToken and CreateProcessAsUser to bridge into user sessions, which
+    // requires the SE_TCB_NAME privilege and Session 0 / LocalSystem account.
     BinPath := '"' + ExpandConstant('{app}\{#MyAppExeName}') + '"';
     Svc := CreateService(
       SCM,

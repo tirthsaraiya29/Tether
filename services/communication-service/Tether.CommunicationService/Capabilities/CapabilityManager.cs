@@ -59,7 +59,7 @@ public sealed class CapabilityManager
         }
 
         bool hasCap = device.Capabilities.Contains(requiredCap, StringComparer.OrdinalIgnoreCase)
-                   || (requiredCap == "POWER_ELEVATED" && device.Capabilities.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase));
+                   || (requiredCap == "POWER_ELEVATED" && (device.Capabilities.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)));
         if (!hasCap)
         {
             _logger.Warning($"CapabilityManager: Device '{device.DisplayName}' ({device.Fingerprint}) denied execution of '{command}' (requires {requiredCap}).");

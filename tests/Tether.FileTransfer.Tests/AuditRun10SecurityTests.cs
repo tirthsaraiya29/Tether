@@ -145,6 +145,13 @@ public class AuditRun10SecurityTests
             Capabilities = new List<string> { "SYSTEM_UNLOCK", "MEDIA" }
         };
 
+        var systemControlDevice = new TetherDevice
+        {
+            DeviceId = "system-control-phone",
+            DisplayName = "System Control Phone",
+            Capabilities = new List<string> { "SYSTEM_CONTROL", "MEDIA" }
+        };
+
         Assert.False(capManager.CanDeviceExecuteCommand(mediaOnlyDevice, "unlock"));
         Assert.False(capManager.CanDeviceExecuteCommand(mediaOnlyDevice, "auth_ok"));
 
@@ -153,6 +160,9 @@ public class AuditRun10SecurityTests
 
         Assert.True(capManager.CanDeviceExecuteCommand(systemUnlockDevice, "unlock"));
         Assert.True(capManager.CanDeviceExecuteCommand(systemUnlockDevice, "auth_ok"));
+
+        Assert.True(capManager.CanDeviceExecuteCommand(systemControlDevice, "unlock"));
+        Assert.True(capManager.CanDeviceExecuteCommand(systemControlDevice, "auth_ok"));
     }
 
     [Fact]

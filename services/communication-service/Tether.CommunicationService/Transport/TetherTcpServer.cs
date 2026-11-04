@@ -21,6 +21,7 @@ public sealed class TetherTcpServer : IDisposable
     private const int MaxConcurrentSessions = 16;
     private const int MaxSessionsPerIp = 5;
     private const int MaxConnectionsPerMinutePerIp = 60;
+    private const int MaxTrackedIps = 1024;
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<IPAddress, int> _activePerIp = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<IPAddress, Queue<DateTime>> _ratePerIp = new();
@@ -113,10 +114,42 @@ public sealed class TetherTcpServer : IDisposable
 
             if (remoteIp != null)
             {
-                // Rate limiting check (sliding 1-minute window)
+                // Rate limiting check (sliding 1-minute window with bounded memory)
                 lock (_rateLock)
                 {
                     var now = DateTime.UtcNow;
+
+                    // Bound rate-limiting tracking dictionary
+                    if (_ratePerIp.Count >= MaxTrackedIps)
+                    {
+                        var staleKeys = new List<IPAddress>();
+                        foreach (var kvp in _ratePerIp)
+                        {
+                            while (kvp.Value.Count > 0 && (now - kvp.Value.Peek()).TotalSeconds > 60)
+                            {
+                                kvp.Value.Dequeue();
+                            }
+                            if (kvp.Value.Count == 0)
+                            {
+                                staleKeys.Add(kvp.Key);
+                            }
+                        }
+                        foreach (var staleKey in staleKeys)
+                        {
+                            _ratePerIp.TryRemove(staleKey, out _);
+                        }
+
+                        if (_ratePerIp.Count >= MaxTrackedIps)
+                        {
+                            int toRemove = _ratePerIp.Count - (MaxTrackedIps / 2);
+                            foreach (var key in _ratePerIp.Keys)
+                            {
+                                if (toRemove-- <= 0) break;
+                                _ratePerIp.TryRemove(key, out _);
+                            }
+                        }
+                    }
+
                     if (!_ratePerIp.TryGetValue(remoteIp, out var timestamps))
                     {
                         timestamps = new Queue<DateTime>();
@@ -142,7 +175,7 @@ public sealed class TetherTcpServer : IDisposable
                 int ipActive = _activePerIp.AddOrUpdate(remoteIp, 1, (_, current) => current + 1);
                 if (ipActive > MaxSessionsPerIp)
                 {
-                    _activePerIp.AddOrUpdate(remoteIp, 0, (_, current) => Math.Max(0, current - 1));
+                    DecrementActivePerIp(remoteIp);
                     _logger.Warning($"TetherTcpServer: Concurrency limit ({MaxSessionsPerIp}) reached for IP {remoteIp}. Dropping connection.");
                     try { client.Close(); } catch { }
                     continue;
@@ -154,7 +187,7 @@ public sealed class TetherTcpServer : IDisposable
                 Interlocked.Decrement(ref _activeSessionCount);
                 if (remoteIp != null)
                 {
-                    _activePerIp.AddOrUpdate(remoteIp, 0, (_, current) => Math.Max(0, current - 1));
+                    DecrementActivePerIp(remoteIp);
                 }
                 _logger.Warning($"TetherTcpServer: Max concurrent session limit ({MaxConcurrentSessions}) reached. Connection rejected.");
                 try { client.Close(); } catch { }
@@ -189,10 +222,19 @@ public sealed class TetherTcpServer : IDisposable
         {
             if (remoteIp != null)
             {
-                _activePerIp.AddOrUpdate(remoteIp, 0, (_, current) => Math.Max(0, current - 1));
+                DecrementActivePerIp(remoteIp);
             }
             Interlocked.Decrement(ref _activeSessionCount);
             try { client.Close(); } catch { }
+        }
+    }
+
+    private void DecrementActivePerIp(IPAddress ip)
+    {
+        _activePerIp.AddOrUpdate(ip, 0, (_, current) => Math.Max(0, current - 1));
+        if (_activePerIp.TryGetValue(ip, out int val) && val <= 0)
+        {
+            _activePerIp.TryRemove(new KeyValuePair<IPAddress, int>(ip, 0));
         }
     }
 
