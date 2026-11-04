@@ -2739,8 +2739,8 @@
             </svg>
           </span>
           <h3 class="feature-title">Hardware Keystore Trust Anchor</h3>
-          <p class="feature-text">Binds paired identity to RSA-2048 keys generated inside Android Keystore with StrongBox hardware protection where available. Validates SU status, developer flags, and biometric enrollment.</p>
-          <p class="feature-meta"><span class="chip">Implemented</span><span class="chip chip-mono">RSA-2048 / StrongBox</span></p>
+          <p class="feature-text">Binds paired identity to ECDSA P-256 keys generated inside Android Keystore with StrongBox hardware protection where available. Validates SU status, developer flags, and biometric enrollment.</p>
+          <p class="feature-meta"><span class="chip">Implemented</span><span class="chip chip-mono">ECDSA P-256 / StrongBox</span></p>
         </article>
 
         <!-- Feature 5: Desktop & Volume Controls -->
@@ -3184,11 +3184,11 @@
               </thead>
               <tbody>
                 <tr><th scope="row">Transport</th><td>TLS 1.3 over direct TCP</td><td>Encapsulated command channel</td></tr>
-                <tr><th scope="row">Listen Port</th><td><code>TCP 37123</code></td><td>Local socket daemon</td></tr>
-                <tr><th scope="row">Discovery</th><td>mDNS (<code>_tether._tcp.</code>) & UDP <code>37123</code></td><td>Zero-configuration local pairing</td></tr>
+                <tr><th scope="row">Listen Port</th><td><code>TCP 37123</code> (Control) / <code>TCP 37124</code> (File Transfer)</td><td>Local socket daemon & Kestrel HTTPS</td></tr>
+                <tr><th scope="row">Discovery</th><td>mDNS (<code>_tether._tcp.</code>) & UDP <code>37124</code></td><td>Zero-configuration local pairing</td></tr>
                 <tr><th scope="row">Keepalive</th><td><code>5 seconds</code></td><td>Heartbeat interval for drop detection</td></tr>
                 <tr><th scope="row">Replay Window</th><td><code>30 seconds</code></td><td>Maximum allowable timestamp drift</td></tr>
-                <tr><th scope="row">Key Specifications</th><td>RSA-2048 (<code>TetherAsymmetricKey_v3</code>)</td><td>Mutual identity challenge signing</td></tr>
+                <tr><th scope="row">Key Specifications</th><td>ECDSA P-256 (<code>TetherIdentityKey_v1</code>)</td><td>Mutual identity challenge signing</td></tr>
               </tbody>
             </table>
           </div>

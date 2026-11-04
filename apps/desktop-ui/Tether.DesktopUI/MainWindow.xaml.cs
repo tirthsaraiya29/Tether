@@ -10,6 +10,8 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
@@ -506,19 +508,25 @@ namespace Tether.DesktopUI
                             var root = document.RootElement;
                             string pin = root.TryGetProperty("pin", out var p) ? p.GetString() ?? "" : "";
                             string devName = root.TryGetProperty("displayName", out var d) ? d.GetString() ?? "Phone" : "Phone";
-                            LogTerminal($"Pairing request from {devName}. Enter PIN {pin} on your phone.");
-
-                            string msg = $"Pairing Request from {devName}\n\nEnter this 6-digit PIN on your phone:\n\n      {pin}      \n";
-                            _ = Task.Run(() =>
+                            if (!string.IsNullOrEmpty(pin))
                             {
-                                MessageBox.Show(
-                                    msg,
-                                    "Tether — Device Pairing",
-                                    MessageBoxButton.OK,
-                                    MessageBoxImage.Information,
-                                    MessageBoxResult.OK,
-                                    MessageBoxOptions.DefaultDesktopOnly);
-                            });
+                                LogTerminal($"Pairing request from {devName}. Enter PIN {pin} on your phone.");
+                                string msg = $"Pairing Request from {devName}\n\nEnter this 6-digit PIN on your phone:\n\n      {pin}      \n";
+                                _ = Task.Run(() =>
+                                {
+                                    MessageBox.Show(
+                                        msg,
+                                        "Tether — Device Pairing",
+                                        MessageBoxButton.OK,
+                                        MessageBoxImage.Information,
+                                        MessageBoxResult.OK,
+                                        MessageBoxOptions.DefaultDesktopOnly);
+                                });
+                            }
+                            else
+                            {
+                                LogTerminal($"Pairing request from {devName}. Enter the PIN displayed on your screen.");
+                            }
                         }
                         catch { }
                     }
@@ -1240,16 +1248,86 @@ namespace Tether.DesktopUI
 
         private static readonly System.Net.Http.HttpClient _httpClient = CreateSecureLocalHttpClient();
 
+        public static bool ValidateWindowsServiceCertificate(System.Security.Cryptography.X509Certificates.X509Certificate2? cert)
+        {
+            if (cert == null) return false;
+
+            var now = DateTime.UtcNow;
+            if (cert.NotBefore.ToUniversalTime() > now || cert.NotAfter.ToUniversalTime() < now) return false;
+
+            if (!string.Equals(cert.Subject, "CN=Tether Windows Identity", StringComparison.OrdinalIgnoreCase) &&
+                !cert.Subject.Contains("CN=Tether Windows Identity"))
+            {
+                return false;
+            }
+
+            try
+            {
+                byte[] presentedSpki = ExportSpkiFromCert(cert);
+                if (presentedSpki == null || presentedSpki.Length == 0) return false;
+
+                byte[]? expectedSpki = GetExpectedWindowsIdentitySpki();
+                if (expectedSpki != null && expectedSpki.Length > 0)
+                {
+                    return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedSpki, presentedSpki);
+                }
+
+                // If local store query is restricted by user account ACL, validate subject and valid SPKI
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static byte[]? GetExpectedWindowsIdentitySpki()
+        {
+            const string subjectDn = "CN=Tether Windows Identity";
+            const string friendlyName = "Tether Windows Identity";
+
+            foreach (var storeLocation in new[] { System.Security.Cryptography.X509Certificates.StoreLocation.LocalMachine, System.Security.Cryptography.X509Certificates.StoreLocation.CurrentUser })
+            {
+                try
+                {
+                    using var store = new System.Security.Cryptography.X509Certificates.X509Store("My", storeLocation);
+                    store.Open(System.Security.Cryptography.X509Certificates.OpenFlags.ReadOnly);
+
+                    var found = store.Certificates
+                        .Find(System.Security.Cryptography.X509Certificates.X509FindType.FindBySubjectDistinguishedName, subjectDn, validOnly: false)
+                        .OfType<System.Security.Cryptography.X509Certificates.X509Certificate2>()
+                        .FirstOrDefault(c => string.Equals(c.FriendlyName, friendlyName, StringComparison.Ordinal) ||
+                                             string.Equals(c.Subject, subjectDn, StringComparison.OrdinalIgnoreCase) ||
+                                             c.Subject.Contains(subjectDn, StringComparison.OrdinalIgnoreCase));
+
+                    if (found != null)
+                    {
+                        return ExportSpkiFromCert(found);
+                    }
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        private static byte[] ExportSpkiFromCert(System.Security.Cryptography.X509Certificates.X509Certificate2 cert)
+        {
+            using var ec = cert.GetECDsaPublicKey();
+            if (ec != null) return ec.ExportSubjectPublicKeyInfo();
+
+            using var rsa = cert.GetRSAPublicKey();
+            if (rsa != null) return rsa.ExportSubjectPublicKeyInfo();
+
+            return Array.Empty<byte>();
+        }
+
         private static System.Net.Http.HttpClient CreateSecureLocalHttpClient()
         {
             var handler = new System.Net.Http.HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
                 {
-                    if (cert == null) return false;
-                    bool isTetherCert = string.Equals(cert.Subject, "CN=Tether Windows Identity", StringComparison.OrdinalIgnoreCase)
-                        || cert.Subject.Contains("CN=Tether Windows Identity");
-                    return isTetherCert;
+                    return ValidateWindowsServiceCertificate(cert);
                 }
             };
 
@@ -1391,6 +1469,13 @@ namespace Tether.DesktopUI
                 {
                     var json = await response.Content.ReadAsStringAsync();
                     var list = JsonSerializer.Deserialize<List<FileItem>>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (list != null)
+                    {
+                        list = list.OrderByDescending(f => f.IsDirectory).ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase).ToList();
+                        int foldersCount = list.Count(f => f.IsDirectory);
+                        int filesCount = list.Count(f => !f.IsDirectory);
+                        LogTerminal($"Remote path '{path}': {foldersCount} folder(s), {filesCount} file(s).");
+                    }
                     ListRemoteFiles.ItemsSource = list;
                 }
                 else

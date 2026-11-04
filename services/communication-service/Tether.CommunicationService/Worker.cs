@@ -26,6 +26,19 @@ public sealed class Worker : BackgroundService
 {
     private const string AdvertisedCaps = "CLIPBOARD,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED";
 
+    // Legacy rules to purge
+    private const string RuleLegacyExe = "Tether Service Exe";
+    private const string RuleLegacyTcp = "Tether TCP 37123";
+    private const string RuleLegacyUdp = "Tether UDP 37124";
+    private const string RuleLegacyQuicUdp = "Tether QUIC UDP 37125";
+    private const string RuleLegacyQuicTcp = "Tether QUIC TCP 37125";
+
+    // Active port rules
+    private const string RuleControlTcp = "Tether Control (TCP-In 37123)";
+    private const string RuleDiscoveryUdp = "Tether Discovery (UDP-In 37124)";
+    private const string RuleMdnsUdp = "Tether mDNS (UDP-In 5353)";
+    private const string RuleFileTransferTcp = "Tether File Transfer (TCP-In 37124)";
+
     private readonly ILogger<Worker> _logger;
     private readonly ITetherLogger _tetherLogger;
     private readonly PipeServer _pipeServer;
@@ -136,7 +149,7 @@ public sealed class Worker : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _tetherLogger.Info("Tether Communication Service starting (mDNS + UDP Broadcast + TLS 1.3 transport + QUIC File Transfer).");
+        _tetherLogger.Info("Tether Communication Service starting (mDNS + UDP Broadcast + TLS 1.3 transport).");
         _logger.LogInformation("Tether Communication Service running at {Time}", DateTimeOffset.Now);
 
         PowerEventHub.Watcher = _powerWatcher;
@@ -146,8 +159,6 @@ public sealed class Worker : BackgroundService
         _pipeServer.Start();
         _tcpServer.Start();
         _udpDiscovery.Start();
-        // File transfer manager receiver startup disabled/discarded
-        // _fileTransferManager.Start();
 
         _mdns.Start(
             port: TetherTcpServer.ListenPort,
@@ -178,7 +189,6 @@ public sealed class Worker : BackgroundService
 
                     if (_sessionManager.ActiveSessionCount > 0)
                     {
-
                         var snap = LaptopStateCollector.GetLaptopSnapshot(_tetherLogger);
                         if (snap.IsCharging != lastIsCharging || snap.BatteryLevel != lastBattery || snap.LockState != lastLock)
                         {
@@ -210,75 +220,87 @@ public sealed class Worker : BackgroundService
         return Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_ => { }, TaskScheduler.Default);
     }
 
-    private static void EnsureFirewallRulesExist()
+    private void EnsureFirewallRulesExist()
     {
         try
         {
-            string exePath = Process.GetCurrentProcess().MainModule?.FileName ?? "";
-            if (!string.IsNullOrEmpty(exePath))
+            string exePath = Process.GetCurrentProcess().MainModule?.FileName ?? string.Empty;
+            if (string.IsNullOrEmpty(exePath))
             {
-                var psiDeleteBlock = new ProcessStartInfo
-                {
-                    FileName = "netsh",
-                    Arguments = $"advfirewall firewall delete rule name=all program=\"{exePath}\"",
-                    CreateNoWindow = true,
-                    UseShellExecute = false
-                };
-                using var p0 = Process.Start(psiDeleteBlock);
-                p0?.WaitForExit(2000);
-
-                var psiAllowExe = new ProcessStartInfo
-                {
-                    FileName = "netsh",
-                    Arguments = $"advfirewall firewall add rule name=\"Tether Service Exe\" dir=in action=allow program=\"{exePath}\" enable=yes profile=any",
-                    CreateNoWindow = true,
-                    UseShellExecute = false
-                };
-                using var pExe = Process.Start(psiAllowExe);
-                pExe?.WaitForExit(2000);
+                _tetherLogger.Warning("Firewall: Service executable path could not be resolved. Skipping firewall rule configuration.");
+                return;
             }
 
-            var psiTcp = new ProcessStartInfo
-            {
-                FileName = "netsh",
-                Arguments = "advfirewall firewall add rule name=\"Tether TCP 37123\" dir=in action=allow protocol=TCP localport=37123 profile=any",
-                CreateNoWindow = true,
-                UseShellExecute = false
-            };
-            using var p1 = Process.Start(psiTcp);
-            p1?.WaitForExit(2000);
+            // 1. Purge legacy wide-open rules
+            DeleteFirewallRule(RuleLegacyExe);
+            DeleteFirewallRule(RuleLegacyQuicUdp);
+            DeleteFirewallRule(RuleLegacyQuicTcp);
+            DeleteFirewallRule(RuleLegacyTcp);
+            DeleteFirewallRule(RuleLegacyUdp);
 
-            var psiUdp = new ProcessStartInfo
-            {
-                FileName = "netsh",
-                Arguments = "advfirewall firewall add rule name=\"Tether UDP 37124\" dir=in action=allow protocol=UDP localport=37124 profile=any",
-                CreateNoWindow = true,
-                UseShellExecute = false
-            };
-            using var p2 = Process.Start(psiUdp);
-            p2?.WaitForExit(2000);
+            // 2. Add port-specific rules scoped to executable and Private/Domain profiles
+            // Port 37123 TCP: Primary TLS Control Channel
+            AddPortRule(RuleControlTcp, "TCP", 37123, exePath);
 
-            var psiQuicUdp = new ProcessStartInfo
-            {
-                FileName = "netsh",
-                Arguments = "advfirewall firewall add rule name=\"Tether QUIC UDP 37125\" dir=in action=allow protocol=UDP localport=37125 profile=any",
-                CreateNoWindow = true,
-                UseShellExecute = false
-            };
-            using var p3 = Process.Start(psiQuicUdp);
-            p3?.WaitForExit(2000);
+            // Port 37124 UDP: Local Broadcast Discovery
+            AddPortRule(RuleDiscoveryUdp, "UDP", 37124, exePath);
 
-            var psiQuicTcp = new ProcessStartInfo
-            {
-                FileName = "netsh",
-                Arguments = "advfirewall firewall add rule name=\"Tether QUIC TCP 37125\" dir=in action=allow protocol=TCP localport=37125 profile=any",
-                CreateNoWindow = true,
-                UseShellExecute = false
-            };
-            using var p4 = Process.Start(psiQuicTcp);
-            p4?.WaitForExit(2000);
+            // Port 5353 UDP: Multicast DNS (mDNS for Android NsdManager)
+            AddPortRule(RuleMdnsUdp, "UDP", 5353, exePath);
+
+            // Port 37124 TCP: HTTPS File Transfer API
+            AddPortRule(RuleFileTransferTcp, "TCP", 37124, exePath);
+
+            _tetherLogger.Info("Firewall rules synchronized: Scoped strictly to TCP 37123, UDP 37124, UDP 5353, TCP 37124 on Private/Domain profiles.");
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _tetherLogger.Error($"Firewall configuration error: {ex.Message}", ex);
+        }
+    }
+
+    private void AddPortRule(string ruleName, string protocol, int port, string exePath)
+    {
+        DeleteFirewallRule(ruleName);
+        string arguments = $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=allow protocol={protocol} localport={port} program=\"{exePath}\" profile=private,domain enable=yes";
+        RunNetshCommand(arguments, isDelete: false);
+    }
+
+    private void DeleteFirewallRule(string ruleName)
+    {
+        string arguments = $"advfirewall firewall delete rule name=\"{ruleName}\"";
+        RunNetshCommand(arguments, isDelete: true);
+    }
+
+    private void RunNetshCommand(string arguments, bool isDelete)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "netsh",
+                Arguments = arguments,
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null) return;
+
+            process.WaitForExit(3000);
+
+            if (process.ExitCode != 0 && !isDelete)
+            {
+                string error = process.StandardError.ReadToEnd().Trim();
+                _tetherLogger.Warning($"netsh returned exit code ({process.ExitCode}) executing '{arguments}': {error}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _tetherLogger.Warning($"Failed executing netsh command '{arguments}': {ex.Message}");
+        }
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
@@ -290,7 +312,6 @@ public sealed class Worker : BackgroundService
 
         _mdns.Stop();
         _udpDiscovery.Stop();
-        // _fileTransferManager.Stop();
         _tcpServer.Stop();
         _pipeServer.Dispose();
         await base.StopAsync(cancellationToken);
