@@ -6,6 +6,7 @@
 #include <wincrypt.h>
 #include <bcrypt.h>
 #include <winreg.h>
+#include <sddl.h>
 #include <vector>
 #include <cstring>
 #include <cstdarg>
@@ -784,10 +785,24 @@ void CSampleCredential::_StartBackgroundIPCListeners()
     _hAppEvent = OpenEventW(EVENT_MODIFY_STATE | SYNCHRONIZE, FALSE, L"Global\\TetherPhoneAppUnlocked");
     if (_hAppEvent == nullptr)
     {
-        SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE };
-        _hAppEvent = CreateEventW(&sa, TRUE, FALSE, L"Global\\TetherPhoneAppUnlocked");
+        PSECURITY_DESCRIPTOR pSD = nullptr;
+        // D:P(A;;GA;;;SY)(A;;GA;;;BA) -> Protected DACL, Grant Generic All to SYSTEM and Builtin Admins only
+        if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            L"D:P(A;;GA;;;SY)(A;;GA;;;BA)",
+            SDDL_REVISION_1,
+            &pSD,
+            nullptr))
+        {
+            SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), pSD, FALSE };
+            _hAppEvent = CreateEventW(&sa, TRUE, FALSE, L"Global\\TetherPhoneAppUnlocked");
+            LocalFree(pSD);
+        }
+        else
+        {
+            WriteDebugLog(L"ConvertStringSecurityDescriptorToSecurityDescriptorW failed (%u)", GetLastError());
+        }
         if (_hAppEvent)
-            WriteDebugLog(L"Created missing global event: TetherPhoneAppUnlocked");
+            WriteDebugLog(L"Created secure global event: TetherPhoneAppUnlocked");
     }
 
     if (_hAppEvent)

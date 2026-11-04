@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 ﻿using System;
 using System.Net;
 using System.Net.Sockets;
@@ -18,6 +19,12 @@ public sealed class TetherTcpServer : IDisposable
 {
     public const int ListenPort = 37123;
     private const int MaxConcurrentSessions = 16;
+    private const int MaxSessionsPerIp = 3;
+    private const int MaxConnectionsPerMinutePerIp = 15;
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<IPAddress, int> _activePerIp = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<IPAddress, Queue<DateTime>> _ratePerIp = new();
+    private readonly object _rateLock = new();
 
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
@@ -101,19 +108,64 @@ public sealed class TetherTcpServer : IDisposable
 
             ConfigureSocketOptions(client.Client);
 
+            var remoteEp = client.Client.RemoteEndPoint as IPEndPoint;
+            var remoteIp = remoteEp?.Address;
+
+            if (remoteIp != null)
+            {
+                // Rate limiting check (sliding 1-minute window)
+                lock (_rateLock)
+                {
+                    var now = DateTime.UtcNow;
+                    if (!_ratePerIp.TryGetValue(remoteIp, out var timestamps))
+                    {
+                        timestamps = new Queue<DateTime>();
+                        _ratePerIp[remoteIp] = timestamps;
+                    }
+
+                    while (timestamps.Count > 0 && (now - timestamps.Peek()).TotalSeconds > 60)
+                    {
+                        timestamps.Dequeue();
+                    }
+
+                    if (timestamps.Count >= MaxConnectionsPerMinutePerIp)
+                    {
+                        _logger.Warning($"TetherTcpServer: Rate limit exceeded for {remoteIp} ({timestamps.Count} connections/min). Dropping.");
+                        try { client.Close(); } catch { }
+                        continue;
+                    }
+
+                    timestamps.Enqueue(now);
+                }
+
+                // Concurrency limit per IP
+                int ipActive = _activePerIp.AddOrUpdate(remoteIp, 1, (_, current) => current + 1);
+                if (ipActive > MaxSessionsPerIp)
+                {
+                    _activePerIp.AddOrUpdate(remoteIp, 0, (_, current) => Math.Max(0, current - 1));
+                    _logger.Warning($"TetherTcpServer: Concurrency limit ({MaxSessionsPerIp}) reached for IP {remoteIp}. Dropping connection.");
+                    try { client.Close(); } catch { }
+                    continue;
+                }
+            }
+
             if (Interlocked.Increment(ref _activeSessionCount) > MaxConcurrentSessions)
             {
                 Interlocked.Decrement(ref _activeSessionCount);
+                if (remoteIp != null)
+                {
+                    _activePerIp.AddOrUpdate(remoteIp, 0, (_, current) => Math.Max(0, current - 1));
+                }
                 _logger.Warning($"TetherTcpServer: Max concurrent session limit ({MaxConcurrentSessions}) reached. Connection rejected.");
                 try { client.Close(); } catch { }
                 continue;
             }
 
-            _ = RunSessionAsync(client, ct);
+            _ = RunSessionAsync(client, remoteIp, ct);
         }
     }
 
-    private async Task RunSessionAsync(TcpClient client, CancellationToken ct)
+    private async Task RunSessionAsync(TcpClient client, IPAddress? remoteIp, CancellationToken ct)
     {
         try
         {
@@ -135,6 +187,10 @@ public sealed class TetherTcpServer : IDisposable
         }
         finally
         {
+            if (remoteIp != null)
+            {
+                _activePerIp.AddOrUpdate(remoteIp, 0, (_, current) => Math.Max(0, current - 1));
+            }
             Interlocked.Decrement(ref _activeSessionCount);
             try { client.Close(); } catch { }
         }

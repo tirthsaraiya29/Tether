@@ -508,19 +508,25 @@ namespace Tether.DesktopUI
                             var root = document.RootElement;
                             string pin = root.TryGetProperty("pin", out var p) ? p.GetString() ?? "" : "";
                             string devName = root.TryGetProperty("displayName", out var d) ? d.GetString() ?? "Phone" : "Phone";
-                            LogTerminal($"Pairing request from {devName}. Enter PIN {pin} on your phone.");
-
-                            string msg = $"Pairing Request from {devName}\n\nEnter this 6-digit PIN on your phone:\n\n      {pin}      \n";
-                            _ = Task.Run(() =>
+                            if (!string.IsNullOrEmpty(pin))
                             {
-                                MessageBox.Show(
-                                    msg,
-                                    "Tether — Device Pairing",
-                                    MessageBoxButton.OK,
-                                    MessageBoxImage.Information,
-                                    MessageBoxResult.OK,
-                                    MessageBoxOptions.DefaultDesktopOnly);
-                            });
+                                LogTerminal($"Pairing request from {devName}. Enter PIN {pin} on your phone.");
+                                string msg = $"Pairing Request from {devName}\n\nEnter this 6-digit PIN on your phone:\n\n      {pin}      \n";
+                                _ = Task.Run(() =>
+                                {
+                                    MessageBox.Show(
+                                        msg,
+                                        "Tether — Device Pairing",
+                                        MessageBoxButton.OK,
+                                        MessageBoxImage.Information,
+                                        MessageBoxResult.OK,
+                                        MessageBoxOptions.DefaultDesktopOnly);
+                                });
+                            }
+                            else
+                            {
+                                LogTerminal($"Pairing request from {devName}. Enter the PIN displayed on your screen.");
+                            }
                         }
                         catch { }
                     }

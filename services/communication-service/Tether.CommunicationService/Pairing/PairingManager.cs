@@ -30,6 +30,21 @@ public sealed class PendingPairing
 
 public sealed class PairingManager
 {
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = false)]
+    private static extern uint WTSGetActiveConsoleSessionId();
+
+    [System.Runtime.InteropServices.DllImport("wtsapi32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern bool WTSSendMessage(
+        IntPtr hServer,
+        uint SessionId,
+        string pTitle,
+        uint TitleLength,
+        string pMessage,
+        uint MessageLength,
+        uint Style,
+        uint Timeout,
+        out uint pResponse,
+        bool bWait);
     private const int MaxFailedAttempts = 3;
     private const int ExpirationSeconds = 120;
 
@@ -66,6 +81,29 @@ public sealed class PairingManager
             _pending.TryRemove(key, out _);
         }
 
+        byte[] phoneSpkiDer = Convert.FromBase64String(phoneSpkiBase64);
+        string phoneFingerprint = Trust.TrustStore.ComputeFingerprintOrNull(phoneSpkiBase64)
+            ?? throw new ArgumentException("Invalid phone public key base64.", nameof(phoneSpkiBase64));
+
+        int existingFromSamePhone = _pending.Values.Count(p => string.Equals(p.PhoneFingerprint, phoneFingerprint, StringComparison.OrdinalIgnoreCase));
+        if (existingFromSamePhone >= 2)
+        {
+            _logger.Warning($"PairingManager: Client {phoneFingerprint} exceeded max pending pairing requests ({existingFromSamePhone}/2). Rejecting request.");
+            var errResp = new HandshakeResponse
+            {
+                DeviceId = winDeviceId,
+                DeviceName = winDeviceName,
+                PublicKey = winSpkiBase64,
+                Status = HandshakeStatus.PairingDenied,
+                Capabilities = winCapabilities,
+                Pqc = false,
+                RequestId = "",
+                Commitment = ""
+            };
+            byte[] errBytes = JsonSerializer.SerializeToUtf8Bytes(errResp);
+            return (new PendingPairing(), errResp, errBytes);
+        }
+
         if (_pending.Count >= 32)
         {
             _logger.Warning($"PairingManager: Max pending pairing requests reached ({_pending.Count}/32). Rejecting new request from '{phoneDisplayName}'.");
@@ -83,10 +121,6 @@ public sealed class PairingManager
             byte[] errBytes = JsonSerializer.SerializeToUtf8Bytes(errResp);
             return (new PendingPairing(), errResp, errBytes);
         }
-
-        byte[] phoneSpkiDer = Convert.FromBase64String(phoneSpkiBase64);
-        string phoneFingerprint = Trust.TrustStore.ComputeFingerprintOrNull(phoneSpkiBase64)
-            ?? throw new ArgumentException("Invalid phone public key base64.", nameof(phoneSpkiBase64));
 
         string requestId = Guid.NewGuid().ToString("N");
 
@@ -136,6 +170,7 @@ public sealed class PairingManager
         // FIX TETH-011: Do NOT write the PIN to disk or plaintext logs.
         _logger.Info($"PairingManager: Generated pairing request {requestId} for phone '{phoneDisplayName}' ({phoneFingerprint}).");
 
+        // TETHER-2026-005: Do NOT broadcast cleartext PIN over IPC event bus.
         _eventBus.Publish(new TetherEvent
         {
             EventType = TetherEventType.PAIRING_REQUESTED,
@@ -143,12 +178,14 @@ public sealed class PairingManager
             PayloadJson = JsonSerializer.Serialize(new
             {
                 requestId = requestId,
-                pin = pin,
                 phoneFingerprint = phoneFingerprint,
                 displayName = phoneDisplayName,
                 timestampUtcTicks = DateTime.UtcNow.Ticks
             })
         });
+
+        // Display PIN directly to the user on active console desktop via secure WTSSendMessage
+        ShowSecurePairingPrompt(phoneDisplayName, pin);
 
         return (pending, respPayload, respBytes);
     }
@@ -311,4 +348,46 @@ public sealed class PairingManager
             return false;
         }
     }
+    public bool TryGetPin(string requestId, out string pin)
+    {
+        pin = "";
+        if (!string.IsNullOrEmpty(requestId) && _pending.TryGetValue(requestId, out var pending))
+        {
+            pin = pending.Pin;
+            return true;
+        }
+        return false;
+    }
+
+    private void ShowSecurePairingPrompt(string phoneDisplayName, string pin)
+    {
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                uint activeSession = WTSGetActiveConsoleSessionId();
+                if (activeSession != 0xFFFFFFFF)
+                {
+                    string title = "Tether — Device Pairing";
+                    string message = $"Pairing Request from {phoneDisplayName}\n\nEnter this 6-digit PIN on your phone:\n\n      {pin}      \n";
+                    WTSSendMessage(
+                        IntPtr.Zero,
+                        activeSession,
+                        title,
+                        (uint)(title.Length * sizeof(char)),
+                        message,
+                        (uint)(message.Length * sizeof(char)),
+                        0x00000040 /* MB_OK | MB_ICONINFORMATION */,
+                        60,
+                        out _,
+                        false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Failed to show secure pairing dialog: {ex.Message}");
+            }
+        });
+    }
+
 }
