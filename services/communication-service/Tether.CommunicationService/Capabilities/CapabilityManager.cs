@@ -25,9 +25,10 @@ public sealed class CapabilityManager
         return cmd switch
         {
             "shutdown" or "reboot" or "sleep" or "halt"
-                or "pwr_shutdown" or "pwr_reboot" or "pwr_sleep" => "POWER_ELEVATED",
+                or "pwr_shutdown" or "pwr_reboot" or "pwr_sleep"
+                or "unlock" or "auth_ok" => "POWER_ELEVATED",
 
-            "lock_now" or "panic" or "unlock" or "auth_ok"
+            "lock_now" or "panic"
                 or "reset_pending" or "laptop_state_get" or "get_laptop_state" or "laptop_state" => "MEDIA",
 
             "volume_up" or "volume_down" or "vol_up" or "vol_down"
@@ -57,7 +58,8 @@ public sealed class CapabilityManager
             return false;
         }
 
-        bool hasCap = device.Capabilities.Contains(requiredCap, StringComparer.OrdinalIgnoreCase);
+        bool hasCap = device.Capabilities.Contains(requiredCap, StringComparer.OrdinalIgnoreCase)
+                   || (requiredCap == "POWER_ELEVATED" && (device.Capabilities.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)));
         if (!hasCap)
         {
             _logger.Warning($"CapabilityManager: Device '{device.DisplayName}' ({device.Fingerprint}) denied execution of '{command}' (requires {requiredCap}).");

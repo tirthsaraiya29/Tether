@@ -1,9 +1,12 @@
 ﻿using System;
+using System.Buffers.Binary;
 using System.IO;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,6 +29,9 @@ public sealed class TetherSession : IDisposable
     private const string ServerCaps = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT";
 
     private const byte PacketTypeInputEvent = 0x05;
+
+    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan ProofTimeout = TimeSpan.FromSeconds(8);
 
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
@@ -66,9 +72,7 @@ public sealed class TetherSession : IDisposable
     }
 
     public void RecordPongReceived()
-    {
-        Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
-    }
+        => Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
 
     public async Task WriteJsonFrameSafeAsync<T>(T payload, CancellationToken ct)
     {
@@ -153,7 +157,6 @@ public sealed class TetherSession : IDisposable
                 RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true,
             };
 
-            // Workaround for ECDSA CNG key container issues
             if (_identity.Certificate.HasPrivateKey)
             {
                 sslOptions.ServerCertificateSelectionCallback = (sender, host) => _identity.Certificate;
@@ -161,13 +164,13 @@ public sealed class TetherSession : IDisposable
             }
 
             using var tlsCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt);
-            tlsCts.CancelAfter(TimeSpan.FromSeconds(15));
+            tlsCts.CancelAfter(TimeSpan.FromSeconds(5));
 
             await _tls.AuthenticateAsServerAsync(sslOptions, tlsCts.Token);
-            _logger.Info($"TetherSession [{SessionId}]: TLS 1.3 established with {remote} ({_tls.NegotiatedCipherSuite}).");
+            _logger.Info($"TetherSession [{SessionId}]: TLS established with {remote} ({_tls.NegotiatedCipherSuite}).");
 
             using var authCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt);
-            authCts.CancelAfter(TimeSpan.FromSeconds(180));
+            authCts.CancelAfter(HandshakeTimeout);
 
             bool authenticated = await HandleHandshakeAsync(authCts.Token);
             if (!authenticated || Device == null)
@@ -177,6 +180,7 @@ public sealed class TetherSession : IDisposable
             }
 
             _sessionManager.RegisterSession(this);
+            _deviceManager.MarkConnected(Device.Fingerprint, this);
 
             _eventBus.Publish(new TetherEvent
             {
@@ -217,18 +221,25 @@ public sealed class TetherSession : IDisposable
 
             await CommandAndHeartbeatLoopAsync(serviceCt);
         }
-        catch (OperationCanceledException) { _logger.Info($"TetherSession [{SessionId}]: Handshake timed out."); }
+        catch (OperationCanceledException)
+        {
+            _logger.Info($"TetherSession [{SessionId}]: Handshake timed out.");
+        }
         catch (AuthenticationException ex)
         {
             string inner = ex.InnerException != null ? $" ({ex.InnerException.Message})" : "";
             _logger.Warning($"TetherSession [{SessionId}]: TLS failure: {ex.Message}{inner}");
         }
-        catch (Exception ex) { _logger.Warning($"TetherSession [{SessionId}]: Session error: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            _logger.Warning($"TetherSession [{SessionId}]: Session error: {ex.Message}");
+        }
         finally
         {
             _sessionManager.UnregisterSession(this);
             if (Device != null)
             {
+                _deviceManager.MarkDisconnected(Device.Fingerprint, this);
                 _eventBus.Publish(new TetherEvent
                 {
                     EventType = TetherEventType.PHONE_DISCONNECTED,
@@ -251,7 +262,10 @@ public sealed class TetherSession : IDisposable
         }
 
         HandshakeInit? init;
-        try { init = JsonSerializer.Deserialize<HandshakeInit>(initFrameBytes); }
+        try
+        {
+            init = JsonSerializer.Deserialize<HandshakeInit>(initFrameBytes);
+        }
         catch (JsonException ex)
         {
             _logger.Warning($"TetherSession [{SessionId}]: Malformed HANDSHAKE_INIT: {ex.Message}");
@@ -272,45 +286,25 @@ public sealed class TetherSession : IDisposable
         }
 
         var knownDevice = _deviceManager.GetByFingerprint(phoneFingerprint);
+        bool isAlreadyPaired = knownDevice != null && knownDevice.TrustState == DeviceTrustState.Paired;
 
-        if (knownDevice != null && knownDevice.TrustState == DeviceTrustState.Paired)
+        _logger.Info($"TetherSession [{SessionId}]: Handshake eval -> FP={phoneFingerprint}, " +
+                     $"isAlreadyPaired={isAlreadyPaired}, " +
+                     $"clientPairingReq={init.IsPairingRequested}");
+
+        // =========================================================================
+        // PATH 1: KNOWN PAIRED DEVICE -> Cryptographic Proof-of-Possession Challenge
+        // =========================================================================
+        if (isAlreadyPaired && knownDevice != null)
         {
-            bool isKeyMatch = string.IsNullOrEmpty(knownDevice.PublicKeySpkiBase64) ||
-                             string.Equals(knownDevice.PublicKeySpkiBase64, init.PublicKey, StringComparison.Ordinal) ||
-                             string.Equals(TrustStore.ComputeFingerprintOrNull(knownDevice.PublicKeySpkiBase64), phoneFingerprint, StringComparison.OrdinalIgnoreCase);
+            string storedSpki = string.IsNullOrEmpty(knownDevice.PublicKeySpkiBase64)
+                ? init.PublicKey
+                : knownDevice.PublicKeySpkiBase64;
 
-            if (!isKeyMatch)
-            {
-                _logger.Warning($"[XFER-TRACE] TetherSession [{SessionId}]: Mismatched public key for paired phone {phoneFingerprint} ({knownDevice.DisplayName}). Rejecting with PairingDenied.");
+            _logger.Info($"TetherSession [{SessionId}]: Recognized paired phone {phoneFingerprint} ({knownDevice.DisplayName}). Issuing serverNonce challenge.");
 
-                var deniedResp = new HandshakeResponse
-                {
-                    DeviceId = _identity.DeviceId,
-                    DeviceName = _identity.DeviceName,
-                    PublicKey = _identity.GetPublicKeySpkiBase64(),
-                    Status = HandshakeStatus.PairingDenied,
-                    Capabilities = ServerCaps,
-                    Pqc = false
-                };
-                await WriteJsonFrameSafeAsync(deniedResp, ct);
-
-                _eventBus.Publish(new TetherEvent
-                {
-                    EventType = TetherEventType.PAIRING_INVALIDATED,
-                    Source = nameof(TetherSession),
-                    PayloadJson = JsonSerializer.Serialize(new
-                    {
-                        deviceId = knownDevice.DeviceId,
-                        displayName = knownDevice.DisplayName,
-                        reason = "Public key mismatch during handshake"
-                    })
-                });
-
-                return false;
-            }
-
-            Device = knownDevice;
-            _logger.Info($"TetherSession [{SessionId}]: Recognized paired phone {phoneFingerprint} ({knownDevice.DisplayName}).");
+            byte[] serverNonce = RandomNumberGenerator.GetBytes(32);
+            string serverNonceB64 = Convert.ToBase64String(serverNonce);
 
             var resp = new HandshakeResponse
             {
@@ -319,37 +313,49 @@ public sealed class TetherSession : IDisposable
                 PublicKey = _identity.GetPublicKeySpkiBase64(),
                 Status = HandshakeStatus.Paired,
                 Capabilities = ServerCaps,
-                Pqc = false
+                Pqc = false,
+                ServerNonce = serverNonceB64
             };
             await WriteJsonFrameSafeAsync(resp, ct);
 
+            byte[]? proofBytes;
             try
             {
                 using var proofCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                proofCts.CancelAfter(TimeSpan.FromSeconds(3));
-                var proofBytes = await FrameCodec.ReadFrameAsync(stream, proofCts.Token);
-                if (proofBytes != null && proofBytes.Length > 0)
-                {
-                    using var proofDoc = JsonDocument.Parse(proofBytes);
-                    if (proofDoc.RootElement.TryGetProperty("type", out var pType) &&
-                        string.Equals(pType.GetString(), "HANDSHAKE_PROOF", StringComparison.Ordinal))
-                    {
-                        _logger.Debug($"TetherSession [{SessionId}]: Received HANDSHAKE_PROOF for paired device. Responding with HANDSHAKE_VERIFIED.");
-                        await WriteJsonFrameSafeAsync(new { type = "HANDSHAKE_VERIFIED", status = "OK" }, ct);
-                    }
-                }
+                proofCts.CancelAfter(ProofTimeout);
+                proofBytes = await FrameCodec.ReadFrameAsync(stream, proofCts.Token);
             }
-            catch (OperationCanceledException) { /* Optional HANDSHAKE_PROOF not sent, proceed */ }
-            catch (Exception ex)
+            catch (OperationCanceledException)
             {
-                _logger.Debug($"TetherSession [{SessionId}]: Handshake proof check completed: {ex.Message}");
+                _logger.Warning($"TetherSession [{SessionId}]: HANDSHAKE_PROOF timed out after {ProofTimeout.TotalSeconds:0}s. Failing closed.");
+                return false;
             }
 
+            if (proofBytes is null || proofBytes.Length == 0)
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: Empty HANDSHAKE_PROOF received. Failing closed.");
+                return false;
+            }
+
+            if (!TryVerifyHandshakeProof(proofBytes, storedSpki, serverNonce, init.PublicKey, out string failureReason))
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: HANDSHAKE_PROOF verification failed: {failureReason}. Failing closed.");
+                return false;
+            }
+
+            await WriteJsonFrameSafeAsync(new { type = "HANDSHAKE_VERIFIED", status = "OK" }, ct);
+            _logger.Info($"TetherSession [{SessionId}]: Proof verified for {knownDevice.DisplayName}. Auto-connect successful!");
+            Device = knownDevice;
             return true;
         }
 
-        if (init.IsPairingRequested)
+        // =========================================================================
+        // PATH 2: NEW / UNPAIRED DEVICE -> Interactive PIN Pairing
+        // =========================================================================
+        if (init.IsPairingRequested || !isAlreadyPaired)
         {
+            _logger.Info($"TetherSession [{SessionId}]: Initial pairing required for {phoneFingerprint}. Invoking PairingManager.");
+
             var (pending, respPayload, respBytes) = _pairingManager.CreatePairingResponse(
                 _identity.DeviceId,
                 _identity.DeviceName,
@@ -391,10 +397,13 @@ public sealed class TetherSession : IDisposable
             string proofBase64 = confirmedDoc.RootElement.TryGetProperty("proof", out var proofProp) ? proofProp.GetString() ?? "" : "";
 
             bool verified = _pairingManager.TryVerifyPhoneProof(reqId, proofBase64, out string winProofBase64, out _);
+
             if (!verified)
             {
-                _logger.Warning($"TetherSession [{SessionId}]: PIN proof verification failed for requestId '{reqId}'.");
-                await WriteJsonFrameSafeAsync(new { type = "PAIRING_COMPLETE", status = "DENIED" }, ct);
+                _logger.Warning($"TetherSession [{SessionId}]: Proof verification failed for requestId '{reqId}'. Tearing down session.");
+                _pairingManager.CancelRequest(reqId);
+                try { await WriteJsonFrameSafeAsync(new { type = "PAIRING_COMPLETE", status = "DENIED" }, ct); } catch { }
+                Close("Pairing proof verification failed");
                 return false;
             }
 
@@ -407,10 +416,13 @@ public sealed class TetherSession : IDisposable
             }, ct);
 
             Device = _deviceManager.GetByFingerprint(phoneFingerprint);
-            _logger.Info($"TetherSession [{SessionId}]: Pairing complete and device '{phoneFingerprint}' authenticated!");
+            _logger.Info($"TetherSession [{SessionId}]: Pairing successfully finalized for '{phoneFingerprint}'.");
             return true;
         }
 
+        // =========================================================================
+        // PATH 3: UNKNOWN & NOT REQUESTING PAIRING -> Deny Connection
+        // =========================================================================
         _logger.Warning($"TetherSession [{SessionId}]: Unknown phone {phoneFingerprint} did not request pairing. Denying.");
         await WriteJsonFrameSafeAsync(new HandshakeResponse
         {
@@ -423,6 +435,142 @@ public sealed class TetherSession : IDisposable
         return false;
     }
 
+    private bool TryVerifyHandshakeProof(
+        byte[] proofBytes,
+        string storedPhoneSpkiBase64,
+        byte[] serverNonce,
+        string presentedPhoneSpkiBase64,
+        out string failureReason)
+    {
+        failureReason = "";
+
+        JsonDocument proofDoc;
+        try
+        {
+            proofDoc = JsonDocument.Parse(proofBytes);
+        }
+        catch (JsonException ex)
+        {
+            string rawSnippet = Encoding.UTF8.GetString(proofBytes);
+            failureReason = $"Malformed JSON ({ex.Message}). Raw: '{rawSnippet}'";
+            return false;
+        }
+
+        using (proofDoc)
+        {
+            var root = proofDoc.RootElement;
+
+            if (!root.TryGetProperty("type", out var typeProp) ||
+                !string.Equals(typeProp.GetString(), "HANDSHAKE_PROOF", StringComparison.Ordinal))
+            {
+                string rawSnippet = Encoding.UTF8.GetString(proofBytes);
+                failureReason = $"Missing/invalid 'type'. Raw: '{rawSnippet}'";
+                return false;
+            }
+
+            if (!root.TryGetProperty("signature", out var sigProp) ||
+                !root.TryGetProperty("clientNonce", out var cNonceProp))
+            {
+                failureReason = "Missing 'signature' or 'clientNonce'";
+                return false;
+            }
+
+            string? sigStr = sigProp.GetString();
+            string? nonceStr = cNonceProp.GetString();
+            if (string.IsNullOrEmpty(sigStr) || string.IsNullOrEmpty(nonceStr))
+            {
+                failureReason = "'signature' or 'clientNonce' is empty";
+                return false;
+            }
+
+            byte[] signature;
+            byte[] clientNonce;
+            try
+            {
+                signature = Convert.FromBase64String(sigStr);
+                clientNonce = Convert.FromBase64String(nonceStr);
+            }
+            catch (FormatException)
+            {
+                failureReason = "Invalid base64 in signature/clientNonce";
+                return false;
+            }
+
+            if (signature.Length == 0 || clientNonce.Length == 0)
+            {
+                failureReason = "Empty signature or clientNonce bytes";
+                return false;
+            }
+
+            // 1:1 match with TetherPairingManager.kt: buildHandshakeTranscript()
+            byte[] transcript = BuildHandshakeTranscript(
+                serverNonce,
+                clientNonce,
+                _identity.GetPublicKeySpkiBase64(),
+                presentedPhoneSpkiBase64);
+
+            if (!VerifyEcdsaSignature(storedPhoneSpkiBase64, transcript, signature))
+            {
+                failureReason = "ECDSA signature verification failed";
+                return false;
+            }
+
+            return true;
+        }
+    }
+
+    private static byte[] BuildHandshakeTranscript(
+        byte[] serverNonce,
+        byte[] clientNonce,
+        string windowsSpkiBase64,
+        string phoneSpkiBase64)
+    {
+        byte[] winPubKeyBytes = Encoding.UTF8.GetBytes(windowsSpkiBase64);
+        byte[] phonePubKeyBytes = Encoding.UTF8.GetBytes(phoneSpkiBase64);
+
+        int totalSize = 4 + serverNonce.Length +
+                        4 + clientNonce.Length +
+                        4 + winPubKeyBytes.Length +
+                        4 + phonePubKeyBytes.Length;
+
+        byte[] result = new byte[totalSize];
+        int offset = 0;
+
+        WritePrefixed(result, ref offset, serverNonce);
+        WritePrefixed(result, ref offset, clientNonce);
+        WritePrefixed(result, ref offset, winPubKeyBytes);
+        WritePrefixed(result, ref offset, phonePubKeyBytes);
+
+        return result;
+    }
+
+    private static void WritePrefixed(byte[] dest, ref int offset, byte[] data)
+    {
+        BinaryPrimitives.WriteInt32BigEndian(dest.AsSpan(offset, 4), data.Length);
+        offset += 4;
+        Buffer.BlockCopy(data, 0, dest, offset, data.Length);
+        offset += data.Length;
+    }
+
+    private static bool VerifyEcdsaSignature(string phoneSpkiBase64, byte[] data, byte[] signature)
+    {
+        try
+        {
+            byte[] spki = Convert.FromBase64String(phoneSpkiBase64);
+            using var ecdsa = ECDsa.Create();
+            ecdsa.ImportSubjectPublicKeyInfo(spki, out _);
+            return ecdsa.VerifyData(
+                data,
+                signature,
+                HashAlgorithmName.SHA256,
+                DSASignatureFormat.Rfc3279DerSequence);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private async Task CommandAndHeartbeatLoopAsync(CancellationToken ct)
     {
         var stream = _tls!;
@@ -431,7 +579,6 @@ public sealed class TetherSession : IDisposable
         using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var combinedCt = sessionCts.Token;
 
-        // Decoupled heartbeat probing task sending PING every 10s unconditionally
         _ = Task.Run(async () =>
         {
             while (!combinedCt.IsCancellationRequested)
@@ -439,14 +586,13 @@ public sealed class TetherSession : IDisposable
                 try { await Task.Delay(10000, combinedCt); }
                 catch (OperationCanceledException) { break; }
 
-                _logger.Debug($"TetherSession [{SessionId}]: Periodic 10s heartbeat probe sending PING...");
                 try
                 {
                     await WriteJsonFrameSafeAsync(new { type = "PING", timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, combinedCt);
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning($"TetherSession [{SessionId}]: Failed sending PING probe: {ex.Message}. Terminating connection.");
+                    _logger.Warning($"TetherSession [{SessionId}]: Failed sending PING probe: {ex.Message}. Terminating.");
                     try { sessionCts.Cancel(); } catch { }
                     break;
                 }
@@ -454,7 +600,7 @@ public sealed class TetherSession : IDisposable
                 long elapsedSeconds = (DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastFrameReceivedTicks)) / TimeSpan.TicksPerSecond;
                 if (elapsedSeconds > 45)
                 {
-                    _logger.Warning($"TetherSession [{SessionId}]: Heartbeat timeout ({elapsedSeconds}s silence). Declaring connection dead.");
+                    _logger.Warning($"TetherSession [{SessionId}]: Heartbeat timeout ({elapsedSeconds}s). Terminating.");
                     try { sessionCts.Cancel(); } catch { }
                     break;
                 }
@@ -474,16 +620,17 @@ public sealed class TetherSession : IDisposable
 
                 Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
 
-                // Binary input path (hot, 60-120 Hz).
                 if (frameBytes.Length >= 1 && frameBytes[0] == PacketTypeInputEvent)
                 {
                     _inputForwarder.Forward(frameBytes);
                     continue;
                 }
 
-                // JSON control path.
                 JsonDocument doc;
-                try { doc = JsonDocument.Parse(frameBytes); }
+                try
+                {
+                    doc = JsonDocument.Parse(frameBytes);
+                }
                 catch (JsonException ex)
                 {
                     _logger.Warning($"TetherSession [{SessionId}]: Malformed JSON frame: {ex.Message}");

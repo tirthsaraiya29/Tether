@@ -17,6 +17,9 @@ namespace Tether.CommunicationService;
 
 public class PipeServer : IDisposable
 {
+    private const int MaxServerInstances = 10;
+    private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(5);
+
     [DllImport("kernel32.dll", SetLastError = false)]
     private static extern uint WTSGetActiveConsoleSessionId();
 
@@ -60,47 +63,84 @@ public class PipeServer : IDisposable
     {
         _cts = new CancellationTokenSource();
         _listenTask = Task.Run(ListenForClients, _cts.Token);
-        _logger.Info("Pipe server started");
+        _logger.Info("Pipe server started with concurrent client dispatch and idle timeouts.");
+    }
+
+    private static PipeSecurity CreatePipeSecurity()
+    {
+        var pipeSecurity = new PipeSecurity();
+
+        // 1. Explicitly DENY Network SID to reject any remote/network-based named pipe connection (SMB/RPC)
+        pipeSecurity.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.NetworkSid, null),
+            PipeAccessRights.ReadWrite,
+            AccessControlType.Deny));
+
+        // 2. Allow SYSTEM Full Control
+        pipeSecurity.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+            PipeAccessRights.FullControl,
+            AccessControlType.Allow));
+
+        // 3. Allow Administrators Full Control
+        pipeSecurity.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+            PipeAccessRights.FullControl,
+            AccessControlType.Allow));
+
+        // 4. Allow Authenticated Users ReadWrite to connect from the local interactive session
+        pipeSecurity.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
+            PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
+            AccessControlType.Allow));
+
+        return pipeSecurity;
     }
 
     private async Task ListenForClients()
     {
         while (_cts?.IsCancellationRequested == false)
         {
+            NamedPipeServerStream? pipeServer = null;
             try
             {
-                var pipeSecurity = new PipeSecurity();
-                pipeSecurity.AddAccessRule(new PipeAccessRule(
-                    new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
-                    PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
-                    AccessControlType.Allow));
+                var pipeSecurity = CreatePipeSecurity();
 
-                using var pipeServer = NamedPipeServerStreamAcl.Create(
+                pipeServer = NamedPipeServerStreamAcl.Create(
                     IpcConstants.PipeName,
                     PipeDirection.InOut,
-                    10,
+                    MaxServerInstances,
                     PipeTransmissionMode.Message,
                     PipeOptions.Asynchronous,
                     0,
                     0,
                     pipeSecurity);
 
-                _logger.Info($"Named pipe server waiting for connection on {IpcConstants.PipeName}...");
                 await pipeServer.WaitForConnectionAsync(_cts.Token);
-                _logger.Info("Desktop UI connected to pipe.");
 
-                await HandleClientMessages(pipeServer);
+                // Transfer ownership of the connected stream to an asynchronous worker task
+                var activeStream = pipeServer;
+                pipeServer = null;
 
-                _logger.Info("Desktop UI disconnected.");
+                _ = Task.Run(() => ProcessClientAsync(activeStream, _cts.Token));
             }
             catch (OperationCanceledException)
             {
+                pipeServer?.Dispose();
                 break;
             }
             catch (Exception ex)
             {
-                _logger.Error($"Pipe server error: {ex.Message}", ex);
-                await Task.Delay(1000);
+                pipeServer?.Dispose();
+                _logger.Error($"Pipe server accept error: {ex.Message}", ex);
+                try
+                {
+                    await Task.Delay(500, _cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
             }
         }
     }
@@ -123,127 +163,154 @@ public class PipeServer : IDisposable
         return 0xFFFFFFFF;
     }
 
-    private async Task HandleClientMessages(NamedPipeServerStream pipeStream)
+    private bool AuthenticateClient(NamedPipeServerStream pipeStream, out string clientSid, out uint clientSessionId)
     {
-        var buffer = new byte[IpcConstants.PipeBufferSize];
+        clientSid = string.Empty;
+        clientSessionId = GetClientSessionId(pipeStream);
 
-        while (pipeStream.IsConnected)
+        bool clientAuthorized = false;
+        string? extractedSid = null;
+        bool isClientSystem = false;
+        uint tokenSessionId = 0xFFFFFFFF;
+
+        try
         {
-            try
+            pipeStream.RunAsClient(() =>
             {
-                var read = await pipeStream.ReadAsync(buffer, 0, buffer.Length);
-                if (read == 0) break;
+                using var clientIdentity = WindowsIdentity.GetCurrent();
+                if (clientIdentity.User != null)
+                {
+                    extractedSid = clientIdentity.User.Value;
+                    isClientSystem = clientIdentity.User.IsWellKnown(WellKnownSidType.LocalSystemSid);
 
-                SecurityIdentifier? serviceOwnerSid = WindowsIdentity.GetCurrent().User;
+                    if (GetTokenInformation(clientIdentity.Token, 12, out uint sessionInfo, sizeof(uint), out _))
+                    {
+                        tokenSessionId = sessionInfo;
+                    }
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to collect client identification tokens: {ex.Message}");
+            return false;
+        }
 
-                uint clientSessionId = GetClientSessionId(pipeStream);
+        if (string.IsNullOrEmpty(extractedSid))
+        {
+            _logger.Warning("Rejected connection: Client identity could not be resolved.");
+            return false;
+        }
 
-                bool clientAuthorized = false;
-                string? clientSid = null;
-                bool isClientSystem = false;
-                uint tokenSessionId = 0xFFFFFFFF;
+        clientSid = extractedSid;
+        SecurityIdentifier? serviceOwnerSid = WindowsIdentity.GetCurrent().User;
 
+        if (serviceOwnerSid != null && clientSid.Equals(serviceOwnerSid.Value, StringComparison.OrdinalIgnoreCase))
+        {
+            clientAuthorized = true;
+        }
+        else if (isClientSystem)
+        {
+            clientAuthorized = true;
+        }
+        else
+        {
+            uint consoleSessionId = WTSGetActiveConsoleSessionId();
+            uint[] sessionIdsToCheck = new[] { tokenSessionId, clientSessionId, consoleSessionId };
+
+            foreach (var sid in sessionIdsToCheck)
+            {
+                if (sid != 0xFFFFFFFF && WTSQueryUserToken(sid, out IntPtr userToken))
+                {
+                    try
+                    {
+                        using var tokenIdentity = new WindowsIdentity(userToken);
+                        if (tokenIdentity.User != null && clientSid.Equals(tokenIdentity.User.Value, StringComparison.OrdinalIgnoreCase))
+                        {
+                            clientAuthorized = true;
+                            break;
+                        }
+                    }
+                    finally
+                    {
+                        CloseHandle(userToken);
+                    }
+                }
+            }
+        }
+
+        return clientAuthorized;
+    }
+
+    private async Task ProcessClientAsync(NamedPipeServerStream pipeStream, CancellationToken serviceCt)
+    {
+        using (pipeStream)
+        using (var clientCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt))
+        {
+            // Immediate client authentication prior to accepting any data
+            if (!AuthenticateClient(pipeStream, out string clientSid, out uint clientSessionId))
+            {
+                _logger.Warning($"Rejected unauthorized named pipe client (SID: {clientSid}, Session: {clientSessionId}). Closing connection.");
+                return;
+            }
+
+            _logger.Info($"Authorized client connected to pipe (SID: {clientSid}, Session: {clientSessionId}).");
+
+            var buffer = new byte[IpcConstants.PipeBufferSize];
+
+            while (pipeStream.IsConnected && !clientCts.IsCancellationRequested)
+            {
                 try
                 {
-                    pipeStream.RunAsClient(() =>
-                    {
-                        using var clientIdentity = WindowsIdentity.GetCurrent();
-                        if (clientIdentity.User != null)
-                        {
-                            clientSid = clientIdentity.User.Value;
-                            isClientSystem = clientIdentity.User.IsWellKnown(WellKnownSidType.LocalSystemSid);
+                    using var readTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(clientCts.Token);
+                    readTimeoutCts.CancelAfter(IdleTimeout);
 
-                            if (GetTokenInformation(clientIdentity.Token, 12, out uint sessionInfo, sizeof(uint), out _))
-                            {
-                                tokenSessionId = sessionInfo;
-                            }
+                    int read = await pipeStream.ReadAsync(buffer, 0, buffer.Length, readTimeoutCts.Token);
+                    if (read == 0)
+                    {
+                        break;
+                    }
+
+                    var json = Encoding.UTF8.GetString(buffer, 0, read);
+                    var evt = JsonSerializer.Deserialize<TetherEvent>(json);
+
+                    if (evt != null)
+                    {
+                        if (evt.EventType == TetherEventType.PHONE_UNLOCKED ||
+                            evt.EventType == TetherEventType.AUTH_SUCCESS)
+                        {
+                            _logger.Warning($"Security Block: Disallowed state injection event attempt rejected over IPC: {evt.EventType}");
+                            continue;
                         }
-                    });
+
+                        if (!IsAllowedIpcEvent(evt.EventType))
+                        {
+                            _logger.Warning($"Rejected disallowed event type: {evt.EventType}");
+                            continue;
+                        }
+
+                        _logger.Debug($"IPC received event: {evt.EventType} from Desktop UI");
+                        _eventBus.Publish(evt);
+                    }
+                }
+                catch (OperationCanceledException) when (!serviceCt.IsCancellationRequested)
+                {
+                    _logger.Info($"Pipe client timed out after {IdleTimeout.TotalMinutes:0} min of inactivity. Disconnecting idle client.");
+                    break;
+                }
+                catch (IOException ex) when (ex.Message.Contains("pipe") || ex.Message.Contains("broken"))
+                {
+                    _logger.Info("Pipe client disconnected cleanly.");
+                    break;
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error($"Failed to safely collect client identification tokens: {ex.Message}");
+                    _logger.Error($"Failed to handle pipe message: {ex.Message}");
                     break;
                 }
-
-                if (string.IsNullOrEmpty(clientSid))
-                {
-                    _logger.Warning("Rejected connection: Client identity bounds could not be resolved.");
-                    break;
-                }
-
-                if (serviceOwnerSid != null && clientSid.Equals(serviceOwnerSid.Value, StringComparison.OrdinalIgnoreCase))
-                {
-                    clientAuthorized = true;
-                }
-                else if (isClientSystem)
-                {
-                    clientAuthorized = true;
-                }
-                else
-                {
-                    uint consoleSessionId = WTSGetActiveConsoleSessionId();
-                    uint[] sessionIdsToCheck = new[] { tokenSessionId, clientSessionId, consoleSessionId };
-
-                    foreach (var sid in sessionIdsToCheck)
-                    {
-                        if (sid != 0xFFFFFFFF && WTSQueryUserToken(sid, out IntPtr userToken))
-                        {
-                            try
-                            {
-                                using var tokenIdentity = new WindowsIdentity(userToken);
-                                if (tokenIdentity.User != null && clientSid.Equals(tokenIdentity.User.Value, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    clientAuthorized = true;
-                                    break;
-                                }
-                            }
-                            finally
-                            {
-                                CloseHandle(userToken);
-                            }
-                        }
-                    }
-                }
-
-                if (!clientAuthorized)
-                {
-                    _logger.Warning("Rejected connection from unauthorized local user session.");
-                    break;
-                }
-
-                var json = Encoding.UTF8.GetString(buffer, 0, read);
-                var evt = JsonSerializer.Deserialize<TetherEvent>(json);
-
-                if (evt != null)
-                {
-                    if (evt.EventType == TetherEventType.PHONE_UNLOCKED ||
-                        evt.EventType == TetherEventType.AUTH_SUCCESS)
-                    {
-                        _logger.Warning($"Security Block: Disallowed state injection event attempt rejected over IPC: {evt.EventType}");
-                        continue;
-                    }
-
-                    if (!IsAllowedIpcEvent(evt.EventType))
-                    {
-                        _logger.Warning($"Rejected disallowed event type: {evt.EventType}");
-                        continue;
-                    }
-
-                    _logger.Debug($"IPC received event: {evt.EventType} from Desktop UI");
-                    _eventBus.Publish(evt);
-                }
             }
-            catch (IOException ex) when (ex.Message.Contains("pipe") || ex.Message.Contains("broken"))
-            {
-                _logger.Warning("Pipe client disconnected abruptly.");
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.Error($"Failed to handle pipe message: {ex.Message}");
-                break;
-            }
+
+            _logger.Info($"Pipe client disconnected (Session: {clientSessionId}).");
         }
     }
 

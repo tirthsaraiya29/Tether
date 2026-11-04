@@ -60,10 +60,10 @@ public sealed class PacketRouter
                 break;
 
             case "FILE_TRANSFER_TOKEN_REQUEST":
-                _logger.Info($"PacketRouter: Received FILE_TRANSFER_TOKEN_REQUEST from '{device.DisplayName}'. Generating token.");
+                _logger.Info($"PacketRouter: Received FILE_TRANSFER_TOKEN_REQUEST from '{device.DisplayName}'. Generating token for fingerprint '{device.Fingerprint}'.");
                 string reqId = "";
                 if (doc.RootElement.TryGetProperty("requestId", out var rProp)) reqId = rProp.GetString() ?? "";
-                var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(60)); // 1 hour token
+                var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(60), device.Fingerprint);
                 await session.WriteJsonFrameSafeAsync(new { type = "FILE_TRANSFER_TOKEN_RESPONSE", requestId = reqId, token = token, validForMinutes = 60 }, ct);
                 break;
 

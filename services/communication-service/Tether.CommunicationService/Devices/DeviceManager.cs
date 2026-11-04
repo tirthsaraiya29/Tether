@@ -37,19 +37,6 @@ public sealed class DeviceManager
         foreach (var trusted in pairedList)
         {
             var caps = trusted.Capabilities.ToList();
-            bool changed = false;
-            foreach (var reqCap in new[] { "CLIPBOARD", "FILES", "NOTIFICATIONS", "MEDIA", "TERMINAL", "POWER_ELEVATED", "INPUT", "APP_LAUNCH" })
-            {
-                if (!caps.Contains(reqCap, StringComparer.OrdinalIgnoreCase))
-                {
-                    caps.Add(reqCap);
-                    changed = true;
-                }
-            }
-            if (changed)
-            {
-                _trustStore.AddOrUpdate(trusted.Fingerprint, trusted.DisplayName, trusted.PublicKeySpkiBase64, caps, "2.0");
-            }
 
             var device = new TetherDevice
             {

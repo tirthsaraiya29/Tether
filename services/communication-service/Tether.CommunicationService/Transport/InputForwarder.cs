@@ -109,30 +109,39 @@ public sealed class InputForwarder : IHostedService, IDisposable
             try
             {
                 SecurityIdentifier? userSid = GetActiveConsoleUserSid(out uint activeSessionId);
-                string pipeName = activeSessionId != 0xFFFFFFFF
-                    ? $"{BasePipeName}.{activeSessionId}"
-                    : BasePipeName;
+                if (userSid == null || activeSessionId == 0xFFFFFFFF)
+                {
+                    try { await Task.Delay(1000, ct); } catch { break; }
+                    continue;
+                }
+
+                string pipeName = $"{BasePipeName}.{activeSessionId}";
 
                 var security = new PipeSecurity();
+
+                // Explicitly DENY Network SID to reject any remote/network-based named pipe connection (SMB/RPC)
+                security.AddAccessRule(new PipeAccessRule(
+                    new SecurityIdentifier(WellKnownSidType.NetworkSid, null),
+                    PipeAccessRights.ReadWrite,
+                    AccessControlType.Deny));
+
+                // Allow SYSTEM
                 security.AddAccessRule(new PipeAccessRule(
                     new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
                     PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
                     AccessControlType.Allow));
 
-                if (userSid != null)
-                {
-                    security.AddAccessRule(new PipeAccessRule(
-                        userSid,
-                        PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
-                        AccessControlType.Allow));
-                }
-                else
-                {
-                    security.AddAccessRule(new PipeAccessRule(
-                        new SecurityIdentifier(WellKnownSidType.InteractiveSid, null),
-                        PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
-                        AccessControlType.Allow));
-                }
+                // Allow Administrators
+                security.AddAccessRule(new PipeAccessRule(
+                    new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+                    PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
+                    AccessControlType.Allow));
+
+                // Allow only the active console user session SID
+                security.AddAccessRule(new PipeAccessRule(
+                    userSid,
+                    PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
+                    AccessControlType.Allow));
 
                 pipe = NamedPipeServerStreamAcl.Create(
                     pipeName,

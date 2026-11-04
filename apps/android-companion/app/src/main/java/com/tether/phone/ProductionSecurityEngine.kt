@@ -1,12 +1,12 @@
 package com.tether.phone
 
 import android.content.Context
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
 import androidx.biometric.BiometricPrompt
-import androidx.core.content.edit
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
@@ -34,8 +34,6 @@ class ProductionSecurityEngine {
         private const val GCM_IV_LENGTH_BYTES = 12
         private const val GCM_TAG_LENGTH_BITS = 128
 
-        private val secureRandom = SecureRandom()
-
         @Volatile
         private var cachedPublicKeyBytes: ByteArray? = null
     }
@@ -53,14 +51,24 @@ class ProductionSecurityEngine {
                 ANDROID_KEYSTORE,
             )
 
-            val parameterSpec = KeyGenParameterSpec.Builder(
+            val builder = KeyGenParameterSpec.Builder(
                 EC_IDENTITY_ALIAS,
                 KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
             )
                 .setCertificateSubject(X500Principal("CN=TetherAndroidDevice, O=Tether, OU=Mobile"))
                 .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
                 .setKeySize(256)
-                .build()
+                .setUserAuthenticationRequired(true)
+                .setInvalidatedByBiometricEnrollment(true)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                builder.setUserAuthenticationParameters(
+                    300,
+                    KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
+                )
+            }
+
+            val parameterSpec = builder.build()
 
             kpg.initialize(parameterSpec)
             kpg.generateKeyPair()
@@ -82,6 +90,7 @@ class ProductionSecurityEngine {
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
                 .setKeySize(256)
                 .build()
 
@@ -90,15 +99,7 @@ class ProductionSecurityEngine {
         }
     }
 
-    private fun newRandomGcmIv(): ByteArray {
-        val iv = ByteArray(GCM_IV_LENGTH_BYTES)
-        secureRandom.nextBytes(iv)
-        return iv
-    }
-
-    // nosemgrep: kotlin.lang.security.gcm-detection.gcm-detection, kotlin.lang.security.ecb-cipher.ecb-cipher
-    private fun newGcmCipher(): Cipher =
-        Cipher.getInstance("AES/GCM/NoPadding")
+    private fun newGcmCipher(): Cipher = Cipher.getInstance("AES/GCM/NoPadding")
 
     private fun loadStorageKey(): SecretKey {
         ensureStorageKeyExists()
@@ -113,11 +114,8 @@ class ProductionSecurityEngine {
     fun createCryptoObjectForAuthentication(): BiometricPrompt.CryptoObject? {
         return try {
             val secretKey = loadStorageKey()
-            val iv = newRandomGcmIv()
-
             val cipher = newGcmCipher()
-            val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
             BiometricPrompt.CryptoObject(cipher)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create CryptoObject for biometric auth: ${e.message}")
@@ -149,11 +147,9 @@ class ProductionSecurityEngine {
 
     private fun encryptBytes(data: ByteArray): String {
         val secretKey = loadStorageKey()
-        val iv = newRandomGcmIv()
-
         val cipher = newGcmCipher()
-        val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+        val iv = cipher.iv ?: throw IllegalStateException("Cipher failed to generate IV")
         val encryptedBytes = cipher.doFinal(data)
 
         val combined = ByteArray(iv.size + encryptedBytes.size)
@@ -172,7 +168,6 @@ class ProductionSecurityEngine {
             val ciphertext = combined.copyOfRange(GCM_IV_LENGTH_BYTES, combined.size)
 
             val secretKey = loadStorageKey()
-
             val cipher = newGcmCipher()
             val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
             cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
@@ -183,14 +178,27 @@ class ProductionSecurityEngine {
         }
     }
 
-    fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray) {
-        try {
+    fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray): Boolean {
+        return try {
             val encodedStr = encryptBytes(publicKeyBytes)
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit { putString(PINNED_WINDOWS_KEY_PREF, encodedStr) }
-            Log.i(TAG, "Pinned Windows public identity key encrypted and saved to secure storage.")
+            val committed = prefs.edit().putString(PINNED_WINDOWS_KEY_PREF, encodedStr).commit()
+            if (!committed) {
+                Log.e(TAG, "Failed committing pinned Windows key to storage")
+                return false
+            }
+
+            val readBack = getPinnedKeyDecrypted(context)
+            if (readBack == null || !MessageDigest.isEqual(readBack, publicKeyBytes)) {
+                Log.e(TAG, "Read-back verification of pinned Windows key failed")
+                return false
+            }
+
+            Log.i(TAG, "Pinned Windows public identity key encrypted, saved, and verified in secure storage.")
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to store pinned key securely: ${e.message}", e)
+            false
         }
     }
 
@@ -203,9 +211,8 @@ class ProductionSecurityEngine {
     fun clearPinnedKey(context: Context) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit {
-                remove(PINNED_WINDOWS_KEY_PREF)
-            }
+            prefs.edit().remove(PINNED_WINDOWS_KEY_PREF).commit()
+            FileTransferClient.clearCache()
             Log.i(TAG, "Cleared pinned Windows public keys from storage.")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear pinned keys: ${e.message}", e)

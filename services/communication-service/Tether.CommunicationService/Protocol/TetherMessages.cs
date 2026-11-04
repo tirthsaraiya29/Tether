@@ -34,6 +34,7 @@ public sealed record HandshakeResponse
     [JsonPropertyName("pqc")] public bool Pqc { get; init; }
     [JsonPropertyName("requestId")] public string? RequestId { get; init; }
     [JsonPropertyName("commitment")] public string? Commitment { get; init; }
+    [JsonPropertyName("serverNonce")] public string? ServerNonce { get; init; }
 }
 
 public sealed record CommandExecute

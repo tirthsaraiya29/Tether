@@ -104,6 +104,40 @@ class FileTransferSecurityTest {
     }
 
     @Test
+    fun testPinnedTrustManager_CheckClientTrustedDoesNotThrow() {
+        val trustManager = TetherPinnedTrustManager(context = null, overridePinnedKey = null)
+        try {
+            trustManager.checkClientTrusted(arrayOf(validCert), "ECDHE_ECDSA")
+            trustManager.checkClientTrusted(arrayOf(validCert), "ECDHE_ECDSA", null as java.net.Socket?)
+            trustManager.checkClientTrusted(arrayOf(validCert), "ECDHE_ECDSA", null as javax.net.ssl.SSLEngine?)
+        } catch (e: Exception) {
+            fail("checkClientTrusted should not throw exception during client TLS handshake: ${e.message}")
+        }
+    }
+
+    @Test
+    fun testResolvePinnedKey_PrioritizesCustomKey() {
+        val customKey = byteArrayOf(1, 2, 3, 4)
+        val resolved = FileTransferClient.resolvePinnedKey(providedContext = null, customPinnedKey = customKey)
+
+        assertNotNull(resolved)
+        assertArrayEquals(customKey, resolved)
+    }
+
+    @Test
+    fun testResolvePinnedKey_ReturnsNullWhenUnauthenticated() {
+        val resolved = FileTransferClient.resolvePinnedKey(providedContext = null, customPinnedKey = null)
+        assertNull("Must return null when no stored key exists and control channel is unauthenticated", resolved)
+    }
+
+    @Test
+    fun testClearCache_ExecutesWithoutError() {
+        FileTransferClient.clearCache()
+        // Ensure clearing cache can be safely called anytime
+        FileTransferClient.clearCache()
+    }
+
+    @Test
     fun testFileNameSanitization_PreventsPathTraversal() {
         val unsafeFileName = "../../etc/passwd"
         val safeName = java.io.File(unsafeFileName).name
@@ -111,5 +145,12 @@ class FileTransferSecurityTest {
         assertEquals("passwd", safeName)
         assertFalse(safeName.contains("/"))
         assertFalse(safeName.contains(".."))
+    }
+
+    @Test
+    fun testFileTransferClient_getPinnedClient_ConstructsSuccessfully() {
+        val customKey = validWindowsKeyPair.public.encoded
+        val client = FileTransferClient.getPinnedClient(context = null, customPinnedKey = customKey)
+        assertNotNull("OkHttpClient instance must be created", client)
     }
 }
