@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Net.NetworkInformation;
 using System.Security.Cryptography;
@@ -37,22 +37,15 @@ public sealed class WindowsIdentity : IDisposable
 
     private X509Certificate2 LoadOrCreate()
     {
-        var locationsToTry = new[]
+        // 1. Search all stores (CurrentUser, LocalMachine) for an existing valid cert.
+        // User identity must be preserved so existing paired devices are not broken.
+        var searchStores = new[] { StoreLocation.CurrentUser, StoreLocation.LocalMachine };
+        foreach (var storeLocation in searchStores)
         {
-            IsAdministrator() ? StoreLocation.LocalMachine : StoreLocation.CurrentUser,
-            IsAdministrator() ? StoreLocation.CurrentUser : StoreLocation.LocalMachine
-        }.Distinct();
-
-        foreach (var storeLocation in locationsToTry)
-        {
-            X509KeyStorageFlags keyFlags = storeLocation == StoreLocation.LocalMachine
-                ? X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet
-                : X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet;
-
             try
             {
                 using var store = new X509Store(StoreName, storeLocation);
-                store.Open(OpenFlags.ReadWrite);
+                store.Open(OpenFlags.ReadOnly);
 
                 var existing = store.Certificates
                     .Find(X509FindType.FindBySubjectDistinguishedName, SubjectDn, validOnly: false)
@@ -60,79 +53,91 @@ public sealed class WindowsIdentity : IDisposable
                     .FirstOrDefault(c => string.Equals(c.FriendlyName, FriendlyName, StringComparison.Ordinal) ||
                                          string.Equals(c.Subject, SubjectDn, StringComparison.OrdinalIgnoreCase));
 
-                bool hasSan = existing?.Extensions.OfType<X509SubjectAlternativeNameExtension>().Any() == true;
-                if (existing is { HasPrivateKey: true } && existing.NotAfter > DateTime.UtcNow.AddDays(30) && hasSan)
+                if (existing is { HasPrivateKey: true } && existing.NotAfter > DateTime.UtcNow.AddDays(30))
                 {
                     if (CanSignWithPrivateKey(existing))
                     {
+                        if (IsAdministrator() && storeLocation == StoreLocation.CurrentUser)
+                        {
+                            TryCleanDivergentMachineCerts(existing.Thumbprint);
+                        }
                         return existing;
                     }
 
-                    _logger.Warning("Existing cert private key signing test failed. Removing stale cert.");
-                }
-
-                if (existing != null)
-                {
-                    try { store.Remove(existing); }
-                    catch (Exception ex) { _logger.Warning($"Could not remove stale identity cert: {ex.Message}"); }
-                }
-
-                _logger.Warning($"Generating new Tether identity certificate (ECDSA P-256, self-signed, 10y, Store={storeLocation}).");
-
-                using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-                var req = new CertificateRequest(new X500DistinguishedName(SubjectDn), ecdsa, HashAlgorithmName.SHA256);
-
-                req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
-                req.CertificateExtensions.Add(new X509KeyUsageExtension(
-                    X509KeyUsageFlags.DigitalSignature, false));
-                req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
-                    new OidCollection { new Oid(ServerAuthOid) }, false));
-                req.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(req.PublicKey, false));
-
-                // Add Subject Alternative Names for Hostname and Network IP addresses
-                var sanBuilder = new SubjectAlternativeNameBuilder();
-                sanBuilder.AddDnsName(Environment.MachineName);
-                sanBuilder.AddDnsName("localhost");
-                try
-                {
-                    foreach (var netIf in NetworkInterface.GetAllNetworkInterfaces()
-                        .Where(n => n.OperationalStatus == OperationalStatus.Up))
-                    {
-                        foreach (var u in netIf.GetIPProperties().UnicastAddresses)
-                        {
-                            sanBuilder.AddIpAddress(u.Address);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.Warning($"Could not enumerate network interfaces for cert SAN: {ex.Message}");
-                }
-                req.CertificateExtensions.Add(sanBuilder.Build());
-
-                var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
-                var notAfter = DateTimeOffset.UtcNow.AddYears(10);
-
-                string ephemeralPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-                using var ephemeral = req.CreateSelfSigned(notBefore, notAfter);
-                var pfx = ephemeral.Export(X509ContentType.Pfx, ephemeralPassword);
-
-#pragma warning disable SYSLIB0057
-                var persisted = new X509Certificate2(pfx, ephemeralPassword, keyFlags);
-#pragma warning restore SYSLIB0057
-
-                try { persisted.FriendlyName = FriendlyName; } catch { }
-                try { store.Add(persisted); } catch { }
-
-                if (CanSignWithPrivateKey(persisted))
-                {
-                    return persisted;
+                    _logger.Warning($"Existing cert in {storeLocation} private key signing test failed.");
                 }
             }
             catch (Exception ex)
             {
-                _logger.Warning($"Could not load/create identity cert in store location {storeLocation}: {ex.Message}");
+                _logger.Warning($"Could not search identity cert in {storeLocation}: {ex.Message}");
             }
+        }
+
+        // 2. No valid identity found in any store. Generate a new one in the preferred store location.
+        var targetStoreLocation = IsAdministrator() ? StoreLocation.LocalMachine : StoreLocation.CurrentUser;
+        var targetKeyFlags = targetStoreLocation == StoreLocation.LocalMachine
+            ? X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet
+            : X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet;
+
+        _logger.Warning($"Generating new Tether identity certificate (ECDSA P-256, self-signed, 10y, Store={targetStoreLocation}).");
+
+        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var req = new CertificateRequest(new X500DistinguishedName(SubjectDn), ecdsa, HashAlgorithmName.SHA256);
+
+        req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
+        req.CertificateExtensions.Add(new X509KeyUsageExtension(
+            X509KeyUsageFlags.DigitalSignature, false));
+        req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+            new OidCollection { new Oid(ServerAuthOid) }, false));
+        req.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(req.PublicKey, false));
+
+        // Add Subject Alternative Names for Hostname and Network IP addresses
+        var sanBuilder = new SubjectAlternativeNameBuilder();
+        sanBuilder.AddDnsName(Environment.MachineName);
+        sanBuilder.AddDnsName("localhost");
+        try
+        {
+            foreach (var netIf in NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up))
+            {
+                foreach (var u in netIf.GetIPProperties().UnicastAddresses)
+                {
+                    sanBuilder.AddIpAddress(u.Address);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"Could not enumerate network interfaces for cert SAN: {ex.Message}");
+        }
+        req.CertificateExtensions.Add(sanBuilder.Build());
+
+        var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
+        var notAfter = DateTimeOffset.UtcNow.AddYears(10);
+
+        string ephemeralPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        using var ephemeral = req.CreateSelfSigned(notBefore, notAfter);
+        var pfx = ephemeral.Export(X509ContentType.Pfx, ephemeralPassword);
+
+#pragma warning disable SYSLIB0057
+        var persisted = new X509Certificate2(pfx, ephemeralPassword, targetKeyFlags);
+#pragma warning restore SYSLIB0057
+
+        try { persisted.FriendlyName = FriendlyName; } catch { }
+        try
+        {
+            using var store = new X509Store(StoreName, targetStoreLocation);
+            store.Open(OpenFlags.ReadWrite);
+            store.Add(persisted);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"Could not persist identity cert to {targetStoreLocation}: {ex.Message}");
+        }
+
+        if (CanSignWithPrivateKey(persisted))
+        {
+            return persisted;
         }
 
         _logger.Error("Failed loading/creating identity cert in certificate stores. Creating ephemeral identity cert.");
@@ -156,6 +161,26 @@ public sealed class WindowsIdentity : IDisposable
 #pragma warning disable SYSLIB0057
         return new X509Certificate2(ephemeralPfx, fallbackPassword, X509KeyStorageFlags.EphemeralKeySet);
 #pragma warning restore SYSLIB0057
+    }
+
+    private void TryCleanDivergentMachineCerts(string activeThumbprint)
+    {
+        try
+        {
+            using var store = new X509Store(StoreName, StoreLocation.LocalMachine);
+            store.Open(OpenFlags.ReadWrite);
+            var mismatched = store.Certificates
+                .Find(X509FindType.FindBySubjectDistinguishedName, SubjectDn, validOnly: false)
+                .OfType<X509Certificate2>()
+                .Where(c => !string.Equals(c.Thumbprint, activeThumbprint, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            foreach (var stale in mismatched)
+            {
+                try { store.Remove(stale); } catch { }
+            }
+        }
+        catch { }
     }
 
     private static bool CanSignWithPrivateKey(X509Certificate2 cert)

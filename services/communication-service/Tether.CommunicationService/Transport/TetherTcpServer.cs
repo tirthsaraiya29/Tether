@@ -19,8 +19,8 @@ public sealed class TetherTcpServer : IDisposable
 {
     public const int ListenPort = 37123;
     private const int MaxConcurrentSessions = 16;
-    private const int MaxSessionsPerIp = 3;
-    private const int MaxConnectionsPerMinutePerIp = 15;
+    private const int MaxSessionsPerIp = 5;
+    private const int MaxConnectionsPerMinutePerIp = 60;
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<IPAddress, int> _activePerIp = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<IPAddress, Queue<DateTime>> _ratePerIp = new();

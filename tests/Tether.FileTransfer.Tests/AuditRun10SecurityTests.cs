@@ -36,6 +36,80 @@ public class AuditRun10SecurityTests
     }
 
     [Fact]
+    public async Task TestLocationFlags()
+    {
+        await RunTestFlags(X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet);
+    }
+
+    [Fact]
+    public void TETHER_2026_WindowsIdentity_PreservesPairedIdentityFingerprint()
+    {
+        var identity = new WindowsIdentity(new MockLogger());
+        Assert.NotNull(identity.Certificate);
+        Assert.NotNull(identity.Fingerprint);
+        Assert.True(identity.Certificate.HasPrivateKey);
+        Assert.Equal(95, identity.Fingerprint.Length);
+
+        using var store = new X509Store("My", StoreLocation.CurrentUser);
+        store.Open(OpenFlags.ReadOnly);
+        var existing = store.Certificates
+            .Find(X509FindType.FindBySubjectDistinguishedName, "CN=Tether Windows Identity", validOnly: false)
+            .OfType<X509Certificate2>()
+            .FirstOrDefault();
+        if (existing != null)
+        {
+            Assert.Equal(existing.Thumbprint, identity.Certificate.Thumbprint);
+        }
+    }
+
+    private static async Task RunTestFlags(X509KeyStorageFlags flags)
+    {
+        using var ecdsa = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var req = new CertificateRequest(new X500DistinguishedName("CN=Test TLS"), ecdsa, System.Security.Cryptography.HashAlgorithmName.SHA256);
+        req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new System.Security.Cryptography.OidCollection { new System.Security.Cryptography.Oid("1.3.6.1.5.5.7.3.1") }, false));
+        req.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, false));
+        using var selfSigned = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        byte[] pfx = selfSigned.Export(X509ContentType.Pfx, "temp");
+
+#pragma warning disable SYSLIB0057
+        using var cert = new X509Certificate2(pfx, "temp", flags);
+#pragma warning restore SYSLIB0057
+
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+
+        var serverTask = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync();
+            using var ssl = new System.Net.Security.SslStream(client.GetStream(), false);
+            var opt = new System.Net.Security.SslServerAuthenticationOptions
+            {
+                ServerCertificate = cert,
+                ClientCertificateRequired = false,
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+                CertificateRevocationCheckMode = X509RevocationMode.NoCheck
+            };
+            if (cert.HasPrivateKey)
+            {
+                opt.ServerCertificateSelectionCallback = (s, h) => cert;
+                opt.ServerCertificate = null;
+            }
+            await ssl.AuthenticateAsServerAsync(opt);
+        });
+
+        var clientTask = Task.Run(async () =>
+        {
+            using var client = new System.Net.Sockets.TcpClient();
+            await client.ConnectAsync(System.Net.IPAddress.Loopback, port);
+            using var ssl = new System.Net.Security.SslStream(client.GetStream(), false, (s, c, ch, err) => true);
+            await ssl.AuthenticateAsClientAsync("localhost");
+        });
+
+        await Task.WhenAll(serverTask, clientTask);
+    }
+
+    [Fact]
     public void TETHER_2026_001_UnlockCommand_RequiresSystemUnlockCapability_NotMedia()
     {
         // 1. Verify capability mapping
