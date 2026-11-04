@@ -59,15 +59,13 @@ class ProductionSecurityEngine {
                 .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
                 .setKeySize(256)
                 .setUserAuthenticationRequired(true)
+                .setInvalidatedByBiometricEnrollment(true)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 builder.setUserAuthenticationParameters(
                     300,
                     KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
                 )
-            } else {
-                @Suppress("DEPRECATION")
-                builder.setUserAuthenticationValidityDurationSeconds(300)
             }
 
             val parameterSpec = builder.build()
