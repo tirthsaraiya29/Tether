@@ -334,6 +334,7 @@ fun RemoteInputScreen(
 
                                         if (changes.all { !it.pressed }) {
                                             activeTouchPoints.clear()
+                                            inputEngine.resetAccumulators()
                                             val now = System.currentTimeMillis()
                                             val duration = now - touchStartTime
 

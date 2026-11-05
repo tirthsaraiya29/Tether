@@ -30,8 +30,14 @@ internal static class Program
     [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
 
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
+    private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
+
     private static async Task<int> Main(string[] args)
     {
+        try { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); } catch { }
+
         if (args is { Length: > 0 })
         {
             return await RunCommandAsync(args);
@@ -234,7 +240,7 @@ internal static class Program
 
     private static async Task<int> RunPipeClientAsync()
     {
-        var injector = new InputInjector();
+        using var injector = new InputInjector();
 
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
@@ -376,7 +382,7 @@ internal static class Program
             var body = new byte[len];
             if (!await ReadExactAsync(pipe, body, ct)) return;
 
-            try { injector.Handle(body); } catch { }
+            try { injector.Enqueue(body); } catch { }
         }
     }
 
