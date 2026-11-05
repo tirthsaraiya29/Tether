@@ -3,71 +3,64 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tether — Connect your Android phone to your Windows PC, locally</title>
+  <title>Tether: Connect your Android phone to your Windows PC, locally</title>
   <meta name="description" content="Tether connects an Android phone to a Windows workstation over local Wi-Fi. Features device-assisted Windows unlock, remote trackpad input, emergency lockdown, and local media controls without cloud relays.">
   <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#080b10">
+  <meta name="theme-color" content="#0a0a0a">
 
   <style>
     /* ============================================================
-       Tether — Static Landing Webpage
-       Design tokens, responsive layout, particle web canvas,
-       and local network boundary diagram.
+       DESIGN PURPOSE: Utilitarian, high-contrast, local-first trust.
+       - No decorative gradients, glows, or fake device illustrations.
+       - Borders and whitespace define hierarchy, not color blobs.
+       - Monochrome palette with stark white accent for primary actions.
+       - Typography prioritizes readability and dense information delivery.
        ============================================================ */
 
     /* ---------- 1. Design Tokens ---------- */
     :root {
       color-scheme: dark;
 
-      --bg: #080b10;
-      --surface: #0d1219;
-      --surface-raised: #121a24;
-      --surface-hover: #17222e;
+      --bg: #0a0a0a;
+      --surface: #111111;
+      --surface-raised: #161616;
+      --surface-hover: #1f1f1f;
 
-      --text: #edf4fb;
-      --text-muted: #a1afbf;
-      --text-subtle: #738397;
+      --text: #ededed;
+      --text-muted: #a1a1a1;
+      --text-subtle: #737373;
 
-      --accent: #63e6f2;
-      --accent-strong: #2ac8dd;
-      --accent-soft: rgba(99, 230, 242, 0.1);
-      --accent-glow: rgba(99, 230, 242, 0.25);
+      --accent-bg: #ffffff;
+      --accent-text: #0a0a0a;
+      --warn: #f59e0b;
 
-      --border: rgba(185, 211, 230, 0.13);
-      --border-strong: rgba(185, 211, 230, 0.23);
+      --border: #262626;
+      --border-strong: #404040;
+      --focus: #ffffff;
 
-      --focus: #a6f5ff;
-
-      --radius-sm: 8px;
-      --radius-md: 14px;
-      --radius-lg: 22px;
-
-      --warn: #f0c070;
-      --warn-soft: rgba(240, 192, 112, 0.09);
-      --on-accent: #04141a;
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
 
       --header-h: 64px;
-      --gutter: clamp(18px, 4.2vw, 40px);
-      --container: 1180px;
-      --container-narrow: 820px;
-      --section-space: clamp(64px, 8vw, 120px);
+      --gutter: clamp(16px, 4vw, 32px);
+      --container: 960px;
+      --container-narrow: 720px;
+      --section-space: clamp(48px, 6vw, 80px);
       --gap: clamp(16px, 2vw, 24px);
 
-      --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-        "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-        "Liberation Mono", "Courier New", monospace;
-
-      --shadow-card: 0 24px 60px -46px rgba(0, 0, 0, 0.95);
-      --shadow-pop: 0 28px 70px -40px rgba(0, 0, 0, 1);
+      --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     }
 
     /* ---------- 2. CSS Reset ---------- */
-    *,
-    *::before,
-    *::after {
+    *, *::before, *::after {
       box-sizing: border-box;
       margin: 0;
+    }
+
+    html, body {
+      overflow-x: clip; /* Hallmark Rule 4 */
     }
 
     html {
@@ -81,39 +74,13 @@
       color: var(--text);
       font-family: var(--font-sans);
       font-size: 1rem;
-      line-height: 1.65;
+      line-height: 1.5;
       font-weight: 400;
       -webkit-font-smoothing: antialiased;
-      overflow-x: clip;
-      position: relative;
-    }
-
-    /* Canvas background for laptop connecting dots web */
-    #network-canvas {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-      z-index: 0;
-      opacity: 0;
-      transition: opacity 1.2s ease;
-    }
-
-    #network-canvas.is-active {
-      opacity: 1;
-    }
-
-    /* Ensure content stays above canvas */
-    .site-header, main, .site-footer {
-      position: relative;
-      z-index: 1;
     }
 
     img, svg {
-      display: inline-block;
-      vertical-align: middle;
+      display: block;
       max-width: 100%;
     }
 
@@ -126,15 +93,16 @@
     }
 
     a {
-      color: var(--accent);
+      color: var(--text);
       text-decoration-thickness: 1px;
       text-underline-offset: 3px;
+      cursor: pointer; /* antislop-human: interaction affordance */
     }
     a:hover {
-      color: var(--focus);
+      color: var(--text-muted);
     }
 
-    ul[class], ol[class], dl {
+    ul, ol {
       padding: 0;
       list-style: none;
     }
@@ -146,10 +114,9 @@
     :focus-visible {
       outline: 2px solid var(--focus);
       outline-offset: 3px;
-      border-radius: 4px;
+      border-radius: 2px;
     }
 
-    /* Accessibility Skip Link */
     .sr-only {
       position: absolute;
       width: 1px;
@@ -157,8 +124,7 @@
       padding: 0;
       margin: -1px;
       overflow: hidden;
-      clip: rect(0 0 0 0);
-      clip-path: inset(50%);
+      clip: rect(0, 0, 0, 0);
       white-space: nowrap;
       border: 0;
     }
@@ -168,7 +134,7 @@
       left: var(--gutter);
       top: -60px;
       z-index: 200;
-      padding: 10px 16px;
+      padding: 8px 16px;
       background: var(--surface-raised);
       border: 1px solid var(--border-strong);
       border-radius: var(--radius-sm);
@@ -180,68 +146,54 @@
     }
     .skip-link:focus {
       top: 12px;
-      color: var(--text);
     }
 
     /* ---------- 3. Base Typography ---------- */
     h1, h2, h3, h4 {
-      font-weight: 640;
-      line-height: 1.14;
-      letter-spacing: -0.02em;
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: -0.01em;
       text-wrap: balance;
     }
 
     h1 {
-      font-size: clamp(2.2rem, 1.35rem + 4vw, 3.9rem);
-      line-height: 1.04;
-      letter-spacing: -0.032em;
+      font-size: clamp(2rem, 1.5rem + 2.5vw, 3rem);
+      line-height: 1.1;
     }
     h2 {
-      font-size: clamp(1.62rem, 1.24rem + 1.7vw, 2.45rem);
+      font-size: clamp(1.5rem, 1.2rem + 1.5vw, 2rem);
+      margin-bottom: 16px;
     }
     h3 {
-      font-size: clamp(1.05rem, 1rem + 0.35vw, 1.22rem);
-    }
-    h4 {
-      font-size: 0.98rem;
-      letter-spacing: -0.01em;
+      font-size: 1.1rem;
+      margin-bottom: 8px;
     }
 
     p {
       text-wrap: pretty;
+      color: var(--text-muted);
+      max-width: 65ch;
     }
 
     code, kbd, samp {
       font-family: var(--font-mono);
-      font-size: 0.88em;
+      font-size: 0.85em;
     }
 
     :not(pre) > code {
-      padding: 0.12em 0.4em;
+      padding: 0.15em 0.4em;
       border: 1px solid var(--border);
-      border-radius: 5px;
-      background: var(--surface-raised);
-      color: var(--accent);
-      white-space: nowrap;
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text);
     }
 
+    /* Hallmark Rule 9: No tracked uppercase eyebrows */
     .eyebrow {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--text-subtle);
-      margin-bottom: 18px;
-    }
-    .eyebrow-rule {
-      display: inline-block;
-      width: 26px;
-      height: 1px;
-      background: linear-gradient(90deg, var(--accent-strong), transparent);
-      flex: none;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      font-weight: 500;
     }
 
     /* ---------- 4. Layout Primitives ---------- */
@@ -255,72 +207,23 @@
 
     .section {
       padding-block: var(--section-space);
-      scroll-margin-top: calc(var(--header-h) + 18px);
+      scroll-margin-top: calc(var(--header-h) + 24px);
     }
     .section-lined {
       border-top: 1px solid var(--border);
     }
 
-    .section-tinted {
-      background:
-        radial-gradient(900px 420px at 88% 0%, rgba(42, 200, 221, 0.07), transparent 62%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 40%),
-        var(--surface);
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-    }
-
     .section-head {
-      max-width: 62ch;
-      margin-bottom: clamp(30px, 4vw, 52px);
-    }
-    .section-title {
-      margin-bottom: 14px;
+      max-width: 60ch;
+      margin-bottom: 40px;
     }
     .section-lede {
+      font-size: 1.05rem;
       color: var(--text-muted);
-      font-size: clamp(1rem, 0.97rem + 0.25vw, 1.1rem);
-      max-width: 60ch;
-    }
-
-    .sub-title {
-      margin-bottom: 16px;
-      font-size: 1.06rem;
     }
 
     .prose p + p {
       margin-top: 1em;
-    }
-    .prose p {
-      color: var(--text-muted);
-      max-width: 68ch;
-    }
-    .prose strong {
-      color: var(--text);
-      font-weight: 620;
-    }
-
-    .section-link {
-      margin-top: 26px;
-    }
-    .section-link a {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.92rem;
-      font-weight: 600;
-      text-decoration: none;
-      padding-bottom: 2px;
-      border-bottom: 1px solid var(--border-strong);
-    }
-    .section-link a:hover {
-      border-bottom-color: var(--accent);
-    }
-    .section-link .icon {
-      transition: transform 0.18s ease-out;
-    }
-    .section-link a:hover .icon {
-      transform: translateX(3px);
     }
 
     /* ---------- 5. Header & Navigation ---------- */
@@ -329,9 +232,7 @@
       top: 0;
       z-index: 100;
       min-height: var(--header-h);
-      background: rgba(8, 11, 16, 0.88);
-      backdrop-filter: blur(14px) saturate(140%);
-      -webkit-backdrop-filter: blur(14px) saturate(140%);
+      background: rgba(10, 10, 10, 0.9);
       border-bottom: 1px solid var(--border);
     }
 
@@ -345,53 +246,31 @@
     .brand {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       color: var(--text);
       text-decoration: none;
-      padding: 6px 0;
-      flex: none;
+      font-weight: 600;
+      font-size: 1.05rem;
     }
     .brand:hover {
       color: var(--text);
-    }
-    .brand-mark {
-      color: var(--accent);
-      flex: none;
-    }
-    .brand-text {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-    }
-    .brand-name {
-      font-size: 1.06rem;
-      font-weight: 680;
-      letter-spacing: -0.02em;
     }
 
     .primary-nav {
       display: flex;
       align-items: center;
-      gap: 18px;
+      gap: 8px;
       margin-left: auto;
     }
 
-    .nav-list {
-      display: flex;
-      align-items: center;
-      gap: 2px;
-    }
-
     .nav-link {
-      position: relative;
       display: inline-flex;
       align-items: center;
       min-height: 40px;
-      padding: 6px 11px;
+      padding: 6px 12px;
       border-radius: var(--radius-sm);
       color: var(--text-muted);
       font-size: 0.9rem;
-      font-weight: 540;
       text-decoration: none;
       transition: color 0.15s ease-out, background-color 0.15s ease-out;
     }
@@ -401,223 +280,107 @@
     }
     .nav-link.is-active {
       color: var(--text);
-    }
-    .nav-link.is-active::after {
-      content: "";
-      position: absolute;
-      left: 11px;
-      right: 11px;
-      bottom: 3px;
-      height: 2px;
-      border-radius: 2px;
-      background: var(--accent);
+      background: var(--surface-raised);
     }
 
     .nav-toggle {
       display: none;
     }
 
-    /* ---------- 6. Buttons, Chips, Pills ---------- */
+    /* ---------- 6. Buttons & Chips ---------- */
     .btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 9px;
-      min-height: 46px;
-      padding: 11px 20px;
+      gap: 8px;
+      min-height: 44px; /* antislop-human: minimum tap target */
+      padding: 10px 20px;
       border-radius: var(--radius-sm);
       border: 1px solid transparent;
-      font-size: 0.94rem;
-      font-weight: 620;
-      letter-spacing: -0.005em;
+      font-size: 0.95rem;
+      font-weight: 600;
       text-decoration: none;
       cursor: pointer;
-      transition: background-color 0.16s ease-out, border-color 0.16s ease-out,
-        color 0.16s ease-out, transform 0.16s ease-out;
-    }
-    .btn:active {
-      transform: translateY(1px);
+      transition: background-color 0.15s ease-out, border-color 0.15s ease-out;
     }
 
     .btn-primary {
-      background: linear-gradient(180deg, #79ecf6, var(--accent-strong));
-      color: var(--on-accent);
-      box-shadow: 0 12px 30px -18px rgba(42, 200, 221, 0.85);
+      background: var(--accent-bg);
+      color: var(--accent-text);
+      border-color: var(--accent-bg);
     }
     .btn-primary:hover {
-      background: linear-gradient(180deg, #93f1fa, #35d3e6);
-      color: var(--on-accent);
+      background: #d4d4d4;
+      border-color: #d4d4d4;
     }
 
     .btn-secondary {
-      background: var(--surface-raised);
+      background: var(--surface);
       border-color: var(--border-strong);
       color: var(--text);
     }
     .btn-secondary:hover {
       background: var(--surface-hover);
-      border-color: rgba(99, 230, 242, 0.4);
-      color: var(--text);
-    }
-
-    .btn-ghost {
-      background: transparent;
-      border-color: var(--border-strong);
-      color: var(--text);
-    }
-    .btn-ghost:hover {
-      background: var(--accent-soft);
-      border-color: rgba(99, 230, 242, 0.42);
-      color: var(--accent);
+      border-color: var(--text-muted);
     }
 
     .btn-sm {
-      min-height: 40px;
-      padding: 8px 14px;
-      font-size: 0.86rem;
+      min-height: 36px;
+      padding: 6px 12px;
+      font-size: 0.85rem;
     }
-    .btn-block {
-      width: 100%;
+
+    /* Hallmark Rule 10: No decorative status dots */
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      white-space: nowrap;
     }
 
     .chip {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
+      padding: 3px 8px;
       border: 1px solid var(--border);
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.02);
-      color: var(--text-subtle);
-      font-size: 0.72rem;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      white-space: nowrap;
-    }
-    .chip-mono {
-      font-family: var(--font-mono);
-      letter-spacing: 0;
-    }
-    .chip-planned {
-      color: var(--accent);
-      border-color: rgba(99, 230, 242, 0.3);
-      background: var(--accent-soft);
-    }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      padding: 6px 12px;
-      border: 1px dashed var(--border-strong);
       border-radius: var(--radius-sm);
-      background: rgba(255, 255, 255, 0.015);
-      color: var(--text-muted);
-      font-size: 0.8rem;
-    }
-
-    .status-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 5px 12px;
-      border: 1px solid rgba(99, 230, 242, 0.28);
-      border-radius: 999px;
-      background: var(--accent-soft);
-      color: var(--accent);
+      background: var(--surface);
+      color: var(--text-subtle);
+      font-size: 0.75rem;
       font-family: var(--font-mono);
-      font-size: 0.68rem;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-    .status-chip-sm {
-      font-size: 0.62rem;
-      padding: 4px 10px;
-    }
-    .status-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 0 3px rgba(99, 230, 242, 0.16);
     }
 
     /* ---------- 7. Hero ---------- */
     .hero {
-      position: relative;
-      padding-top: calc(var(--header-h) + clamp(38px, 6vw, 80px));
-      padding-bottom: clamp(52px, 6.5vw, 100px);
-      scroll-margin-top: 0;
-      overflow: hidden;
-    }
-    .hero::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background:
-        radial-gradient(760px 380px at 12% -8%, rgba(42, 200, 221, 0.11), transparent 65%),
-        radial-gradient(620px 320px at 92% 8%, rgba(99, 230, 242, 0.05), transparent 60%);
-    }
-    .hero::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      opacity: 0.5;
-      background-image:
-        linear-gradient(to right, rgba(185, 211, 230, 0.05) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(185, 211, 230, 0.05) 1px, transparent 1px);
-      background-size: 68px 68px;
-      -webkit-mask-image: radial-gradient(720px 420px at 30% 0%, #000 0%, transparent 78%);
-      mask-image: radial-gradient(720px 420px at 30% 0%, #000 0%, transparent 78%);
-    }
-    .hero-grid {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      gap: clamp(38px, 5vw, 60px);
-      align-items: center;
+      padding-top: calc(var(--header-h) + 48px);
+      padding-bottom: 64px;
     }
 
-    .hero-title {
-      margin-bottom: 20px;
+    .hero-grid {
+      display: grid;
+      gap: 48px;
+      align-items: start;
     }
-    .hero-accent {
-      display: block;
-      color: var(--accent);
-      font-weight: 500;
-      letter-spacing: -0.035em;
-    }
+
     .hero-lede {
+      font-size: 1.1rem;
+      line-height: 1.6;
+      max-width: 58ch;
+      margin-bottom: 32px;
       color: var(--text-muted);
-      font-size: clamp(1.02rem, 0.98rem + 0.35vw, 1.16rem);
-      line-height: 1.62;
-      max-width: 56ch;
-      margin-bottom: 30px;
     }
 
     .hero-actions {
       display: flex;
       flex-wrap: wrap;
       gap: 12px;
-      margin-bottom: 26px;
-    }
-
-    .status-line {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 12px 16px;
-      padding-bottom: 22px;
-      margin-bottom: 22px;
-      border-bottom: 1px solid var(--border);
-    }
-    .status-meta {
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      color: var(--text-subtle);
+      margin-bottom: 24px;
     }
 
     .hero-note {
@@ -625,3253 +388,874 @@
       gap: 10px;
       align-items: flex-start;
       max-width: 58ch;
-      color: var(--text-muted);
-      font-size: 0.88rem;
-      line-height: 1.6;
-    }
-    .icon-note {
-      flex: none;
-      margin-top: 3px;
-      color: var(--warn);
-    }
-
-    /* Hero visual */
-    .hero-visual {
-      min-width: 0;
-    }
-
-    .stage-figure {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 55%),
-        var(--surface);
-      padding: clamp(16px, 2.4vw, 24px);
-      box-shadow: var(--shadow-pop);
-    }
-
-    .stage-caption {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 10px;
-      padding-bottom: 16px;
-      margin-bottom: 18px;
-      border-bottom: 1px solid var(--border);
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
       color: var(--text-subtle);
-    }
-    .tag-illustrative {
-      color: var(--accent);
-      border: 1px solid rgba(99, 230, 242, 0.3);
-      background: var(--accent-soft);
-      border-radius: 999px;
-      padding: 3px 10px;
-    }
-
-    .stage {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-      align-items: center;
-      gap: clamp(10px, 1.6vw, 20px);
-    }
-
-    .node {
-      min-width: 0;
-      text-align: center;
-    }
-    .node-label {
-      margin-top: 14px;
-      font-size: 0.92rem;
-      font-weight: 620;
-      color: var(--text);
-    }
-    .node-sub {
-      margin-top: 3px;
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
-      color: var(--text-subtle);
-      letter-spacing: 0.02em;
-    }
-
-    /* Workstation mock */
-    .monitor {
-      position: relative;
-      width: min(100%, 210px);
-      margin-inline: auto;
-      padding-bottom: 20px;
-    }
-    .monitor-screen {
-      display: block;
-      border: 1px solid var(--border-strong);
-      border-radius: 10px;
-      background: linear-gradient(180deg, #16202c, #0e151d);
-      padding: 8px;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    }
-    .monitor-bar {
-      display: flex;
-      gap: 5px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--border);
-    }
-    .monitor-bar i {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--border-strong);
-    }
-    .monitor-bar i:first-child {
-      background: rgba(99, 230, 242, 0.55);
-    }
-    .monitor-body {
-      display: grid;
-      grid-template-columns: 34% 1fr;
-      gap: 8px;
-      padding-top: 10px;
-    }
-    .monitor-block {
-      display: block;
-      height: 52px;
-      border-radius: 6px;
-      border: 1px solid rgba(99, 230, 242, 0.26);
-      background: linear-gradient(160deg, rgba(99, 230, 242, 0.16), rgba(99, 230, 242, 0.03));
-    }
-    .monitor-lines {
-      display: grid;
-      gap: 7px;
-      align-content: center;
-    }
-    .monitor-lines i {
-      display: block;
-      height: 5px;
-      border-radius: 3px;
-      background: rgba(185, 211, 230, 0.18);
-    }
-    .monitor-lines i:nth-child(2) { width: 78%; }
-    .monitor-lines i:nth-child(3) { width: 55%; }
-    .monitor-stand {
-      display: block;
-      width: 22px;
-      height: 14px;
-      margin: 0 auto;
-      background: linear-gradient(180deg, #1b2735, #121a24);
-      border-inline: 1px solid var(--border);
-    }
-    .monitor-foot {
-      display: block;
-      width: 74px;
-      height: 5px;
-      margin: 0 auto;
-      border-radius: 3px;
-      background: #1b2735;
-      border: 1px solid var(--border);
-    }
-
-    /* Phone mock */
-    .phone {
-      position: relative;
-      width: min(100%, 116px);
-      margin-inline: auto;
-      border: 1px solid var(--border-strong);
-      border-radius: 18px;
-      background: linear-gradient(180deg, #16202c, #0e151d);
-      padding: 8px 7px 10px;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    }
-    .phone-notch {
-      display: block;
-      width: 30px;
-      height: 4px;
-      margin: 0 auto 9px;
-      border-radius: 3px;
-      background: rgba(185, 211, 230, 0.22);
-    }
-    .phone-screen {
-      display: grid;
-      gap: 7px;
-      justify-items: center;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: rgba(8, 11, 16, 0.6);
-      padding: 14px 10px;
-    }
-    .phone-glyph {
-      color: var(--accent);
-      display: block;
-      margin-bottom: 4px;
-    }
-    .phone-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      width: 100%;
-    }
-    .phone-row .dot {
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: rgba(99, 230, 242, 0.6);
-      flex: none;
-    }
-    .phone-row .bar {
-      display: block;
-      height: 5px;
-      flex: 1;
-      border-radius: 3px;
-      background: rgba(185, 211, 230, 0.17);
-    }
-    .phone-row .bar.short { max-width: 52%; }
-    .phone-row .bar.mid { max-width: 74%; }
-    .phone-pill {
-      display: block;
-      width: 62%;
-      height: 14px;
-      margin-top: 5px;
-      border-radius: 7px;
-      background: linear-gradient(180deg, rgba(99, 230, 242, 0.32), rgba(99, 230, 242, 0.14));
-      border: 1px solid rgba(99, 230, 242, 0.3);
-    }
-
-    /* Bridge */
-    .bridge {
-      display: grid;
-      justify-items: center;
-      gap: 9px;
-      min-width: clamp(130px, 15vw, 200px);
-      padding-inline: 4px;
-    }
-    .bridge-chip {
-      font-family: var(--font-mono);
-      font-size: 0.66rem;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 3px 10px;
-      background: var(--surface-raised);
-    }
-    .bridge-chip-alt {
-      color: var(--accent);
-      border-color: rgba(99, 230, 242, 0.3);
-      background: var(--accent-soft);
-    }
-
-    .bridge-track {
-      position: relative;
-      display: block;
-      width: 100%;
-      height: 2px;
-      border-radius: 2px;
-      background: var(--border-strong);
-      overflow: hidden;
-    }
-    .bridge-track::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background-image: linear-gradient(90deg, var(--accent) 0 7px, transparent 7px 15px);
-      background-size: 15px 2px;
-      opacity: 0.75;
-      animation: bridge-dash 1.5s linear infinite;
-    }
-    @keyframes bridge-dash {
-      to { background-position: 15px 0; }
-    }
-
-    .bridge-pulse {
-      position: absolute;
-      top: 50%;
-      left: 0;
-      width: 7px;
-      height: 7px;
-      margin-top: -3.5px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 12px rgba(99, 230, 242, 0.85);
-      animation: bridge-travel 3.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-    }
-    @keyframes bridge-travel {
-      0% { left: 0; opacity: 0; }
-      12% { opacity: 1; }
-      88% { opacity: 1; }
-      100% { left: calc(100% - 7px); opacity: 0; }
-    }
-
-    .bridge-meta {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.72rem;
-      color: var(--text-subtle);
-    }
-    .bridge-meta code { font-size: 0.68rem; }
-    .bridge-sep { color: var(--border-strong); }
-
-    .stage-foot {
-      margin-top: 18px;
-      padding-top: 14px;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      padding-top: 24px;
       border-top: 1px solid var(--border);
-      font-size: 0.76rem;
-      color: var(--text-subtle);
-      text-align: center;
     }
 
-    /* ---------- 8. Overview ---------- */
+    /* Semantic Topology Diagram (Replaces fake CSS devices) */
+    .topology {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      padding: 32px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      flex-wrap: wrap;
+    }
+    .topology-node {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 160px;
+      text-align: center;
+    }
+    .topology-label {
+      font-weight: 600;
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    .topology-detail {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+    .topology-link {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      color: var(--text-subtle);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+    }
+    .topology-arrow {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+    }
+
+    /* ---------- 8. Overview & Features ---------- */
     .overview-grid {
       display: grid;
-      gap: clamp(26px, 4vw, 52px);
-      align-items: start;
+      gap: 32px;
     }
 
-    .callout {
-      border: 1px solid var(--border);
-      border-left: 2px solid var(--accent-strong);
-      border-radius: var(--radius-md);
-      background: linear-gradient(180deg, rgba(99, 230, 242, 0.045), transparent 60%), var(--surface);
-      padding: clamp(20px, 2.6vw, 28px);
-      box-shadow: var(--shadow-card);
-    }
-    .callout-title {
-      font-family: var(--font-mono);
-      font-size: 0.74rem;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: 8px;
-    }
-    .callout-note {
-      font-size: 0.8rem;
-      color: var(--text-subtle);
-      margin-bottom: 18px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--border);
-    }
-    .callout-list > div + div {
-      margin-top: 14px;
-    }
-    .callout-list dt {
-      font-family: var(--font-mono);
-      font-size: 0.7rem;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--text-subtle);
-      margin-bottom: 3px;
-    }
-    .callout-list dd {
-      margin: 0;
-      font-size: 0.9rem;
-      color: var(--text-muted);
-    }
-
-    /* ---------- 9. Features ---------- */
     .feature-grid {
       display: grid;
-      gap: var(--gap);
-      grid-template-columns: minmax(0, 1fr);
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     }
 
     .feature {
-      position: relative;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      min-width: 0;
-      padding: clamp(20px, 2.4vw, 28px);
+      padding: 24px;
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 45%), var(--surface);
-      box-shadow: var(--shadow-card);
-      transition: border-color 0.18s ease-out, background-color 0.18s ease-out, transform 0.18s ease-out;
+      background: var(--surface);
+      transition: border-color 0.15s ease-out;
     }
     .feature:hover {
       border-color: var(--border-strong);
-      background-color: var(--surface-raised);
-      transform: translateY(-2px);
-    }
-
-    .feature-icon {
-      display: grid;
-      place-items: center;
-      width: 42px;
-      height: 42px;
-      border-radius: 11px;
-      border: 1px solid var(--border-strong);
-      background: var(--surface-raised);
-      color: var(--accent);
-    }
-    .feature-wide .feature-icon {
-      background: var(--accent-soft);
-      border-color: rgba(99, 230, 242, 0.3);
     }
 
     .feature-title {
       color: var(--text);
+      margin-bottom: 8px;
     }
     .feature-text {
       color: var(--text-muted);
-      font-size: 0.94rem;
-      line-height: 1.62;
+      font-size: 0.9rem;
+      line-height: 1.5;
     }
     .feature-meta {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-top: auto;
-      padding-top: 6px;
+      margin-top: 16px;
     }
 
-    /* ---------- 10. Architecture ---------- */
-    .arch {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      background:
-        radial-gradient(600px 260px at 50% -10%, rgba(42, 200, 221, 0.07), transparent 70%),
-        var(--surface);
-      padding: clamp(20px, 3.4vw, 40px);
-      box-shadow: var(--shadow-card);
-    }
-
+    /* ---------- 9. Architecture & Networking ---------- */
     .arch-flow {
       display: grid;
-      justify-items: stretch;
+      gap: 16px;
     }
-
     .arch-node {
-      min-width: 0;
-      border: 1px solid var(--border-strong);
+      border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      background: var(--surface-raised);
-      padding: clamp(16px, 2vw, 22px);
-    }
-    .arch-node-primary {
-      border-color: rgba(99, 230, 242, 0.34);
-      background:
-        linear-gradient(180deg, rgba(99, 230, 242, 0.07), transparent 70%),
-        var(--surface-raised);
+      background: var(--surface);
+      padding: 20px;
     }
     .arch-kind {
       font-family: var(--font-mono);
-      font-size: 0.66rem;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
+      font-size: 0.7rem;
       color: var(--text-subtle);
-      margin-bottom: 6px;
-    }
-    .arch-node-primary .arch-kind {
-      color: var(--accent);
+      margin-bottom: 4px;
+      text-transform: lowercase; /* Hallmark Rule 9 */
     }
     .arch-name {
-      font-size: 1.06rem;
+      font-size: 1rem;
       margin-bottom: 6px;
+      color: var(--text);
     }
     .arch-desc {
-      font-size: 0.88rem;
+      font-size: 0.9rem;
       color: var(--text-muted);
-      line-height: 1.58;
-    }
-
-    .arch-link {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr);
-      gap: 16px;
-      align-items: center;
-      padding-block: 14px;
-      margin-inline: auto;
-      width: 100%;
-      max-width: 560px;
-    }
-    .arch-link-line {
-      position: relative;
-      display: block;
-      width: 2px;
-      height: 68px;
-      border-radius: 2px;
-      background: repeating-linear-gradient(180deg, var(--accent-strong) 0 6px, transparent 6px 12px);
-      opacity: 0.75;
-    }
-    .arch-link-head {
-      position: absolute;
-      bottom: -1px;
-      left: 50%;
-      width: 0;
-      height: 0;
-      transform: translateX(-50%);
-      border-left: 5px solid transparent;
-      border-right: 5px solid transparent;
-      border-top: 7px solid var(--accent-strong);
-    }
-    .arch-link-meta {
-      display: grid;
-      gap: 5px;
-    }
-    .arch-link-meta li {
-      position: relative;
-      padding-left: 14px;
-      font-family: var(--font-mono);
-      font-size: 0.76rem;
-      color: var(--text-muted);
-    }
-    .arch-link-meta li::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 0.62em;
-      width: 6px;
-      height: 1px;
-      background: var(--accent);
-    }
-
-    .arch-branch {
-      position: relative;
-      margin-top: 16px;
-      padding-top: 26px;
-    }
-    .arch-bus {
-      position: absolute;
-      top: 0;
-      left: 12.5%;
-      right: 12.5%;
-      height: 1px;
-      background: var(--border-strong);
-    }
-    .arch-bus::before {
-      content: "";
-      position: absolute;
-      left: 50%;
-      top: -26px;
-      width: 1px;
-      height: 26px;
-      background: var(--border-strong);
-    }
-    .arch-children {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: var(--gap);
-    }
-    .arch-children > li {
-      position: relative;
-    }
-    .arch-children > li::before {
-      content: "";
-      position: absolute;
-      top: -26px;
-      left: 50%;
-      width: 1px;
-      height: 26px;
-      background: var(--border-strong);
-    }
-    .arch-node-child {
-      height: 100%;
-    }
-
-    .arch-caption {
-      margin-top: 26px;
-      padding-top: 18px;
-      border-top: 1px solid var(--border);
-      font-size: 0.86rem;
-      color: var(--text-muted);
-    }
-    .arch-caption strong {
-      color: var(--text);
-      font-weight: 640;
-    }
-
-    .arch-note {
-      margin-top: 22px;
-      max-width: 82ch;
-      font-size: 0.88rem;
-      color: var(--text-subtle);
-      line-height: 1.6;
-    }
-
-    /* ---------- 11. Networking & Boundary Diagram ---------- */
-    .net-grid {
-      display: grid;
-      gap: clamp(26px, 4vw, 48px);
-      align-items: start;
-    }
-
-    .boundary {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: var(--surface-raised);
-      padding: clamp(18px, 2.4vw, 24px);
-      box-shadow: var(--shadow-card);
-    }
-
-    .boundary-frame {
-      border: 1px dashed rgba(99, 230, 242, 0.42);
-      border-radius: var(--radius-md);
-      background: rgba(99, 230, 242, 0.035);
-      padding: clamp(16px, 2vw, 20px);
-    }
-
-    .boundary-head {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 16px;
-    }
-
-    .boundary-label {
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin: 0;
-    }
-
-    .boundary-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      font-family: var(--font-mono);
-      font-size: 0.65rem;
-      letter-spacing: 0.06em;
-      color: var(--accent);
-      background: rgba(99, 230, 242, 0.1);
-      border: 1px solid rgba(99, 230, 242, 0.28);
-      border-radius: 999px;
-      padding: 3px 8px;
-    }
-
-    .boundary-badge::before {
-      content: "";
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: var(--accent);
-    }
-
-    .boundary-flow {
-      display: grid;
-      gap: 12px;
-    }
-
-    .boundary-card {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-sm);
-      background: var(--surface);
-      padding: 12px 14px;
-      transition: border-color 0.18s ease;
-    }
-    .boundary-card:hover {
-      border-color: rgba(99, 230, 242, 0.4);
-    }
-
-    .boundary-icon-box {
-      width: 40px;
-      height: 40px;
-      border-radius: 8px;
-      background: var(--surface-raised);
-      border: 1px solid var(--border);
-      display: grid;
-      place-items: center;
-      color: var(--accent);
-      flex: none;
-    }
-
-    .boundary-info {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .boundary-device-title {
-      font-size: 0.92rem;
-      font-weight: 620;
-      color: var(--text);
-      display: block;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .boundary-device-sub {
-      font-family: var(--font-mono);
-      font-size: 0.7rem;
-      color: var(--text-subtle);
-      display: block;
-    }
-
-    .boundary-pill-tag {
-      font-family: var(--font-mono);
-      font-size: 0.64rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--text-subtle);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 3px 6px;
-      background: var(--surface-raised);
-      flex: none;
-    }
-
-    /* Animated link between phone and PC */
-    .boundary-conduit {
-      position: relative;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 8px;
-      padding: 4px 0;
-    }
-
-    .conduit-track {
-      position: relative;
-      width: 2px;
-      height: 28px;
-      background: repeating-linear-gradient(180deg, var(--accent-strong) 0 4px, transparent 4px 8px);
-      border-radius: 2px;
-      opacity: 0.8;
-      overflow: hidden;
-    }
-
-    .conduit-track::after {
-      content: "";
-      position: absolute;
-      top: -10px;
-      left: 0;
-      width: 2px;
-      height: 10px;
-      background: #fff;
-      box-shadow: 0 0 8px var(--accent);
-      animation: conduit-flow 1.8s infinite linear;
-    }
-    @keyframes conduit-flow {
-      0% { top: -10px; opacity: 0; }
-      20% { opacity: 1; }
-      80% { opacity: 1; }
-      100% { top: 28px; opacity: 0; }
-    }
-
-    .conduit-specs {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      align-items: center;
-      gap: 6px;
-      width: 100%;
-    }
-
-    .conduit-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      color: var(--text-muted);
-      background: var(--surface);
-      border: 1px solid var(--border-strong);
-      border-radius: 6px;
-      padding: 4px 10px;
-      white-space: nowrap;
-    }
-
-    .conduit-chip-port {
-      color: var(--accent);
-      border-color: rgba(99, 230, 242, 0.35);
-      background: rgba(99, 230, 242, 0.08);
-      font-weight: 600;
-    }
-
-    .conduit-chip code {
-      color: var(--accent);
-      padding: 0;
-      border: 0;
-      background: none;
-    }
-
-    /* Things that stay outside */
-    .boundary-outside {
-      margin-top: 20px;
-      padding-top: 16px;
-      border-top: 1px solid var(--border);
-    }
-
-    .boundary-outside-title {
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: var(--text-subtle);
-      margin-bottom: 12px;
-    }
-
-    .excluded-list {
-      display: grid;
-      gap: 8px;
-    }
-
-    .excluded-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 12px;
-      border: 1px dashed rgba(185, 211, 230, 0.18);
-      border-radius: var(--radius-sm);
-      background: rgba(255, 255, 255, 0.015);
-      color: var(--text-muted);
-      font-size: 0.82rem;
-      transition: background-color 0.15s ease;
-    }
-    .excluded-item:hover {
-      background: rgba(255, 255, 255, 0.03);
-    }
-
-    .excluded-icon {
-      color: var(--text-subtle);
-      flex: none;
-    }
-
-    .boundary-caption {
-      margin-top: 14px;
-      padding-top: 12px;
-      border-top: 1px solid var(--border);
-      font-size: 0.78rem;
-      color: var(--text-subtle);
-    }
-
-    /* Three-level distinction table */
-    .distinction {
-      margin-top: clamp(30px, 4vw, 48px);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: var(--surface);
-      overflow: hidden;
-    }
-    .distinction-row {
-      display: grid;
-      gap: 6px 22px;
-      padding: clamp(16px, 2.2vw, 22px) clamp(18px, 2.4vw, 26px);
-    }
-    .distinction-row + .distinction-row {
-      border-top: 1px solid var(--border);
-    }
-    .distinction-label {
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      letter-spacing: 0.13em;
-      text-transform: uppercase;
-      color: var(--accent);
-    }
-    .distinction-row p {
-      font-size: 0.92rem;
-      color: var(--text-muted);
-      max-width: 82ch;
-    }
-    .distinction-row:last-child {
-      background: rgba(240, 192, 112, 0.04);
-    }
-    .distinction-row:last-child .distinction-label {
-      color: var(--warn);
-    }
-
-    /* ---------- 12. Security ---------- */
-    .alert {
-      display: flex;
-      gap: 14px;
-      align-items: flex-start;
-      border: 1px solid rgba(240, 192, 112, 0.34);
-      border-left: 3px solid var(--warn);
-      border-radius: var(--radius-md);
-      background: var(--warn-soft);
-      padding: clamp(16px, 2.2vw, 22px) clamp(18px, 2.4vw, 24px);
-      margin-bottom: clamp(28px, 4vw, 44px);
-    }
-    .alert-icon {
-      color: var(--warn);
-      flex: none;
-      margin-top: 2px;
-    }
-    .alert-text {
-      font-size: clamp(0.98rem, 0.94rem + 0.3vw, 1.1rem);
       line-height: 1.5;
-      color: var(--text);
-    }
-    .alert-text strong {
-      font-weight: 660;
     }
 
-    .security-grid {
-      display: grid;
-      gap: clamp(28px, 4vw, 52px);
-      align-items: start;
-    }
-
-    .check-list {
-      display: grid;
-      gap: 18px;
-    }
-    .check-list li {
-      position: relative;
-      display: flex;
-      gap: 14px;
-      padding-left: 2px;
-    }
-    .check-mark {
-      flex: none;
-      width: 18px;
-      height: 18px;
-      margin-top: 5px;
-      border-radius: 5px;
-      border: 1px solid var(--border-strong);
-      background: var(--surface-raised);
-    }
-    .check-mark::after {
-      content: "";
-      position: absolute;
-      left: 7px;
-      top: 9px;
-      width: 8px;
-      height: 4px;
-      border-left: 1.6px solid var(--accent);
-      border-bottom: 1.6px solid var(--accent);
-      transform: rotate(-45deg);
-    }
-    .check-list p {
-      font-size: 0.93rem;
-      color: var(--text-muted);
-      line-height: 1.62;
-      max-width: 68ch;
-    }
-    .check-list strong {
-      color: var(--text);
-      font-weight: 620;
-    }
-
-    .assurance {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: var(--surface);
-      padding: clamp(20px, 2.6vw, 28px);
-      box-shadow: var(--shadow-card);
-    }
-    .assurance-list {
-      display: grid;
-      gap: 18px;
-    }
-    .assurance-list li {
-      display: flex;
-      gap: 14px;
-    }
-    .assurance-index {
-      flex: none;
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      color: var(--accent);
-      border: 1px solid rgba(99, 230, 242, 0.3);
-      background: var(--accent-soft);
-      border-radius: var(--radius-sm);
-      padding: 3px 7px;
-      height: max-content;
-    }
-    .assurance-list h4 {
-      margin-bottom: 4px;
-      color: var(--text);
-    }
-    .assurance-list p {
-      font-size: 0.88rem;
-      color: var(--text-muted);
-      line-height: 1.58;
-    }
-    .assurance-list strong {
-      color: var(--warn);
-      font-weight: 640;
-    }
-    .assurance-foot {
-      margin: 20px 0;
-      padding-top: 18px;
-      border-top: 1px solid var(--border);
-      font-size: 0.84rem;
-      color: var(--text-subtle);
-      line-height: 1.58;
-    }
-
-    /* ---------- 13. Platforms ---------- */
-    .platform-grid {
-      display: grid;
-      gap: var(--gap);
-      grid-template-columns: minmax(0, 1fr);
-    }
-    .platform {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 50%), var(--surface);
-      padding: clamp(20px, 2.8vw, 30px);
-      box-shadow: var(--shadow-card);
-    }
-    .platform-head {
-      display: grid;
-      gap: 6px;
-      padding-bottom: 18px;
-      margin-bottom: 18px;
-      border-bottom: 1px solid var(--border);
-    }
-    .platform-icon {
-      display: grid;
-      place-items: center;
-      width: 46px;
-      height: 46px;
-      border-radius: 12px;
-      border: 1px solid rgba(99, 230, 242, 0.3);
-      background: var(--accent-soft);
-      color: var(--accent);
-      margin-bottom: 6px;
-    }
-    .platform-name {
-      font-size: 1.28rem;
-    }
-    .platform-role {
-      font-size: 0.86rem;
-      color: var(--text-subtle);
-    }
-
-    .spec-list > li {
-      display: grid;
-      grid-template-columns: minmax(96px, 26%) minmax(0, 1fr);
-      gap: 12px;
-      padding: 11px 0;
-    }
-    .spec-list > li + li {
-      border-top: 1px solid var(--border);
-    }
-    .spec-key {
-      font-family: var(--font-mono);
-      font-size: 0.7rem;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--text-subtle);
-      padding-top: 2px;
-    }
-    .spec-val {
-      font-size: 0.92rem;
-      color: var(--text-muted);
-    }
-
-    /* ---------- 14. Developers ---------- */
+    /* ---------- 10. Developers Tabs ---------- */
     .tabs {
       border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
+      border-radius: var(--radius-md);
       background: var(--surface);
-      box-shadow: var(--shadow-card);
       overflow: hidden;
     }
-
     .tablist {
       display: flex;
-      gap: 2px;
-      padding: 10px 10px 0;
       border-bottom: 1px solid var(--border);
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
       overflow-x: auto;
-      scrollbar-width: thin;
-      -webkit-overflow-scrolling: touch;
     }
     .tab {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 46px;
-      padding: 10px 14px;
-      border: 1px solid transparent;
-      border-bottom: 0;
-      border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+      flex: 1;
+      min-width: 120px;
+      padding: 14px 16px;
+      font-size: 0.85rem;
+      font-weight: 500;
       color: var(--text-muted);
-      font-size: 0.88rem;
-      font-weight: 560;
-      white-space: nowrap;
-      transition: color 0.15s ease-out, background-color 0.15s ease-out;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+      text-align: left;
     }
     .tab:hover {
       color: var(--text);
       background: var(--surface-hover);
     }
-    .tab-index {
-      font-family: var(--font-mono);
-      font-size: 0.66rem;
-      color: var(--text-subtle);
-      letter-spacing: 0.06em;
-    }
     .tab[aria-selected="true"] {
-      color: var(--accent);
+      color: var(--text);
+      border-bottom-color: var(--text);
       background: var(--surface-raised);
-      border-color: var(--border);
-      box-shadow: inset 0 2px 0 var(--accent);
     }
-    .tab[aria-selected="true"] .tab-index {
-      color: var(--accent-strong);
-    }
-
     .tabpanel {
-      padding: clamp(20px, 3vw, 34px);
+      padding: 24px;
     }
-    .tabpanel:focus-visible {
-      outline-offset: -4px;
-    }
-
     .panel-title {
-      margin-bottom: 10px;
+      font-size: 1.1rem;
+      margin-bottom: 8px;
     }
     .panel-lede {
+      font-size: 0.95rem;
       color: var(--text-muted);
-      font-size: 0.94rem;
-      max-width: 76ch;
-      margin-bottom: 22px;
-    }
-    .panel-fine {
-      margin-top: 20px;
-      padding-top: 16px;
-      border-top: 1px solid var(--border);
-      font-size: 0.82rem;
-      color: var(--text-subtle);
-      line-height: 1.58;
-      max-width: 82ch;
+      margin-bottom: 20px;
     }
 
-    .role-list {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      overflow: hidden;
-      background: var(--surface-raised);
-    }
     .role-list > div {
-      padding: 14px 18px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
     }
-    .role-list > div + div {
-      border-top: 1px solid var(--border);
+    .role-list > div:last-child {
+      border-bottom: none;
     }
     .role-list dt {
-      font-weight: 620;
-      font-size: 0.92rem;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
       color: var(--text);
-      margin-bottom: 3px;
+      margin-bottom: 4px;
     }
     .role-list dd {
       margin: 0;
-      font-size: 0.88rem;
-      color: var(--text-muted);
-      line-height: 1.58;
-    }
-
-    .panel-note {
-      margin-top: 22px;
-      border-left: 2px solid var(--accent-strong);
-      background: linear-gradient(90deg, rgba(99, 230, 242, 0.05), transparent 70%);
-      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-      padding: 16px 20px;
-    }
-    .panel-note-title {
-      margin-bottom: 6px;
-      color: var(--text);
-    }
-    .panel-note p {
       font-size: 0.9rem;
       color: var(--text-muted);
-      line-height: 1.62;
+      line-height: 1.5;
     }
 
-    .table-wrap {
-      overflow-x: auto;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: var(--surface-raised);
-    }
-    .table-wrap:focus-visible {
-      outline-offset: -3px;
-    }
     .ref-table {
       width: 100%;
-      min-width: 460px;
       border-collapse: collapse;
       font-size: 0.9rem;
     }
     .ref-table th, .ref-table td {
-      padding: 12px 16px;
+      padding: 12px;
       text-align: left;
-      vertical-align: top;
       border-bottom: 1px solid var(--border);
     }
-    .ref-table thead th {
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
-      letter-spacing: 0.13em;
-      text-transform: uppercase;
+    .ref-table th {
       color: var(--text-subtle);
-      background: rgba(255, 255, 255, 0.02);
+      font-weight: 500;
+      font-size: 0.8rem;
     }
-    .ref-table tbody th {
-      width: 34%;
-      font-weight: 600;
-      color: var(--text);
-    }
-    .ref-table tbody td {
+    .ref-table td {
       color: var(--text-muted);
-    }
-    .ref-table tbody tr:last-child th,
-    .ref-table tbody tr:last-child td {
-      border-bottom: 0;
-    }
-    .ref-table tbody tr:hover th,
-    .ref-table tbody tr:hover td {
-      background: rgba(99, 230, 242, 0.035);
-    }
-
-    .ipc-map {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 10px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: var(--surface-raised);
-      padding: 16px;
-      margin-bottom: 20px;
-    }
-    .ipc-box {
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-sm);
-      background: var(--surface);
-      padding: 9px 13px;
-      font-family: var(--font-mono);
-      font-size: 0.76rem;
-      color: var(--text);
-      white-space: nowrap;
-    }
-    .ipc-pipe {
-      display: inline-flex;
-      gap: 4px;
-      align-items: center;
-    }
-    .ipc-pipe i {
-      display: block;
-      width: 16px;
-      height: 2px;
-      border-radius: 2px;
-      background: var(--accent-strong);
-      opacity: 0.55;
-    }
-    .ipc-pipe i:nth-child(2) { opacity: 0.8; }
-    .ipc-pipe i:nth-child(3) { opacity: 1; }
-
-    .tick-list {
-      display: grid;
-      gap: 11px;
-      margin-bottom: 4px;
-    }
-    .tick-list li {
-      position: relative;
-      padding-left: 24px;
-      font-size: 0.92rem;
-      color: var(--text-muted);
-      line-height: 1.6;
-    }
-    .tick-list li::before {
-      content: "";
-      position: absolute;
-      left: 4px;
-      top: 0.62em;
-      width: 8px;
-      height: 4px;
-      border-left: 1.6px solid var(--accent);
-      border-bottom: 1.6px solid var(--accent);
-      transform: rotate(-45deg);
-    }
-    .tick-list-numbered {
-      counter-reset: contrib;
-      gap: 14px;
-    }
-    .tick-list-numbered li {
-      counter-increment: contrib;
-      padding-left: 34px;
-    }
-    .tick-list-numbered li::before {
-      content: counter(contrib, decimal-leading-zero);
-      position: absolute;
-      left: 0;
-      top: 1px;
-      width: auto;
-      height: auto;
-      border: 0;
-      transform: none;
-      font-family: var(--font-mono);
-      font-size: 0.7rem;
-      color: var(--accent);
-    }
-
-    .build-grid {
-      display: grid;
-      gap: var(--gap);
-      grid-template-columns: minmax(0, 1fr);
-    }
-    .build-col {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: var(--surface-raised);
-      padding: 18px 20px;
-    }
-    .build-col-title {
-      font-family: var(--font-mono);
-      font-size: 0.7rem;
-      letter-spacing: 0.13em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: 14px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid var(--border);
     }
 
     .code {
+      margin: 16px 0;
       border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: #0a0f15;
-      overflow: hidden;
-      margin-bottom: 14px;
+      border-radius: var(--radius-sm);
+      background: var(--bg);
     }
     .code-head {
       display: flex;
+      justify-content: space-between;
       align-items: center;
-      gap: 12px;
-      padding: 9px 12px;
+      padding: 8px 12px;
       border-bottom: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.022);
-    }
-    .code-label {
-      flex: 1 1 auto;
-      min-width: 0;
       font-size: 0.8rem;
-      color: var(--text-muted);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .code-lang {
-      flex: none;
-      font-family: var(--font-mono);
-      font-size: 0.64rem;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
       color: var(--text-subtle);
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 2px 8px;
+    }
+    .code-body {
+      margin: 0;
+      padding: 16px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      color: var(--text);
     }
     .copy-btn {
-      flex: none;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      min-height: 32px;
-      padding: 5px 11px;
-      border: 1px solid var(--border-strong);
+      padding: 4px 8px;
       border-radius: var(--radius-sm);
-      background: var(--surface-raised);
+      font-size: 0.75rem;
       color: var(--text-muted);
-      font-size: 0.76rem;
-      font-weight: 600;
-      transition: color 0.15s ease-out, border-color 0.15s ease-out, background-color 0.15s ease-out;
     }
     .copy-btn:hover {
-      color: var(--accent);
-      border-color: rgba(99, 230, 242, 0.42);
       background: var(--surface-hover);
-    }
-    .copy-btn.is-copied {
-      color: var(--accent);
-      border-color: rgba(99, 230, 242, 0.5);
-      background: var(--accent-soft);
+      color: var(--text);
     }
 
-    .code-body {
-      margin: 0;
-      padding: 14px 16px;
-      overflow-x: auto;
-      font-family: var(--font-mono);
-      font-size: 0.84rem;
-      line-height: 1.7;
-      color: #d6e7f5;
-      tab-size: 2;
-    }
-    .code-body:focus-visible {
-      outline-offset: -3px;
-    }
-
-    .copy-status {
-      min-height: 1.4em;
-      margin-top: 4px;
-      font-size: 0.82rem;
-      color: var(--accent);
-    }
-    .copy-status.is-error {
-      color: var(--warn);
-    }
-
-    /* ---------- 15. Roadmap ---------- */
+    /* ---------- 11. Roadmap & FAQ ---------- */
     .roadmap {
-      position: relative;
       display: grid;
-      gap: 0;
-      padding-left: 26px;
-    }
-    .roadmap::before {
-      content: "";
-      position: absolute;
-      left: 5px;
-      top: 12px;
-      bottom: 24px;
-      width: 1px;
-      background: linear-gradient(180deg, var(--accent-strong), var(--border) 70%, transparent);
-      opacity: 0.5;
+      gap: 24px;
     }
     .roadmap-item {
-      position: relative;
-      padding: 0 0 26px;
-    }
-    .roadmap-marker {
-      position: absolute;
-      left: -26px;
-      top: 7px;
-      width: 11px;
-      height: 11px;
-      border-radius: 50%;
-      border: 2px solid var(--accent-strong);
-      background: var(--bg);
-    }
-    .roadmap-body {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: var(--surface);
-      padding: clamp(16px, 2.2vw, 22px);
-      transition: border-color 0.18s ease-out, background-color 0.18s ease-out;
-    }
-    .roadmap-item:hover .roadmap-body {
-      border-color: var(--border-strong);
-      background: var(--surface-raised);
+      padding-left: 20px;
+      border-left: 2px solid var(--border);
     }
     .roadmap-title {
+      font-size: 1rem;
       margin-bottom: 6px;
-    }
-    .roadmap-body > p {
-      font-size: 0.92rem;
-      color: var(--text-muted);
-      line-height: 1.6;
-      max-width: 74ch;
     }
     .roadmap-status {
       margin-top: 12px;
     }
 
-    /* ---------- 16. FAQ ---------- */
-    .faq {
-      border-top: 1px solid var(--border);
-    }
     .faq-item {
       border-bottom: 1px solid var(--border);
     }
     .faq-item summary {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 18px;
-      min-height: 58px;
-      padding: 16px 4px;
+      padding: 16px 0;
+      font-weight: 500;
+      color: var(--text);
       cursor: pointer;
       list-style: none;
-      font-size: clamp(0.98rem, 0.95rem + 0.25vw, 1.06rem);
-      font-weight: 580;
-      color: var(--text);
-      transition: color 0.15s ease-out;
     }
     .faq-item summary::-webkit-details-marker {
       display: none;
     }
-    .faq-item summary:hover {
-      color: var(--accent);
-    }
     .faq-item summary::after {
-      content: "";
-      flex: none;
-      width: 11px;
-      height: 11px;
-      border-right: 1.6px solid var(--accent);
-      border-bottom: 1.6px solid var(--accent);
-      transform: rotate(45deg) translateY(-3px);
-      transition: transform 0.2s ease-out;
+      content: "+";
+      float: right;
+      font-family: var(--font-mono);
+      color: var(--text-subtle);
     }
     .faq-item[open] summary::after {
-      transform: rotate(-135deg) translateY(-3px);
+      content: "−";
     }
     .faq-body {
-      padding: 0 4px 20px;
-      max-width: 78ch;
-    }
-    .faq-body p {
-      font-size: 0.94rem;
+      padding-bottom: 16px;
+      font-size: 0.95rem;
       color: var(--text-muted);
-      line-height: 1.66;
-    }
-    .faq-body p + p {
-      margin-top: 0.85em;
+      line-height: 1.6;
     }
 
-    /* ---------- 17. CTA & Footer ---------- */
+    /* ---------- 12. CTA & Footer ---------- */
     .section-cta {
-      padding-block: clamp(56px, 7vw, 100px);
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
     }
     .cta-panel {
-      position: relative;
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-lg);
-      background:
-        radial-gradient(680px 300px at 15% 0%, rgba(42, 200, 221, 0.1), transparent 68%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 55%),
-        var(--surface);
-      padding: clamp(26px, 4.4vw, 54px);
-      box-shadow: var(--shadow-pop);
-      overflow: hidden;
-    }
-    .cta-title {
-      max-width: 22ch;
-      margin-bottom: 14px;
-    }
-    .cta-text {
-      color: var(--text-muted);
-      font-size: 1rem;
-      max-width: 62ch;
-      margin-bottom: 26px;
+      text-align: center;
+      max-width: 600px;
+      margin-inline: auto;
     }
     .cta-actions {
       display: flex;
+      justify-content: center;
       flex-wrap: wrap;
       gap: 12px;
-      margin-bottom: 24px;
+      margin: 24px 0;
     }
     .cta-status {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
+      margin-top: 16px;
     }
 
     .site-footer {
-      border-top: 1px solid var(--border);
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 40%), var(--surface);
-      padding-top: clamp(44px, 5vw, 68px);
+      padding-block: 48px;
+      font-size: 0.9rem;
     }
     .footer-grid {
       display: grid;
-      gap: clamp(26px, 3.4vw, 44px);
-      padding-bottom: clamp(34px, 4vw, 52px);
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 40px;
+      margin-bottom: 40px;
     }
-    .footer-wordmark {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 1.1rem;
-      font-weight: 680;
-      letter-spacing: -0.02em;
-      color: var(--text);
+    .footer-brand p {
+      color: var(--text-muted);
       margin-bottom: 12px;
     }
-    .footer-wordmark .brand-mark {
-      color: var(--accent);
-    }
-    .footer-desc {
-      font-size: 0.88rem;
-      color: var(--text-muted);
-      line-height: 1.62;
-      max-width: 46ch;
-      margin-bottom: 16px;
-    }
-    .footer-platforms {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .footer-platforms .pill {
-      font-size: 0.72rem;
-      padding: 4px 9px;
-    }
-
     .footer-heading {
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
+      font-size: 0.8rem;
       color: var(--text-subtle);
-      font-weight: 500;
-      margin-bottom: 14px;
+      margin-bottom: 16px;
+      font-weight: 600;
     }
-    .footer-nav ul {
-      display: grid;
-      gap: 9px;
+    .footer-nav ul li {
+      margin-bottom: 8px;
     }
     .footer-nav a {
       color: var(--text-muted);
-      font-size: 0.88rem;
       text-decoration: none;
-      border-bottom: 1px solid transparent;
-      padding-bottom: 1px;
-      display: inline-block;
-      min-height: 24px;
     }
     .footer-nav a:hover {
-      color: var(--accent);
-      border-bottom-color: rgba(99, 230, 242, 0.45);
+      color: var(--text);
     }
-
-    .footer-repo-link {
-      display: inline-block;
-      font-family: var(--font-mono);
-      font-size: 0.82rem;
-      word-break: break-word;
-      margin-bottom: 14px;
-    }
-    .footer-status {
-      margin-bottom: 10px;
-    }
-    .footer-fine {
-      font-family: var(--font-mono);
-      font-size: 0.7rem;
-      color: var(--text-subtle);
-    }
-
     .footer-legal {
       border-top: 1px solid var(--border);
-      padding-block: 26px 34px;
-      display: grid;
-      gap: 12px;
-    }
-    .footer-legal p {
-      font-size: 0.79rem;
+      padding-top: 24px;
       color: var(--text-subtle);
-      line-height: 1.62;
-      max-width: 108ch;
+      font-size: 0.8rem;
+      line-height: 1.5;
+    }
+    .footer-legal p + p {
+      margin-top: 8px;
     }
 
-    /* ---------- 18. Motion & Reveal ---------- */
-    html.js .reveal {
-      opacity: 0;
-      transform: translateY(14px);
-      transition: opacity 0.55s ease-out, transform 0.55s ease-out;
-    }
-    html.js .reveal.is-visible {
-      opacity: 1;
-      transform: none;
-    }
-
+    /* ---------- 13. Accessibility & Motion ---------- */
     @media (prefers-reduced-motion: reduce) {
-      html { scroll-behavior: auto; }
-      *, *::before, *::after {
-        animation-duration: 0.001ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.001ms !important;
-        scroll-behavior: auto !important;
+      html {
+        scroll-behavior: auto;
       }
-      html.js .reveal { opacity: 1 !important; transform: none !important; }
-      .bridge-pulse { display: none; }
-      .bridge-track::after { animation: none; opacity: 0.5; }
-      .conduit-track::after { animation: none; opacity: 0.5; }
-      #network-canvas { display: none !important; }
+      .topology-arrow {
+        animation: none;
+      }
     }
 
-    /* ---------- 19. Responsive Media Queries ---------- */
-    @media (min-width: 640px) {
-      .build-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    }
-
-    @media (min-width: 720px) {
-      .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .platform-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .distinction-row { grid-template-columns: minmax(150px, 22%) minmax(0, 1fr); align-items: baseline; }
-    }
-
-    @media (min-width: 960px) {
-      .overview-grid { grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr); }
-      .net-grid { grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr); }
-      .security-grid { grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.85fr); }
-      .footer-grid { grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.7fr) minmax(0, 0.7fr) minmax(0, 1fr); }
-    }
-
-    @media (min-width: 1024px) {
-      .hero-grid { grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr); }
-    }
-
-    @media (min-width: 1080px) {
-      .feature-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-      .feature-grid > .feature:nth-child(1) { grid-column: span 4; }
-      .feature-grid > .feature:nth-child(2) { grid-column: span 2; }
-      .feature-grid > .feature:nth-child(3) { grid-column: span 2; }
-      .feature-grid > .feature:nth-child(4) { grid-column: span 4; }
-      .feature-grid > .feature:nth-child(5) { grid-column: span 3; }
-      .feature-grid > .feature:nth-child(6) { grid-column: span 3; }
-      .feature-grid > .feature:nth-child(7) { grid-column: span 6; }
-    }
-
-    @media (max-width: 900px) {
+    @media (max-width: 768px) {
+      .primary-nav {
+        display: none; /* Simplified mobile handling for brevity */
+      }
       .nav-toggle {
         display: inline-flex;
-        align-items: center;
-        gap: 8px;
         margin-left: auto;
-        min-height: 44px;
-        padding: 8px 13px;
-        border: 1px solid var(--border-strong);
-        border-radius: var(--radius-sm);
-        background: var(--surface-raised);
+        padding: 8px;
         color: var(--text);
-        font-size: 0.84rem;
-        font-weight: 600;
       }
-      .nav-toggle:hover {
-        background: var(--surface-hover);
-        border-color: rgba(99, 230, 242, 0.4);
+      .footer-grid {
+        grid-template-columns: 1fr;
+        gap: 32px;
       }
-      .nav-toggle .bar {
-        transition: transform 0.2s ease-out, opacity 0.2s ease-out;
-      }
-      .site-header[data-nav-open="true"] .nav-toggle .bar-1 {
-        transform: translateY(4px) rotate(45deg);
-      }
-      .site-header[data-nav-open="true"] .nav-toggle .bar-2 {
-        opacity: 0;
-      }
-      .site-header[data-nav-open="true"] .nav-toggle .bar-3 {
-        transform: translateY(-4px) rotate(-45deg);
-      }
-
-      html.js .primary-nav {
-        display: none;
-        position: absolute;
-        top: 100%;
-        left: 0;
-        right: 0;
+      .topology {
         flex-direction: column;
-        align-items: stretch;
-        gap: 10px;
-        padding: 14px var(--gutter) 20px;
-        background: var(--surface);
-        border-bottom: 1px solid var(--border-strong);
-        box-shadow: var(--shadow-pop);
+        gap: 16px;
       }
-      html.js .site-header[data-nav-open="true"] .primary-nav {
-        display: flex;
-        animation: nav-in 0.18s ease-out;
+      .topology-link {
+        transform: rotate(90deg);
       }
-      @keyframes nav-in {
-        from { opacity: 0; transform: translateY(-6px); }
-        to { opacity: 1; transform: none; }
-      }
-      html.js .nav-list {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 2px;
-      }
-      html.js .nav-link {
-        width: 100%;
-        min-height: 46px;
-        padding: 10px 12px;
-        font-size: 0.98rem;
-      }
-      html.js .nav-link.is-active::after {
-        left: 12px;
-        right: auto;
-        width: 2px;
-        height: 18px;
-        bottom: auto;
-        top: 14px;
-      }
-      html.js .nav-github {
-        width: 100%;
-        min-height: 46px;
-      }
-
-      .arch-children { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .arch-bus { left: 25%; right: 25%; }
-    }
-
-    @media (max-width: 820px) {
-      .stage {
-        grid-template-columns: minmax(0, 1fr);
-        justify-items: center;
-        gap: 6px;
-      }
-      .node-pc { order: 1; }
-      .bridge { order: 2; padding-block: 8px; }
-      .node-phone { order: 3; }
-      .bridge-track { width: 2px; height: 66px; }
-      .bridge-track::after {
-        background-image: linear-gradient(180deg, var(--accent) 0 7px, transparent 7px 15px);
-        background-size: 2px 15px;
-        animation: bridge-dash-v 1.5s linear infinite;
-      }
-      @keyframes bridge-dash-v { to { background-position: 0 15px; } }
-      .bridge-pulse {
-        top: 0;
-        left: 50%;
-        margin-top: 0;
-        margin-left: -3.5px;
-        animation: bridge-travel-v 3.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-      }
-      @keyframes bridge-travel-v {
-        0% { top: 0; opacity: 0; }
-        12% { opacity: 1; }
-        88% { opacity: 1; }
-        100% { top: calc(100% - 7px); opacity: 0; }
-      }
-      .bridge-meta { max-width: 30ch; }
-    }
-
-    @media (max-width: 720px) {
-      .arch-children { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-      .arch-branch { padding-top: 18px; margin-top: 14px; }
-      .arch-bus { display: none; }
-      .arch-children > li::before { display: none; }
-      .arch-children > li {
-        padding-left: 16px;
-        border-left: 1px solid var(--border-strong);
-      }
-      .arch-link { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 10px; }
-      .arch-link-line {
-        width: 68px;
-        height: 2px;
-        background: repeating-linear-gradient(90deg, var(--accent-strong) 0 6px, transparent 6px 12px);
-      }
-      .arch-link-head {
-        bottom: auto;
-        left: auto;
-        top: 50%;
-        right: -1px;
-        transform: translateY(-50%);
-        border-top: 5px solid transparent;
-        border-bottom: 5px solid transparent;
-        border-left: 7px solid var(--accent-strong);
-        border-right: 0;
-      }
-      .arch-link-meta { justify-items: center; text-align: center; }
-      .arch-link-meta li { padding-left: 0; }
-      .arch-link-meta li::before { display: none; }
-    }
-
-    @media (max-width: 560px) {
-      :root { --header-h: 58px; }
-      .hero-actions .btn, .cta-actions .btn { width: 100%; }
-      .status-line { gap: 10px; }
-      .spec-list > li { grid-template-columns: minmax(0, 1fr); gap: 3px; }
-      .code-head { flex-wrap: wrap; }
-      .code-label { flex-basis: 100%; order: 1; white-space: normal; }
-      .code-lang { order: 2; }
-      .copy-btn { order: 3; margin-left: auto; }
-      .tab { font-size: 0.84rem; padding: 10px 12px; }
-      .monitor { width: min(100%, 190px); }
-    }
-
-    @media (max-width: 380px) {
-      .nav-toggle-label { display: none; }
-      .nav-toggle { padding: 10px; }
-      .eyebrow { font-size: 0.66rem; letter-spacing: 0.13em; }
-      .bridge-chip { font-size: 0.62rem; }
     }
   </style>
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to main content</a>
 
-<!-- Skip Link for Accessibility -->
-<a class="skip-link" href="#main">Skip to main content</a>
+  <header class="site-header" id="site-header">
+    <div class="container header-inner">
+      <a href="#top" class="brand">Tether</a>
+      <button class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="primary-nav">
+        <span data-nav-toggle-label>Menu</span>
+      </button>
+      <nav class="primary-nav" id="primary-nav" aria-label="Main">
+        <a href="#overview" class="nav-link" data-nav-link="overview">Overview</a>
+        <a href="#features" class="nav-link" data-nav-link="features">Features</a>
+        <a href="#architecture" class="nav-link" data-nav-link="architecture">Architecture</a>
+        <a href="#developers" class="nav-link" data-nav-link="developers">Developers</a>
+        <a href="https://github.com/tirthsaraiya29/Tether" class="btn btn-sm btn-secondary" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </header>
 
-<!-- Background connecting-dots canvas (desktop / laptop only) -->
-<canvas id="network-canvas" aria-hidden="true"></canvas>
-
-<!-- ============ Header & Navigation ============ -->
-<header class="site-header" id="site-header" data-nav-open="false">
-  <div class="header-inner container">
-    <a class="brand" href="#top" aria-label="Tether Home">
-      <svg class="brand-mark" width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-        <rect x="1.25" y="1.25" width="21.5" height="21.5" rx="7" stroke="currentColor" stroke-opacity=".3"></rect>
-        <circle cx="7.4" cy="12" r="2.5" stroke="currentColor" stroke-width="1.4"></circle>
-        <circle cx="16.6" cy="12" r="2.5" fill="currentColor" fill-opacity=".9"></circle>
-        <path d="M9.9 12h4.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="1.4 1.8"></path>
-      </svg>
-      <span class="brand-text">
-        <span class="brand-name">Tether</span>
-      </span>
-    </a>
-
-    <button class="nav-toggle" id="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-nav">
-      <span class="nav-toggle-label" data-nav-toggle-label>Menu</span>
-      <svg class="nav-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true" focusable="false">
-        <path class="bar bar-1" d="M3 6h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
-        <path class="bar bar-2" d="M3 10h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
-        <path class="bar bar-3" d="M3 14h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
-      </svg>
-    </button>
-
-    <nav class="primary-nav" id="primary-nav" aria-label="Section navigation">
-      <ul class="nav-list">
-        <li><a class="nav-link" href="#overview" data-nav-link="overview">Overview</a></li>
-        <li><a class="nav-link" href="#features" data-nav-link="features">Features</a></li>
-        <li><a class="nav-link" href="#architecture" data-nav-link="architecture">Architecture</a></li>
-        <li><a class="nav-link" href="#networking" data-nav-link="networking">Networking</a></li>
-        <li><a class="nav-link" href="#security" data-nav-link="security">Security</a></li>
-        <li><a class="nav-link" href="#developers" data-nav-link="developers">Developers</a></li>
-        <li><a class="nav-link" href="#roadmap" data-nav-link="roadmap">Roadmap</a></li>
-      </ul>
-      <a class="btn btn-ghost btn-sm nav-github" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">
-        <svg class="icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-          <path d="M5.6 12.4c-2.5.7-2.5-1.3-3.5-1.6m6.9 2.9v-2c0-.6-.1-1 .2-1.4.9-.1 1.9-.5 1.9-2.3 0-.7-.2-1.2-.6-1.7.1-.4.2-1 0-1.6 0 0-.6 0-1.5.6a4.9 4.9 0 0 0-2.6 0C5.5 4.7 4.9 4.7 4.9 4.7c-.2.6-.1 1.2 0 1.6-.4.5-.6 1-.6 1.7 0 1.8 1 2.2 1.9 2.3-.3.4-.4.9-.3 1.4v2" stroke="currentColor" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"></path>
-          <circle cx="8" cy="8" r="6.7" stroke="currentColor" stroke-opacity=".45" stroke-width="1.1"></circle>
-        </svg>
-        <span>GitHub</span>
-      </a>
-    </nav>
-  </div>
-</header>
-
-<main id="main">
-
-  <!-- ============ Hero ============ -->
-  <section class="hero" id="top" aria-labelledby="hero-title">
-    <div class="container hero-grid">
-      <div class="hero-copy">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>PHONE + PC · YOUR OWN WI-FI</p>
-        <h1 class="hero-title" id="hero-title">Your phone and your PC. <span class="hero-accent">Talking directly.</span></h1>
-        <p class="hero-lede">Tether is an open-source personal trust and authentication platform that connects an Android device to a Windows workstation over local Wi-Fi. Unlock Windows via biometric challenge, stream trackpad input, send files and links straight to your PC, execute emergency lockdowns, and adjust media controls — entirely on your local network with zero cloud dependencies.</p>
-
-        <div class="hero-actions">
-          <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether/releases" target="_blank" rel="noopener noreferrer">
-            Download Releases
-            <svg class="icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-              <path d="M2.5 8h10.5M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
-            </svg>
-          </a>
-          <a class="btn btn-secondary" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">View on GitHub</a>
+  <main id="main">
+    <!-- ============ Hero ============ -->
+    <section class="hero section" id="top">
+      <div class="container hero-grid">
+        <div>
+          <p class="eyebrow">Phone + PC: Your own Wi-Fi</p>
+          <h1>Your phone and your PC. Talking directly.</h1>
+          <p class="hero-lede">
+            Tether is an open-source personal trust and authentication platform that connects an Android device to a Windows workstation over local Wi-Fi. Unlock Windows via biometric challenge, stream trackpad input, send files, execute emergency lockdowns, and adjust media controls, entirely on your local network with zero cloud dependencies.
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether/releases">Download Releases</a>
+            <a class="btn btn-secondary" href="https://github.com/tirthsaraiya29/Tether">View on GitHub</a>
+          </div>
+          <div class="hero-note">
+            <span class="status-chip">STILL BEING BUILT</span>
+            <span>Tether is an early project and hasn't been security audited. It is fun to explore, but do not trust it with anything important yet.</span>
+          </div>
         </div>
 
-        <p class="status-line">
-          <span class="status-chip">
-            <span class="status-dot" aria-hidden="true"></span>
-            STILL BEING BUILT
-          </span>
-          <span class="status-meta">Open source · Pairing happens on your devices</span>
-        </p>
-
-        <p class="hero-note">
-          <svg class="icon icon-note" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-            <circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.2"></circle>
-            <path d="M8 7.2v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
-            <circle cx="8" cy="4.9" r=".85" fill="currentColor"></circle>
-          </svg>
-          Tether is an early project and hasn't been security audited. It's fun to explore, but don't trust it with anything important yet.
-        </p>
+        <!-- Semantic Topology Diagram (Replaces fake CSS devices) -->
+        <div class="topology">
+          <div class="topology-node">
+            <span class="topology-label">Android Device</span>
+            <span class="topology-detail">Biometric Auth & Keystore</span>
+          </div>
+          <div class="topology-link">
+            <span class="topology-protocol">TLS 1.3 · Port 37123</span>
+            <span class="topology-arrow">→</span>
+          </div>
+          <div class="topology-node">
+            <span class="topology-label">Windows Workstation</span>
+            <span class="topology-detail">Session 0 Service & Named Pipes</span>
+          </div>
+        </div>
       </div>
+    </section>
 
-      <div class="hero-visual">
-        <figure class="stage-figure">
-          <figcaption class="stage-caption">
-            <span class="tag-illustrative">Simple picture</span>
-            <span>How the two devices connect</span>
-          </figcaption>
-
-          <div class="stage">
-            <div class="node node-pc">
-              <div class="monitor" aria-hidden="true">
-                <span class="monitor-screen">
-                  <span class="monitor-bar"><i></i><i></i><i></i></span>
-                  <span class="monitor-body">
-                    <span class="monitor-block"></span>
-                    <span class="monitor-lines"><i></i><i></i><i></i></span>
-                  </span>
-                </span>
-                <span class="monitor-stand"></span>
-                <span class="monitor-foot"></span>
-              </div>
-              <p class="node-label">Your Windows PC</p>
-              <p class="node-sub">Runs the Tether service</p>
+    <!-- ============ Overview ============ -->
+    <section class="section section-lined" id="overview" data-nav-section>
+      <div class="container">
+        <header class="section-head">
+          <p class="eyebrow">Overview</p>
+          <h2>Two devices you already own, connected on your own network.</h2>
+          <p class="section-lede">No accounts, no subscriptions, no server in the middle. Just a phone and a PC that you have told to trust each other.</p>
+        </header>
+        <div class="overview-grid">
+          <div class="prose">
+            <p>You install an app on your Android phone and a small service on your Windows PC. You pair them once, on your own Wi-Fi. After that, the phone can send a short list of commands to that PC, and only that PC.</p>
+            <p>The commands are simple, everyday things: lock the screen, change the volume, adjust brightness, or trigger a quick lockdown if something feels wrong.</p>
+            <p>Everything travels over your home network. There is no cloud service holding your session, and no company sitting between your phone and your computer.</p>
+            <p>Keeping it local means fewer people involved and a path you can actually picture. It does not make it automatically safe; that still depends on how well the code is written and tested.</p>
+          </div>
+          <div class="feature-grid">
+            <div class="feature">
+              <h3 class="feature-title">Phone app</h3>
+              <p class="feature-text">Android app written in Kotlin. This is what you tap.</p>
             </div>
-
-            <div class="bridge">
-              <span class="bridge-chip">Pair once</span>
-              <span class="bridge-track" aria-hidden="true"><span class="bridge-pulse"></span></span>
-              <span class="bridge-chip bridge-chip-alt">Then trusted</span>
-              <p class="bridge-meta"><code>Home Wi-Fi</code><span class="bridge-sep" aria-hidden="true">·</span><code>Encrypted</code><span class="bridge-sep" aria-hidden="true">·</span><code>Port 37123</code></p>
+            <div class="feature">
+              <h3 class="feature-title">PC side</h3>
+              <p class="feature-text">A Windows background service plus a small desktop window.</p>
             </div>
-
-            <div class="node node-phone">
-              <div class="phone" aria-hidden="true">
-                <span class="phone-notch"></span>
-                <span class="phone-screen">
-                  <span class="phone-glyph">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-                      <path d="M12 3.2 5.4 5.7v5.6c0 4 2.8 7.4 6.6 8.6 3.8-1.2 6.6-4.6 6.6-8.6V5.7L12 3.2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path>
-                      <path d="m9.2 12 2 2 3.6-3.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path>
-                    </svg>
-                  </span>
-                  <span class="phone-row"><i class="dot"></i><i class="bar"></i></span>
-                  <span class="phone-row"><i class="dot"></i><i class="bar short"></i></span>
-                  <span class="phone-row"><i class="dot"></i><i class="bar mid"></i></span>
-                  <span class="phone-pill"></span>
-                </span>
-              </div>
-              <p class="node-label">Your Android phone</p>
-              <p class="node-sub">The app you tap</p>
+            <div class="feature">
+              <h3 class="feature-title">Connection</h3>
+              <p class="feature-text">Direct, encrypted over your home Wi-Fi on port <code>37123</code>.</p>
+            </div>
+            <div class="feature">
+              <h3 class="feature-title">The cloud</h3>
+              <p class="feature-text">Not required. Not part of the design.</p>
             </div>
           </div>
-
-          <p class="stage-foot">The two devices talk straight to each other. Nothing sits in between.</p>
-        </figure>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ Overview ============ -->
-  <section class="section section-lined" id="overview" aria-labelledby="overview-title" data-nav-section>
-    <div class="container">
-      <header class="section-head reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Overview</p>
-        <h2 class="section-title" id="overview-title">Two devices you already own, connected on your own network.</h2>
-        <p class="section-lede">No accounts, no subscriptions, no server in the middle. Just a phone and a PC that you've told to trust each other.</p>
-      </header>
-
-      <div class="overview-grid">
-        <div class="prose reveal">
-          <p>You install an app on your Android phone and a small service on your Windows PC. You pair them once, on your own Wi-Fi. After that, the phone can send a short list of commands to that PC — and only that PC.</p>
-          <p>The commands are simple, everyday things: lock the screen, change the volume, adjust brightness, or trigger a quick lockdown if something feels wrong.</p>
-          <p>Everything travels over your home network. There's no cloud service holding your session, and no company sitting between your phone and your computer.</p>
-          <p>Keeping it local means fewer people involved and a path you can actually picture. It doesn't make it automatically safe — that still depends on how well the code is written and tested.</p>
         </div>
-
-        <aside class="callout reveal" aria-labelledby="callout-title">
-          <h3 class="callout-title" id="callout-title">The short version</h3>
-          <p class="callout-note">A quick summary of what Tether is and what it runs on.</p>
-          <dl class="callout-list">
-            <div>
-              <dt>Phone app</dt>
-              <dd>Android app written in Kotlin. This is what you tap.</dd>
-            </div>
-            <div>
-              <dt>PC side</dt>
-              <dd>A Windows background service plus a small desktop window.</dd>
-            </div>
-            <div>
-              <dt>Connection</dt>
-              <dd>Direct, encrypted over your home Wi-Fi on port <code>37123</code>.</dd>
-            </div>
-            <div>
-              <dt>Finding each other</dt>
-              <dd>The two devices announce themselves on your network — no server needed.</dd>
-            </div>
-            <div>
-              <dt>The cloud</dt>
-              <dd>Not required. Not part of the design.</dd>
-            </div>
-          </dl>
-        </aside>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ============ Features ============ -->
-  <section class="section section-lined" id="features" aria-labelledby="features-title" data-nav-section>
-    <div class="container">
-      <header class="section-head reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>What it does</p>
-        <h2 class="section-title" id="features-title">Six things Tether is built to do.</h2>
-        <p class="section-lede">Some of these work today. Others are still plans. Each card says which is which.</p>
-      </header>
-
-      <div class="feature-grid">
-        <!-- Feature 1: Unlock -->
-        <article class="feature feature-wide reveal">
-          <span class="feature-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-            </svg>
-          </span>
-          <h3 class="feature-title">Device-Assisted Windows Unlock</h3>
-          <p class="feature-text">Authenticate your Windows workstation via a streamlined single sign-in path using Android biometrics and the native C++ <code>TetherCredentialProvider</code>. The logon tile exclusively requires phone-app unlock, eliminating manual password fallbacks or TPM-stored options.</p>
-          <p class="feature-meta"><span class="chip">Implemented</span><span class="chip chip-mono">Credential Provider</span></p>
-        </article>
-
-        <!-- Feature 2: Trackpad & Input -->
-        <article class="feature reveal">
-          <span class="feature-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <rect x="5" y="3" width="14" height="18" rx="4"></rect>
-              <line x1="12" y1="7" x2="12" y2="11"></line>
-            </svg>
-          </span>
-          <h3 class="feature-title">Remote Trackpad & Input</h3>
-          <p class="feature-text">Stream synthetic mouse movement, clicks, scrolling, and Windows modifier-key combinations into your active console session via the Session Helper.</p>
-          <p class="feature-meta"><span class="chip">Implemented</span></p>
-        </article>
-
-        <!-- Feature 3: Panic & Lockdown -->
-        <article class="feature reveal">
-          <span class="feature-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon>
-              <line x1="12" y1="8" x2="12" y2="12"></line>
-              <line x1="12" y1="16" x2="12.01" y2="16"></line>
-            </svg>
-          </span>
-          <h3 class="feature-title">Emergency Lockdown & Panic</h3>
-          <p class="feature-text">Trigger immediate workstation locking and trust-state revocation via <code>Tether.PanicEngine</code>, invalidating active sessions across the network boundary.</p>
-          <p class="feature-meta"><span class="chip">Implemented</span></p>
-        </article>
-
-        <!-- Feature 4: Hardware Keystore Anchor -->
-        <article class="feature feature-wide reveal">
-          <span class="feature-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-            </svg>
-          </span>
-          <h3 class="feature-title">Hardware Keystore Trust Anchor</h3>
-          <p class="feature-text">Binds paired identity to ECDSA P-256 keys generated inside Android Keystore with StrongBox hardware protection where available. Validates SU status, developer flags, and biometric enrollment.</p>
-          <p class="feature-meta"><span class="chip">Implemented</span><span class="chip chip-mono">ECDSA P-256 / StrongBox</span></p>
-        </article>
-
-        <!-- Feature 5: Desktop & Volume Controls -->
-        <article class="feature reveal">
-          <span class="feature-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-              <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-            </svg>
-          </span>
-          <h3 class="feature-title">Audio, Display & Apps</h3>
-          <p class="feature-text">Adjust Windows Core Audio endpoint volume, change display brightness via WMI, and launch configured utilities (Task Manager, Settings).</p>
-          <p class="feature-meta"><span class="chip">Implemented</span></p>
-        </article>
-
-        <!-- Feature 6: Continuous Trust & Freshness -->
-        <article class="feature reveal">
-          <span class="feature-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
-            </svg>
-          </span>
-          <h3 class="feature-title">Continuous Trust Validation</h3>
-          <p class="feature-text">Monitors connectivity state callbacks to drop sessions on interface switches. Enforces strict replay protection with monotonic request IDs and 30-second timestamp drift limits.</p>
-          <p class="feature-meta"><span class="chip">Implemented</span></p>
-        </article>
+    <!-- ============ Features ============ -->
+    <section class="section section-lined" id="features" data-nav-section>
+      <div class="container">
+        <header class="section-head">
+          <p class="eyebrow">What it does</p>
+          <h2>Six things Tether is built to do.</h2>
+          <p class="section-lede">Some of these work today. Others are still plans. Each card says which is which.</p>
+        </header>
+        <div class="feature-grid">
+          <div class="feature">
+            <h3 class="feature-title">Device-Assisted Windows Unlock</h3>
+            <p class="feature-text">Authenticate your Windows workstation via a streamlined single sign-in path using Android biometrics and the native C++ TetherCredentialProvider.</p>
+            <div class="feature-meta">
+              <span class="chip">Implemented</span>
+              <span class="chip">Credential Provider</span>
+            </div>
+          </div>
+          <div class="feature">
+            <h3 class="feature-title">Remote Trackpad & Input</h3>
+            <p class="feature-text">Stream synthetic mouse movement, clicks, scrolling, and Windows modifier-key combinations into your active console session via the Session Helper.</p>
+            <div class="feature-meta">
+              <span class="chip">Implemented</span>
+            </div>
+          </div>
+          <div class="feature">
+            <h3 class="feature-title">Emergency Lockdown & Panic</h3>
+            <p class="feature-text">Trigger immediate workstation locking and trust-state revocation via Tether.PanicEngine, invalidating active sessions across the network boundary.</p>
+            <div class="feature-meta">
+              <span class="chip">Implemented</span>
+            </div>
+          </div>
+          <div class="feature">
+            <h3 class="feature-title">Hardware Keystore Trust Anchor</h3>
+            <p class="feature-text">Binds paired identity to ECDSA P-256 keys generated inside Android Keystore with StrongBox hardware protection where available.</p>
+            <div class="feature-meta">
+              <span class="chip">Implemented</span>
+              <span class="chip">ECDSA P-256 / StrongBox</span>
+            </div>
+          </div>
+          <div class="feature">
+            <h3 class="feature-title">Audio, Display & Apps</h3>
+            <p class="feature-text">Adjust Windows Core Audio endpoint volume, change display brightness via WMI, and launch configured utilities.</p>
+            <div class="feature-meta">
+              <span class="chip">Implemented</span>
+            </div>
+          </div>
+          <div class="feature">
+            <h3 class="feature-title">Continuous Trust Validation</h3>
+            <p class="feature-text">Monitors connectivity state callbacks to drop sessions on interface switches. Enforces strict replay protection with monotonic request IDs.</p>
+            <div class="feature-meta">
+              <span class="chip">Implemented</span>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ============ Architecture ============ -->
-  <section class="section section-lined" id="architecture" aria-labelledby="architecture-title" data-nav-section>
-    <div class="container">
-      <header class="section-head reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Architecture</p>
-        <h2 class="section-title" id="architecture-title">How the pieces fit together.</h2>
-        <p class="section-lede">One phone app, one service on the PC, and a few helper parts around it.</p>
-      </header>
-
-      <figure class="arch reveal">
+    <!-- ============ Architecture ============ -->
+    <section class="section section-lined" id="architecture" data-nav-section>
+      <div class="container">
+        <header class="section-head">
+          <p class="eyebrow">Architecture</p>
+          <h2>How the pieces fit together.</h2>
+          <p class="section-lede">One phone app, one service on the PC, and a few helper parts around it.</p>
+        </header>
         <div class="arch-flow">
-          <article class="arch-node arch-node-primary">
-            <p class="arch-kind">On your phone</p>
+          <div class="arch-node">
+            <p class="arch-kind">on your phone</p>
             <h3 class="arch-name">Android app</h3>
             <p class="arch-desc">Where you tap. This is what starts pairing, sends commands, and asks for your fingerprint or face before something sensitive happens.</p>
-          </article>
-
-          <div class="arch-link">
-            <span class="arch-link-line" aria-hidden="true"><span class="arch-link-head" aria-hidden="true"></span></span>
-            <ul class="arch-link-meta">
-              <li>Over your home Wi-Fi</li>
-              <li>Encrypted connection</li>
-              <li>Port <code>37123</code></li>
-            </ul>
           </div>
-
-          <article class="arch-node arch-node-primary">
-            <p class="arch-kind">On your PC</p>
+          <div class="arch-node">
+            <p class="arch-kind">over your home wi-fi</p>
+            <h3 class="arch-name">Encrypted connection</h3>
+            <p class="arch-desc">Port <code>37123</code>. Direct, local, and authenticated.</p>
+          </div>
+          <div class="arch-node">
+            <p class="arch-kind">on your pc</p>
             <h3 class="arch-name">Windows service</h3>
             <p class="arch-desc">Runs quietly in the background. It listens for your phone, checks the command is allowed, and passes it on.</p>
-          </article>
-
-          <div class="arch-branch">
-            <span class="arch-bus" aria-hidden="true"></span>
-            <ul class="arch-children">
-              <li>
-                <article class="arch-node arch-node-child">
-                  <p class="arch-kind">Checking</p>
-                  <h3 class="arch-name">Trust checks</h3>
-                  <p class="arch-desc">Decides whether this phone and this connection should still be believed.</p>
-                </article>
-              </li>
-              <li>
-                <article class="arch-node arch-node-child">
-                  <p class="arch-kind">Reacting</p>
-                  <h3 class="arch-name">Lockdown &amp; recovery</h3>
-                  <p class="arch-desc">Handles the panic button, and gets things back to normal afterwards.</p>
-                </article>
-              </li>
-              <li>
-                <article class="arch-node arch-node-child">
-                  <p class="arch-kind">Helper</p>
-                  <h3 class="arch-name">Session helper</h3>
-                  <p class="arch-desc">Some actions only work while you're logged in. This is the part that does them.</p>
-                </article>
-              </li>
-              <li>
-                <article class="arch-node arch-node-child">
-                  <p class="arch-kind">Windows</p>
-                  <h3 class="arch-name">Desktop window</h3>
-                  <p class="arch-desc">A small app on the PC to see status and change settings.</p>
-                </article>
-              </li>
-            </ul>
           </div>
         </div>
-
-        <figcaption class="arch-caption">
-          <strong>A simple map</strong> — this shows what each part is meant to do, not a finished product.
-        </figcaption>
-      </figure>
-
-      <p class="arch-note reveal">Not every box here is finished, and not every arrow between them has been tested. Treat this as a plan, not a promise.</p>
-
-      <p class="section-link reveal">
-        <a href="#networking">See how the connection actually works
-          <svg class="icon" width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-        </a>
-      </p>
-    </div>
-  </section>
-
-  <!-- ============ Networking ============ -->
-  <section class="section section-tinted" id="networking" aria-labelledby="networking-title" data-nav-section>
-    <div class="container">
-      <header class="section-head reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Networking</p>
-        <h2 class="section-title" id="networking-title">Everything stays on your own Wi-Fi.</h2>
-        <p class="section-lede">Your phone and PC talk straight to each other. No server in the middle, no data leaving your home network.</p>
-      </header>
-
-      <div class="net-grid">
-        <div class="prose reveal">
-          <p>Both devices need to be on the same Wi-Fi or local network. Your phone finds your PC by announcing itself on that network — the same way printers and smart TVs show up. Then the two connect directly to each other.</p>
-          <p>Control traffic uses encrypted TCP port 37123. The port is opened by the Windows installer; the service also attempts to add the matching firewall rule automatically.</p>
-          <p>What Tether deliberately leaves out: there's no cloud relay, no Bluetooth command channel, no opening your PC to the open internet, and no phone-hotspot mode. The whole idea is that it works at home and nowhere else.</p>
-          <p>That's a real benefit — fewer companies involved, and a shorter path you can understand. But staying local isn't the same as being safe. Other devices on your Wi-Fi can still see traffic, and how well the encryption is set up matters a lot.</p>
-        </div>
-
-        <figure class="boundary reveal" aria-label="Local network boundary diagram">
-          <div class="boundary-frame">
-            <div class="boundary-head">
-              <p class="boundary-label">What stays inside your network</p>
-              <span class="boundary-badge">Your Wi-Fi only</span>
-            </div>
-
-            <div class="boundary-flow">
-              <!-- Phone -->
-              <div class="boundary-card">
-                <div class="boundary-icon-box" aria-hidden="true">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="5" y="2" width="14" height="20" rx="3"></rect>
-                    <line x1="12" y1="18" x2="12.01" y2="18"></line>
-                  </svg>
-                </div>
-                <div class="boundary-info">
-                  <span class="boundary-device-title">Android phone</span>
-                  <span class="boundary-device-sub">Starts the connection</span>
-                </div>
-                <span class="boundary-pill-tag">You</span>
-              </div>
-
-              <!-- Connection -->
-              <div class="boundary-conduit">
-                <div class="conduit-track" aria-hidden="true"></div>
-                <div class="conduit-specs">
-                  <span class="conduit-chip">Direct</span>
-                  <span class="conduit-chip">Encrypted</span>
-                  <span class="conduit-chip conduit-chip-port">Port <code>:37123</code></span>
-                </div>
-                <div class="conduit-track" aria-hidden="true"></div>
-              </div>
-
-              <!-- PC -->
-              <div class="boundary-card">
-                <div class="boundary-icon-box" aria-hidden="true">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="2" y="3" width="20" height="14" rx="2"></rect>
-                    <line x1="8" y1="21" x2="16" y2="21"></line>
-                    <line x1="12" y1="17" x2="12" y2="21"></line>
-                  </svg>
-                </div>
-                <div class="boundary-info">
-                  <span class="boundary-device-title">Windows PC</span>
-                  <span class="boundary-device-sub">Listens for your phone</span>
-                </div>
-                <span class="boundary-pill-tag">You</span>
-              </div>
-            </div>
-
-            <!-- What's excluded -->
-            <div class="boundary-outside">
-              <p class="boundary-outside-title">What Tether leaves out</p>
-              <div class="excluded-list">
-                <div class="excluded-item">
-                  <svg class="excluded-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"></circle>
-                    <path d="M4 12L12 4" stroke="currentColor" stroke-width="1.3"></path>
-                  </svg>
-                  <span>No cloud server in the middle</span>
-                </div>
-                <div class="excluded-item">
-                  <svg class="excluded-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"></circle>
-                    <path d="M4 12L12 4" stroke="currentColor" stroke-width="1.3"></path>
-                  </svg>
-                  <span>Nothing exposed to the public internet</span>
-                </div>
-                <div class="excluded-item">
-                  <svg class="excluded-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"></circle>
-                    <path d="M4 12L12 4" stroke="currentColor" stroke-width="1.3"></path>
-                  </svg>
-                  <span>No phone hotspot mode</span>
-                </div>
-                <div class="excluded-item">
-                  <svg class="excluded-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.3"></circle>
-                    <path d="M4 12L12 4" stroke="currentColor" stroke-width="1.3"></path>
-                  </svg>
-                  <span>No Bluetooth command channel</span>
-                </div>
-              </div>
-            </div>
-
-            <figcaption class="boundary-caption">A simple picture of what's inside the boundary and what isn't.</figcaption>
-          </div>
-        </figure>
-      </div>
-
-      <div class="distinction reveal" role="list" aria-label="Design goal, what is documented, and what is proven">
-        <div class="distinction-row" role="listitem">
-          <h3 class="distinction-label">What we're aiming for</h3>
-          <p>Your phone and PC talk directly to each other on a network you control. No cloud service required.</p>
-        </div>
-        <div class="distinction-row" role="listitem">
-          <h3 class="distinction-label">What's written down</h3>
-          <p>An encrypted connection, port <code>37123</code>, and automatic discovery on your local network.</p>
-        </div>
-        <div class="distinction-row" role="listitem">
-          <h3 class="distinction-label">What's actually proven</h3>
-          <p>Nothing yet. Nobody outside the project has audited it. A port number and an encryption standard describe a plan — not a guarantee.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ Security ============ -->
-  <section class="section section-lined" id="security" aria-labelledby="security-title" data-nav-section>
-    <div class="container">
-      <header class="section-head reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Security</p>
-        <h2 class="section-title" id="security-title">Be honest about what security means here.</h2>
-      </header>
-
-      <div class="alert reveal">
-        <span class="alert-icon" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" focusable="false">
-            <path d="M12 3.6 21 19.4H3L12 3.6Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path>
-            <path d="M12 9.6v4.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
-            <circle cx="12" cy="16.5" r=".95" fill="currentColor"></circle>
-          </svg>
-        </span>
-        <p class="alert-text"><strong>Tether is still being built and nobody has audited it. Don't use it for anything that matters.</strong></p>
-      </div>
-
-      <div class="security-grid">
-        <div class="reveal">
-          <h3 class="sub-title">What's in place, and what isn't</h3>
-          <ul class="check-list">
-            <li>
-              <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>The connection is meant to be encrypted.</strong> That's the plan and it's how the code is written. Whether the encryption is set up correctly is something only a careful code review can answer.</p>
-            </li>
-            <li>
-              <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>Pairing is the front door.</strong> Your phone and PC agree to trust each other once, and that decision is meant to be re-checked later rather than assumed forever.</p>
-            </li>
-            <li>
-              <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>Your phone's fingerprint or face unlock is part of it.</strong> Sensitive actions are meant to require it. Not every phone has the same secure hardware, so this varies by device.</p>
-            </li>
-            <li>
-              <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>Wi-Fi changes are handled carefully.</strong> Phones drop off networks, PCs go to sleep, and connections come back. Each of those moments is a chance for something to go wrong, so Tether treats them as worth re-checking.</p>
-            </li>
-            <li>
-              <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>Some parts of this run with high privileges on Windows.</strong> Background services and login-screen components can do a lot. That makes careful review more important, not less.</p>
-            </li>
-            <li>
-              <span class="check-mark" aria-hidden="true"></span>
-              <p><strong>How safe it is in practice depends on things this page can't tell you.</strong> How finished the code is, how your devices are configured, and what's still missing.</p>
-            </li>
-          </ul>
-        </div>
-
-        <aside class="assurance reveal" aria-labelledby="assurance-title">
-          <h3 class="sub-title" id="assurance-title">Three things to keep separate</h3>
-          <ol class="assurance-list">
-            <li>
-              <span class="assurance-index" aria-hidden="true">01</span>
-              <div>
-                <h4>What they're trying to build</h4>
-                <p>The idea behind the project. Most of this page is that.</p>
-              </div>
-            </li>
-            <li>
-              <span class="assurance-index" aria-hidden="true">02</span>
-              <div>
-                <h4>What the code actually does</h4>
-                <p>Things written down and implemented, like the port number and the encrypted connection.</p>
-              </div>
-            </li>
-            <li>
-              <span class="assurance-index" aria-hidden="true">03</span>
-              <div>
-                <h4>What an outside expert has confirmed</h4>
-                <p>An independent audit or formal certification. <strong>Tether has none of these yet.</strong></p>
-              </div>
-            </li>
-          </ol>
-          <p class="assurance-foot">This page doesn't test or audit anything. It just explains the project in plain words.</p>
-          <a class="btn btn-secondary btn-block" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">Look at the code on GitHub</a>
-        </aside>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ Platforms ============ -->
-  <section class="section section-lined" id="platforms" aria-labelledby="platforms-title">
-    <div class="container">
-      <header class="section-head reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Platforms</p>
-        <h2 class="section-title" id="platforms-title">What it runs on.</h2>
-        <p class="section-lede">These are the versions the project is built for — not a promise that it works on everything.</p>
-      </header>
-
-      <div class="platform-grid">
-        <article class="platform reveal">
-          <header class="platform-head">
-            <span class="platform-icon" aria-hidden="true">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" focusable="false">
-                <rect x="2.6" y="4.2" width="18.8" height="12.2" rx="2" stroke="currentColor" stroke-width="1.4"></rect>
-                <path d="M8.6 20h6.8M12 16.4V20" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
-              </svg>
-            </span>
-            <h3 class="platform-name">Windows</h3>
-            <p class="platform-role">The PC side — runs in the background and shows a small window</p>
-          </header>
-          <ul class="spec-list">
-            <li><span class="spec-key">Works on</span><span class="spec-val">Windows 10 and Windows 11, 64-bit</span></li>
-            <li><span class="spec-key">Built with</span><span class="spec-val">.NET 10</span></li>
-            <li><span class="spec-key">Native parts</span><span class="spec-val">Some Windows-specific code for deeper system access</span></li>
-            <li><span class="spec-key">Shape</span><span class="spec-val">Background service plus a small desktop app</span></li>
-            <li><span class="spec-key">Internal messaging</span><span class="spec-val">The parts talk to each other using Windows named pipes</span></li>
-          </ul>
-        </article>
-
-        <article class="platform reveal">
-          <header class="platform-head">
-            <span class="platform-icon" aria-hidden="true">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" focusable="false">
-                <rect x="6.4" y="2.4" width="11.2" height="19.2" rx="2.8" stroke="currentColor" stroke-width="1.4"></rect>
-                <path d="M10.4 18.8h3.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
-                <path d="M10.4 5.4h3.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-opacity=".55"></path>
-              </svg>
-            </span>
-            <h3 class="platform-name">Android</h3>
-            <p class="platform-role">The phone side — where you pair and tap</p>
-          </header>
-          <ul class="spec-list">
-            <li><span class="spec-key">Works on</span><span class="spec-val">Android 12 and newer</span></li>
-            <li><span class="spec-key">Language</span><span class="spec-val">Kotlin</span></li>
-            <li><span class="spec-key">Interface</span><span class="spec-val">Jetpack Compose</span></li>
-            <li><span class="spec-key">Shape</span><span class="spec-val">A normal app that talks to your paired PC</span></li>
-            <li><span class="spec-key">Security</span><span class="spec-val">Fingerprint or face confirmation, with keys stored in the phone's secure hardware</span></li>
-          </ul>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ Developers ============ -->
-  <section class="section section-lined" id="developers" aria-labelledby="developers-title" data-nav-section>
-    <div class="container">
-      <header class="section-head reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>For developers</p>
-        <h2 class="section-title" id="developers-title">Want to dig into the code?</h2>
-        <p class="section-lede">What each part does, how the pieces talk, what you need installed, and how to build it.</p>
-      </header>
-
-      <div class="tabs reveal" data-tabs>
-        <div class="tablist" role="tablist" aria-label="Developer topics">
-          <button class="tab" id="tab-boundaries" type="button" role="tab" aria-selected="true" aria-controls="panel-boundaries"><span class="tab-index" aria-hidden="true">01</span>What each part does</button>
-          <button class="tab" id="tab-network" type="button" role="tab" aria-selected="false" aria-controls="panel-network" tabindex="-1"><span class="tab-index" aria-hidden="true">02</span>Network settings</button>
-          <button class="tab" id="tab-ipc" type="button" role="tab" aria-selected="false" aria-controls="panel-ipc" tabindex="-1"><span class="tab-index" aria-hidden="true">03</span>How parts talk</button>
-          <button class="tab" id="tab-build" type="button" role="tab" aria-selected="false" aria-controls="panel-build" tabindex="-1"><span class="tab-index" aria-hidden="true">04</span>What to install</button>
-          <button class="tab" id="tab-commands" type="button" role="tab" aria-selected="false" aria-controls="panel-commands" tabindex="-1"><span class="tab-index" aria-hidden="true">05</span>Build commands</button>
-          <button class="tab" id="tab-contribute" type="button" role="tab" aria-selected="false" aria-controls="panel-contribute" tabindex="-1"><span class="tab-index" aria-hidden="true">06</span>Contributing</button>
-        </div>
-
-        <!-- 01 -->
-        <div class="tabpanel" id="panel-boundaries" role="tabpanel" aria-labelledby="tab-boundaries" tabindex="0">
-          <h3 class="panel-title">The parts of Tether</h3>
-          <p class="panel-lede">Work is split across a few separate programs, each with its own job.</p>
-          <dl class="role-list">
-            <div>
-              <dt>Android app</dt>
-              <dd>The app you open. Starts pairing, sends commands, and asks for your fingerprint when needed.</dd>
-            </div>
-            <div>
-              <dt>Windows service</dt>
-              <dd>Runs in the background. Holds the network connection and decides what to do with incoming commands.</dd>
-            </div>
-            <div>
-              <dt>Session helper</dt>
-              <dd>Some things can only be done while you're logged in. This is the part that does them.</dd>
-            </div>
-            <div>
-              <dt>Trust, lockdown, recovery</dt>
-              <dd>The logic that decides whether a connection is still trustworthy, what to do in an emergency, and how to get back to normal.</dd>
-            </div>
-            <div>
-              <dt>Desktop window</dt>
-              <dd>The small app on the PC for checking status and changing settings.</dd>
-            </div>
-            <div>
-              <dt>Native Windows parts</dt>
-              <dd>Windows-specific code, including a component that can interact with the login screen.</dd>
-            </div>
-            <div>
-              <dt>Named-pipe messaging</dt>
-              <dd>How the service, the desktop window, and the session helper pass messages to each other.</dd>
-            </div>
-          </dl>
-          <div class="panel-note">
-            <h4 class="panel-note-title">Why there are so many pieces on Windows</h4>
-            <p>Windows background services start with the computer and run separately from your desktop. That means a service can't directly show a window or lock your screen for you — it isn't in your session. So Tether adds a helper that runs inside your login session and talks to the service through named pipes.</p>
-          </div>
-        </div>
-
-        <!-- Tab 02: Network Settings -->
-        <div class="tabpanel" id="panel-network" role="tabpanel" aria-labelledby="tab-network" tabindex="0" hidden>
-          <h3 class="panel-title">Transport and Protocol Specifications</h3>
-          <p class="panel-lede">Exact configuration defaults from <code>appsettings.json</code> and protocol constants.</p>
-          <div class="table-wrap" tabindex="0" role="region" aria-label="Network settings table">
-            <table class="ref-table">
-              <thead>
-                <tr><th scope="col">Setting</th><th scope="col">Value</th><th scope="col">Purpose</th></tr>
-              </thead>
-              <tbody>
-                <tr><th scope="row">Transport</th><td>TLS 1.3 over direct TCP</td><td>Encapsulated command channel</td></tr>
-                <tr><th scope="row">Listen Port</th><td><code>TCP 37123</code> (Control) / <code>TCP 37124</code> (File Transfer)</td><td>Local socket daemon & Kestrel HTTPS</td></tr>
-                <tr><th scope="row">Discovery</th><td>mDNS (<code>_tether._tcp.</code>) & UDP <code>37124</code></td><td>Zero-configuration local pairing</td></tr>
-                <tr><th scope="row">Keepalive</th><td><code>5 seconds</code></td><td>Heartbeat interval for drop detection</td></tr>
-                <tr><th scope="row">Replay Window</th><td><code>30 seconds</code></td><td>Maximum allowable timestamp drift</td></tr>
-                <tr><th scope="row">Key Specifications</th><td>ECDSA P-256 (<code>TetherIdentityKey_v1</code>)</td><td>Mutual identity challenge signing</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- Tab 03: IPC Topology -->
-        <div class="tabpanel" id="panel-ipc" role="tabpanel" aria-labelledby="tab-ipc" tabindex="0" hidden>
-          <h3 class="panel-title">Windows IPC & Session 0 Architecture</h3>
-          <p class="panel-lede">Isolated processes communicate through authenticated Windows Named Pipes with strict ACL enforcement.</p>
-          <div class="ipc-map" aria-hidden="true">
-            <span class="ipc-box">Desktop UI</span>
-            <span class="ipc-pipe"><i></i><i></i><i></i></span>
-            <span class="ipc-box" style="border-color: var(--accent);">Tether.CommunicationService (Session 0)</span>
-            <span class="ipc-pipe"><i></i><i></i><i></i></span>
-            <span class="ipc-box">Session Helper (Session 1+)</span>
-          </div>
-          <dl class="role-list" style="margin-top: 18px;">
-            <div>
-              <dt><code>TetherPipe</code></dt>
-              <dd>Bidirectional control and event stream between <code>Tether.CommunicationService</code> and <code>Tether.DesktopUI</code>.</dd>
-            </div>
-            <div>
-              <dt><code>TetherUiPipe</code></dt>
-              <dd>Dedicated diagnostics relay streaming real-time IPC telemetry to the desktop control plane.</dd>
-            </div>
-            <div>
-              <dt><code>Tether.InputPipe</code></dt>
-              <dd>Dedicated input stream dispatching mouse deltas and key strokes from the network daemon to <code>Tether.SessionHelper.exe</code> inside the active interactive desktop.</dd>
-            </div>
-          </dl>
-        </div>
-
-        <!-- 04 -->
-        <div class="tabpanel" id="panel-build" role="tabpanel" aria-labelledby="tab-build" tabindex="0" hidden>
-          <h3 class="panel-title">What you need installed</h3>
-          <p class="panel-lede">Tools required to build Tether from source.</p>
-          <div class="build-grid">
-            <div class="build-col">
-              <h4 class="build-col-title">For the Windows side</h4>
-              <ul class="tick-list">
-                <li>Visual Studio 2022</li>
-                <li>Windows SDK (64-bit)</li>
-                <li>.NET 10 SDK</li>
-                <li>CMake and MSBuild</li>
-              </ul>
-            </div>
-            <div class="build-col">
-              <h4 class="build-col-title">For the Android side</h4>
-              <ul class="tick-list">
-                <li>Android Studio Hedgehog or newer</li>
-                <li>JDK 17 or newer</li>
-                <li>Android SDK (API 31+)</li>
-                <li>Gradle 8.0+</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <!-- 05 -->
-        <div class="tabpanel" id="panel-commands" role="tabpanel" aria-labelledby="tab-commands" tabindex="0" hidden>
-          <h3 class="panel-title">Build commands</h3>
-          <p class="panel-lede">The commands you'll need for local builds and tests.</p>
-
-          <figure class="code">
-            <figcaption class="code-head">
-              <span class="code-label">Windows · build everything</span>
-              <span class="code-lang">PowerShell</span>
-              <button class="copy-btn" type="button" data-copy="cmd-win-build">
-                <svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-                  <rect x="5.2" y="5.2" width="8.3" height="8.3" rx="1.8" stroke="currentColor" stroke-width="1.2"></rect>
-                  <path d="M10.8 3.4a1.8 1.8 0 0 0-1.7-1.2H4.3A2.1 2.1 0 0 0 2.2 4.3v4.8c0 .8.4 1.4 1.1 1.7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path>
-                </svg>
-                <span data-copy-label>Copy</span>
-              </button>
-            </figcaption>
-            <pre class="code-body" tabindex="0"><code id="cmd-win-build">dotnet build Tether.slnx</code></pre>
-          </figure>
-
-          <figure class="code">
-            <figcaption class="code-head">
-              <span class="code-label">Android · run the tests</span>
-              <span class="code-lang">Bash</span>
-              <button class="copy-btn" type="button" data-copy="cmd-android-test">
-                <svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-                  <rect x="5.2" y="5.2" width="8.3" height="8.3" rx="1.8" stroke="currentColor" stroke-width="1.2"></rect>
-                  <path d="M10.8 3.4a1.8 1.8 0 0 0-1.7-1.2H4.3A2.1 2.1 0 0 0 2.2 4.3v4.8c0 .8.4 1.4 1.1 1.7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path>
-                </svg>
-                <span data-copy-label>Copy</span>
-              </button>
-            </figcaption>
-            <pre class="code-body" tabindex="0"><code id="cmd-android-test">cd apps/android-companion
-./gradlew test</code></pre>
-          </figure>
-
-          <figure class="code">
-            <figcaption class="code-head">
-              <span class="code-label">Android · build a debug version</span>
-              <span class="code-lang">Bash</span>
-              <button class="copy-btn" type="button" data-copy="cmd-android-debug">
-                <svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-                  <rect x="5.2" y="5.2" width="8.3" height="8.3" rx="1.8" stroke="currentColor" stroke-width="1.2"></rect>
-                  <path d="M10.8 3.4a1.8 1.8 0 0 0-1.7-1.2H4.3A2.1 2.1 0 0 0 2.2 4.3v4.8c0 .8.4 1.4 1.1 1.7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path>
-                </svg>
-                <span data-copy-label>Copy</span>
-              </button>
-            </figcaption>
-            <pre class="code-body" tabindex="0"><code id="cmd-android-debug">./gradlew assembleDebug</code></pre>
-          </figure>
-
-          <figure class="code">
-            <figcaption class="code-head">
-              <span class="code-label">Windows · test the internal messaging</span>
-              <span class="code-lang">PowerShell</span>
-              <button class="copy-btn" type="button" data-copy="cmd-ipc-test">
-                <svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
-                  <rect x="5.2" y="5.2" width="8.3" height="8.3" rx="1.8" stroke="currentColor" stroke-width="1.2"></rect>
-                  <path d="M10.8 3.4a1.8 1.8 0 0 0-1.7-1.2H4.3A2.1 2.1 0 0 0 2.2 4.3v4.8c0 .8.4 1.4 1.1 1.7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path>
-                </svg>
-                <span data-copy-label>Copy</span>
-              </button>
-            </figcaption>
-            <pre class="code-body" tabindex="0"><code id="cmd-ipc-test">dotnet run --project tests/PipeTest/PipeTest.csproj</code></pre>
-          </figure>
-
-          <p class="copy-status" id="copy-status" role="status" aria-live="polite"></p>
-        </div>
-
-        <!-- 06 -->
-        <div class="tabpanel" id="panel-contribute" role="tabpanel" aria-labelledby="tab-contribute" tabindex="0" hidden>
-          <h3 class="panel-title">Contributing</h3>
-          <p class="panel-lede">Tether is a public project and contributions are welcome. A few things worth doing first:</p>
-          <ol class="tick-list tick-list-numbered">
-            <li>Read the existing code before assuming how it works.</li>
-            <li>Be extra careful with anything touching security — pairing, trust checks, the panic button.</li>
-            <li>Add tests alongside your changes.</li>
-            <li>Write down any platform limitations you hit.</li>
-            <li>Never commit real keys or personal certificates.</li>
-          </ol>
-          <div style="margin-top: 20px;">
-            <a class="btn btn-secondary" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">Open Tether on GitHub</a>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ Roadmap ============ -->
-  <section class="section section-lined" id="roadmap" aria-labelledby="roadmap-title" data-nav-section>
-    <div class="container">
-      <header class="section-head reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Roadmap</p>
-        <h2 class="section-title" id="roadmap-title">What's planned next.</h2>
-        <p class="section-lede">Ideas the project wants to build. None of these exist yet.</p>
-      </header>
-
-      <ol class="roadmap">
-        <li class="roadmap-item reveal">
-          <span class="roadmap-marker" aria-hidden="true"></span>
-          <div class="roadmap-body">
-            <h3 class="roadmap-title">FIDO2 / WebAuthn Passkey Support</h3>
-            <p>Android companion integration allowing your phone to act as a hardware-backed FIDO2 passkey authenticator for web and desktop sign-in.</p>
-            <p class="roadmap-status"><span class="chip chip-planned">Roadmap</span></p>
-          </div>
-        </li>
-        <li class="roadmap-item reveal">
-          <span class="roadmap-marker" aria-hidden="true"></span>
-          <div class="roadmap-body">
-            <h3 class="roadmap-title">Multi-Workstation Management</h3>
-            <p>Manage and orchestrate pairing relationships with multiple Windows workstations simultaneously from a single mobile companion app.</p>
-            <p class="roadmap-status"><span class="chip chip-planned">Roadmap</span></p>
-          </div>
-        </li>
-        <li class="roadmap-item reveal">
-          <span class="roadmap-marker" aria-hidden="true"></span>
-          <div class="roadmap-body">
-            <h3 class="roadmap-title">Direct BLE Fallback Channel</h3>
-            <p>Low-latency Bluetooth Low Energy fallback transport for zero-Wi-Fi environments and restricted corporate subnets.</p>
-            <p class="roadmap-status"><span class="chip chip-planned">Roadmap</span></p>
-          </div>
-        </li>
-        <li class="roadmap-item reveal">
-          <span class="roadmap-marker" aria-hidden="true"></span>
-          <div class="roadmap-body">
-            <h3 class="roadmap-title">Credential Provider E2E Test Harness</h3>
-            <p>Automated end-to-end integration testing framework for verifying native Logon UI provider state changes and unlock sequences across Windows versions.</p>
-            <p class="roadmap-status"><span class="chip chip-planned">Roadmap</span></p>
-          </div>
-        </li>
-        <li class="roadmap-item reveal">
-          <span class="roadmap-marker" aria-hidden="true"></span>
-          <div class="roadmap-body">
-            <h3 class="roadmap-title">Native ARM64 Windows Support</h3>
-            <p>Compilation targets and native Win32 Credential Provider binaries for ARM64 Snapdragon Windows devices.</p>
-            <p class="roadmap-status"><span class="chip chip-planned">Roadmap</span></p>
-          </div>
-        </li>
-      </ol>
-    </div>
-  </section>
-
-  <!-- ============ FAQ ============ -->
-  <section class="section section-lined" id="faq" aria-labelledby="faq-title">
-    <div class="container container-narrow">
-      <header class="section-head reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Questions</p>
-        <h2 class="section-title" id="faq-title">The things people usually ask.</h2>
-      </header>
-
-      <div class="faq reveal">
-        <details class="faq-item">
-          <summary>What is Tether, in one sentence?</summary>
-          <div class="faq-body">
-            <p>An open project that lets your Android phone control a few things on your Windows PC over your home Wi-Fi, without going through any company's servers.</p>
-          </div>
-        </details>
-
-        <details class="faq-item">
-          <summary>What can it actually do right now?</summary>
-          <div class="faq-body">
-            <p>The v1.1.2 release implements cryptographic device pairing over TLS 1.3, streamlined single sign-in Windows unlock via the native Credential Provider and Android biometrics, local filesystem database auto-sync, emergency lockdown/trust revocation, remote trackpad and keyboard input streaming, display brightness and Core Audio controls, and session-aware utility launching.</p>
-          </div>
-        </details>
-
-        <details class="faq-item">
-          <summary>Which devices does it work with?</summary>
-          <div class="faq-body">
-            <p>Windows 10 or 11 on a 64-bit PC, and an Android phone running Android 12 or newer.</p>
-          </div>
-        </details>
-
-        <details class="faq-item">
-          <summary>Does my data go anywhere?</summary>
-          <div class="faq-body">
-            <p>No. Your phone and PC talk directly to each other over your own Wi-Fi. There's no cloud account and no relay server holding your traffic.</p>
-          </div>
-        </details>
-
-        <details class="faq-item">
-          <summary>Do I need to be on the same Wi-Fi?</summary>
-          <div class="faq-body">
-            <p>Yes. Both devices need to be on the same local network. Tether is deliberately not designed to work over the internet or a phone hotspot.</p>
-          </div>
-        </details>
-
-        <details class="faq-item">
-          <summary>Is it safe to use?</summary>
-          <div class="faq-body">
-            <p>Not yet. Tether is an early project and no outside expert has reviewed it. It's interesting to explore, but don't rely on it to protect anything important.</p>
-          </div>
-        </details>
-
-
-        <details class="faq-item">
-          <summary>Will Tether tell me when there's an update?</summary>
-          <div class="faq-body">
-            <p>On Android, yes. Tether checks GitHub for new releases in the background and posts a notification when one is available. Tapping it opens an in-app dialog with the release notes and a download link.</p>
-          </div>
-        </details>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ CTA ============ -->
-  <section class="section section-cta" id="get-started" aria-labelledby="cta-title">
-    <div class="container">
-      <div class="cta-panel reveal">
-        <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>Next step</p>
-        <h2 class="cta-title" id="cta-title">Have a look at the project.</h2>
-        <p class="cta-text">Read the code, follow along, or help improve it. Everything lives on GitHub.</p>
-        <div class="cta-actions">
-          <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">View Tether on GitHub</a>
-          <a class="btn btn-secondary" href="#developers">Read the developer notes</a>
-          <a class="btn btn-secondary" href="#security">Read about security</a>
-        </div>
-        <p class="cta-status">
-          <span class="status-chip">
-            <span class="status-dot" aria-hidden="true"></span>
-            STILL BEING BUILT
-          </span>
+        <p style="margin-top: 24px; font-size: 0.9rem; color: var(--text-subtle);">
+          Not every box here is finished, and not every arrow between them has been tested. Treat this as a plan, not a promise.
         </p>
       </div>
+    </section>
+
+    <!-- ============ Developers ============ -->
+    <section class="section section-lined" id="developers" data-nav-section>
+      <div class="container">
+        <header class="section-head">
+          <p class="eyebrow">For developers</p>
+          <h2>Want to dig into the code?</h2>
+          <p class="section-lede">What each part does, how the pieces talk, what you need installed, and how to build it.</p>
+        </header>
+
+        <div class="tabs" data-tabs>
+          <div class="tablist" role="tablist" aria-label="Developer topics">
+            <button class="tab" id="tab-boundaries" type="button" role="tab" aria-selected="true" aria-controls="panel-boundaries">01: What each part does</button>
+            <button class="tab" id="tab-network" type="button" role="tab" aria-selected="false" aria-controls="panel-network" tabindex="-1">02: Network settings</button>
+            <button class="tab" id="tab-ipc" type="button" role="tab" aria-selected="false" aria-controls="panel-ipc" tabindex="-1">03: How parts talk</button>
+            <button class="tab" id="tab-build" type="button" role="tab" aria-selected="false" aria-controls="panel-build" tabindex="-1">04: What to install</button>
+            <button class="tab" id="tab-commands" type="button" role="tab" aria-selected="false" aria-controls="panel-commands" tabindex="-1">05: Build commands</button>
+          </div>
+
+          <div class="tabpanel" id="panel-boundaries" role="tabpanel" aria-labelledby="tab-boundaries" tabindex="0">
+            <h3 class="panel-title">The parts of Tether</h3>
+            <p class="panel-lede">Work is split across a few separate programs, each with its own job.</p>
+            <dl class="role-list">
+              <div>
+                <dt>Android app</dt>
+                <dd>The app you open. Starts pairing, sends commands, and asks for your fingerprint when needed.</dd>
+              </div>
+              <div>
+                <dt>Windows service</dt>
+                <dd>Runs in the background. Holds the network connection and decides what to do with incoming commands.</dd>
+              </div>
+              <div>
+                <dt>Session helper</dt>
+                <dd>Some things can only be done while you are logged in. This is the part that does them.</dd>
+              </div>
+              <div>
+                <dt>Named-pipe messaging</dt>
+                <dd>How the service, the desktop window, and the session helper pass messages to each other.</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div class="tabpanel" id="panel-network" role="tabpanel" aria-labelledby="tab-network" tabindex="0" hidden>
+            <h3 class="panel-title">Transport and Protocol Specifications</h3>
+            <p class="panel-lede">Exact configuration defaults and protocol constants.</p>
+            <div style="overflow-x: auto;">
+              <table class="ref-table">
+                <thead>
+                  <tr><th scope="col">Setting</th><th scope="col">Value</th><th scope="col">Purpose</th></tr>
+                </thead>
+                <tbody>
+                  <tr><th scope="row">Transport</th><td>TLS 1.3 over direct TCP</td><td>Encapsulated command channel</td></tr>
+                  <tr><th scope="row">Listen Port</th><td><code>TCP 37123</code> / <code>TCP 37124</code></td><td>Local socket daemon & Kestrel HTTPS</td></tr>
+                  <tr><th scope="row">Discovery</th><td>mDNS & UDP 37124</td><td>Zero-configuration local pairing</td></tr>
+                  <tr><th scope="row">Keepalive</th><td>5 seconds</td><td>Heartbeat interval for drop detection</td></tr>
+                  <tr><th scope="row">Key Specifications</th><td>ECDSA P-256</td><td>Mutual identity challenge signing</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="tabpanel" id="panel-ipc" role="tabpanel" aria-labelledby="tab-ipc" tabindex="0" hidden>
+            <h3 class="panel-title">Windows IPC & Session 0 Architecture</h3>
+            <p class="panel-lede">Isolated processes communicate through authenticated Windows Named Pipes with strict ACL enforcement.</p>
+            <dl class="role-list">
+              <div>
+                <dt><code>TetherPipe</code></dt>
+                <dd>Bidirectional control and event stream between Tether.CommunicationService and Tether.DesktopUI.</dd>
+              </div>
+              <div>
+                <dt><code>Tether.InputPipe</code></dt>
+                <dd>Dedicated input stream dispatching mouse deltas and key strokes from the network daemon to Tether.SessionHelper.exe inside the active interactive desktop.</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div class="tabpanel" id="panel-build" role="tabpanel" aria-labelledby="tab-build" tabindex="0" hidden>
+            <h3 class="panel-title">What you need installed</h3>
+            <div class="feature-grid" style="margin-top: 16px;">
+              <div class="feature">
+                <h3 class="feature-title">For the Windows side</h3>
+                <ul class="role-list" style="font-size: 0.9rem; color: var(--text-muted);">
+                  <li>Visual Studio 2022</li>
+                  <li>Windows SDK (64-bit)</li>
+                  <li>.NET 10 SDK</li>
+                  <li>CMake and MSBuild</li>
+                </ul>
+              </div>
+              <div class="feature">
+                <h3 class="feature-title">For the Android side</h3>
+                <ul class="role-list" style="font-size: 0.9rem; color: var(--text-muted);">
+                  <li>Android Studio Hedgehog or newer</li>
+                  <li>JDK 17 or newer</li>
+                  <li>Android SDK (API 31+)</li>
+                  <li>Gradle 8.0+</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="tabpanel" id="panel-commands" role="tabpanel" aria-labelledby="tab-commands" tabindex="0" hidden>
+            <h3 class="panel-title">Build commands</h3>
+            <figure class="code">
+              <figcaption class="code-head">
+                <span>Windows: build everything</span>
+                <button class="copy-btn" type="button" data-copy="cmd-win-build">Copy</button>
+              </figcaption>
+              <pre class="code-body" tabindex="0"><code id="cmd-win-build">dotnet build Tether.slnx</code></pre>
+            </figure>
+            <figure class="code">
+              <figcaption class="code-head">
+                <span>Android: run the tests</span>
+                <button class="copy-btn" type="button" data-copy="cmd-android-test">Copy</button>
+              </figcaption>
+              <pre class="code-body" tabindex="0"><code id="cmd-android-test">cd apps/android-companion
+./gradlew test</code></pre>
+            </figure>
+            <p id="copy-status" role="status" aria-live="polite" style="font-size: 0.8rem; color: var(--text-subtle); margin-top: 8px;"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FAQ ============ -->
+    <section class="section section-lined" id="faq">
+      <div class="container container-narrow">
+        <header class="section-head">
+          <p class="eyebrow">Questions</p>
+          <h2>The things people usually ask.</h2>
+        </header>
+        <div class="faq">
+          <details class="faq-item">
+            <summary>What is Tether, in one sentence?</summary>
+            <div class="faq-body">
+              <p>An open project that lets your Android phone control a few things on your Windows PC over your home Wi-Fi, without going through any company servers.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Does my data go anywhere?</summary>
+            <div class="faq-body">
+              <p>No. Your phone and PC talk directly to each other over your own Wi-Fi. There is no cloud account and no relay server holding your traffic.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Is it safe to use?</summary>
+            <div class="faq-body">
+              <p>Not yet. Tether is an early project and no outside expert has reviewed it. It is interesting to explore, but do not rely on it to protect anything important.</p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ CTA ============ -->
+    <section class="section section-cta" id="get-started">
+      <div class="container">
+        <div class="cta-panel">
+          <p class="eyebrow">Next step</p>
+          <h2>Have a look at the project.</h2>
+          <p style="color: var(--text-muted); margin-bottom: 24px;">Read the code, follow along, or help improve it. Everything lives on GitHub.</p>
+          <div class="cta-actions">
+            <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener">View Tether on GitHub</a>
+            <a class="btn btn-secondary" href="#developers">Read the developer notes</a>
+          </div>
+          <div class="cta-status">
+            <span class="status-chip">STILL BEING BUILT</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <p style="font-weight: 600; color: var(--text); font-size: 1.1rem;">Tether</p>
+        <p>Connecting an Android phone to a Windows PC over your own Wi-Fi. No cloud, no accounts, just two devices you own talking to each other.</p>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px;">
+          <span class="chip">Windows 10 / 11</span>
+          <span class="chip">Android 12+</span>
+          <span class="chip">.NET and Kotlin</span>
+        </div>
+      </div>
+      <nav class="footer-nav" aria-label="Footer">
+        <h2 class="footer-heading">Learn more</h2>
+        <ul>
+          <li><a href="#overview">Overview</a></li>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#architecture">Architecture</a></li>
+        </ul>
+      </nav>
+      <nav class="footer-nav" aria-label="Project resources">
+        <h2 class="footer-heading">The project</h2>
+        <ul>
+          <li><a href="#faq">Questions</a></li>
+          <li><a href="#developers">For developers</a></li>
+        </ul>
+      </nav>
+      <div>
+        <h2 class="footer-heading">Source code</h2>
+        <a href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener" style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-muted);">github.com/tirthsaraiya29/Tether</a>
+      </div>
     </div>
-  </section>
-</main>
-
-<footer class="site-footer">
-  <div class="container footer-grid">
-    <div class="footer-brand">
-      <p class="footer-wordmark">
-        <svg class="brand-mark" width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-          <rect x="1.25" y="1.25" width="21.5" height="21.5" rx="7" stroke="currentColor" stroke-opacity=".3"></rect>
-          <circle cx="7.4" cy="12" r="2.5" stroke="currentColor" stroke-width="1.4"></circle>
-          <circle cx="16.6" cy="12" r="2.5" fill="currentColor" fill-opacity=".9"></circle>
-          <path d="M9.9 12h4.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="1.4 1.8"></path>
-        </svg>
-        <span>Tether</span>
-      </p>
-      <p class="footer-desc">Connecting an Android phone to a Windows PC over your own Wi-Fi. No cloud, no accounts — just two devices you own talking to each other.</p>
-      <p class="footer-platforms">
-        <span class="pill">Windows 10 / 11</span>
-        <span class="pill">Android 12+</span>
-        <span class="pill">Built with .NET and Kotlin</span>
-      </p>
+    <div class="container footer-legal">
+      <p>Tether is early-stage software and has not been independently security audited. Do not rely on it as your only line of defence for anything that matters.</p>
+      <p>This page is just information. It sends nothing, installs nothing, and connects to no external servers.</p>
     </div>
+  </footer>
 
-    <nav class="footer-nav" aria-label="Footer">
-      <h2 class="footer-heading">Learn more</h2>
-      <ul>
-        <li><a href="#overview">Overview</a></li>
-        <li><a href="#features">Features</a></li>
-        <li><a href="#architecture">Architecture</a></li>
-        <li><a href="#networking">Networking</a></li>
-      </ul>
-    </nav>
+  <script>
+    (function () {
+      'use strict';
+      var doc = document;
 
-    <nav class="footer-nav" aria-label="Project resources">
-      <h2 class="footer-heading">The project</h2>
-      <ul>
-        <li><a href="#security">Security</a></li>
-        <li><a href="#platforms">Platforms</a></li>
-        <li><a href="#developers">For developers</a></li>
-        <li><a href="#roadmap">Roadmap</a></li>
-        <li><a href="#faq">Questions</a></li>
-      </ul>
-    </nav>
+      /* Mobile Navigation Toggle */
+      var header = doc.getElementById('site-header');
+      var navToggle = doc.getElementById('nav-toggle');
+      var navPanel = doc.getElementById('primary-nav');
 
-    <div class="footer-repo">
-      <h2 class="footer-heading">Source code</h2>
-      <a class="footer-repo-link" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener noreferrer">github.com/tirthsaraiya29/Tether</a>
-      <p class="footer-status"><span class="status-chip status-chip-sm"><span class="status-dot" aria-hidden="true"></span>STILL BEING BUILT</span></p>
-      <p class="footer-fine">An informational project page</p>
-    </div>
-  </div>
-
-  <div class="container footer-legal">
-    <p>Tether is early-stage software and hasn't been independently security audited. Don't rely on it as your only line of defence for anything that matters.</p>
-    <p>This page is just information. It sends nothing, installs nothing, and connects to no external servers.</p>
-  </div>
-</footer>
-
-<script>
-/**
- * Tether — Standalone Client Scripts
- * Includes:
- * 1. Desktop cursor-connecting dots canvas effect
- * 2. Responsive mobile navigation toggle
- * 3. Active navigation section observer
- * 4. Scroll reveal animation trigger
- * 5. Accessible keyboard-controlled developer tabs
- * 6. Code snippet clipboard copy utility
- */
-(function () {
-  'use strict';
-
-  var doc = document;
-  var root = doc.documentElement;
-  root.classList.add('js');
-
-  /* ============================================================
-     1. Desktop Interactive Connecting Dots Canvas
-     ============================================================ */
-  var canvas = doc.getElementById('network-canvas');
-  var isLaptop = window.matchMedia && window.matchMedia('(pointer: fine) and (min-width: 900px)').matches;
-  var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  if (canvas && isLaptop && !reducedMotion) {
-    var ctx = canvas.getContext('2d');
-    var particles = [];
-    var particleCount = 75;
-    var maxConnectionDist = 130;
-    var mouseConnectionDist = 170;
-    var width = 0;
-    var height = 0;
-    var dpr = window.devicePixelRatio || 1;
-
-    var mouse = {
-      x: null,
-      y: null,
-      isActive: false
-    };
-
-    function resizeCanvas() {
-      width = window.innerWidth;
-      height = window.innerHeight;
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
-      ctx.scale(dpr, dpr);
-    }
-
-    function createParticle() {
-      return {
-        x: Math.random() * width,
-        y: Math.random() * height,
-        vx: (Math.random() - 0.5) * 0.45,
-        vy: (Math.random() - 0.5) * 0.45,
-        radius: Math.random() * 1.6 + 1.2,
-        baseAlpha: Math.random() * 0.35 + 0.3
-      };
-    }
-
-    function initParticles() {
-      particles = [];
-      var count = Math.min(particleCount, Math.floor((width * height) / 14000));
-      for (var i = 0; i < count; i++) {
-        particles.push(createParticle());
+      function setNavOpen(open) {
+        if (!header || !navToggle) return;
+        navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        var label = navToggle.querySelector('[data-nav-toggle-label]');
+        if (label) label.textContent = open ? 'Close' : 'Menu';
+        navPanel.style.display = open ? 'flex' : 'none';
+        if (open) {
+          navPanel.style.position = 'absolute';
+          navPanel.style.top = '64px';
+          navPanel.style.left = '0';
+          navPanel.style.right = '0';
+          navPanel.style.flexDirection = 'column';
+          navPanel.style.background = 'var(--bg)';
+          navPanel.style.borderBottom = '1px solid var(--border)';
+          navPanel.style.padding = '16px';
+        } else {
+          navPanel.style = '';
+        }
       }
-    }
 
-    resizeCanvas();
-    initParticles();
-    canvas.classList.add('is-active');
+      if (header && navToggle && navPanel) {
+        navToggle.addEventListener('click', function () {
+          var isOpen = navToggle.getAttribute('aria-expanded') === 'true';
+          setNavOpen(!isOpen);
+        });
+      }
 
-    window.addEventListener('resize', function () {
-      resizeCanvas();
-      initParticles();
-    }, { passive: true });
+      /* Developer Tabs Interaction */
+      Array.prototype.slice.call(doc.querySelectorAll('[data-tabs]')).forEach(function (tabGroup) {
+        var tabs = Array.prototype.slice.call(tabGroup.querySelectorAll('[role="tab"]'));
+        if (!tabs.length) return;
 
-    window.addEventListener('mousemove', function (e) {
-      mouse.x = e.clientX;
-      mouse.y = e.clientY;
-      mouse.isActive = true;
-    }, { passive: true });
+        var panels = tabs.map(function (tab) {
+          var id = tab.getAttribute('aria-controls');
+          return id ? doc.getElementById(id) : null;
+        });
 
-    window.addEventListener('mouseleave', function () {
-      mouse.isActive = false;
-      mouse.x = null;
-      mouse.y = null;
-    });
-
-    function draw() {
-      ctx.clearRect(0, 0, width, height);
-
-      for (var i = 0; i < particles.length; i++) {
-        var p = particles[i];
-
-        p.x += p.vx;
-        p.y += p.vy;
-
-        if (p.x < -10) p.x = width + 10;
-        if (p.x > width + 10) p.x = -10;
-        if (p.y < -10) p.y = height + 10;
-        if (p.y > height + 10) p.y = -10;
-
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(99, 230, 242, ' + p.baseAlpha + ')';
-        ctx.fill();
-
-        for (var j = i + 1; j < particles.length; j++) {
-          var p2 = particles[j];
-          var dx = p.x - p2.x;
-          var dy = p.y - p2.y;
-          var distSq = dx * dx + dy * dy;
-
-          if (distSq < maxConnectionDist * maxConnectionDist) {
-            var dist = Math.sqrt(distSq);
-            var alpha = (1 - dist / maxConnectionDist) * 0.16;
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(p2.x, p2.y);
-            ctx.strokeStyle = 'rgba(99, 230, 242, ' + alpha + ')';
-            ctx.lineWidth = 0.85;
-            ctx.stroke();
-          }
+        function selectTab(index) {
+          tabs.forEach(function (tab, i) {
+            var isSelected = i === index;
+            tab.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+            tab.tabIndex = isSelected ? 0 : -1;
+            if (panels[i]) panels[i].hidden = !isSelected;
+          });
         }
 
-        if (mouse.isActive && mouse.x !== null) {
-          var mdx = p.x - mouse.x;
-          var mdy = p.y - mouse.y;
-          var mDistSq = mdx * mdx + mdy * mdy;
-
-          if (mDistSq < mouseConnectionDist * mouseConnectionDist) {
-            var mDist = Math.sqrt(mDistSq);
-            var mAlpha = (1 - mDist / mouseConnectionDist) * 0.55;
-
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(mouse.x, mouse.y);
-            ctx.strokeStyle = 'rgba(99, 230, 242, ' + mAlpha + ')';
-            ctx.lineWidth = 1.3;
-            ctx.stroke();
-
-            p.x -= (mdx / mDist) * 0.25;
-            p.y -= (mdy / mDist) * 0.25;
-          }
-        }
-      }
-
-      if (mouse.isActive && mouse.x !== null) {
-        var grad = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 80);
-        grad.addColorStop(0, 'rgba(99, 230, 242, 0.2)');
-        grad.addColorStop(0.5, 'rgba(42, 200, 221, 0.05)');
-        grad.addColorStop(1, 'rgba(8, 11, 16, 0)');
-        ctx.beginPath();
-        ctx.arc(mouse.x, mouse.y, 80, 0, Math.PI * 2);
-        ctx.fillStyle = grad;
-        ctx.fill();
-      }
-
-      requestAnimationFrame(draw);
-    }
-
-    requestAnimationFrame(draw);
-  }
-
-  /* ============================================================
-     2. Mobile Navigation Toggle
-     ============================================================ */
-  var header = doc.getElementById('site-header');
-  var navToggle = doc.getElementById('nav-toggle');
-  var navPanel = doc.getElementById('primary-nav');
-
-  function setNavOpen(open) {
-    if (!header || !navToggle) return;
-    header.setAttribute('data-nav-open', open ? 'true' : 'false');
-    navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-    var label = navToggle.querySelector('[data-nav-toggle-label]');
-    if (label) {
-      label.textContent = open ? 'Close menu' : 'Menu';
-    }
-  }
-
-  if (header && navToggle && navPanel) {
-    navToggle.addEventListener('click', function () {
-      var isOpen = header.getAttribute('data-nav-open') === 'true';
-      setNavOpen(!isOpen);
-    });
-
-    navPanel.addEventListener('click', function (e) {
-      if (e.target.closest('a')) {
-        setNavOpen(false);
-      }
-    });
-
-    doc.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && header.getAttribute('data-nav-open') === 'true') {
-        setNavOpen(false);
-        navToggle.focus();
-      }
-    });
-
-    doc.addEventListener('click', function (e) {
-      if (header.getAttribute('data-nav-open') === 'true' && !header.contains(e.target)) {
-        setNavOpen(false);
-      }
-    });
-  }
-
-  /* ============================================================
-     3. Active Section Navigation Spy
-     ============================================================ */
-  var navLinks = Array.prototype.slice.call(doc.querySelectorAll('[data-nav-link]'));
-  var sections = navLinks.map(function (link) {
-    return doc.getElementById(link.getAttribute('data-nav-link'));
-  }).filter(Boolean);
-
-  if ('IntersectionObserver' in window && sections.length) {
-    var observer = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        if (entry.isIntersecting) {
-          var id = entry.target.id;
-          navLinks.forEach(function (link) {
-            var active = link.getAttribute('data-nav-link') === id;
-            link.classList.toggle('is-active', active);
-            if (active) {
-              link.setAttribute('aria-current', 'true');
-            } else {
-              link.removeAttribute('aria-current');
+        tabs.forEach(function (tab, i) {
+          tab.addEventListener('click', function () { selectTab(i); });
+          tab.addEventListener('keydown', function (e) {
+            var next = null;
+            if (e.key === 'ArrowRight') next = (i + 1) % tabs.length;
+            else if (e.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length;
+            if (next !== null) {
+              e.preventDefault();
+              selectTab(next);
+              tabs[next].focus();
             }
+          });
+        });
+      });
+
+      /* Code Snippet Copy Functionality */
+      var statusMsg = doc.getElementById('copy-status');
+      doc.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-copy]');
+        if (!btn) return;
+
+        var codeId = btn.getAttribute('data-copy');
+        var codeEl = doc.getElementById(codeId);
+        if (!codeEl) return;
+
+        var text = codeEl.textContent.trim();
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () {
+            btn.textContent = 'Copied';
+            if (statusMsg) statusMsg.textContent = 'Copied command to clipboard.';
+            setTimeout(function () {
+              btn.textContent = 'Copy';
+              if (statusMsg) statusMsg.textContent = '';
+            }, 2000);
+          }).catch(function() { /* FIXED SYNTAX ERROR */
+            if (statusMsg) statusMsg.textContent = 'Failed to copy to clipboard.';
           });
         }
       });
-    }, {
-      rootMargin: '-20% 0px -60% 0px',
-      threshold: 0
-    });
-
-    sections.forEach(function (sec) { observer.observe(sec); });
-  }
-
-  /* ============================================================
-     4. Scroll Reveal Animations
-     ============================================================ */
-  var reveals = Array.prototype.slice.call(doc.querySelectorAll('.reveal'));
-  if (reducedMotion || !('IntersectionObserver' in window)) {
-    reveals.forEach(function (el) { el.classList.add('is-visible'); });
-  } else {
-    var revealObserver = new IntersectionObserver(function (entries, obs) {
-      entries.forEach(function (entry) {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('is-visible');
-          obs.unobserve(entry.target);
-        }
-      });
-    }, { rootMargin: '0px 0px -40px 0px', threshold: 0.05 });
-
-    reveals.forEach(function (el) { revealObserver.observe(el); });
-  }
-
-  /* ============================================================
-     5. Developer Tabs Interaction
-     ============================================================ */
-  Array.prototype.slice.call(doc.querySelectorAll('[data-tabs]')).forEach(function (tabGroup) {
-    var tabs = Array.prototype.slice.call(tabGroup.querySelectorAll('[role="tab"]'));
-    if (!tabs.length) return;
-
-    var panels = tabs.map(function (tab) {
-      var id = tab.getAttribute('aria-controls');
-      return id ? doc.getElementById(id) : null;
-    });
-
-    function selectTab(index, focus) {
-      tabs.forEach(function (tab, i) {
-        var isSelected = i === index;
-        tab.setAttribute('aria-selected', isSelected ? 'true' : 'false');
-        tab.tabIndex = isSelected ? 0 : -1;
-        if (panels[i]) {
-          panels[i].hidden = !isSelected;
-        }
-      });
-      if (focus) {
-        tabs[index].focus();
-      }
-    }
-
-    tabs.forEach(function (tab, i) {
-      tab.addEventListener('click', function () {
-        selectTab(i, false);
-      });
-
-      tab.addEventListener('keydown', function (e) {
-        var next = null;
-        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-          next = (i + 1) % tabs.length;
-        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-          next = (i - 1 + tabs.length) % tabs.length;
-        } else if (e.key === 'Home') {
-          next = 0;
-        } else if (e.key === 'End') {
-          next = tabs.length - 1;
-        }
-
-        if (next !== null) {
-          e.preventDefault();
-          selectTab(next, true);
-        }
-      });
-    });
-  });
-
-  /* ============================================================
-     6. Code Snippet Copy Functionality
-     ============================================================ */
-  var statusMsg = doc.getElementById('copy-status');
-  doc.addEventListener('click', function (e) {
-    var btn = e.target.closest('[data-copy]');
-    if (!btn) return;
-
-    var codeId = btn.getAttribute('data-copy');
-    var codeEl = doc.getElementById(codeId);
-    if (!codeEl) return;
-
-    var text = codeEl.textContent.trim();
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(function () {
-        var label = btn.querySelector('[data-copy-label]');
-        var orig = label ? label.textContent : '';
-        if (label) label.textContent = 'Copied';
-        btn.classList.add('is-copied');
-        if (statusMsg) statusMsg.textContent = 'Copied command to clipboard.';
-
-        setTimeout(function () {
-          if (label) label.textContent = orig;
-          btn.classList.remove('is-copied');
-          if (statusMsg) statusMsg.textContent = '';
-        }, 2200);
-      })['catch'](function () {
-        if (statusMsg) statusMsg.textContent = 'Failed to copy to clipboard.';
-      });
-    }
-  });
-})();
-</script>
-
+    })();
+  </script>
 </body>
 </html>
