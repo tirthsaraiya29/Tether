@@ -239,6 +239,8 @@ public sealed class Worker : BackgroundService
 
         LaptopStateCollector.Initialize(_sessionManager, _tetherLogger);
 
+        StartUnlockPromptRelay();
+
         _ = Task.Run(async () =>
         {
             var lastIsCharging = false;
@@ -282,6 +284,64 @@ public sealed class Worker : BackgroundService
         }, stoppingToken);
 
         return Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_ => { }, TaskScheduler.Default);
+    }
+
+    private EventWaitHandle? _unlockPromptEvent;
+    private RegisteredWaitHandle? _unlockPromptWait;
+
+    /// <summary>
+    /// Relays unlock-prompt requests from the credential provider (LogonUI secure desktop)
+    /// to the paired phone as UNLOCK_PROMPT frames over the TLS control channel.
+    /// The CP signals Global\TetherUnlockPromptRequested; we broadcast once per signal.
+    /// </summary>
+    private void StartUnlockPromptRelay()
+    {
+        try
+        {
+            var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
+            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
+            // ManualReset: the CP can't safely Set+Reset from the secure desktop
+            // (lost-signal race), so we consume the signal here.
+            _unlockPromptEvent = EventWaitHandleAcl.Create(
+                false, EventResetMode.ManualReset, @"Global\TetherUnlockPromptRequested", out _, sec);
+        }
+        catch (Exception ex)
+        {
+            _tetherLogger.Error($"UnlockPromptRelay: could not create request event: {ex.Message}");
+            return;
+        }
+
+        _unlockPromptWait = ThreadPool.RegisterWaitForSingleObject(
+            _unlockPromptEvent,
+            (state, timedOut) =>
+            {
+                if (timedOut) return;
+                try
+                {
+                    // Consume the signal first so a rapid re-request isn't lost
+                    // behind this callback's own broadcast work.
+                    _unlockPromptEvent?.Reset();
+
+                    if (_sessionManager.ActiveSessionCount == 0)
+                    {
+                        _tetherLogger.Info("UnlockPromptRelay: phone not connected; prompt request dropped.");
+                        return;
+                    }
+                    _sessionManager.BroadcastRawFrame(System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        type = "UNLOCK_PROMPT",
+                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    }));
+                    _tetherLogger.Info("UnlockPromptRelay: UNLOCK_PROMPT frame broadcast to phone.");
+                }
+                catch (Exception ex)
+                {
+                    _tetherLogger.Warning($"UnlockPromptRelay: broadcast failed: {ex.Message}");
+                }
+            },
+            null,
+            Timeout.Infinite,
+            executeOnlyOnce: false);
     }
 
     private void EnsureFirewallRulesExist()
@@ -373,6 +433,13 @@ public sealed class Worker : BackgroundService
 
         try { _powerWatcher.Dispose(); } catch { }
         PowerEventHub.Watcher = null;
+
+        try
+        {
+            _unlockPromptWait?.Unregister(null);
+            _unlockPromptEvent?.Dispose();
+        }
+        catch { }
 
         _mdns.Stop();
         _udpDiscovery.Stop();
