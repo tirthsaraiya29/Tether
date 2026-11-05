@@ -29,7 +29,7 @@ using Tether.Shared.IPC;
 namespace Tether.DesktopUI
 {
     [SupportedOSPlatform("windows")]
-        public class PairedDeviceViewModel
+    public class PairedDeviceViewModel
     {
         public string DeviceId { get; set; } = "";
         public string DisplayName { get; set; } = "";

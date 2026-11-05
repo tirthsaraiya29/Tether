@@ -77,15 +77,6 @@
                                    Foreground="{StaticResource TextMutedBrush}"/>
                     </StackPanel>
 
-                    <Border Grid.Column="2"
-                            Style="{StaticResource BadgePillBorderStyle}"
-                            Padding="6,1.5">
-                        <TextBlock Text="v2.0"
-                                   FontFamily="{StaticResource MonoFontFamily}"
-                                   FontSize="9"
-                                   FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextAccentBrush}"/>
-                    </Border>
                 </Grid>
             </Border>
 
@@ -115,24 +106,6 @@
                                    FontWeight="SemiBold"
                                    Foreground="{StaticResource TextPrimaryBrush}"
                                    VerticalAlignment="Center"/>
-
-                        <Border Width="1" Height="14"
-                                Background="{StaticResource SubtleDividerBrush}"
-                                Margin="14,0"/>
-
-                        <Border Style="{StaticResource NeutralBadgePillStyle}" Margin="0,0,6,0">
-                            <TextBlock Text="Wi-Fi"
-                                       FontFamily="{StaticResource MonoFontFamily}"
-                                       FontSize="9.5"
-                                       Foreground="{StaticResource TextSecondaryBrush}"/>
-                        </Border>
-
-                        <Border Style="{StaticResource NeutralBadgePillStyle}">
-                            <TextBlock Text="Service Active"
-                                       FontFamily="{StaticResource MonoFontFamily}"
-                                       FontSize="9.5"
-                                       Foreground="{StaticResource TextMutedBrush}"/>
-                        </Border>
                     </StackPanel>
 
                     <!-- Live Header Connection Pill -->
@@ -269,57 +242,6 @@
                         </ListBoxItem>
                     </ListBox>
 
-                    <!-- Security Status Summary -->
-                    <Border Grid.Row="2"
-                            Margin="12,0,12,10"
-                            Padding="12,10"
-                            CornerRadius="8"
-                            Background="{StaticResource RecessedWellBrush}"
-                            BorderBrush="{StaticResource SubtleDividerBrush}"
-                            BorderThickness="1">
-                        <StackPanel>
-                            <TextBlock Text="SECURITY STATUS"
-                                       Style="{StaticResource SectionEyebrowTextStyle}"
-                                       Margin="0,0,0,6"/>
-
-                            <Grid Margin="0,2">
-                                <TextBlock Text="Saved Password"
-                                           FontFamily="{StaticResource FluentFontFamily}"
-                                           FontSize="11"
-                                           Foreground="{StaticResource TextSecondaryBrush}"/>
-                                <TextBlock Text="Encrypted"
-                                           FontFamily="{StaticResource MonoFontFamily}"
-                                           FontSize="10.5"
-                                           Foreground="{StaticResource TextAccentBrush}"
-                                           HorizontalAlignment="Right"/>
-                            </Grid>
-
-                            <Grid Margin="0,2">
-                                <TextBlock Text="Access Protection"
-                                           FontFamily="{StaticResource FluentFontFamily}"
-                                           FontSize="11"
-                                           Foreground="{StaticResource TextSecondaryBrush}"/>
-                                <TextBlock Text="System Protected"
-                                           FontFamily="{StaticResource MonoFontFamily}"
-                                           FontSize="10.5"
-                                           Foreground="{StaticResource StatusHealthyBrush}"
-                                           HorizontalAlignment="Right"/>
-                            </Grid>
-
-                            <Grid Margin="0,2">
-                                <TextBlock Text="File Transfer"
-                                           FontFamily="{StaticResource FluentFontFamily}"
-                                           FontSize="11"
-                                           Foreground="{StaticResource TextSecondaryBrush}"/>
-                                <TextBlock Text="Encrypted (HTTPS)"
-                                           FontFamily="{StaticResource MonoFontFamily}"
-                                           FontSize="10.5"
-                                           Foreground="{StaticResource TextPrimaryBrush}"
-                                           HorizontalAlignment="Right"/>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-
                     <!-- User Account Card -->
                     <Border Grid.Row="3"
                             Margin="12,0,12,12"
@@ -415,14 +337,6 @@
                                     <TextBlock Text="Local Files"
                                                Style="{StaticResource CardTitleTextStyle}"/>
                                 </StackPanel>
-                                <Border Style="{StaticResource NeutralBadgePillStyle}"
-                                        HorizontalAlignment="Right"
-                                        VerticalAlignment="Top">
-                                    <TextBlock Text="WINDOWS"
-                                               FontFamily="{StaticResource MonoFontFamily}"
-                                               FontSize="9.5"
-                                               Foreground="{StaticResource TextSecondaryBrush}"/>
-                                </Border>
                             </Grid>
 
                             <!-- Address Bar -->
@@ -541,14 +455,6 @@
                                     <TextBlock Text="Phone Storage"
                                                Style="{StaticResource CardTitleTextStyle}"/>
                                 </StackPanel>
-                                <Border Style="{StaticResource BadgePillBorderStyle}"
-                                        HorizontalAlignment="Right"
-                                        VerticalAlignment="Top">
-                                    <TextBlock Text="SECURE LINK"
-                                               FontFamily="{StaticResource MonoFontFamily}"
-                                               FontSize="9.5"
-                                               Foreground="{StaticResource TextAccentBrush}"/>
-                                </Border>
                             </Grid>
 
                             <!-- Address Bar -->
@@ -667,8 +573,7 @@
                               Padding="0,0,4,0">
                     <StackPanel>
 
-                        <!-- 1. Connection Card -->
-                                                <!-- 0. Pairing Request Card -->
+                        <!-- Pairing Request Card -->
                         <Border x:Name="CardPairing"
                                 Style="{StaticResource GlassPanel}"
                                 Visibility="Collapsed"
@@ -842,15 +747,6 @@
                                         <TextBlock Text="Volume &amp; Brightness"
                                                    Style="{StaticResource CardTitleTextStyle}"/>
                                     </StackPanel>
-
-                                    <Border Style="{StaticResource NeutralBadgePillStyle}"
-                                            HorizontalAlignment="Right"
-                                            VerticalAlignment="Top">
-                                        <TextBlock Text="AUTO-SYNCED"
-                                                   FontFamily="{StaticResource MonoFontFamily}"
-                                                   FontSize="9.5"
-                                                   Foreground="{StaticResource TextMutedBrush}"/>
-                                    </Border>
                                 </Grid>
 
                                 <!-- Volume Slider -->

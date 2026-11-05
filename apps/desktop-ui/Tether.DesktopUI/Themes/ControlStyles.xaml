@@ -2,8 +2,9 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- ===================================================================== -->
-    <!-- PRECISION BENTO CARD & WELL STYLES                                    -->
+    <!-- CARD & WELL STYLES                                                    -->
     <!-- ===================================================================== -->
+    <!-- Cards are containers, not interactive controls: no hover state. -->
     <Style x:Key="GlassPanel" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource GlassPanelBackgroundBrush}"/>
         <Setter Property="BorderBrush" Value="{StaticResource GlassSpecularBorderBrush}"/>
@@ -13,15 +14,7 @@
         <Setter Property="Margin" Value="0,0,0,14"/>
         <Setter Property="SnapsToDevicePixels" Value="True"/>
         <Setter Property="UseLayoutRounding" Value="True"/>
-        <Style.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="BorderBrush" Value="{StaticResource GlassSpecularHoverBorderBrush}"/>
-                <Setter Property="Background" Value="{StaticResource GlassPanelHoverBackgroundBrush}"/>
-            </Trigger>
-        </Style.Triggers>
     </Style>
-
-    <Style x:Key="FluentPanelCard" TargetType="Border" BasedOn="{StaticResource GlassPanel}"/>
 
     <Style x:Key="RecessedWellStyle" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource RecessedWellBrush}"/>
@@ -370,11 +363,6 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Thumb">
                     <Grid>
-                        <Ellipse x:Name="VectorGlowHalo"
-                                 Width="20"
-                                 Height="20"
-                                 Fill="{StaticResource AccentHaloBrush}"
-                                 Opacity="0"/>
                         <Ellipse x:Name="OuterHalo"
                                  Width="14"
                                  Height="14"
@@ -392,14 +380,12 @@
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="VectorGlowHalo" Property="Opacity" Value="0.8"/>
                             <Setter TargetName="OuterHalo" Property="Stroke" Value="#7DD3FC"/>
                             <Setter TargetName="InnerCore" Property="Width" Value="8"/>
                             <Setter TargetName="InnerCore" Property="Height" Value="8"/>
                             <Setter TargetName="InnerCore" Property="Fill" Value="#7DD3FC"/>
                         </Trigger>
                         <Trigger Property="IsDragging" Value="True">
-                            <Setter TargetName="VectorGlowHalo" Property="Opacity" Value="1.0"/>
                             <Setter TargetName="InnerCore" Property="Width" Value="4"/>
                             <Setter TargetName="InnerCore" Property="Height" Value="4"/>
                         </Trigger>
