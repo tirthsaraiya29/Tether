@@ -46,23 +46,24 @@ namespace Tether.DesktopUI
             };
 
             // Check for elevated helper commands before single instance check
-            if (e.Args.Length > 0 && e.Args[0].Equals("--commit-vault-payload", StringComparison.OrdinalIgnoreCase))
+            if (e.Args.Length > 0 && e.Args[0].Equals("--commit-vault-stdin", StringComparison.OrdinalIgnoreCase))
             {
-                if (e.Args.Length > 1)
+                try
                 {
-                    try
+                    string? hex = Console.ReadLine();
+                    if (!string.IsNullOrEmpty(hex))
                     {
-                        byte[] payload = Convert.FromHexString(e.Args[1]);
+                        byte[] payload = Convert.FromHexString(hex.Trim());
                         using var secretsKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true);
                         secretsKey?.SetValue("EncryptedPassword", payload, Microsoft.Win32.RegistryValueKind.Binary);
 
                         using var rootKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
                         rootKey?.SetValue("VaultDaclVersion", 2, Microsoft.Win32.RegistryValueKind.DWord);
                     }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show($"Failed writing vault secret: {ex.Message}", "Tether Vault Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed writing vault secret: {ex.Message}", "Tether Vault Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
                 Environment.Exit(0);
                 return;

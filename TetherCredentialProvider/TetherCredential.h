@@ -119,5 +119,7 @@ private:
     HANDLE                                  _hWaitScreen;
     HWND                                    _hWndMessage;
 
-    std::atomic<bool>                       _isValid;
+    std::atomic<bool>                       _isValid{ true };
+    std::atomic<bool>                       _fInstancePhoneAppTriggered{ false };
+    std::atomic<bool>                       _fInstanceAutoLogonReady{ false };
 };

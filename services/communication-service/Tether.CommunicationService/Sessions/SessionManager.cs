@@ -2,29 +2,30 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
+using Tether.CommunicationService.Protocol;
 using Tether.CommunicationService.Transport;
 using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService.Sessions;
 
 /// <summary>
-/// Registry for active TetherSession instances.
-/// Enforces at most 1 active session per device by gracefully closing stale connections.
+/// Tracks active TLS client connections (<see cref="TetherSession"/>).
+/// Enforces single-active-session policy per physical phone (identified by public-key fingerprint).
+/// If a phone reconnects with a fresh TLS connection before the old one is torn down,
+/// the older session is evicted cleanly rather than wedging the transport.
 /// </summary>
 public sealed class SessionManager
 {
-    private readonly ITetherLogger _logger;
+    private readonly ConcurrentDictionary<string, TetherSession> _activeSessions = new();
     private readonly DeviceManager _deviceManager;
-    private readonly ConcurrentDictionary<string, TetherSession> _activeSessions = new(StringComparer.Ordinal);
+    private readonly ITetherLogger _logger;
 
-    public SessionManager(ITetherLogger logger, DeviceManager deviceManager)
+    public SessionManager(DeviceManager deviceManager, ITetherLogger logger)
     {
-        _logger = logger;
         _deviceManager = deviceManager;
+        _logger = logger;
     }
 
     public int ActiveSessionCount => _activeSessions.Count;
@@ -59,6 +60,18 @@ public sealed class SessionManager
 
     public IReadOnlyCollection<TetherSession> GetActiveSessions() =>
         _activeSessions.Values.ToArray();
+
+    public void DisconnectDevice(string fingerprint, string reason)
+    {
+        var sessions = GetActiveSessions();
+        foreach (var session in sessions)
+        {
+            if (string.Equals(session.Device?.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase))
+            {
+                try { session.Close(reason); } catch { }
+            }
+        }
+    }
 
     public void BroadcastLaptopState(LaptopSnapshot snap)
     {
@@ -99,20 +112,25 @@ public sealed class SessionManager
         if (string.IsNullOrEmpty(json)) return false;
 
         var sessions = GetActiveSessions();
-        if (sessions.Count == 0) return false;
+        if (sessions.Count == 0) return true;
 
         var bytes = System.Text.Encoding.UTF8.GetBytes(json);
-        var tasks = new Task[sessions.Count];
-        int i = 0;
-        foreach (var s in sessions)
-            tasks[i++] = s.SendRawFrameAsync(bytes, System.Threading.CancellationToken.None);
+        var tasks = new List<System.Threading.Tasks.Task>(sessions.Count);
+
+        using var cts = new System.Threading.CancellationTokenSource(timeout);
+
+        foreach (var session in sessions)
+        {
+            tasks.Add(session.SendRawFrameAsync(bytes, cts.Token));
+        }
 
         try
         {
-            return Task.WaitAll(tasks, timeout);
+            return System.Threading.Tasks.Task.WaitAll(tasks.ToArray(), timeout);
         }
-        catch (AggregateException)
+        catch (Exception ex)
         {
+            _logger.Warning($"SessionManager: Blocking broadcast timed out or failed: {ex.Message}");
             return false;
         }
     }

@@ -29,9 +29,96 @@ using Tether.Shared.IPC;
 namespace Tether.DesktopUI
 {
     [SupportedOSPlatform("windows")]
+        public class PairedDeviceViewModel
+    {
+        public string DeviceId { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string Fingerprint { get; set; } = "";
+        public string FingerprintPreview => !string.IsNullOrEmpty(Fingerprint) && Fingerprint.Length > 16
+            ? $"SHA256:{Fingerprint[..8]}...{Fingerprint[^6..]}"
+            : (Fingerprint ?? "");
+        public DateTime? LastSeen { get; set; }
+    }
+
     public partial class MainWindow : Window
     {
         private const int MaxTerminalEntries = 250;
+        public ObservableCollection<PairedDeviceViewModel> PairedDevices { get; } = new();
+        private static readonly object _persistentLogLock = new();
+
+        private static void WritePersistentLog(string line)
+        {
+            try
+            {
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string logDir = Path.Combine(localAppData, "Tether", "logs");
+                Directory.CreateDirectory(logDir);
+                string logPath = Path.Combine(logDir, "desktop-ui.log");
+
+                lock (_persistentLogLock)
+                {
+                    var fi = new FileInfo(logPath);
+                    if (fi.Exists && fi.Length > 5 * 1024 * 1024)
+                    {
+                        string oldPath = Path.Combine(logDir, "desktop-ui.old.log");
+                        File.Move(logPath, oldPath, true);
+                    }
+                    File.AppendAllText(logPath, line + Environment.NewLine);
+                }
+            }
+            catch { }
+        }
+
+        private void UpdatePairedUi()
+        {
+            if (TxtPairedCount != null)
+            {
+                TxtPairedCount.Text = $"{PairedDevices.Count} PAIRED";
+            }
+            if (TxtNoPairedDevices != null)
+            {
+                TxtNoPairedDevices.Visibility = PairedDevices.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void BtnDismissPairing_Click(object sender, RoutedEventArgs e)
+        {
+            if (CardPairing != null) CardPairing.Visibility = Visibility.Collapsed;
+        }
+
+        private void BtnUnpairDevice_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is string fingerprint && !string.IsNullOrEmpty(fingerprint))
+            {
+                var dev = PairedDevices.FirstOrDefault(d => string.Equals(d.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase));
+                string name = dev?.DisplayName ?? "device";
+
+                var result = MessageBox.Show(
+                    $"Are you sure you want to unpair and revoke '{name}'?\n\nThis phone will no longer be able to unlock this PC or connect.",
+                    "Tether — Revoke Paired Device",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    var evt = new TetherEvent
+                    {
+                        EventType = TetherEventType.FORGET_PHONE,
+                        Source = "DesktopUI",
+                        PayloadJson = JsonSerializer.Serialize(new { fingerprint })
+                    };
+                    DispatchServiceBusPipe(evt);
+
+                    if (dev != null)
+                    {
+                        PairedDevices.Remove(dev);
+                        UpdatePairedUi();
+                    }
+                    LogTerminal($"Revoked pairing for {name}.");
+                }
+            }
+        }
+
         private readonly ObservableCollection<string> _terminalLogs = new();
         private PipeSecurity? _cachedPipeSecurity;
 
@@ -246,6 +333,8 @@ namespace Tether.DesktopUI
         {
             InitializeComponent();
             TerminalList.ItemsSource = _terminalLogs;
+            if (PairedDevicesList != null) PairedDevicesList.ItemsSource = PairedDevices;
+            UpdatePairedUi();
 
             ResolveUserContext();
             LogTerminal("Tether is ready.");
@@ -422,7 +511,6 @@ namespace Tether.DesktopUI
 
             while (_isListening)
             {
-                byte[]? rentedBuffer = null;
                 try
                 {
                     using var server = NamedPipeServerStreamAcl.Create(
@@ -437,13 +525,25 @@ namespace Tether.DesktopUI
 
                     await server.WaitForConnectionAsync();
 
-                    rentedBuffer = ArrayPool<byte>.Shared.Rent(IpcConstants.PipeBufferSize);
-                    int readBytes = await server.ReadAsync(rentedBuffer, 0, IpcConstants.PipeBufferSize);
-
-                    if (readBytes > 0)
+                    using var ms = new MemoryStream();
+                    byte[] rented = ArrayPool<byte>.Shared.Rent(4096);
+                    try
                     {
-                        string json = Encoding.UTF8.GetString(rentedBuffer, 0, readBytes);
-                        var telemetryEvent = JsonSerializer.Deserialize<TetherEvent>(json);
+                        int bytesRead;
+                        while ((bytesRead = await server.ReadAsync(rented, 0, rented.Length)) > 0)
+                        {
+                            ms.Write(rented, 0, bytesRead);
+                        }
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(rented);
+                    }
+
+                    if (ms.Length > 0)
+                    {
+                        ms.Position = 0;
+                        var telemetryEvent = await JsonSerializer.DeserializeAsync<TetherEvent>(ms);
                         if (telemetryEvent != null)
                         {
                             _ = Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => ParseRelayedSignal(telemetryEvent)));
@@ -453,13 +553,6 @@ namespace Tether.DesktopUI
                 catch
                 {
                     await Task.Delay(500);
-                }
-                finally
-                {
-                    if (rentedBuffer != null)
-                    {
-                        ArrayPool<byte>.Shared.Return(rentedBuffer);
-                    }
                 }
             }
         }
@@ -511,17 +604,16 @@ namespace Tether.DesktopUI
                             if (!string.IsNullOrEmpty(pin))
                             {
                                 LogTerminal($"Pairing request from {devName}. Enter PIN {pin} on your phone.");
-                                string msg = $"Pairing Request from {devName}\n\nEnter this 6-digit PIN on your phone:\n\n      {pin}      \n";
-                                _ = Task.Run(() =>
+                                if (CardPairing != null)
                                 {
-                                    MessageBox.Show(
-                                        msg,
-                                        "Tether — Device Pairing",
-                                        MessageBoxButton.OK,
-                                        MessageBoxImage.Information,
-                                        MessageBoxResult.OK,
-                                        MessageBoxOptions.DefaultDesktopOnly);
-                                });
+                                    CardPairing.Visibility = Visibility.Visible;
+                                    if (TxtPairingDeviceTitle != null) TxtPairingDeviceTitle.Text = $"Pairing with {devName}";
+                                    if (TxtPairingPin != null)
+                                    {
+                                        string formattedPin = pin.Length == 6 ? $"{pin[..3]} {pin[3..]}" : pin;
+                                        TxtPairingPin.Text = formattedPin;
+                                    }
+                                }
                             }
                             else
                             {
@@ -532,20 +624,68 @@ namespace Tether.DesktopUI
                     }
                     break;
 
-                case TetherEventType.TRUST_DEGRADED:
+                case TetherEventType.PAIRING_DECISION:
+                case TetherEventType.PAIRING_INVALIDATED:
+                    if (CardPairing != null) CardPairing.Visibility = Visibility.Collapsed;
+                    ForceTelemetrySyncToPhone();
+                    break;
+
+                case TetherEventType.PROVISION_PHONE:
+                    if (!string.IsNullOrEmpty(evt.PayloadJson))
+                    {
+                        try
+                        {
+                            var list = JsonSerializer.Deserialize<List<PairedDeviceViewModel>>(evt.PayloadJson, new JsonSerializerOptions
+                            {
+                                PropertyNameCaseInsensitive = true
+                            });
+                            if (list != null)
+                            {
+                                PairedDevices.Clear();
+                                foreach (var d in list) PairedDevices.Add(d);
+                                UpdatePairedUi();
+                            }
+                        }
+                        catch { }
+                    }
+                    break;
+
+                case TetherEventType.HARDWARE_SYNC_REQUESTED:
                     if (!string.IsNullOrEmpty(evt.PayloadJson))
                     {
                         try
                         {
                             using var document = JsonDocument.Parse(evt.PayloadJson);
                             var root = document.RootElement;
-                            if (root.TryGetProperty("HardwareAction", out var actionProp))
+                            if (root.TryGetProperty("vol", out var volProp))
                             {
-                                ExecuteHardwareAction(actionProp.GetString());
+                                int v = volProp.GetInt32();
+                                if (v >= 0)
+                                {
+                                    _isInternalSliderChange = true;
+                                    SliderVolume.Value = v;
+                                    TxtVolumeValue.Text = $"{v}%";
+                                    _isInternalSliderChange = false;
+                                }
+                            }
+                            if (root.TryGetProperty("bri", out var briProp))
+                            {
+                                int b = briProp.GetInt32();
+                                if (b >= 0)
+                                {
+                                    _isInternalSliderChange = true;
+                                    SliderBrightness.Value = b;
+                                    TxtBrightnessValue.Text = $"{b}%";
+                                    _isInternalSliderChange = false;
+                                }
                             }
                         }
                         catch { }
                     }
+                    break;
+
+                case TetherEventType.TRUST_DEGRADED:
+                    LogTerminal("Warning: Device trust state degraded.");
                     break;
 
                 case TetherEventType.OVERLAY_DISABLED:
@@ -880,6 +1020,7 @@ namespace Tether.DesktopUI
         private void LogTerminal(string message)
         {
             string entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
+            WritePersistentLog(entry);
             _terminalLogs.Add(entry);
             while (_terminalLogs.Count > MaxTerminalEntries)
             {
@@ -1178,17 +1319,34 @@ namespace Tether.DesktopUI
 
                         try
                         {
-                            EnsureVaultDaclArchitecture();
-
-                            using (RegistryKey? secretsKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true))
+                            // First attempt: Send VAULT_UPDATE over authenticated named pipe to Windows Service
+                            var vaultEvt = new TetherEvent
                             {
-                                secretsKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
-                            }
+                                EventType = TetherEventType.VAULT_UPDATE,
+                                Source = "DesktopUI",
+                                PayloadJson = JsonSerializer.Serialize(new
+                                {
+                                    hexPayload = Convert.ToHexString(protectedPayload),
+                                    username = Environment.UserName
+                                })
+                            };
+                            DispatchServiceBusPipe(vaultEvt);
 
-                            using (RegistryKey? rootKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
+                            // Also write to local HKLM if running elevated or standalone
+                            try
                             {
-                                rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
+                                EnsureVaultDaclArchitecture();
+                                using (RegistryKey? secretsKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true))
+                                {
+                                    secretsKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
+                                    secretsKey?.SetValue("TargetUsername", Environment.UserName, RegistryValueKind.String);
+                                }
+                                using (RegistryKey? rootKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
+                                {
+                                    rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
+                                }
                             }
+                            catch { }
 
                             if (TxtVaultBadge != null) TxtVaultBadge.Text = "PASSWORD SAVED";
                             LogTerminal("Windows password saved securely.");
@@ -1204,12 +1362,21 @@ namespace Tether.DesktopUI
                                 var startInfo = new ProcessStartInfo
                                 {
                                     FileName = exePath,
-                                    Arguments = $"--commit-vault-payload \"{hexPayload}\"",
+                                    Arguments = "--commit-vault-stdin",
                                     Verb = "runas",
-                                    UseShellExecute = true
+                                    UseShellExecute = false,
+                                    RedirectStandardInput = true,
+                                    CreateNoWindow = true
                                 };
 
-                                Process.Start(startInfo);
+                                using var p = Process.Start(startInfo);
+                                if (p != null)
+                                {
+                                    p.StandardInput.WriteLine(hexPayload);
+                                    p.StandardInput.Close();
+                                    p.WaitForExit(5000);
+                                }
+
                                 if (TxtVaultBadge != null) TxtVaultBadge.Text = "PASSWORD SAVED";
                                 LogTerminal("Windows password saved securely.");
                                 TxtPassword.Clear();

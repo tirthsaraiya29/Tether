@@ -39,7 +39,6 @@
 ;  Runtime prerequisite URLs (official Microsoft endpoints)
 ; ---------------------------------------------------------------------------
 #define UrlVCRedistX64      "https://aka.ms/vs/17/release/vc_redist.x64.exe"
-#define UrlVCRedistX86      "https://aka.ms/vs/17/release/vc_redist.x86.exe"
 #define UrlDotNetDesktop    "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.13/windowsdesktop-runtime-10.0.13-win-x64.exe"
 
 [Setup]
@@ -138,11 +137,6 @@ Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\
     ValueType: string; ValueName: ""; ValueData: "{#MyCredProvName}"; \
     Flags: uninsdeletekey
 
-; 3. Windows Logon Credential Provider Filter
-Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{#MyCredProvGuid}"; \
-    ValueType: string; ValueName: ""; ValueData: "{#MyCredProvName}"; \
-    Flags: uninsdeletekey
-
 ; 4. Encrypted configuration and secure pairing store
 Root: HKLM64; Subkey: "SOFTWARE\{#MyAppName}"; Flags: createvalueifdoesntexist
 
@@ -227,7 +221,6 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 [UninstallDelete]
 Type: files;          Name: "{sys}\{#MyCredProvDll}"
 Type: filesandordirs; Name: "{app}"
-Type: filesandordirs; Name: "{commonappdata}\Tether"
 
 ; ============================================================================
 ;  PASCAL CODE SCRIPTING
@@ -498,16 +491,13 @@ begin
   if CurPageID = wpReady then
   begin
     NeedVcx64 := not IsVCRedistInstalled('x64');
-    NeedVcx86 := not IsVCRedistInstalled('x86');
     NeedDotNet := not IsDotNetDesktopInstalled();
 
-    if NeedVcx64 or NeedVcx86 or NeedDotNet then
+    if NeedVcx64 or NeedDotNet then
     begin
       DownloadPage.Clear;
       if NeedVcx64 then
         DownloadPage.Add('{#UrlVCRedistX64}', 'vc_redist.x64.exe', '');
-      if NeedVcx86 then
-        DownloadPage.Add('{#UrlVCRedistX86}', 'vc_redist.x86.exe', '');
       if NeedDotNet then
         DownloadPage.Add('{#UrlDotNetDesktop}', 'dotnet10desktop-x64.exe', '');
 
@@ -528,12 +518,6 @@ begin
         begin
           Vcx64Path := ExpandConstant('{tmp}\vc_redist.x64.exe');
           Exec(Vcx64Path, '/install /quiet /norestart', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-        end;
-
-        if NeedVcx86 then
-        begin
-          Vcx86Path := ExpandConstant('{tmp}\vc_redist.x86.exe');
-          Exec(Vcx86Path, '/install /quiet /norestart', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
         end;
 
         if NeedDotNet then
@@ -590,12 +574,13 @@ begin
     StopAllTetherProcesses();
 
     VaultKey := 'SOFTWARE\{#MyAppName}';
-    if RegKeyExists(HKLM64, VaultKey) then
+    if MsgBox(ExpandConstant('{cm:VaultUninstallPrompt}'), mbConfirmation, MB_YESNO) = IDYES then
     begin
-      if MsgBox(ExpandConstant('{cm:VaultUninstallPrompt}'), mbConfirmation, MB_YESNO) = IDYES then
+      if RegKeyExists(HKLM64, VaultKey) then
       begin
         RegDeleteKeyIncludingSubkeys(HKLM64, VaultKey);
       end;
+      DelTree(ExpandConstant('{commonappdata}\{#MyAppName}'), True, True, True);
     end;
   end;
 end;

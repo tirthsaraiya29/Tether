@@ -62,6 +62,12 @@ internal sealed class InputInjector
         if (frame.Length < 2) return false;
         if (frame[0] != PacketTypeInputEvent) return false;
 
+        // Security safeguard: Never inject inputs while workstation is locked
+        if (LockStateDetector.IsLocked())
+        {
+            return false;
+        }
+
         byte subtype = frame[1];
         var payload = frame[2..];
 

@@ -63,11 +63,42 @@ import kotlin.time.Duration.Companion.seconds
 class PairingConfirmationActivity : ComponentActivity() {
 
     private var requestId: String = ""
+    private val errorMessageState = mutableStateOf("")
+
+    private val pairingReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            when (intent?.action) {
+                TetherLanService.ACTION_PAIRING_INVALID_PIN -> {
+                    val remaining = intent.getIntExtra(TetherLanService.EXTRA_REMAINING_ATTEMPTS, 0)
+                    val msg = intent.getStringExtra(TetherLanService.EXTRA_ERROR_MESSAGE)
+                        ?: "Incorrect PIN. $remaining attempt(s) remaining."
+                    errorMessageState.value = msg
+                }
+                TetherLanService.ACTION_LAN_STATE_CHANGED -> {
+                    val state = intent.getStringExtra(TetherLanService.EXTRA_TRANSPORT_STATE)
+                    if (state == TransportState.AUTHENTICATED.name || state == TransportState.READY.name) {
+                        finish()
+                    }
+                }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+
+        val filter = android.content.IntentFilter().apply {
+            addAction(TetherLanService.ACTION_PAIRING_INVALID_PIN)
+            addAction(TetherLanService.ACTION_LAN_STATE_CHANGED)
+        }
+        androidx.core.content.ContextCompat.registerReceiver(
+            this,
+            pairingReceiver,
+            filter,
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+        )
 
         requestId = intent.getStringExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID) ?: ""
         val peerName = intent.getStringExtra(TetherLanService.EXTRA_PEER_DEVICE_NAME) ?: "Windows PC"
@@ -82,6 +113,7 @@ class PairingConfirmationActivity : ComponentActivity() {
                     PairingConfirmationContent(
                         peerName = peerName,
                         peerFingerprint = peerFingerprint,
+                        errorMessage = errorMessageState.value,
                         onAccept = { pin ->
                             confirmPairing(pin)
                         },
@@ -96,6 +128,11 @@ class PairingConfirmationActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        try { unregisterReceiver(pairingReceiver) } catch (_: Exception) {}
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -103,13 +140,13 @@ class PairingConfirmationActivity : ComponentActivity() {
     }
 
     private fun confirmPairing(pin: String) {
+        errorMessageState.value = ""
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_CONFIRM_PAIRING
             putExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID, requestId)
             putExtra(TetherLanService.EXTRA_PAIRING_PIN, pin)
         }
         startForegroundService(intent)
-        finish()
     }
 
     private fun rejectPairing() {
@@ -126,6 +163,7 @@ class PairingConfirmationActivity : ComponentActivity() {
 fun PairingConfirmationContent(
     peerName: String,
     peerFingerprint: String,
+    errorMessage: String = "",
     onAccept: (String) -> Unit,
     onReject: () -> Unit,
     onTimeout: () -> Unit,
@@ -250,6 +288,18 @@ fun PairingConfirmationContent(
                         ),
                         shape = RoundedCornerShape(16.dp),
                     )
+
+                    if (errorMessage.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = errorMessage,
+                            color = AlertRed,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(20.dp))
 

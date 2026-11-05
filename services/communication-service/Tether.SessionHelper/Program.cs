@@ -13,8 +13,22 @@ internal static class Program
     private const string InputPipeName = "Tether.InputPipe";
     private const int MaxFrameBytes = 1024 * 1024;
 
+    private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
     [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool GetNamedPipeServerProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle hPipe, out uint ServerProcessId);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool ProcessIdToSessionId(uint dwProcessId, out uint pSessionId);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint processAccess, bool bInheritHandle, uint processId);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags, System.Text.StringBuilder lpExeName, ref uint lpdwSize);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
 
     private static async Task<int> Main(string[] args)
     {
@@ -272,11 +286,30 @@ internal static class Program
             if (!GetNamedPipeServerProcessId(pipe.SafePipeHandle, out uint serverPid))
                 return false;
 
-            using var serverProc = System.Diagnostics.Process.GetProcessById((int)serverPid);
-            if (serverProc.SessionId != 0) return false;
+            // 1. Session 0 isolation validation (SYSTEM service boundary)
+            if (!ProcessIdToSessionId(serverPid, out uint serverSessionId) || serverSessionId != 0)
+                return false;
 
-            string procName = serverProc.ProcessName;
-            return string.Equals(procName, "Tether.CommunicationService", StringComparison.OrdinalIgnoreCase);
+            // 2. Query process image using least-privilege PROCESS_QUERY_LIMITED_INFORMATION
+            IntPtr hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, serverPid);
+            if (hProc == IntPtr.Zero)
+                return false;
+
+            try
+            {
+                var sb = new System.Text.StringBuilder(1024);
+                uint size = (uint)sb.Capacity;
+                if (!QueryFullProcessImageName(hProc, 0, sb, ref size))
+                    return false;
+
+                string fullPath = sb.ToString();
+                string fileName = System.IO.Path.GetFileName(fullPath);
+                return string.Equals(fileName, "Tether.CommunicationService.exe", StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                CloseHandle(hProc);
+            }
         }
         catch
         {

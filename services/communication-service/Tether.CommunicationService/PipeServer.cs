@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32;
 using Tether.EventBus;
 using Tether.Shared.Events;
 using Tether.Shared.IPC;
@@ -57,7 +58,9 @@ public class PipeServer : IDisposable
 
     public static bool IsAllowedIpcEvent(TetherEventType type) =>
         type == TetherEventType.PANIC_TRIGGERED ||
-        type == TetherEventType.HARDWARE_SYNC_REQUESTED;
+        type == TetherEventType.HARDWARE_SYNC_REQUESTED ||
+        type == TetherEventType.FORGET_PHONE ||
+        type == TetherEventType.VAULT_UPDATE;
 
     public void Start()
     {
@@ -242,6 +245,35 @@ public class PipeServer : IDisposable
         return clientAuthorized;
     }
 
+    private static void SaveVaultSecret(byte[] encryptedPassword, string clientSid, string? username)
+    {
+        using var rootKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
+        rootKey?.SetValue("VaultDaclVersion", 2, Microsoft.Win32.RegistryValueKind.DWord);
+
+        var rs = new RegistrySecurity();
+        var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+        var adminsSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+
+        rs.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        rs.AddAccessRule(new RegistryAccessRule(systemSid, RegistryRights.FullControl, AccessControlType.Allow));
+        rs.AddAccessRule(new RegistryAccessRule(adminsSid, RegistryRights.FullControl, AccessControlType.Allow));
+
+        using var secretsKey = rootKey?.CreateSubKey("Secrets", RegistryKeyPermissionCheck.ReadWriteSubTree, rs);
+        if (secretsKey != null)
+        {
+            secretsKey.SetAccessControl(rs);
+            secretsKey.SetValue("EncryptedPassword", encryptedPassword, Microsoft.Win32.RegistryValueKind.Binary);
+            if (!string.IsNullOrEmpty(clientSid))
+            {
+                secretsKey.SetValue("TargetUserSid", clientSid, Microsoft.Win32.RegistryValueKind.String);
+            }
+            if (!string.IsNullOrEmpty(username))
+            {
+                secretsKey.SetValue("TargetUsername", username, Microsoft.Win32.RegistryValueKind.String);
+            }
+        }
+    }
+
     private async Task ProcessClientAsync(NamedPipeServerStream pipeStream, CancellationToken serviceCt)
     {
         using (pipeStream)
@@ -286,6 +318,33 @@ public class PipeServer : IDisposable
                         if (!IsAllowedIpcEvent(evt.EventType))
                         {
                             _logger.Warning($"Rejected disallowed event type: {evt.EventType}");
+                            continue;
+                        }
+
+                        if (evt.EventType == TetherEventType.VAULT_UPDATE)
+                        {
+                            try
+                            {
+                                using var doc = JsonDocument.Parse(evt.PayloadJson ?? "{}");
+                                var root = doc.RootElement;
+                                string? hexPayload = root.TryGetProperty("hexPayload", out var hexProp) ? hexProp.GetString() : null;
+                                string? username = root.TryGetProperty("username", out var userProp) ? userProp.GetString() : null;
+
+                                if (!string.IsNullOrEmpty(hexPayload))
+                                {
+                                    byte[] protectedPayload = Convert.FromHexString(hexPayload);
+                                    SaveVaultSecret(protectedPayload, clientSid, username);
+                                    _logger.Info($"Vault secret updated securely over IPC for client SID: {clientSid}");
+                                }
+                                else
+                                {
+                                    _logger.Warning("VAULT_UPDATE payload missing hexPayload.");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.Error($"Failed to process VAULT_UPDATE: {ex.Message}", ex);
+                            }
                             continue;
                         }
 

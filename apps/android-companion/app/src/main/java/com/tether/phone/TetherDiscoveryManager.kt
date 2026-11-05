@@ -314,10 +314,26 @@ class TetherDiscoveryManager(
             }
             udpSocket = socket
 
-            val broadcastAddrs = mutableListOf<InetAddress>()
+            val broadcastAddrs = mutableSetOf<InetAddress>()
             try {
                 broadcastAddrs.add(InetAddress.getByName("255.255.255.255"))
             } catch (_: Exception) {}
+
+            try {
+                val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
+                while (interfaces != null && interfaces.hasMoreElements()) {
+                    val networkInterface = interfaces.nextElement()
+                    if (!networkInterface.isUp || networkInterface.isLoopback) continue
+                    for (interfaceAddress in networkInterface.interfaceAddresses) {
+                        val broadcast = interfaceAddress.broadcast
+                        if (broadcast != null) {
+                            broadcastAddrs.add(broadcast)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed resolving subnet broadcast addresses: ${e.message}")
+            }
 
             val probeThread = Thread {
                 while (isSearching && !Thread.currentThread().isInterrupted) {

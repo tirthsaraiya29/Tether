@@ -1,4 +1,4 @@
-﻿namespace Tether.Shared.Events
+namespace Tether.Shared.Events
 {
     public enum TetherEventType
     {
@@ -33,7 +33,8 @@
         FILE_TRANSFER_CANCEL_REQUESTED,
         FILE_TRANSFER_ENQUEUE_REQUESTED,
         FS_DB_SYNC_REQUESTED,
-        HARDWARE_SYNC_REQUESTED
+        HARDWARE_SYNC_REQUESTED,
+        VAULT_UPDATE
     }
 
     public class TetherEvent

@@ -153,7 +153,7 @@ public sealed class PacketRouter
 
         _eventBus.Publish(new TetherEvent
         {
-            EventType = TetherEventType.TRUST_DEGRADED,
+            EventType = TetherEventType.HARDWARE_SYNC_REQUESTED,
             Source = "PacketRouter",
             PayloadJson = JsonSerializer.Serialize(new
             {

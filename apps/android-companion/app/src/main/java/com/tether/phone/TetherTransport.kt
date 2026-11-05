@@ -84,7 +84,7 @@ class TetherTlsTransport(
         sslSock.useClientMode = true
 
         val sslParams = sslSock.sslParameters
-        sslParams.endpointIdentificationAlgorithm = "HTTPS"
+        sslParams.endpointIdentificationAlgorithm = null // Mutual public-key pinning verifies peer identity over dynamic LAN IPs
         sslSock.sslParameters = sslParams
 
         sslSock.enabledProtocols = arrayOf("TLSv1.3")
