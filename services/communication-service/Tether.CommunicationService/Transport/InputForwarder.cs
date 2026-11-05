@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
@@ -146,14 +146,38 @@ public sealed class InputForwarder : IHostedService, IDisposable
                 pipe = NamedPipeServerStreamAcl.Create(
                     pipeName,
                     PipeDirection.Out,
-                    1,
+                    NamedPipeServerStream.MaxAllowedServerInstances,
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous,
                     PipeBufferSize,
                     PipeBufferSize,
                     security);
 
-                await pipe.WaitForConnectionAsync(ct);
+                while (!ct.IsCancellationRequested)
+                {
+                    using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    waitCts.CancelAfter(TimeSpan.FromSeconds(3));
+                    try
+                    {
+                        await pipe.WaitForConnectionAsync(waitCts.Token).ConfigureAwait(false);
+                        break;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        if (ct.IsCancellationRequested) throw;
+                        uint currentActiveSession = WTSGetActiveConsoleSessionId();
+                        if (currentActiveSession != activeSessionId)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                if (!pipe.IsConnected)
+                {
+                    try { pipe.Dispose(); } catch { }
+                    continue;
+                }
 
                 lock (_pipeLock)
                 {
@@ -228,6 +252,8 @@ public sealed class InputForwarder : IHostedService, IDisposable
                     // A dead-but-instanced pipe blocks AcceptLoopAsync on its
                     // disconnect TCS; signal it so a fresh pipe can be created.
                     staleTcs = _clientDisconnectTcs;
+                    _activePipe = null;
+                    _clientDisconnectTcs = null;
                 }
             }
             if (pipe is null || !pipe.IsConnected)

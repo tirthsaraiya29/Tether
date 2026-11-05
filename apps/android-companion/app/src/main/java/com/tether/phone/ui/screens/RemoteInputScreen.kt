@@ -122,7 +122,7 @@ fun RemoteInputScreen(
     val isConnected = transportState == TransportState.READY || transportState == TransportState.AUTHENTICATED
 
     var isKeyboardVisible by remember { mutableStateOf(false) }
-    var textBuffer by remember { mutableStateOf(TextFieldValue("")) }
+    var textBuffer by remember { mutableStateOf(TextFieldValue("\u200B", androidx.compose.ui.text.TextRange(1))) }
     var showSensitivitySheet by remember { mutableStateOf(false) }
 
     val activeTouchPoints = remember { mutableStateListOf<TouchPoint>() }
@@ -148,24 +148,17 @@ fun RemoteInputScreen(
             value = textBuffer,
             onValueChange = { newValue ->
                 val newText = newValue.text
-                val oldText = textBuffer.text
-
-                if (newText != oldText) {
-                    // Diff the actual edit (handles selection replaces and
-                    // mid-string changes, not just append/trim at the end).
-                    var prefix = 0
-                    val minLen = minOf(oldText.length, newText.length)
-                    while (prefix < minLen && oldText[prefix] == newText[prefix]) prefix++
-                    var suffix = 0
-                    while (suffix < minLen - prefix &&
-                        oldText[oldText.length - 1 - suffix] == newText[newText.length - 1 - suffix]
-                    ) suffix++
-                    repeat(oldText.length - prefix - suffix) {
-                        inputEngine.triggerKeyTap(VK_BACK)
+                if (newText.isEmpty()) {
+                    // Backspace deleted the sentinel: reliably fires for soft keyboards (Gboard, Samsung, etc.)
+                    inputEngine.triggerKeyTap(VK_BACK)
+                    textBuffer = TextFieldValue("\u200B", androidx.compose.ui.text.TextRange(1))
+                } else {
+                    val typed = newText.replace("\u200B", "")
+                    if (typed.isNotEmpty()) {
+                        inputEngine.sendUnicodeText(typed)
                     }
-                    inputEngine.sendUnicodeText(newText.substring(prefix, newText.length - suffix))
+                    textBuffer = TextFieldValue("\u200B", androidx.compose.ui.text.TextRange(1))
                 }
-                textBuffer = newValue
             },
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                 keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
@@ -281,69 +274,100 @@ fun RemoteInputScreen(
                                 if (!isConnected) return@pointerInput
 
                                 awaitPointerEventScope {
+                                    var touchStartTime = 0L
+                                    var totalDragDistance = 0f
+                                    var maxPointers = 0
+                                    var isDragging = false
+                                    var lastTapUpTime = 0L
+                                    val touchSlopPx = viewConfiguration.touchSlop
+
                                     while (true) {
                                         val event = awaitPointerEvent(PointerEventPass.Main)
                                         val changes = event.changes
+                                        val pressed = changes.filter { it.pressed }
+                                        val pointerCount = pressed.size
 
                                         activeTouchPoints.clear()
-                                        changes.filter { it.pressed }.forEach {
+                                        pressed.forEach {
                                             activeTouchPoints.add(TouchPoint(it.id.value, it.position))
                                         }
 
-                                        val pointerCount = changes.count { it.pressed }
-
-                                        if (pointerCount == 1) {
-                                            val change = changes.firstOrNull { it.pressed }
-                                            if (change != null) {
-                                                val dragAmount = change.position - change.previousPosition
-                                                if (dragAmount.x != 0f || dragAmount.y != 0f) {
-                                                    if (inputEngine.isTapAndHoldActive) {
-                                                        inputEngine.processPointerDrag(dragAmount.x, dragAmount.y)
-                                                    } else {
-                                                        inputEngine.processPointerDrag(dragAmount.x, dragAmount.y)
-                                                    }
-                                                    change.consume()
-                                                }
+                                        if (pointerCount > 0) {
+                                            if (maxPointers == 0) {
+                                                touchStartTime = System.currentTimeMillis()
+                                                totalDragDistance = 0f
+                                                isDragging = inputEngine.isTapAndHoldActive
                                             }
-                                        } else if (pointerCount == 2) {
-                                            // Only average pointers that are actually down;
-                                            // lifted/stale changes must not bleed into the delta.
-                                            val pressed = changes.filter { it.pressed }
-                                            val drag1 = pressed.getOrNull(0)?.let { it.position - it.previousPosition }
-                                            val drag2 = pressed.getOrNull(1)?.let { it.position - it.previousPosition }
-                                            val dySum = listOfNotNull(drag1?.y, drag2?.y).sum()
+                                            if (pointerCount > maxPointers) {
+                                                maxPointers = pointerCount
+                                            }
 
-                                            if (kotlin.math.abs(dySum / maxOf(pressed.size, 1)) > 0.5f) {
-                                                inputEngine.processScrollDrag(dySum / maxOf(pressed.size, 1))
-                                                pressed.forEach { it.consume() }
+                                            if (pointerCount == 1) {
+                                                val change = pressed[0]
+                                                val dragDelta = change.position - change.previousPosition
+                                                val dist = kotlin.math.hypot(dragDelta.x, dragDelta.y)
+                                                totalDragDistance += dist
+
+                                                if (isDragging || totalDragDistance > touchSlopPx) {
+                                                    isDragging = true
+                                                    if (dragDelta.x != 0f || dragDelta.y != 0f) {
+                                                        inputEngine.processPointerDrag(dragDelta.x, dragDelta.y)
+                                                        change.consume()
+                                                    }
+                                                }
+                                            } else if (pointerCount == 2) {
+                                                val drag1 = pressed.getOrNull(0)?.let { it.position - it.previousPosition }
+                                                val drag2 = pressed.getOrNull(1)?.let { it.position - it.previousPosition }
+                                                val dySum = listOfNotNull(drag1?.y, drag2?.y).sum()
+                                                val avgDy = dySum / maxOf(pressed.size, 1)
+                                                totalDragDistance += kotlin.math.abs(avgDy)
+
+                                                if (isDragging || totalDragDistance > touchSlopPx) {
+                                                    isDragging = true
+                                                    if (kotlin.math.abs(avgDy) > 0.5f) {
+                                                        inputEngine.processScrollDrag(avgDy)
+                                                        pressed.forEach { it.consume() }
+                                                    }
+                                                }
                                             }
                                         }
 
                                         if (changes.all { !it.pressed }) {
                                             activeTouchPoints.clear()
+                                            val now = System.currentTimeMillis()
+                                            val duration = now - touchStartTime
+
+                                            if (!isDragging && totalDragDistance <= touchSlopPx && duration < 350L) {
+                                                if (maxPointers == 2) {
+                                                    // Two-finger tap -> Right Click
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    inputEngine.triggerTwoFingerTapClick()
+                                                    lastTapUpTime = 0L
+                                                } else if (maxPointers == 1) {
+                                                    if (now - lastTapUpTime < 300L) {
+                                                        // Double tap -> Left Click
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        inputEngine.triggerSingleTapClick()
+                                                        lastTapUpTime = 0L
+                                                    } else {
+                                                        // Single tap -> Left Click
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        inputEngine.triggerSingleTapClick()
+                                                        lastTapUpTime = now
+                                                    }
+                                                }
+                                            }
+
                                             if (inputEngine.isTapAndHoldActive) {
                                                 inputEngine.stopTapAndHoldDrag()
                                             }
+
+                                            maxPointers = 0
+                                            isDragging = false
+                                            totalDragDistance = 0f
                                         }
                                     }
                                 }
-                            }
-                            .pointerInput(isConnected) {
-                                if (!isConnected) return@pointerInput
-                                detectTapGestures(
-                                    onTap = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        inputEngine.triggerSingleTapClick()
-                                    },
-                                    onDoubleTap = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        inputEngine.startTapAndHoldDrag()
-                                    },
-                                    onLongPress = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        inputEngine.triggerTwoFingerTapClick()
-                                    }
-                                )
                             }
                     ) {
                         // Canvas visualizer for touch contact ripples & feedback

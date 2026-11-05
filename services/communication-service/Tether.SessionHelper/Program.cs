@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.IO.Pipes;
 using System.Management;
@@ -294,30 +294,68 @@ internal static class Program
             if (!GetNamedPipeServerProcessId(pipe.SafePipeHandle, out uint serverPid))
                 return false;
 
-            // 1. Session 0 isolation validation (SYSTEM service boundary)
-            if (!ProcessIdToSessionId(serverPid, out uint serverSessionId) || serverSessionId != 0)
-                return false;
-
-            // 2. Query process image using least-privilege PROCESS_QUERY_LIMITED_INFORMATION
-            IntPtr hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, serverPid);
-            if (hProc == IntPtr.Zero)
-                return false;
-
+            // 1. Validate that serverPid corresponds to Tether.CommunicationService running in Session 0.
+            // Using Process.GetProcessesByName queries the system process table via NtQuerySystemInformation
+            // without requiring open handles or PROCESS_QUERY_LIMITED_INFORMATION, which standard medium-integrity
+            // user tokens are denied on Session 0 SYSTEM processes.
+            bool isMatchingCommService = false;
             try
             {
-                var sb = new System.Text.StringBuilder(1024);
-                uint size = (uint)sb.Capacity;
-                if (!QueryFullProcessImageName(hProc, 0, sb, ref size))
-                    return false;
-
-                string fullPath = sb.ToString();
-                string fileName = System.IO.Path.GetFileName(fullPath);
-                return string.Equals(fileName, "Tether.CommunicationService.exe", StringComparison.OrdinalIgnoreCase);
+                var candidates = System.Diagnostics.Process.GetProcessesByName("Tether.CommunicationService");
+                foreach (var p in candidates)
+                {
+                    try
+                    {
+                        if (p.Id == (int)serverPid && p.SessionId == 0)
+                        {
+                            isMatchingCommService = true;
+                            break;
+                        }
+                    }
+                    catch { }
+                    finally
+                    {
+                        try { p.Dispose(); } catch { }
+                    }
+                }
             }
-            finally
+            catch
             {
-                CloseHandle(hProc);
+                return false;
             }
+
+            if (!isMatchingCommService)
+                return false;
+
+            // 2. Defense-in-depth: If the caller is elevated and can acquire a PROCESS_QUERY_LIMITED_INFORMATION handle,
+            // also verify that the image filename matches. If access is denied (standard user token), the verified
+            // Session 0 process table identity is accepted.
+            try
+            {
+                IntPtr hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, serverPid);
+                if (hProc != IntPtr.Zero)
+                {
+                    try
+                    {
+                        var sb = new System.Text.StringBuilder(1024);
+                        uint size = (uint)sb.Capacity;
+                        if (QueryFullProcessImageName(hProc, 0, sb, ref size))
+                        {
+                            string fullPath = sb.ToString();
+                            string fileName = System.IO.Path.GetFileName(fullPath);
+                            if (!string.Equals(fileName, "Tether.CommunicationService.exe", StringComparison.OrdinalIgnoreCase))
+                                return false;
+                        }
+                    }
+                    finally
+                    {
+                        CloseHandle(hProc);
+                    }
+                }
+            }
+            catch { }
+
+            return true;
         }
         catch
         {
