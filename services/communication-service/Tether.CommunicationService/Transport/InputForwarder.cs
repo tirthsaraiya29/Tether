@@ -264,7 +264,11 @@ public sealed class InputForwarder : IHostedService, IDisposable
 
             try
             {
-                await FrameCodec.WriteFrameAsync(pipe, frame, ct).ConfigureAwait(false);
+                byte[] packet = new byte[4 + frame.Length];
+                System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(packet, frame.Length);
+                Buffer.BlockCopy(frame, 0, packet, 4, frame.Length);
+                await pipe.WriteAsync(packet, 0, packet.Length, ct).ConfigureAwait(false);
+                await pipe.FlushAsync(ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
