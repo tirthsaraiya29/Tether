@@ -82,13 +82,13 @@ class RemoteInputEngine(
 
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
     private val gyroSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
-    private val accelSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    private var sensorThread: android.os.HandlerThread? = null
 
     fun dispatchEvent(event: InputEvent) {
         val frame = event.toBinaryFrame()
         if (frame.isNotEmpty()) {
             val firstByte = frame[0]
-            Log.d(TAG, "Emitting input frame (firstByte=0x${String.format(java.util.Locale.US, "%02X", firstByte)}, size=${frame.size})")
+            // high-frequency stream: avoid logcat overhead
         }
         sendFrameCallback(frame)
     }
@@ -243,8 +243,11 @@ class RemoteInputEngine(
         }
         if (!isAirMouseActive) {
             isAirMouseActive = true
-            sensorManager.registerListener(this, gyroSensor, SensorManager.SENSOR_DELAY_GAME)
-            accelSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+            val thread = android.os.HandlerThread("AirMouseThread").apply { start() }
+            sensorThread = thread
+            val handler = android.os.Handler(thread.looper)
+            sensorManager.registerListener(this, gyroSensor, SensorManager.SENSOR_DELAY_GAME, handler)
+            // Gyroscope-only tracking
             Log.i(TAG, "Air Mouse sensor fusion started")
         }
     }
@@ -253,6 +256,8 @@ class RemoteInputEngine(
         if (isAirMouseActive) {
             isAirMouseActive = false
             sensorManager?.unregisterListener(this)
+            sensorThread?.quitSafely()
+            sensorThread = null
             Log.i(TAG, "Air Mouse sensor fusion stopped")
         }
     }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 
@@ -218,12 +218,22 @@ internal sealed class InputInjector
         Dispatch(INPUT_MOUSE, in mi);
     }
 
+    private static bool IsExtendedKey(ushort vk) => vk switch
+    {
+        0x21 or 0x22 or 0x23 or 0x24 or 0x25 or 0x26 or 0x27 or 0x28 or // Prior, Next, End, Home, Left, Up, Right, Down
+        0x2D or 0x2E or // Insert, Delete
+        0x5B or 0x5C or 0x5D or // LWin, RWin, Apps
+        0x6F or 0x90 or // Divide, NumLock
+        0xA3 or 0xA5 => true, // RControl, RMenu
+        _ => false
+    };
+
     private void HandleVirtualKey(ushort vk, byte flags)
     {
         uint dwFlags = 0;
         bool isDown = flags != KeyStateUp; // KeyStateDown and KeyStateExtended both inject a down
         if (flags == KeyStateUp) dwFlags |= KEYEVENTF_KEYUP;
-        if (flags == KeyStateExtended) dwFlags |= KEYEVENTF_EXTENDEDKEY;
+        if (flags == KeyStateExtended || IsExtendedKey(vk)) dwFlags |= KEYEVENTF_EXTENDEDKEY;
 
         lock (_heldLock)
         {
@@ -271,12 +281,21 @@ internal sealed class InputInjector
         }
         foreach (var vk in keys)
         {
-            Dispatch(INPUT_KEYBOARD, new KEYBDINPUT { wVk = vk, dwFlags = KEYEVENTF_KEYUP });
+            uint flags = KEYEVENTF_KEYUP;
+            if (IsExtendedKey(vk)) flags |= KEYEVENTF_EXTENDEDKEY;
+            Dispatch(INPUT_KEYBOARD, new KEYBDINPUT { wVk = vk, dwFlags = flags });
         }
     }
 
     private void HandleUnicode(ushort utf16Char)
     {
+        if (utf16Char == '\n' || utf16Char == '\r')
+        {
+            HandleVirtualKey(0x0D, KeyStateDown);
+            HandleVirtualKey(0x0D, KeyStateUp);
+            return;
+        }
+
         // Fire KEYEVENTF_UNICODE down+up so it works regardless of the active input language.
         var down = new KEYBDINPUT
         {

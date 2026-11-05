@@ -192,6 +192,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
 
     private fun onHostConnected() {
+        while (inputFrameChannel.tryReceive().isSuccess) { /* flush stale frames before reconnect */ }
         lastPowerCommand = null
         lastPowerCommandAtMs = 0L
         rebootTimeoutJob?.cancel()
@@ -209,6 +210,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun onHostDisconnected() {
+        while (inputFrameChannel.tryReceive().isSuccess) { /* flush stale frames on link loss */ }
         if ((currentPowerState != LaptopPowerState.POWERED_OFF) && (currentPowerState != LaptopPowerState.RESTARTING)) {
             currentPowerState = when (lastPowerCommand) {
                 "shutdown" -> LaptopPowerState.POWERED_OFF
@@ -333,7 +335,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
      */
     @Synchronized
     private fun startInputPump() {
-        if (inputPumpJob != null) return
+        if (inputPumpJob?.isActive == true) return
         inputPumpJob = serviceScope.launch(Dispatchers.IO) {
             for (frame in inputFrameChannel) {
                 try {
