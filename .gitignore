@@ -36,6 +36,8 @@ Thumbs.db
 captures/
 .externalNativeBuild/
 .cxx/
+*.exe
+*.dll
 
 # Bundles
 *.bundle
@@ -93,3 +95,8 @@ installer/*.tmp
 # state files during development runs. These should never be committed.
 *.jsonl
 logs/
+
+# Build automation scripts & local secrets
+build.bat
+keystore.properties
+*.secret
