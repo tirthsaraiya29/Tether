@@ -40,7 +40,7 @@ public sealed class CapabilityManager
                 or "browser" or "taskmgr" or "explorer" or "settings"
                 or "calc" or "notepad" => "APP_LAUNCH",
 
-            "PING" or "PONG" => "MEDIA",
+            "ping" or "pong" => "MEDIA",
 
             _ => null
         };
@@ -67,4 +67,10 @@ public sealed class CapabilityManager
 
         return hasCap;
     }
+
+    public static IEnumerable<string> DefaultCapabilities =>
+        new[] { "MEDIA", "APP_LAUNCH", "FILES" };
+
+    public static IEnumerable<string> ElevatedCapabilities =>
+        new[] { "MEDIA", "APP_LAUNCH", "FILES", "POWER_ELEVATED" };
 }

@@ -50,6 +50,7 @@ sealed class PairingResult {
 
     data class PairingDenied(val reason: String) : PairingResult()
     data class KeyMismatch(val presentedFingerprint: String, val pinnedFingerprint: String) : PairingResult()
+    data class InvalidPin(val remainingAttempts: Int, val message: String) : PairingResult()
     data class Error(val message: String) : PairingResult()
 }
 
@@ -339,7 +340,14 @@ class TetherPairingManager(
 
             val completeBytes = transport.readFrame() ?: return PairingResult.Error("No PAIRING_COMPLETE response from Windows")
             val completeJson = JSONObject(String(completeBytes, StandardCharsets.UTF_8))
+            val type = completeJson.optString("type", "")
             val status = completeJson.optString("status", "")
+
+            if (type == "PAIRING_INVALID_PIN" || status == "INVALID_PIN") {
+                val remaining = completeJson.optInt("remainingAttempts", 0)
+                val msg = completeJson.optString("message", "Incorrect PIN. $remaining attempt(s) remaining.")
+                return PairingResult.InvalidPin(remaining, msg)
+            }
 
             if (status != "OK" && status != "PAIRING_COMPLETE") {
                 return PairingResult.Error("Pairing complete rejected by Windows with status: $status")

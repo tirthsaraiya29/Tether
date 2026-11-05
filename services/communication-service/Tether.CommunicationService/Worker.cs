@@ -12,6 +12,7 @@ using Tether.CommunicationService.Power;
 using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
+using Tether.CommunicationService.Trust;
 using Tether.EnforcementEngine;
 using Tether.EventBus;
 using Tether.PanicEngine;
@@ -49,6 +50,7 @@ public sealed class Worker : BackgroundService
     private readonly SessionManager _sessionManager;
     private readonly PowerEventWatcher _powerWatcher;
     private readonly PowerEventNotifier _powerNotifier;
+    private readonly TrustStore _trustStore;
 
     public Worker(
         ILogger<Worker> logger,
@@ -66,7 +68,8 @@ public sealed class Worker : BackgroundService
         PanicManager panicManager,
         RecoveryManager recoveryManager,
         IpcEventRelay ipcEventRelay,
-        IEventBus eventBus)
+        IEventBus eventBus,
+        TrustStore trustStore)
     {
         _logger = logger;
         _tetherLogger = tetherLogger;
@@ -78,12 +81,14 @@ public sealed class Worker : BackgroundService
         _sessionManager = sessionManager;
         _powerWatcher = powerWatcher;
         _powerNotifier = powerNotifier;
+        _trustStore = trustStore;
         _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager; _ = ipcEventRelay;
 
         eventBus.Subscribe(evt =>
         {
             if (evt.EventType == TetherEventType.TELEMETRY_SYNC_REQUESTED)
             {
+                PublishPairedDevicesList(eventBus);
                 if (_sessionManager.ActiveSessionCount > 0)
                 {
                     var firstDevice = _sessionManager.GetActiveSessions().FirstOrDefault()?.Device;
@@ -144,7 +149,52 @@ public sealed class Worker : BackgroundService
                     _tetherLogger.Warning($"Failed handling HARDWARE_SYNC_REQUESTED: {ex.Message}");
                 }
             }
+            else if (evt.EventType == TetherEventType.FORGET_PHONE && !string.IsNullOrEmpty(evt.PayloadJson))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(evt.PayloadJson);
+                    var root = doc.RootElement;
+                    string? fingerprint = root.TryGetProperty("fingerprint", out var fpProp) ? fpProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(fingerprint))
+                    {
+                        _trustStore.Remove(fingerprint);
+                        _sessionManager.DisconnectDevice(fingerprint, "Unpaired by user");
+                        _tetherLogger.Info($"Device with fingerprint {fingerprint} was removed from TrustStore and disconnected.");
+                        PublishPairedDevicesList(eventBus);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _tetherLogger.Warning($"Failed handling FORGET_PHONE: {ex.Message}");
+                }
+            }
         });
+    }
+
+    private void PublishPairedDevicesList(IEventBus eventBus)
+    {
+        try
+        {
+            var trusted = _trustStore.All().Select(p => new
+            {
+                deviceId = p.DeviceId,
+                displayName = p.DisplayName,
+                fingerprint = p.Fingerprint,
+                lastSeen = p.LastSeenUtc
+            }).ToList();
+
+            eventBus.Publish(new TetherEvent
+            {
+                EventType = TetherEventType.PROVISION_PHONE,
+                Source = "TrustStore",
+                PayloadJson = System.Text.Json.JsonSerializer.Serialize(trusted)
+            });
+        }
+        catch (Exception ex)
+        {
+            _tetherLogger.Warning($"Failed publishing paired devices list: {ex.Message}");
+        }
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -171,6 +221,20 @@ public sealed class Worker : BackgroundService
         _tetherLogger.Info($"Transport up. DeviceId={_identity.DeviceId}");
 
         _powerWatcher.Start();
+        _powerWatcher.PowerEventOccurred += evt =>
+        {
+            try
+            {
+                if (_sessionManager.ActiveSessionCount > 0)
+                {
+                    _powerNotifier.FlushToSession(json => _sessionManager.BroadcastRawFrame(json));
+                }
+            }
+            catch (Exception ex)
+            {
+                _tetherLogger.Warning($"Worker: immediate power-event flush failed: {ex.Message}");
+            }
+        };
         _tetherLogger.Info("PowerEventWatcher: started (WMI + SystemEvents corroborators).");
 
         LaptopStateCollector.Initialize(_sessionManager, _tetherLogger);

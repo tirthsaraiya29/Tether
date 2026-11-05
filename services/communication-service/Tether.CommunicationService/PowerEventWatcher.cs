@@ -22,7 +22,8 @@ public enum TetherPowerEventType
 public sealed record TetherPowerEvent(
     TetherPowerEventType Type,
     DateTimeOffset TimestampUtc,
-    string Source);
+    string Source,
+    string? LockSessionId = null);
 
 public sealed class PowerEventWatcher : IDisposable
 {
@@ -39,6 +40,7 @@ public sealed class PowerEventWatcher : IDisposable
 
     private TetherPowerEventType _lastRecordedType = TetherPowerEventType.None;
     private DateTimeOffset _lastRecordedAt = DateTimeOffset.MinValue;
+    private string? _currentLockSessionId;
 
     public event Action<TetherPowerEvent>? PowerEventOccurred;
 
@@ -205,7 +207,19 @@ public sealed class PowerEventWatcher : IDisposable
             _lastRecordedType = type;
             _lastRecordedAt = now;
 
-            evt = new TetherPowerEvent(type, now, source);
+            if (type == TetherPowerEventType.Lock)
+            {
+                _currentLockSessionId = Guid.NewGuid().ToString("N");
+            }
+
+            string? sessionToken = _currentLockSessionId;
+
+            if (type == TetherPowerEventType.Unlock)
+            {
+                _currentLockSessionId = null;
+            }
+
+            evt = new TetherPowerEvent(type, now, source, sessionToken);
             _pending.Enqueue(evt);
             while (_pending.Count > MaxPending) _pending.Dequeue();
         }

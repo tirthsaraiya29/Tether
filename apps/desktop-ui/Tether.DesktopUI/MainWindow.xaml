@@ -668,7 +668,67 @@
                     <StackPanel>
 
                         <!-- 1. Connection Card -->
-                        <Border x:Name="CardPipeline" Style="{StaticResource GlassPanel}">
+                                                <!-- 0. Pairing Request Card -->
+                        <Border x:Name="CardPairing"
+                                Style="{StaticResource GlassPanel}"
+                                Visibility="Collapsed"
+                                BorderBrush="{StaticResource SystemAccentBrush}"
+                                BorderThickness="1.5"
+                                Margin="0,0,0,14">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="DEVICE PAIRING"
+                                                   Style="{StaticResource SectionEyebrowTextStyle}"
+                                                   Foreground="{StaticResource SystemAccentBrush}"/>
+                                        <TextBlock x:Name="TxtPairingDeviceTitle"
+                                                   Text="Pairing Request"
+                                                   Style="{StaticResource CardTitleTextStyle}"/>
+                                    </StackPanel>
+                                    <Border Style="{StaticResource BadgePillBorderStyle}"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Top"
+                                            BorderBrush="{StaticResource SystemAccentBrush}">
+                                        <TextBlock Text="ACTION REQUIRED"
+                                                   FontFamily="{StaticResource MonoFontFamily}"
+                                                   FontSize="9.5"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource SystemAccentBrush}"/>
+                                    </Border>
+                                </Grid>
+                                <TextBlock x:Name="TxtPairingInstructions"
+                                           Text="A phone is attempting to pair with this PC. Enter the 6-digit PIN below on your phone:"
+                                           FontFamily="{StaticResource FluentFontFamily}"
+                                           FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Margin="0,0,0,12"
+                                           TextWrapping="Wrap"/>
+                                <Border Background="{StaticResource RecessedWellBrush}"
+                                        BorderBrush="{StaticResource SystemAccentBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="16,10"
+                                        HorizontalAlignment="Center"
+                                        Margin="0,0,0,12">
+                                    <TextBlock x:Name="TxtPairingPin"
+                                               Text="------"
+                                               FontFamily="{StaticResource MonoFontFamily}"
+                                               FontSize="30"
+                                               FontWeight="Bold"
+                                               Foreground="{StaticResource TextPrimaryBrush}"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Border>
+                                <Button x:Name="BtnDismissPairing"
+                                        Style="{StaticResource SubtleIconButton}"
+                                        HorizontalAlignment="Right"
+                                        Click="BtnDismissPairing_Click">
+                                    <TextBlock Text="Dismiss" FontSize="11" Margin="6,2"/>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+
+<Border x:Name="CardPipeline" Style="{StaticResource GlassPanel}">
                             <StackPanel>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -929,6 +989,97 @@
                                         </StackPanel>
                                     </Button>
                                 </Grid>
+                            </StackPanel>
+                        </Border>
+                        <!-- 4. Paired Devices Card -->
+                        <Border x:Name="CardPairedDevices"
+                                Style="{StaticResource GlassPanel}"
+                                Margin="0,14,0,0">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,6">
+                                    <StackPanel>
+                                        <TextBlock Text="TRUSTED DEVICES"
+                                                   Style="{StaticResource SectionEyebrowTextStyle}"/>
+                                        <TextBlock Text="Paired Phones"
+                                                   Style="{StaticResource CardTitleTextStyle}"/>
+                                    </StackPanel>
+                                    <Border Style="{StaticResource BadgePillBorderStyle}"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Top">
+                                        <TextBlock x:Name="TxtPairedCount"
+                                                   Text="0 PAIRED"
+                                                   FontFamily="{StaticResource MonoFontFamily}"
+                                                   FontSize="9.5"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextAccentBrush}"/>
+                                    </Border>
+                                </Grid>
+                                <TextBlock Text="Devices authorized to securely connect, unlock, and exchange files with this PC."
+                                           FontFamily="{StaticResource FluentFontFamily}"
+                                           FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Margin="0,0,0,10"
+                                           TextWrapping="Wrap"/>
+                                <ItemsControl x:Name="PairedDevicesList">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="{StaticResource RecessedWellBrush}"
+                                                    BorderBrush="{StaticResource SubtleDividerBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="8"
+                                                    Padding="10,8"
+                                                    Margin="0,0,0,6">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Border Grid.Column="0"
+                                                            Width="30" Height="30"
+                                                            CornerRadius="6"
+                                                            Background="#12FFFFFF"
+                                                            Margin="0,0,10,0">
+                                                        <TextBlock Text="&#xE8EA;"
+                                                                   FontFamily="{StaticResource IconFontFamily}"
+                                                                   FontSize="13"
+                                                                   Foreground="{StaticResource SystemAccentBrush}"
+                                                                   HorizontalAlignment="Center"
+                                                                   VerticalAlignment="Center"/>
+                                                    </Border>
+                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding DisplayName}"
+                                                                   FontFamily="{StaticResource FluentFontFamily}"
+                                                                   FontSize="12.5"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                        <TextBlock Text="{Binding FingerprintPreview}"
+                                                                   FontFamily="{StaticResource MonoFontFamily}"
+                                                                   FontSize="10"
+                                                                   Foreground="{StaticResource TextMutedBrush}"/>
+                                                    </StackPanel>
+                                                    <Button Grid.Column="2"
+                                                            Style="{StaticResource SubtleIconButton}"
+                                                            VerticalAlignment="Center"
+                                                            Padding="8,4"
+                                                            Tag="{Binding Fingerprint}"
+                                                            Click="BtnUnpairDevice_Click">
+                                                        <TextBlock Text="Revoke"
+                                                                   Foreground="{StaticResource StatusCriticalBrush}"
+                                                                   FontSize="11"/>
+                                                    </Button>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock x:Name="TxtNoPairedDevices"
+                                           Text="No phones paired yet. Open the Tether companion app on your phone to pair."
+                                           FontFamily="{StaticResource FluentFontFamily}"
+                                           FontSize="11.5"
+                                           FontStyle="Italic"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Margin="4,4,0,0"/>
                             </StackPanel>
                         </Border>
 

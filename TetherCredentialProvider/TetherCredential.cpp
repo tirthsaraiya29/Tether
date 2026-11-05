@@ -530,9 +530,28 @@ HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
         CoTaskMemFree(pszCurrentTileSid);
         return S_FALSE;
     }
+
+    // Check target user SID if configured in registry secrets to prevent cross-tile starvation
+    HKEY hKeyVault = nullptr;
+    WCHAR szTargetSid[128] = { 0 };
+    DWORD dwTargetSidLen = sizeof(szTargetSid);
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ, &hKeyVault) == ERROR_SUCCESS ||
+        RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKeyVault) == ERROR_SUCCESS)
+    {
+        RegQueryValueExW(hKeyVault, L"TargetUserSid", nullptr, nullptr, (LPBYTE)szTargetSid, &dwTargetSidLen);
+        RegCloseKey(hKeyVault);
+    }
+
+    if (szTargetSid[0] != L'\0' && _wcsicmp(szTargetSid, pszCurrentTileSid) != 0)
+    {
+        WriteDebugLog(L"GetSerialization: tile SID (%ls) does not match target SID (%ls). Skipping tile.", pszCurrentTileSid, szTargetSid);
+        CoTaskMemFree(pszCurrentTileSid);
+        return S_FALSE; // Not for this user; preserve trigger flag for targeted user tile
+    }
     CoTaskMemFree(pszCurrentTileSid);
 
-    if (!g_fPhoneAppTriggered.load())
+    bool isTriggered = _fInstancePhoneAppTriggered.exchange(false) || g_fPhoneAppTriggered.load();
+    if (!isTriggered)
     {
         SHStrDupW(L"Open the Tether app on your phone and tap 'Unlock PC'.", ppwszOptionalStatusText);
         *pcpsiOptionalStatusIcon = CPSI_WARNING;
@@ -542,9 +561,15 @@ HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
     HRESULT hr = _GetStoredPasswordAndPack(pcpgsr, pcpcs);
     g_fPhoneAppTriggered.store(false);
     g_fAutoLogonReady.store(false);
-    if (SUCCEEDED(hr) && *pcpgsr == CPGSR_RETURN_CREDENTIAL_FINISHED)
-        return S_OK;
+    _fInstanceAutoLogonReady.store(false);
 
+    if (SUCCEEDED(hr) && *pcpgsr == CPGSR_RETURN_CREDENTIAL_FINISHED)
+    {
+        WriteDebugLog(L"GetSerialization: Successfully packaged credentials for logon.");
+        return S_OK;
+    }
+
+    WriteDebugLog(L"GetSerialization: _GetStoredPasswordAndPack failed (hr=0x%08X).", hr);
     SHStrDupW(L"Tether App error: Local authentication credentials missing or corrupted.", ppwszOptionalStatusText);
     *pcpsiOptionalStatusIcon = CPSI_ERROR;
     return S_FALSE;
@@ -572,8 +597,42 @@ HRESULT CSampleCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatu
 
 HRESULT CSampleCredential::GetUserSid(PWSTR* ppszSid)
 {
-    if (!_pszUserSid) return E_UNEXPECTED;
-    return SHStrDupW(_pszUserSid, ppszSid);
+    if (_pszUserSid)
+    {
+        return SHStrDupW(_pszUserSid, ppszSid);
+    }
+
+    if (_pszQualifiedUserName && _pszQualifiedUserName[0] != L'\0')
+    {
+        DWORD cbSid = 0;
+        DWORD cchDomain = 0;
+        SID_NAME_USE sidType;
+        LookupAccountNameW(nullptr, _pszQualifiedUserName, nullptr, &cbSid, nullptr, &cchDomain, &sidType);
+        if (cbSid > 0)
+        {
+            BYTE* pSid = (BYTE*)LocalAlloc(LPTR, cbSid);
+            WCHAR* pDomain = (WCHAR*)LocalAlloc(LPTR, (cchDomain > 0 ? cchDomain : 1) * sizeof(WCHAR));
+            if (pSid && pDomain)
+            {
+                if (LookupAccountNameW(nullptr, _pszQualifiedUserName, pSid, &cbSid, pDomain, &cchDomain, &sidType))
+                {
+                    LPWSTR pStrSid = nullptr;
+                    if (ConvertSidToStringSidW(pSid, &pStrSid) && pStrSid)
+                    {
+                        HRESULT hr = SHStrDupW(pStrSid, ppszSid);
+                        LocalFree(pStrSid);
+                        LocalFree(pSid);
+                        LocalFree(pDomain);
+                        return hr;
+                    }
+                }
+            }
+            if (pSid) LocalFree(pSid);
+            if (pDomain) LocalFree(pDomain);
+        }
+    }
+
+    return E_UNEXPECTED;
 }
 
 static bool ConstantTimeWcsEquals(PCWSTR a, PCWSTR b)
@@ -754,11 +813,15 @@ void CALLBACK CSampleCredential::_OnAppEventSignaled(PVOID lpParameter, BOOLEAN)
     CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lpParameter);
     if (!pThis || !pThis->_isValid.load()) return;
 
-    if (pThis->_hWndMessage && !g_fPhoneAppTriggered.load())
+    WriteDebugLog(L"CSampleCredential::_OnAppEventSignaled for instance %p", pThis);
+    pThis->_fInstancePhoneAppTriggered.store(true);
+    pThis->_fInstanceAutoLogonReady.store(true);
+    g_fPhoneAppTriggered.store(true);
+    g_fAutoLogonReady.store(true);
+
+    if (pThis->_hAppEvent) ResetEvent(pThis->_hAppEvent);
+    if (pThis->_hWndMessage)
     {
-        g_fPhoneAppTriggered.store(true);
-        g_fAutoLogonReady.store(true);
-        if (pThis->_hAppEvent) ResetEvent(pThis->_hAppEvent);
         PostMessageW(pThis->_hWndMessage, WM_SIGNAL_CREDENTIALS_CHANGED, 0, reinterpret_cast<LPARAM>(pThis));
     }
 }
@@ -859,6 +922,46 @@ void WriteDebugLog(const wchar_t* format, ...)
     va_end(args);
     OutputDebugStringW(buf);
     OutputDebugStringW(L"\n");
+
+    // Persistent file logging to %ProgramData%\Tether\logs\credential-provider.log
+    WCHAR szPath[MAX_PATH];
+    DWORD dwEnvLen = GetEnvironmentVariableW(L"ProgramData", szPath, MAX_PATH);
+    if (dwEnvLen > 0 && dwEnvLen < MAX_PATH)
+    {
+        PathAppendW(szPath, L"Tether");
+        CreateDirectoryW(szPath, NULL);
+        PathAppendW(szPath, L"logs");
+        CreateDirectoryW(szPath, NULL);
+        PathAppendW(szPath, L"credential-provider.log");
+
+        HANDLE hFile = CreateFileW(szPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hFile != INVALID_HANDLE_VALUE)
+        {
+            // Limit log file size to ~5 MB
+            LARGE_INTEGER fileSize;
+            if (GetFileSizeEx(hFile, &fileSize) && fileSize.QuadPart > 5 * 1024 * 1024)
+            {
+                CloseHandle(hFile);
+                hFile = CreateFileW(szPath, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            }
+
+            if (hFile != INVALID_HANDLE_VALUE)
+            {
+                SYSTEMTIME st;
+                GetLocalTime(&st);
+                char line[2048];
+                int n = sprintf_s(line, "[%04u-%02u-%02u %02u:%02u:%02u.%03u] %ls\r\n",
+                                  st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, buf);
+                if (n > 0)
+                {
+                    DWORD written = 0;
+                    WriteFile(hFile, line, (DWORD)n, &written, NULL);
+                }
+                CloseHandle(hFile);
+            }
+        }
+    }
 }
 
 void CSampleCredential::_DestroyMessageWindow()

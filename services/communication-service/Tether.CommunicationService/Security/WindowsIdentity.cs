@@ -94,6 +94,11 @@ public sealed class WindowsIdentity : IDisposable
         // Add Subject Alternative Names for Hostname and Network IP addresses
         var sanBuilder = new SubjectAlternativeNameBuilder();
         sanBuilder.AddDnsName(Environment.MachineName);
+        try
+        {
+            sanBuilder.AddDnsName($"{Environment.MachineName.ToLowerInvariant()}.local");
+        }
+        catch { }
         sanBuilder.AddDnsName("localhost");
         try
         {

@@ -33,6 +33,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -68,6 +71,7 @@ class PowerEventActivity : FragmentActivity() {
 
     private var eventType: String = "LOCK"
     private var eventTimestamp: Long = 0L
+    private var lockSessionId: String? = null
 
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -100,6 +104,7 @@ class PowerEventActivity : FragmentActivity() {
 
         eventType = intent.getStringExtra(EXTRA_POWER_EVENT_TYPE) ?: "LOCK"
         eventTimestamp = intent.getLongExtra(EXTRA_POWER_EVENT_TIMESTAMP, 0L)
+        lockSessionId = intent.getStringExtra(PowerEventActionReceiver.EXTRA_LOCK_SESSION_ID)
 
         setContent {
             TetherTheme {
@@ -117,6 +122,7 @@ class PowerEventActivity : FragmentActivity() {
         setIntent(intent)
         eventType = intent.getStringExtra(EXTRA_POWER_EVENT_TYPE) ?: "LOCK"
         eventTimestamp = intent.getLongExtra(EXTRA_POWER_EVENT_TIMESTAMP, 0L)
+        lockSessionId = intent.getStringExtra(PowerEventActionReceiver.EXTRA_LOCK_SESSION_ID)
     }
 
     private fun triggerBiometricUnlock() {
@@ -184,8 +190,13 @@ class PowerEventActivity : FragmentActivity() {
         prefs.edit {
             putString("last_answered_power_event_type", eventType)
             putLong("last_answered_power_event_timestamp_ms", eventTimestamp)
-            putBoolean("is_unlock_prompt_dismissed", true)
+            remove("is_unlock_prompt_dismissed")
         }
+        val dismissIntent = Intent(this, TetherLanService::class.java).apply {
+            this.action = TetherLanService.ACTION_DISMISS_LOCK_SESSION
+            putExtra(TetherLanService.EXTRA_LOCK_SESSION_ID, lockSessionId)
+        }
+        startService(dismissIntent)
         val nm = NotificationManagerCompat.from(this)
         nm.cancel(PowerEventActionReceiver.POWER_EVENT_NOTIFICATION_ID)
         nm.cancel(UnlockPromptNotifier.UNLOCK_NOTIFICATION_ID)
@@ -200,8 +211,15 @@ fun PowerEventScreen(
     onReject: () -> Unit
 ) {
     var isVisible by remember { mutableStateOf(false) }
+    var secondsLeft by remember { mutableIntStateOf(30) }
+
     LaunchedEffect(Unit) {
         isVisible = true
+        while (secondsLeft > 0) {
+            delay(1.seconds)
+            secondsLeft -= 1
+        }
+        onReject()
     }
 
     val alphaAnim by animateFloatAsState(
@@ -311,7 +329,18 @@ fun PowerEventScreen(
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "Auto-dismissing in ${secondsLeft}s",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Normal,
+                    fontSize = 11.sp,
+                    color = LiquidCyan.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
