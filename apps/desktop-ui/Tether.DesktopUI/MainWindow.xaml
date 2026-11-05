@@ -866,7 +866,8 @@
                                     <PasswordBox x:Name="TxtPassword"
                                                  Grid.Column="0"
                                                  Height="36"
-                                                 VerticalContentAlignment="Center"/>
+                                                 VerticalContentAlignment="Center"
+                                                 KeyDown="TxtPassword_KeyDown"/>
 
                                     <Button x:Name="BtnCommitVault"
                                             Grid.Column="2"

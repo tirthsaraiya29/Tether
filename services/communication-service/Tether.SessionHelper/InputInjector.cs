@@ -54,6 +54,13 @@ internal sealed class InputInjector
     // One reusable INPUT per calling thread. SendInput copies the data, so reuse is safe.
     [ThreadStatic] private static INPUT[]? _tlsBuffer;
 
+    // Everything currently injected as "down" (mouse buttons + virtual keys).
+    // Released wholesale when the pipe session ends so a dropped phone link
+    // cannot leave a key or button logically held on the host.
+    private readonly HashSet<byte> _heldButtons = new();
+    private readonly HashSet<ushort> _heldKeys = new();
+    private readonly object _heldLock = new();
+
     /// <summary>
     /// Parse a single wire frame and dispatch it. Returns true if the frame was a valid input frame.
     /// </summary>
@@ -180,6 +187,11 @@ internal sealed class InputInjector
                 return;
         }
 
+        lock (_heldLock)
+        {
+            if (isDown) _heldButtons.Add(buttonId); else _heldButtons.Remove(buttonId);
+        }
+
         var mi = new MOUSEINPUT
         {
             dx = 0,
@@ -209,8 +221,14 @@ internal sealed class InputInjector
     private void HandleVirtualKey(ushort vk, byte flags)
     {
         uint dwFlags = 0;
+        bool isDown = flags != KeyStateUp; // KeyStateDown and KeyStateExtended both inject a down
         if (flags == KeyStateUp) dwFlags |= KEYEVENTF_KEYUP;
         if (flags == KeyStateExtended) dwFlags |= KEYEVENTF_EXTENDEDKEY;
+
+        lock (_heldLock)
+        {
+            if (isDown) _heldKeys.Add(vk); else _heldKeys.Remove(vk);
+        }
 
         var ki = new KEYBDINPUT
         {
@@ -221,6 +239,40 @@ internal sealed class InputInjector
             dwExtraInfo = IntPtr.Zero
         };
         Dispatch(INPUT_KEYBOARD, in ki);
+    }
+
+    /// <summary>
+    /// Release every key/button currently injected as down. Called when the
+    /// pipe session ends so a lost phone link cannot leave the host keyboard
+    /// or mouse logically held.
+    /// </summary>
+    public void ReleaseAllHeld()
+    {
+        byte[] buttons;
+        ushort[] keys;
+        lock (_heldLock)
+        {
+            buttons = _heldButtons.ToArray();
+            _heldButtons.Clear();
+            keys = _heldKeys.ToArray();
+            _heldKeys.Clear();
+        }
+
+        foreach (var b in buttons)
+        {
+            uint flag = b switch
+            {
+                MouseButtonLeft => MOUSEEVENTF_LEFTUP,
+                MouseButtonRight => MOUSEEVENTF_RIGHTUP,
+                MouseButtonMiddle => MOUSEEVENTF_MIDDLEUP,
+                _ => 0
+            };
+            if (flag != 0) Dispatch(INPUT_MOUSE, new MOUSEINPUT { dwFlags = flag });
+        }
+        foreach (var vk in keys)
+        {
+            Dispatch(INPUT_KEYBOARD, new KEYBDINPUT { wVk = vk, dwFlags = KEYEVENTF_KEYUP });
+        }
     }
 
     private void HandleUnicode(ushort utf16Char)

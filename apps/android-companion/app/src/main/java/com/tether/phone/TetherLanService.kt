@@ -197,6 +197,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         rebootTimeoutJob?.cancel()
         shutdownTimeoutJob?.cancel()
 
+        startInputPump()
+
         currentPowerState = LaptopPowerState.CONNECTED_LOCKED
         getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
             remove("last_power_command")
@@ -323,11 +325,16 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
     }
 
-    private fun loadPendingPairingState() {
-        val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
-        prefs.edit { remove("is_unlock_prompt_dismissed") }
-
-        serviceScope.launch(Dispatchers.IO) {
+    /**
+     * Starts the single background consumer of [inputFrameChannel] that actually
+     * transmits queued input frames over the active transport. Idempotent: the
+     * pump was previously launched only from the interactive pairing flow, so
+     * pinned-key reconnects (the normal path) silently dropped every input.
+     */
+    @Synchronized
+    private fun startInputPump() {
+        if (inputPumpJob != null) return
+        inputPumpJob = serviceScope.launch(Dispatchers.IO) {
             for (frame in inputFrameChannel) {
                 try {
                     val transport = activeTransport
@@ -339,6 +346,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             }
         }
+    }
+
+    private fun loadPendingPairingState() {
+        val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
+        prefs.edit { remove("is_unlock_prompt_dismissed") }
+
+        startInputPump()
         if (pendingRequestId.isNullOrBlank()) pendingRequestId = prefs.getString("pending_pairing_req_id", null)
         if (pendingWinEcPubKey == null) {
             val pubB64 = prefs.getString("pending_win_ec_pub_key", null)
@@ -1825,6 +1839,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private var dismissedLockSessionId: String? = null
     private var activeLockSessionId: String? = null
     private val inputFrameChannel = kotlinx.coroutines.channels.Channel<ByteArray>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+    private var inputPumpJob: Job? = null
 
     fun sendInputFrame(data: ByteArray) {
         val transport = activeTransport
