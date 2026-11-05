@@ -19,6 +19,12 @@
 #pragma comment(lib, "crypt32.lib")
 
 #define WM_SIGNAL_CREDENTIALS_CHANGED (WM_USER + 101)
+#define WM_PROMPT_COOLDOWN_TICK (WM_USER + 102)
+
+// Named event consumed by the communication service, which relays an
+// UNLOCK_PROMPT frame to the paired phone over the TLS control channel.
+static const wchar_t c_wszUnlockPromptEventName[] = L"Global\\TetherUnlockPromptRequested";
+static const int c_promptCooldownSeconds = 3;
 
 void WriteDebugLog(const wchar_t* format, ...);
 
@@ -106,6 +112,13 @@ CSampleCredential::~CSampleCredential()
 
     if (_hAppEvent) CloseHandle(_hAppEvent);
     if (_hScreenEvent) CloseHandle(_hScreenEvent);
+    if (_pCooldownTimer)
+    {
+        SetThreadpoolTimer(_pCooldownTimer, nullptr, 0, 0);
+        WaitForThreadpoolTimerCallbacks(_pCooldownTimer, TRUE);
+        CloseThreadpoolTimer(_pCooldownTimer);
+        _pCooldownTimer = nullptr;
+    }
     _DestroyMessageWindow();
 
     if (_rgFieldStrings[SFI_PASSWORD])
@@ -126,11 +139,27 @@ CSampleCredential::~CSampleCredential()
 
 LRESULT CALLBACK CSampleCredential::WebAuthMsgProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+    // WM_NCCREATE carries the lpParam passed to CreateWindowExW ('this'); stashed
+    // here so messages that don't route it explicitly (WM_TIMER) can find the owner.
+    if (uMsg == WM_NCCREATE)
+    {
+        CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(
+            reinterpret_cast<LPCREATESTRUCTW>(lParam)->lpCreateParams);
+        SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pThis));
+        return DefWindowProcW(hWnd, uMsg, wParam, lParam);
+    }
+
+    auto pThis = reinterpret_cast<CSampleCredential*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+
     if (uMsg == WM_SIGNAL_CREDENTIALS_CHANGED)
     {
-        CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lParam);
         if (pThis && pThis->_pProvider)
             pThis->_pProvider->SignalCredentialsChanged();
+        return 0;
+    }
+    if (uMsg == WM_PROMPT_COOLDOWN_TICK)
+    {
+        if (pThis) pThis->_OnCooldownTick();
         return 0;
     }
     return DefWindowProcW(hWnd, uMsg, wParam, lParam);
@@ -172,6 +201,7 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"", &_rgFieldStrings[SFI_PASSWORD]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Unlock", &_rgFieldStrings[SFI_SUBMIT_BUTTON]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Waiting for the Tether app on your phone...", &_rgFieldStrings[SFI_LOGONSTATUS_TEXT]);
+    if (SUCCEEDED(hr)) hr = SHStrDupW(L"Send unlock prompt to phone", &_rgFieldStrings[SFI_UNLOCK_PROMPT_BUTTON]);
 
     if (SUCCEEDED(hr)) hr = pcpUser->GetStringValue(PKEY_Identity_QualifiedUserName, &_pszQualifiedUserName);
     if (SUCCEEDED(hr)) hr = pcpUser->GetSid(&_pszUserSid);
@@ -795,9 +825,125 @@ HRESULT CSampleCredential::_VerifySaltedPassword(PCWSTR pwzEnteredPassword)
 
 HRESULT CSampleCredential::_VerifyTpmPassword(PCWSTR) { return E_NOTIMPL; }
 
-HRESULT CSampleCredential::CommandLinkClicked(DWORD)
+HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
 {
-    return E_INVALIDARG;
+    if (dwFieldID != SFI_UNLOCK_PROMPT_BUTTON)
+        return E_INVALIDARG;
+
+    // 5s cooldown gate: a press inside the window is ignored, the countdown
+    // just restarts the displayed seconds via the still-running timer.
+    long long nowMs = GetTickCount64();
+    long long endMs = _promptCooldownEndMs.load(std::memory_order_acquire);
+    if (nowMs < endMs)
+    {
+        WriteDebugLog(L"CommandLinkClicked: prompt button pressed during %lld ms cooldown; ignored.", endMs - nowMs);
+        return S_OK;
+    }
+
+    // Ask the service to relay an unlock prompt to the phone. Use OpenEvent
+    // first so we never clobber the service-owned DACL with ours.
+    HANDLE hEvt = OpenEventW(EVENT_MODIFY_STATE, FALSE, c_wszUnlockPromptEventName);
+    if (!hEvt)
+    {
+        PSECURITY_DESCRIPTOR pSD = nullptr;
+        if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            L"D:P(A;;GA;;;SY)(A;;GA;;;BA)", SDDL_REVISION_1, &pSD, nullptr))
+        {
+            SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), pSD, FALSE };
+            hEvt = CreateEventW(&sa, TRUE, FALSE, c_wszUnlockPromptEventName);
+            LocalFree(pSD);
+        }
+    }
+    if (hEvt)
+    {
+        // Leave signaled; the service consumes (resets) it in its wait callback.
+        SetEvent(hEvt);
+        CloseHandle(hEvt);
+        WriteDebugLog(L"CommandLinkClicked: signaled unlock prompt request event.");
+    }
+    else
+    {
+        WriteDebugLog(L"CommandLinkClicked: could not open/create prompt event (%u).", GetLastError());
+    }
+
+    _BeginUnlockPromptCooldown();
+    return S_OK;
+}
+
+void CSampleCredential::_SetStatusText(PCWSTR pszStatus)
+{
+    CoTaskMemFree(_rgFieldStrings[SFI_LOGONSTATUS_TEXT]);
+    if (FAILED(SHStrDupW(pszStatus, &_rgFieldStrings[SFI_LOGONSTATUS_TEXT])))
+        _rgFieldStrings[SFI_LOGONSTATUS_TEXT] = nullptr;
+
+    if (_pCredProvCredentialEvents)
+        _pCredProvCredentialEvents->SetFieldString(this, SFI_LOGONSTATUS_TEXT, pszStatus);
+}
+
+void CSampleCredential::_BeginUnlockPromptCooldown()
+{
+    _promptCooldownEndMs.store(GetTickCount64() + c_promptCooldownSeconds * 1000LL, std::memory_order_release);
+
+    if (_pCredProvCredentialEvents)
+    {
+        // Disable the button and announce the countdown; both field updates are
+        // refreshed by the WM_PROMPT_COOLDOWN_TICK posts from the pool timer.
+        _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFIS_DISABLED);
+        wchar_t statusText[64];
+        swprintf_s(statusText, L"Unlock prompt sent - resend available in %d s", c_promptCooldownSeconds);
+        _SetStatusText(statusText);
+    }
+
+    // SetTimer is unreliable here: ticks are only delivered if the thread that
+    // created the window keeps pumping its queue, which LogonUI does not
+    // guarantee for credential callbacks. Use a threadpool timer instead - it
+    // fires on a pool thread and hops to the window thread via PostMessage,
+    // the same pattern the unlock-refresh path uses.
+    if (!_pCooldownTimer)
+        _pCooldownTimer = CreateThreadpoolTimer(CSampleCredential::_OnCooldownTimerFired, this, nullptr);
+    if (_pCooldownTimer)
+    {
+        // Negative FILETIME = due time relative to now, in 100ns units (-1s).
+        LONG64 due100ns = -10000000LL;
+        FILETIME ftDue = *reinterpret_cast<FILETIME*>(&due100ns);
+        // msPeriod = 1000: re-fire every second until the countdown ends.
+        SetThreadpoolTimer(_pCooldownTimer, &ftDue, 1000, 0);
+    }
+}
+
+void CALLBACK CSampleCredential::_OnCooldownTimerFired(PTP_CALLBACK_INSTANCE, PVOID lpParameter, PTP_TIMER)
+{
+    CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lpParameter);
+    if (!pThis || !pThis->_isValid.load()) return;
+
+    if (pThis->_hWndMessage)
+        PostMessageW(pThis->_hWndMessage, WM_PROMPT_COOLDOWN_TICK, 0, reinterpret_cast<LPARAM>(pThis));
+}
+
+void CSampleCredential::_OnCooldownTick()
+{
+    long long nowMs = GetTickCount64();
+    long long endMs = _promptCooldownEndMs.load(std::memory_order_acquire);
+
+    if (nowMs >= endMs)
+    {
+        if (_pCooldownTimer)
+        {
+            SetThreadpoolTimer(_pCooldownTimer, nullptr, 0, 0); // stop firing
+            CloseThreadpoolTimer(_pCooldownTimer);
+            _pCooldownTimer = nullptr;
+        }
+        if (_pCredProvCredentialEvents)
+        {
+            _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFIS_NONE);
+            _SetStatusText(L"Waiting for the Tether app on your phone...");
+        }
+        return;
+    }
+
+    wchar_t statusText[64];
+    swprintf_s(statusText, L"Unlock prompt sent - resend available in %d s", (int)((endMs - nowMs + 999) / 1000));
+    _SetStatusText(statusText);
 }
 
 HRESULT CSampleCredential::GetFieldOptions(DWORD dwFieldID, CREDENTIAL_PROVIDER_CREDENTIAL_FIELD_OPTIONS* pcpcfo)

@@ -1347,6 +1347,17 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     }
                 }
             }
+            "UNLOCK_PROMPT" -> {
+                // PC-side credential provider explicitly asked the phone to surface
+                // the unlock prompt. This request is authoritative: bypass the
+                // dismissed-session and local power-state gates (the phone's lock
+                // state can be stale relative to the actual secure desktop).
+                getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
+                    putBoolean("is_unlock_prompt_dismissed", false)
+                }
+                activeLockSessionId?.let { dismissedLockSessionId = null }
+                postPowerEventNotification("LOCK", System.currentTimeMillis(), activeLockSessionId, force = true)
+            }
             "HARDWARE_METRICS", "LAPTOP_STATE" -> {
                 val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
                 val vol = json.optInt("volumeLevel", -1)
@@ -1399,8 +1410,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
     }
 
-    private fun postPowerEventNotification(eventType: String, timestamp: Long, lockSessionId: String? = null) {
-        if (lockSessionId != null && lockSessionId == dismissedLockSessionId) {
+    private fun postPowerEventNotification(
+        eventType: String,
+        timestamp: Long,
+        lockSessionId: String? = null,
+        force: Boolean = false
+    ) {
+        // force=true bypasses dismissal and lock-session gating: the PC-side
+        // credential provider explicitly asked for this prompt, so it must show.
+        if (!force && lockSessionId != null && lockSessionId == dismissedLockSessionId) {
             val safeEventType = sanitizeLog(eventType)
             Log.i(TAG, "Unlock prompt for $safeEventType at $timestamp is dismissed for lock session $lockSessionId; skipping notification.")
             return
