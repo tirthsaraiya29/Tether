@@ -7,6 +7,10 @@
   <meta name="description" content="Tether connects an Android phone to a Windows workstation over local Wi-Fi. Features device-assisted Windows unlock, remote trackpad input, emergency lockdown, and local media controls without cloud relays.">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0a0a0a">
+  <meta property="og:title" content="Tether: your phone and your PC, talking directly">
+  <meta property="og:description" content="Open-source, local-first trust between Android and Windows. No cloud, no accounts.">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f151b'/%3E%3Cpath d='M9 10h14M16 10v13' stroke='%233ddc97' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 
   <style>
     /* ============================================================
@@ -21,10 +25,11 @@
     :root {
       color-scheme: dark;
 
+      /* 70/25/5: neutral base / steel-tinted surfaces / green signal on connections only */
       --bg: #0a0a0a;
-      --surface: #111111;
-      --surface-raised: #161616;
-      --surface-hover: #1f1f1f;
+      --surface: #0f151b;
+      --surface-raised: #141c24;
+      --surface-hover: #1b252f;
 
       --text: #ededed;
       --text-muted: #a1a1a1;
@@ -32,6 +37,7 @@
 
       --accent-bg: #ffffff;
       --accent-text: #0a0a0a;
+      --signal: #3ddc97;
       --warn: #f59e0b;
 
       --border: #262626;
@@ -48,6 +54,8 @@
       --container-narrow: 720px;
       --section-space: clamp(48px, 6vw, 80px);
       --gap: clamp(16px, 2vw, 24px);
+
+      --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 
       --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -146,6 +154,20 @@
     }
     .skip-link:focus {
       top: 12px;
+    }
+
+    /* Scroll-reveal: one-shot, no loops. Disabled when reduced-motion is on. */
+    @media (prefers-reduced-motion: no-preference) {
+      .reveal {
+        opacity: 0;
+        transform: translateY(14px);
+        transition: opacity 0.55s var(--ease-out), transform 0.55s var(--ease-out);
+        transition-delay: var(--reveal-delay, 0s);
+      }
+      .reveal.is-visible {
+        opacity: 1;
+        transform: none;
+      }
     }
 
     /* ---------- 3. Base Typography ---------- */
@@ -287,6 +309,37 @@
       display: none;
     }
 
+    /* Mobile nav: overlay panel, animated in. No inline-style hacks. */
+    @media (max-width: 768px) {
+      .primary-nav.nav-open {
+        display: flex;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        align-items: stretch;
+        padding: 12px var(--gutter) 20px;
+        background: var(--surface-raised);
+        border-bottom: 1px solid var(--border-strong);
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+        opacity: 0;
+        transform: translateY(-8px);
+        transition: opacity 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+      }
+      .primary-nav.nav-open.is-visible {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    /* Header shadow appears only once the page scrolls */
+    .site-header.is-scrolled {
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+      background: rgba(10, 10, 10, 0.95);
+      transition: box-shadow 0.25s var(--ease-out), background 0.25s var(--ease-out);
+    }
+
     /* ---------- 6. Buttons & Chips ---------- */
     .btn {
       display: inline-flex;
@@ -330,15 +383,15 @@
       font-size: 0.85rem;
     }
 
-    /* Hallmark Rule 10: No decorative status dots */
+    /* Hallmark Rule 10: No decorative status dots. Warn color marks real build state. */
     .status-chip {
       display: inline-flex;
       align-items: center;
       padding: 4px 10px;
-      border: 1px solid var(--border-strong);
+      border: 1px solid rgba(245, 158, 11, 0.4);
       border-radius: var(--radius-sm);
       background: var(--surface);
-      color: var(--text-muted);
+      color: var(--warn);
       font-family: var(--font-mono);
       font-size: 0.7rem;
       white-space: nowrap;
@@ -429,7 +482,7 @@
       flex-direction: column;
       align-items: center;
       gap: 4px;
-      color: var(--text-subtle);
+      color: var(--signal); /* 5% accent: green appears only on the connection */
       font-family: var(--font-mono);
       font-size: 0.75rem;
     }
@@ -455,10 +508,12 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
       background: var(--surface);
-      transition: border-color 0.15s ease-out;
+      transition: border-color 0.15s ease-out, transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
     }
     .feature:hover {
       border-color: var(--border-strong);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
     }
 
     .feature-title {
@@ -528,6 +583,7 @@
       border-bottom: 2px solid transparent;
       transition: color 0.15s, border-color 0.15s;
       text-align: left;
+      white-space: nowrap;
     }
     .tab:hover {
       color: var(--text);
@@ -662,9 +718,11 @@
       float: right;
       font-family: var(--font-mono);
       color: var(--text-subtle);
+      transition: transform 0.25s var(--ease-out);
     }
     .faq-item[open] summary::after {
-      content: "−";
+      content: "\2212";
+      transform: rotate(180deg);
     }
     .faq-body {
       padding-bottom: 16px;
@@ -748,13 +806,26 @@
 
     @media (max-width: 768px) {
       .primary-nav {
-        display: none; /* Simplified mobile handling for brevity */
+        display: none; /* shown via .nav-open when the toggle is active */
       }
       .nav-toggle {
         display: inline-flex;
         margin-left: auto;
         padding: 8px;
         color: var(--text);
+      }
+      .hero {
+        padding-top: calc(var(--header-h) + 24px);
+        padding-bottom: 40px;
+      }
+      .section {
+        padding-block: 40px;
+      }
+      .feature {
+        padding: 18px;
+      }
+      .cta-actions .btn {
+        width: 100%; /* full-width tap targets on small screens */
       }
       .footer-grid {
         grid-template-columns: 1fr;
@@ -794,30 +865,30 @@
     <section class="hero section" id="top">
       <div class="container hero-grid">
         <div>
-          <p class="eyebrow">Phone + PC: Your own Wi-Fi</p>
-          <h1>Your phone and your PC. Talking directly.</h1>
-          <p class="hero-lede">
+          <p class="eyebrow reveal is-visible">Phone + PC: Your own Wi-Fi</p>
+          <h1 class="reveal is-visible" style="--reveal-delay: 0.05s;">Your phone and your PC. Talking directly.</h1>
+          <p class="hero-lede reveal is-visible" style="--reveal-delay: 0.12s;">
             Tether is an open-source personal trust and authentication platform that connects an Android device to a Windows workstation over local Wi-Fi. Unlock Windows via biometric challenge, stream trackpad input, send files, execute emergency lockdowns, and adjust media controls, entirely on your local network with zero cloud dependencies.
           </p>
-          <div class="hero-actions">
+          <div class="hero-actions reveal is-visible" style="--reveal-delay: 0.2s;">
             <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether/releases">Download Releases</a>
             <a class="btn btn-secondary" href="https://github.com/tirthsaraiya29/Tether">View on GitHub</a>
           </div>
-          <div class="hero-note">
+          <div class="hero-note reveal is-visible" style="--reveal-delay: 0.28s;">
             <span class="status-chip">STILL BEING BUILT</span>
             <span>Tether is an early project and hasn't been security audited. It is fun to explore, but do not trust it with anything important yet.</span>
           </div>
         </div>
 
         <!-- Semantic Topology Diagram (Replaces fake CSS devices) -->
-        <div class="topology">
+        <div class="topology reveal" style="--reveal-delay: 0.35s;">
           <div class="topology-node">
             <span class="topology-label">Android Device</span>
             <span class="topology-detail">Biometric Auth & Keystore</span>
           </div>
           <div class="topology-link">
             <span class="topology-protocol">TLS 1.3 · Port 37123</span>
-            <span class="topology-arrow">→</span>
+            <span class="topology-arrow" aria-hidden="true">→</span>
           </div>
           <div class="topology-node">
             <span class="topology-label">Windows Workstation</span>
@@ -830,12 +901,12 @@
     <!-- ============ Overview ============ -->
     <section class="section section-lined" id="overview" data-nav-section>
       <div class="container">
-        <header class="section-head">
+        <header class="section-head reveal">
           <p class="eyebrow">Overview</p>
           <h2>Two devices you already own, connected on your own network.</h2>
           <p class="section-lede">No accounts, no subscriptions, no server in the middle. Just a phone and a PC that you have told to trust each other.</p>
         </header>
-        <div class="overview-grid">
+        <div class="overview-grid reveal" style="--reveal-delay: 0.1s;">
           <div class="prose">
             <p>You install an app on your Android phone and a small service on your Windows PC. You pair them once, on your own Wi-Fi. After that, the phone can send a short list of commands to that PC, and only that PC.</p>
             <p>The commands are simple, everyday things: lock the screen, change the volume, adjust brightness, or trigger a quick lockdown if something feels wrong.</p>
@@ -867,55 +938,41 @@
     <!-- ============ Features ============ -->
     <section class="section section-lined" id="features" data-nav-section>
       <div class="container">
-        <header class="section-head">
+        <header class="section-head reveal">
           <p class="eyebrow">What it does</p>
           <h2>Six things Tether is built to do.</h2>
-          <p class="section-lede">Some of these work today. Others are still plans. Each card says which is which.</p>
+          <p class="section-lede">All six are working today. Each card notes what makes it possible.</p>
         </header>
-        <div class="feature-grid">
-          <div class="feature">
+        <div class="feature-grid reveal" style="--reveal-delay: 0.1s;">
+          <div class="feature reveal" style="--reveal-delay: 0.05s;">
             <h3 class="feature-title">Device-Assisted Windows Unlock</h3>
             <p class="feature-text">Authenticate your Windows workstation via a streamlined single sign-in path using Android biometrics and the native C++ TetherCredentialProvider.</p>
             <div class="feature-meta">
-              <span class="chip">Implemented</span>
               <span class="chip">Credential Provider</span>
             </div>
           </div>
-          <div class="feature">
+          <div class="feature reveal" style="--reveal-delay: 0.1s;">
             <h3 class="feature-title">Remote Trackpad & Input</h3>
             <p class="feature-text">Stream synthetic mouse movement, clicks, scrolling, and Windows modifier-key combinations into your active console session via the Session Helper.</p>
-            <div class="feature-meta">
-              <span class="chip">Implemented</span>
-            </div>
           </div>
-          <div class="feature">
-            <h3 class="feature-title">Emergency Lockdown & Panic</h3>
+          <div class="feature reveal" style="--reveal-delay: 0.15s;">
+            <h3 class="feature-title">Emergency Lockdown &amp; Panic</h3>
             <p class="feature-text">Trigger immediate workstation locking and trust-state revocation via Tether.PanicEngine, invalidating active sessions across the network boundary.</p>
-            <div class="feature-meta">
-              <span class="chip">Implemented</span>
-            </div>
           </div>
-          <div class="feature">
+          <div class="feature reveal" style="--reveal-delay: 0.2s;">
             <h3 class="feature-title">Hardware Keystore Trust Anchor</h3>
             <p class="feature-text">Binds paired identity to ECDSA P-256 keys generated inside Android Keystore with StrongBox hardware protection where available.</p>
             <div class="feature-meta">
-              <span class="chip">Implemented</span>
               <span class="chip">ECDSA P-256 / StrongBox</span>
             </div>
           </div>
-          <div class="feature">
+          <div class="feature reveal" style="--reveal-delay: 0.25s;">
             <h3 class="feature-title">Audio, Display & Apps</h3>
             <p class="feature-text">Adjust Windows Core Audio endpoint volume, change display brightness via WMI, and launch configured utilities.</p>
-            <div class="feature-meta">
-              <span class="chip">Implemented</span>
-            </div>
           </div>
-          <div class="feature">
+          <div class="feature reveal" style="--reveal-delay: 0.3s;">
             <h3 class="feature-title">Continuous Trust Validation</h3>
             <p class="feature-text">Monitors connectivity state callbacks to drop sessions on interface switches. Enforces strict replay protection with monotonic request IDs.</p>
-            <div class="feature-meta">
-              <span class="chip">Implemented</span>
-            </div>
           </div>
         </div>
       </div>
@@ -924,12 +981,12 @@
     <!-- ============ Architecture ============ -->
     <section class="section section-lined" id="architecture" data-nav-section>
       <div class="container">
-        <header class="section-head">
+        <header class="section-head reveal">
           <p class="eyebrow">Architecture</p>
           <h2>How the pieces fit together.</h2>
           <p class="section-lede">One phone app, one service on the PC, and a few helper parts around it.</p>
         </header>
-        <div class="arch-flow">
+        <div class="arch-flow reveal" style="--reveal-delay: 0.1s;">
           <div class="arch-node">
             <p class="arch-kind">on your phone</p>
             <h3 class="arch-name">Android app</h3>
@@ -955,19 +1012,19 @@
     <!-- ============ Developers ============ -->
     <section class="section section-lined" id="developers" data-nav-section>
       <div class="container">
-        <header class="section-head">
+        <header class="section-head reveal">
           <p class="eyebrow">For developers</p>
           <h2>Want to dig into the code?</h2>
           <p class="section-lede">What each part does, how the pieces talk, what you need installed, and how to build it.</p>
         </header>
 
-        <div class="tabs" data-tabs>
+        <div class="tabs reveal" style="--reveal-delay: 0.1s;" data-tabs>
           <div class="tablist" role="tablist" aria-label="Developer topics">
-            <button class="tab" id="tab-boundaries" type="button" role="tab" aria-selected="true" aria-controls="panel-boundaries">01: What each part does</button>
-            <button class="tab" id="tab-network" type="button" role="tab" aria-selected="false" aria-controls="panel-network" tabindex="-1">02: Network settings</button>
-            <button class="tab" id="tab-ipc" type="button" role="tab" aria-selected="false" aria-controls="panel-ipc" tabindex="-1">03: How parts talk</button>
-            <button class="tab" id="tab-build" type="button" role="tab" aria-selected="false" aria-controls="panel-build" tabindex="-1">04: What to install</button>
-            <button class="tab" id="tab-commands" type="button" role="tab" aria-selected="false" aria-controls="panel-commands" tabindex="-1">05: Build commands</button>
+            <button class="tab" id="tab-boundaries" type="button" role="tab" aria-selected="true" aria-controls="panel-boundaries">What each part does</button>
+            <button class="tab" id="tab-network" type="button" role="tab" aria-selected="false" aria-controls="panel-network" tabindex="-1">Network settings</button>
+            <button class="tab" id="tab-ipc" type="button" role="tab" aria-selected="false" aria-controls="panel-ipc" tabindex="-1">How parts talk</button>
+            <button class="tab" id="tab-build" type="button" role="tab" aria-selected="false" aria-controls="panel-build" tabindex="-1">What to install</button>
+            <button class="tab" id="tab-commands" type="button" role="tab" aria-selected="false" aria-controls="panel-commands" tabindex="-1">Build commands</button>
           </div>
 
           <div class="tabpanel" id="panel-boundaries" role="tabpanel" aria-labelledby="tab-boundaries" tabindex="0">
@@ -1077,11 +1134,11 @@
     <!-- ============ FAQ ============ -->
     <section class="section section-lined" id="faq">
       <div class="container container-narrow">
-        <header class="section-head">
+        <header class="section-head reveal">
           <p class="eyebrow">Questions</p>
           <h2>The things people usually ask.</h2>
         </header>
-        <div class="faq">
+        <div class="faq reveal" style="--reveal-delay: 0.1s;">
           <details class="faq-item">
             <summary>What is Tether, in one sentence?</summary>
             <div class="faq-body">
@@ -1107,7 +1164,7 @@
     <!-- ============ CTA ============ -->
     <section class="section section-cta" id="get-started">
       <div class="container">
-        <div class="cta-panel">
+        <div class="cta-panel reveal">
           <p class="eyebrow">Next step</p>
           <h2>Have a look at the project.</h2>
           <p style="color: var(--text-muted); margin-bottom: 24px;">Read the code, follow along, or help improve it. Everything lives on GitHub.</p>
@@ -1175,18 +1232,12 @@
         navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
         var label = navToggle.querySelector('[data-nav-toggle-label]');
         if (label) label.textContent = open ? 'Close' : 'Menu';
-        navPanel.style.display = open ? 'flex' : 'none';
         if (open) {
-          navPanel.style.position = 'absolute';
-          navPanel.style.top = '64px';
-          navPanel.style.left = '0';
-          navPanel.style.right = '0';
-          navPanel.style.flexDirection = 'column';
-          navPanel.style.background = 'var(--bg)';
-          navPanel.style.borderBottom = '1px solid var(--border)';
-          navPanel.style.padding = '16px';
+          navPanel.classList.add('nav-open');
+          requestAnimationFrame(function () { navPanel.classList.add('is-visible'); });
         } else {
-          navPanel.style = '';
+          navPanel.classList.remove('is-visible');
+          navPanel.classList.remove('nav-open');
         }
       }
 
@@ -1195,6 +1246,33 @@
           var isOpen = navToggle.getAttribute('aria-expanded') === 'true';
           setNavOpen(!isOpen);
         });
+        // Close the mobile menu when a link inside it is followed
+        navPanel.addEventListener('click', function (e) {
+          if (e.target.closest('a')) setNavOpen(false);
+        });
+      }
+
+      /* Header shadow after scroll */
+      var onScroll = function () {
+        header.classList.toggle('is-scrolled', window.scrollY > 8);
+      };
+      window.addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+
+      /* Scroll-reveal: one-shot IntersectionObserver, no loops */
+      var revealEls = Array.prototype.slice.call(doc.querySelectorAll('.reveal'));
+      if ('IntersectionObserver' in window) {
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('is-visible');
+              io.unobserve(entry.target);
+            }
+          });
+        }, { rootMargin: '0px 0px -40px 0px' });
+        revealEls.forEach(function (el) { io.observe(el); });
+      } else {
+        revealEls.forEach(function (el) { el.classList.add('is-visible'); });
       }
 
       /* Developer Tabs Interaction */
