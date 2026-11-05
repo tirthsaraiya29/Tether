@@ -46,6 +46,14 @@ namespace Tether.DesktopUI
             };
 
             // Check for elevated helper commands before single instance check
+            if (e.Args.Length > 0 && e.Args[0].Equals("--restart-service", StringComparison.OrdinalIgnoreCase))
+            {
+                // Launched elevated from the UI after a UAC prompt.
+                ServiceControl.Restart(_ => { });
+                Environment.Exit(0);
+                return;
+            }
+
             if (e.Args.Length > 0 && e.Args[0].Equals("--commit-vault-stdin", StringComparison.OrdinalIgnoreCase))
             {
                 try

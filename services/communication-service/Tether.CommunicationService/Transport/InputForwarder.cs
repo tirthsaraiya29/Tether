@@ -163,6 +163,21 @@ public sealed class InputForwarder : IHostedService, IDisposable
                 _logger.Info($"SessionHelper connected to input pipe '{pipeName}'.");
 
                 using var reg = ct.Register(() => disconnectTcs.TrySetResult(true));
+
+                // Wait for client disconnect. A silent client death (no writes
+                // in flight) never surfaces as a write error, so poll IsConnected.
+                while (!disconnectTcs.Task.IsCompleted)
+                {
+                    bool connected;
+                    lock (_pipeLock) { connected = pipe.IsConnected && ReferenceEquals(_activePipe, pipe); }
+                    if (!connected)
+                    {
+                        disconnectTcs.TrySetResult(true);
+                        break;
+                    }
+                    try { await Task.Delay(1000, ct).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { disconnectTcs.TrySetResult(true); break; }
+                }
                 await disconnectTcs.Task.ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -195,36 +210,35 @@ public sealed class InputForwarder : IHostedService, IDisposable
         var reader = _queue.Reader;
         while (!ct.IsCancellationRequested)
         {
-            byte[]? frame = null;
+            byte[]? frame;
             try
             {
-                var readTask = reader.ReadAsync(ct).AsTask();
-                var delayTask = Task.Delay(5000, ct);
-                var completed = await Task.WhenAny(readTask, delayTask).ConfigureAwait(false);
-
-                if (completed == readTask)
-                {
-                    frame = await readTask.ConfigureAwait(false);
-                }
+                frame = await reader.ReadAsync(ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { break; }
             catch (ChannelClosedException) { break; }
 
             NamedPipeServerStream? pipe;
-            lock (_pipeLock) { pipe = _activePipe; }
-            if (pipe is null || !pipe.IsConnected) continue;
+            TaskCompletionSource<bool>? staleTcs = null;
+            lock (_pipeLock)
+            {
+                pipe = _activePipe;
+                if (pipe is null || !pipe.IsConnected)
+                {
+                    // A dead-but-instanced pipe blocks AcceptLoopAsync on its
+                    // disconnect TCS; signal it so a fresh pipe can be created.
+                    staleTcs = _clientDisconnectTcs;
+                }
+            }
+            if (pipe is null || !pipe.IsConnected)
+            {
+                staleTcs?.TrySetResult(true);
+                continue; // realtime input frames are useless after reconnect; drop them
+            }
 
             try
             {
-                if (frame != null)
-                {
-                    await FrameCodec.WriteFrameAsync(pipe, frame, ct).ConfigureAwait(false);
-                }
-                else
-                {
-                    await pipe.WriteAsync(Array.Empty<byte>(), 0, 0, ct).ConfigureAwait(false);
-                    await pipe.FlushAsync(ct).ConfigureAwait(false);
-                }
+                await FrameCodec.WriteFrameAsync(pipe, frame, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -232,7 +246,7 @@ public sealed class InputForwarder : IHostedService, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.Warning($"Input pipe forward / keepalive error: {ex.Message}");
+                _logger.Warning($"Input pipe forward error: {ex.Message}");
 
                 TaskCompletionSource<bool>? tcs = null;
                 lock (_pipeLock)

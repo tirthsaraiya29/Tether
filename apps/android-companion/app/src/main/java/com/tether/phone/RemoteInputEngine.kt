@@ -53,6 +53,10 @@ class RemoteInputEngine(
 
     private val engineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    // Single lane for down->delay->up click sequences: concurrent taps must
+    // not interleave into down,down,up,up (which registers as one broken click).
+    private val clickLane = Dispatchers.IO.limitedParallelism(1)
+
     // Sensitivity Settings
     var pointerSensitivity by mutableFloatStateOf(1.0f)
     var scrollSensitivity by mutableFloatStateOf(1.0f)
@@ -90,7 +94,7 @@ class RemoteInputEngine(
     }
 
     fun dispatchEvents(events: List<InputEvent>) {
-        engineScope.launch {
+        engineScope.launch(clickLane) {
             for (event in events) {
                 dispatchEvent(event)
             }
@@ -134,7 +138,7 @@ class RemoteInputEngine(
     }
 
     fun triggerSingleTapClick() {
-        engineScope.launch {
+        engineScope.launch(clickLane) {
             dispatchEvent(InputEvent.ButtonState(MOUSE_BUTTON_LEFT, BUTTON_STATE_DOWN))
             delay(CLICK_HOLD_DELAY_MS)
             dispatchEvent(InputEvent.ButtonState(MOUSE_BUTTON_LEFT, BUTTON_STATE_UP))
@@ -142,7 +146,7 @@ class RemoteInputEngine(
     }
 
     fun triggerTwoFingerTapClick() {
-        engineScope.launch {
+        engineScope.launch(clickLane) {
             dispatchEvent(InputEvent.ButtonState(MOUSE_BUTTON_RIGHT, BUTTON_STATE_DOWN))
             delay(CLICK_HOLD_DELAY_MS)
             dispatchEvent(InputEvent.ButtonState(MOUSE_BUTTON_RIGHT, BUTTON_STATE_UP))
@@ -195,7 +199,7 @@ class RemoteInputEngine(
     }
 
     fun triggerKeyTap(vkCode: Short, isExtended: Boolean = false) {
-        engineScope.launch {
+        engineScope.launch(clickLane) {
             val flags = if (isExtended) KEY_STATE_EXTENDED else KEY_STATE_DOWN
             dispatchEvent(InputEvent.VirtualKey(vkCode, flags))
             delay(CLICK_HOLD_DELAY_MS)

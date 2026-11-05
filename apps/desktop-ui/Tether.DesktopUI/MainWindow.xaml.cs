@@ -284,45 +284,35 @@ namespace Tether.DesktopUI
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         private struct DATA_BLOB { public int cbData; public IntPtr pbData; }
 
-        [StructLayout(LayoutKind.Sequential)]
-        private struct SERVICE_STATUS
+        public static bool IsElevated
         {
-            public uint dwServiceType;
-            public uint dwCurrentState;
-            public uint dwControlsAccepted;
-            public uint dwWin32ExitCode;
-            public uint dwServiceSpecificExitCode;
-            public uint dwCheckPoint;
-            public uint dwWaitHint;
+            get
+            {
+                using var identity = WindowsIdentity.GetCurrent();
+                return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+            }
         }
 
-        private const uint SC_MANAGER_CONNECT = 0x0001;
-        private const uint SERVICE_QUERY_STATUS = 0x0004;
-        private const uint SERVICE_START = 0x0010;
-        private const uint SERVICE_STOP = 0x0020;
-
-        private const uint SERVICE_CONTROL_STOP = 0x00000001;
-        private const uint SERVICE_STOPPED = 0x00000001;
-        private const int ERROR_SERVICE_ALREADY_RUNNING = 1056;
-        private const string CommServiceName = "TetherCommService";
-
-        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        private static extern IntPtr OpenSCManager(string? lpMachineName, string? lpDatabaseName, uint dwDesiredAccess);
-
-        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        private static extern IntPtr OpenService(IntPtr hSCManager, string lpServiceName, uint dwDesiredAccess);
-
-        [DllImport("advapi32.dll", SetLastError = true)]
-        private static extern bool QueryServiceStatus(IntPtr hService, out SERVICE_STATUS lpServiceStatus);
-
-        [DllImport("advapi32.dll", SetLastError = true)]
-        private static extern bool ControlService(IntPtr hService, uint dwControl, ref SERVICE_STATUS lpServiceStatus);
-
-        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        private static extern bool StartService(IntPtr hService, int dwNumServiceArgs, string[]? lpServiceArgVectors);
-
-        [DllImport("advapi32.dll", SetLastError = true)]
-        private static extern bool CloseServiceHandle(IntPtr hSCObject);
+        /// <summary>Relaunches this exe elevated with the given arg (UAC prompt). Returns false if declined/unavailable.</summary>
+        public static bool RunElevatedSelf(string argument)
+        {
+            string exePath = Environment.ProcessPath ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    Arguments = argument,
+                    UseShellExecute = true,
+                    Verb = "runas"
+                });
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
 
         private const uint MONITOR_DEFAULTTOPRIMARY = 0x00000001;
         private const uint WM_SYSCOMMAND = 0x0112;
@@ -339,6 +329,14 @@ namespace Tether.DesktopUI
             ResolveUserContext();
             LogTerminal("Tether is ready.");
             EnsureVaultDaclArchitecture();
+
+            // Ask the running service for current phone state so a UI launched after the
+            // service already shows CONNECTED / paired devices instead of waiting for an event.
+            DispatchServiceBusPipe(new TetherEvent
+            {
+                EventType = TetherEventType.TELEMETRY_SYNC_REQUESTED,
+                Source = "DesktopUI"
+            });
 
             StateChanged += MainWindow_StateChanged;
 
@@ -1096,142 +1094,29 @@ namespace Tether.DesktopUI
             LogTerminal("PC locked.");
         }
 
-        private async void BtnRestartService_Click(object sender, RoutedEventArgs e)
+        private void BtnRestartService_Click(object sender, RoutedEventArgs e)
         {
             BtnRestartService.IsEnabled = false;
             try
             {
                 LogTerminal("Restarting the Tether service…");
-                await RestartCommServiceAsync();
+                int result = ServiceControl.Restart(LogTerminal);
+                if (result == 1)
+                {
+                    // Non-admin: relaunch self elevated (UAC) to perform the restart.
+                    if (RunElevatedSelf("--restart-service"))
+                        LogTerminal("Administrator approval requested to restart the service.");
+                    else
+                        LogTerminal("Administrator approval was declined. Service not restarted.");
+                }
+                else if (result == 2)
+                {
+                    LogTerminal("Could not restart the Tether service.");
+                }
             }
             finally
             {
                 BtnRestartService.IsEnabled = true;
-            }
-        }
-
-        private bool TryStartStandaloneCommService()
-        {
-            try
-            {
-                LogTerminal("Starting the Tether service directly…");
-                string appDir = AppDomain.CurrentDomain.BaseDirectory;
-                string serviceExePath = Path.Combine(appDir, "Tether.CommunicationService.exe");
-
-                if (!File.Exists(serviceExePath))
-                {
-                    string solutionDir = Path.GetFullPath(Path.Combine(appDir, "..", "..", "..", "..", ".."));
-                    string commBin = Path.Combine(solutionDir, "services", "communication-service", "Tether.CommunicationService", "bin", "Debug");
-                    if (Directory.Exists(commBin))
-                    {
-                        var matches = Directory.GetFiles(commBin, "Tether.CommunicationService.exe", SearchOption.AllDirectories);
-                        if (matches.Length > 0)
-                        {
-                            serviceExePath = matches[0];
-                        }
-                    }
-                }
-
-                if (File.Exists(serviceExePath))
-                {
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = serviceExePath,
-                        UseShellExecute = true,
-                        CreateNoWindow = false
-                    };
-                    Process.Start(psi);
-                    LogTerminal("Tether service started.");
-                    return true;
-                }
-                else
-                {
-                    LogTerminal("Could not find the Tether service program.");
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                LogTerminal($"Could not start the Tether service: {ex.Message}");
-                return false;
-            }
-        }
-
-        private async Task<bool> RestartCommServiceAsync()
-        {
-            IntPtr scmHandle = IntPtr.Zero;
-            IntPtr serviceHandle = IntPtr.Zero;
-
-            try
-            {
-                scmHandle = OpenSCManager(null, null, SC_MANAGER_CONNECT);
-                if (scmHandle == IntPtr.Zero)
-                {
-                    return TryStartStandaloneCommService();
-                }
-
-                serviceHandle = OpenService(scmHandle, CommServiceName,
-                    SERVICE_QUERY_STATUS | SERVICE_START | SERVICE_STOP);
-
-                if (serviceHandle == IntPtr.Zero)
-                {
-                    return TryStartStandaloneCommService();
-                }
-
-                if (!QueryServiceStatus(serviceHandle, out SERVICE_STATUS status))
-                {
-                    LogTerminal("Could not read the Tether service status.");
-                    return false;
-                }
-
-                if (status.dwCurrentState != SERVICE_STOPPED)
-                {
-                    SERVICE_STATUS stopStatus = default;
-                    if (!ControlService(serviceHandle, SERVICE_CONTROL_STOP, ref stopStatus))
-                    {
-                        LogTerminal("Could not stop the Tether service.");
-                        return false;
-                    }
-
-                    LogTerminal("Stopping the Tether service…");
-
-                    var sw = Stopwatch.StartNew();
-                    while (sw.ElapsedMilliseconds < 15000)
-                    {
-                        await Task.Delay(400);
-                        if (!QueryServiceStatus(serviceHandle, out status)) break;
-                        if (status.dwCurrentState == SERVICE_STOPPED) break;
-                    }
-
-                    if (status.dwCurrentState != SERVICE_STOPPED)
-                    {
-                        LogTerminal("The Tether service did not stop in time.");
-                        return false;
-                    }
-                }
-
-                if (!StartService(serviceHandle, 0, null))
-                {
-                    int err = Marshal.GetLastWin32Error();
-                    if (err != ERROR_SERVICE_ALREADY_RUNNING)
-                    {
-                        LogTerminal("Could not start the Tether service.");
-                        return false;
-                    }
-                }
-
-                LogTerminal("Tether service restarted.");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                LogTerminal($"Could not restart the Tether service: {ex.Message}");
-                return false;
-            }
-            finally
-            {
-                if (serviceHandle != IntPtr.Zero) CloseServiceHandle(serviceHandle);
-                if (scmHandle != IntPtr.Zero) CloseServiceHandle(scmHandle);
             }
         }
 
@@ -1317,75 +1202,38 @@ namespace Tether.DesktopUI
                         byte[] protectedPayload = new byte[dataOut.cbData];
                         Marshal.Copy(dataOut.pbData, protectedPayload, 0, dataOut.cbData);
 
-                        try
+                        string hexPayload = Convert.ToHexString(protectedPayload);
+
+                        // Best effort: notify the service over the pipe (works regardless of elevation)
+                        var vaultEvt = new TetherEvent
                         {
-                            // First attempt: Send VAULT_UPDATE over authenticated named pipe to Windows Service
-                            var vaultEvt = new TetherEvent
+                            EventType = TetherEventType.VAULT_UPDATE,
+                            Source = "DesktopUI",
+                            PayloadJson = JsonSerializer.Serialize(new
                             {
-                                EventType = TetherEventType.VAULT_UPDATE,
-                                Source = "DesktopUI",
-                                PayloadJson = JsonSerializer.Serialize(new
-                                {
-                                    hexPayload = Convert.ToHexString(protectedPayload),
-                                    username = Environment.UserName
-                                })
-                            };
-                            DispatchServiceBusPipe(vaultEvt);
+                                hexPayload = hexPayload,
+                                username = Environment.UserName
+                            })
+                        };
+                        DispatchServiceBusPipe(vaultEvt);
 
-                            // Also write to local HKLM if running elevated or standalone
-                            try
-                            {
-                                EnsureVaultDaclArchitecture();
-                                using (RegistryKey? secretsKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true))
-                                {
-                                    secretsKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
-                                    secretsKey?.SetValue("TargetUsername", Environment.UserName, RegistryValueKind.String);
-                                }
-                                using (RegistryKey? rootKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
-                                {
-                                    rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
-                                }
-                            }
-                            catch { }
-
-                            if (TxtVaultBadge != null) TxtVaultBadge.Text = "PASSWORD SAVED";
-                            LogTerminal("Windows password saved securely.");
-                            TxtPassword.Clear();
+                        if (IsElevated)
+                        {
+                            WriteVaultToRegistry(protectedPayload);
                         }
-                        catch (UnauthorizedAccessException)
+                        else
                         {
-                            try
+                            // Non-elevated: HKLM is not writable — relaunch self elevated to commit.
+                            if (!RunElevatedSelf("--commit-vault-stdin"))
                             {
-                                string hexPayload = Convert.ToHexString(protectedPayload);
-                                string exePath = Environment.ProcessPath ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
-
-                                var startInfo = new ProcessStartInfo
-                                {
-                                    FileName = exePath,
-                                    Arguments = "--commit-vault-stdin",
-                                    Verb = "runas",
-                                    UseShellExecute = false,
-                                    RedirectStandardInput = true,
-                                    CreateNoWindow = true
-                                };
-
-                                using var p = Process.Start(startInfo);
-                                if (p != null)
-                                {
-                                    p.StandardInput.WriteLine(hexPayload);
-                                    p.StandardInput.Close();
-                                    p.WaitForExit(5000);
-                                }
-
-                                if (TxtVaultBadge != null) TxtVaultBadge.Text = "PASSWORD SAVED";
-                                LogTerminal("Windows password saved securely.");
-                                TxtPassword.Clear();
-                            }
-                            catch (Exception ex)
-                            {
-                                LogTerminal($"Could not save password: {ex.Message}");
+                                LogTerminal("Administrator approval was declined. Password not saved.");
+                                return;
                             }
                         }
+
+                        if (TxtVaultBadge != null) TxtVaultBadge.Text = "PASSWORD SAVED";
+                        LogTerminal("Windows password saved securely.");
+                        TxtPassword.Clear();
                     }
                     finally
                     {
@@ -1406,6 +1254,29 @@ namespace Tether.DesktopUI
                     Marshal.Copy(zeroBuffer, 0, unmanagedPasswordPtr, zeroBuffer.Length);
                     Marshal.ZeroFreeGlobalAllocUnicode(unmanagedPasswordPtr);
                 }
+            }
+        }
+
+        private void WriteVaultToRegistry(byte[] protectedPayload)
+        {
+            EnsureVaultDaclArchitecture();
+            using (RegistryKey? secretsKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true))
+            {
+                secretsKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
+                secretsKey?.SetValue("TargetUsername", Environment.UserName, RegistryValueKind.String);
+            }
+            using (RegistryKey? rootKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
+            {
+                rootKey?.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
+            }
+        }
+
+        private void TxtPassword_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter)
+            {
+                e.Handled = true;
+                BtnCommitVault_Click(sender, e);
             }
         }
 

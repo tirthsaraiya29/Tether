@@ -60,7 +60,8 @@ public class PipeServer : IDisposable
         type == TetherEventType.PANIC_TRIGGERED ||
         type == TetherEventType.HARDWARE_SYNC_REQUESTED ||
         type == TetherEventType.FORGET_PHONE ||
-        type == TetherEventType.VAULT_UPDATE;
+        type == TetherEventType.VAULT_UPDATE ||
+        type == TetherEventType.TELEMETRY_SYNC_REQUESTED;
 
     public void Start()
     {

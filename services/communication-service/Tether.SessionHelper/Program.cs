@@ -263,6 +263,11 @@ internal static class Program
                 }
 
                 await PumpAsync(pipe, injector, cts.Token);
+
+                // Pipe session ended (service restart, reconnect, helper kill):
+                // lift anything still held so the host is not stuck with a
+                // phantom pressed key or mouse button.
+                injector.ReleaseAllHeld();
             }
             catch (OperationCanceledException)
             {
@@ -276,6 +281,9 @@ internal static class Program
             catch { break; }
         }
 
+        // Process exit path (shutdown, service kill): same release, so held
+        // input state never outlives this process.
+        injector.ReleaseAllHeld();
         return 0;
     }
 

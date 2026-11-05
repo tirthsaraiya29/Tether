@@ -134,6 +134,12 @@ fun RemoteInputScreen(
         }
     }
 
+    // On link loss the host auto-releases held keys/buttons (InputInjector
+    // pipe teardown), so local latches must re-sync or they desync on reconnect.
+    LaunchedEffect(isConnected) {
+        if (!isConnected) inputEngine.releaseAllModifiers()
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         DeepSpaceCanvasVisualizer()
 
@@ -144,14 +150,20 @@ fun RemoteInputScreen(
                 val newText = newValue.text
                 val oldText = textBuffer.text
 
-                if (newText.length > oldText.length) {
-                    val typedChar = newText.substring(oldText.length)
-                    inputEngine.sendUnicodeText(typedChar)
-                } else if (newText.length < oldText.length) {
-                    val deleteCount = oldText.length - newText.length
-                    repeat(deleteCount) {
+                if (newText != oldText) {
+                    // Diff the actual edit (handles selection replaces and
+                    // mid-string changes, not just append/trim at the end).
+                    var prefix = 0
+                    val minLen = minOf(oldText.length, newText.length)
+                    while (prefix < minLen && oldText[prefix] == newText[prefix]) prefix++
+                    var suffix = 0
+                    while (suffix < minLen - prefix &&
+                        oldText[oldText.length - 1 - suffix] == newText[newText.length - 1 - suffix]
+                    ) suffix++
+                    repeat(oldText.length - prefix - suffix) {
                         inputEngine.triggerKeyTap(VK_BACK)
                     }
+                    inputEngine.sendUnicodeText(newText.substring(prefix, newText.length - suffix))
                 }
                 textBuffer = newValue
             },
@@ -183,23 +195,23 @@ fun RemoteInputScreen(
                                 true
                             }
                             Key.DirectionLeft -> {
-                                inputEngine.triggerKeyTap(VK_LEFT)
+                                inputEngine.triggerKeyTap(VK_LEFT, isExtended = true)
                                 true
                             }
                             Key.DirectionRight -> {
-                                inputEngine.triggerKeyTap(VK_RIGHT)
+                                inputEngine.triggerKeyTap(VK_RIGHT, isExtended = true)
                                 true
                             }
                             Key.DirectionUp -> {
-                                inputEngine.triggerKeyTap(VK_UP)
+                                inputEngine.triggerKeyTap(VK_UP, isExtended = true)
                                 true
                             }
                             Key.DirectionDown -> {
-                                inputEngine.triggerKeyTap(VK_DOWN)
+                                inputEngine.triggerKeyTap(VK_DOWN, isExtended = true)
                                 true
                             }
                             Key.Delete -> {
-                                inputEngine.triggerKeyTap(VK_DELETE)
+                                inputEngine.triggerKeyTap(VK_DELETE, isExtended = true)
                                 true
                             }
                             else -> false
@@ -294,16 +306,16 @@ fun RemoteInputScreen(
                                                 }
                                             }
                                         } else if (pointerCount == 2) {
-                                            val change1 = changes[0]
-                                            val change2 = changes[1]
-                                            val drag1 = change1.position - change1.previousPosition
-                                            val drag2 = change2.position - change2.previousPosition
-                                            val avgDy = (drag1.y + drag2.y) / 2f
+                                            // Only average pointers that are actually down;
+                                            // lifted/stale changes must not bleed into the delta.
+                                            val pressed = changes.filter { it.pressed }
+                                            val drag1 = pressed.getOrNull(0)?.let { it.position - it.previousPosition }
+                                            val drag2 = pressed.getOrNull(1)?.let { it.position - it.previousPosition }
+                                            val dySum = listOfNotNull(drag1?.y, drag2?.y).sum()
 
-                                            if (kotlin.math.abs(avgDy) > 0.5f) {
-                                                inputEngine.processScrollDrag(avgDy)
-                                                change1.consume()
-                                                change2.consume()
+                                            if (kotlin.math.abs(dySum / maxOf(pressed.size, 1)) > 0.5f) {
+                                                inputEngine.processScrollDrag(dySum / maxOf(pressed.size, 1))
+                                                pressed.forEach { it.consume() }
                                             }
                                         }
 

@@ -88,7 +88,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 english.InstallServiceTask=Install and configure Tether background service
 english.FirewallTask=Configure Windows Firewall rules (TCP 37123, UDP 37124, UDP 5353, TCP 37124 on Private/Domain profiles)
 english.DesktopShortcutTask=Create a desktop shortcut for Tether
-english.LaunchUITask=Launch Tether Desktop UI with administrator privileges
+english.LaunchUITask=Launch Tether Desktop UI
 english.VaultUninstallPrompt=Tether stores encrypted credentials in HKLM\SOFTWARE\Tether.%n%nDo you want to permanently erase this stored vault data?%n%nSelect 'No' to preserve your pairing for future installations.
 english.ServiceStarting=Registering and starting {#MyServiceDisplay}...
 english.ServiceStopping=Stopping {#MyServiceDisplay}...
@@ -193,9 +193,8 @@ Filename: "{sys}\netsh.exe"; \
     Flags: runhidden waituntilterminated; \
     Tasks: firewall
 
-; Post-install launch with administrator privileges
+; Post-install launch (non-elevated; the UI elevates per-action only when needed)
 Filename: "{app}\{#MyDesktopUIExeName}"; \
-    Verb: "runas"; \
     Description: "{cm:LaunchUITask}"; \
     Flags: shellexec nowait postinstall skipifsilent; \
     Tasks: launchui
