@@ -25,9 +25,15 @@ class UpdateCheckService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (UpdateChecker.isDebugMode(applicationContext)) {
+            Log.d(TAG, "Debug build detected - UpdateCheckService terminating immediately.")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+
         TetherNotificationChannels.createAllChannels(applicationContext)
 
-        // Mandatory immediate startForeground to satisfy FGS requirements
+        // Immediate startForeground to satisfy Android 14+ FGS requirements
         try {
             val foregroundNotification = NotificationCompat.Builder(applicationContext, TetherNotificationChannels.CHANNEL_UPDATES)
                 .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -56,13 +62,17 @@ class UpdateCheckService : Service() {
     }
 
     private suspend fun checkAndNotifyUpdate() {
-        val latest = UpdateChecker.fetchLatestRelease() ?: return
+        val latest = UpdateChecker.fetchLatestRelease(applicationContext) ?: return
         val currentVersion = BuildConfig.VERSION_NAME
 
         if (UpdateChecker.isNewerVersion(local = currentVersion, remote = latest.latestVersion)) {
-            Log.i(TAG, "New update found in background: ${latest.latestVersion}")
-            UpdateChecker.cacheUpdateInfo(applicationContext, latest)
+            if (UpdateChecker.isSnoozed(applicationContext, latest.latestVersion)) {
+                Log.i(TAG, "Update ${latest.latestVersion} is currently snoozed.")
+                return
+            }
 
+            Log.i(TAG, "New critical update found: ${latest.latestVersion}")
+            UpdateChecker.cacheUpdateInfo(applicationContext, latest)
             notifyUpdateAvailable(latest)
         }
     }
@@ -80,13 +90,29 @@ class UpdateCheckService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+        // Action: Snooze for 4 hours directly from notification
+        val snoozeIntent = Intent(applicationContext, UpdateSnoozeReceiver::class.java).apply {
+            action = UpdateSnoozeReceiver.ACTION_SNOOZE_NOW
+            putExtra(UpdateSnoozeReceiver.EXTRA_VERSION, updateInfo.latestVersion)
+            putExtra(UpdateSnoozeReceiver.EXTRA_HOURS, 4)
+        }
+        val snoozePendingIntent = PendingIntent.getBroadcast(
+            applicationContext,
+            NOTIFICATION_SNOOZE_REQ_CODE,
+            snoozeIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         val notification = NotificationCompat.Builder(applicationContext, TetherNotificationChannels.CHANNEL_UPDATES)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("Tether Update Available")
-            .setContentText("Version v${updateInfo.latestVersion} is ready for download.")
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentTitle("Critical Tether Update Available")
+            .setContentText("Version v${updateInfo.latestVersion} is ready with essential security fixes.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_SYSTEM)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "Update Now", pendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "Remind in 4h", snoozePendingIntent)
             .build()
 
         val hasPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
@@ -108,12 +134,13 @@ class UpdateCheckService : Service() {
         private const val TAG = "UpdateCheckService"
 
         private const val SERVICE_FOREGROUND_ID = 5000
-        // NOTIFICATION_ID = 5001 and NOTIFICATION_REQ_CODE = 5002 to avoid collision with UnlockPromptNotifier (2001)
         const val NOTIFICATION_ID = 5001
         private const val NOTIFICATION_REQ_CODE = 5002
+        private const val NOTIFICATION_SNOOZE_REQ_CODE = 5003
         const val EXTRA_FROM_UPDATE_NOTIFICATION = "extra_from_update_notification"
 
         fun startCheck(context: Context) {
+            if (UpdateChecker.isDebugMode(context)) return
             try {
                 val intent = Intent(context, UpdateCheckService::class.java)
                 ContextCompat.startForegroundService(context, intent)

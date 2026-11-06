@@ -121,6 +121,15 @@
             android:exported="false" />
 
         <receiver
+            android:name=".UpdateSnoozeReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.tether.phone.ACTION_UPDATE_SNOOZE_EXPIRED" />
+                <action android:name="com.tether.phone.ACTION_UPDATE_SNOOZE_NOW" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".TetherAlarmReceiver"
             android:exported="false" />
 
