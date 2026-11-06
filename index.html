@@ -6,58 +6,77 @@
   <title>Tether: Connect your Android phone to your Windows PC, locally</title>
   <meta name="description" content="Tether connects an Android phone to a Windows workstation over local Wi-Fi. Features device-assisted Windows unlock, remote trackpad input, emergency lockdown, and local media controls without cloud relays.">
   <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#0a0a0a">
+  <meta name="theme-color" content="#020403">
   <meta property="og:title" content="Tether: your phone and your PC, talking directly">
   <meta property="og:description" content="Open-source, local-first trust between Android and Windows. No cloud, no accounts.">
   <meta property="og:type" content="website">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f151b'/%3E%3Cpath d='M9 10h14M16 10v13' stroke='%233ddc97' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23020403'/%3E%3Cpath d='M9 10h14M16 10v13' stroke='%2300ff9d' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 
   <style>
     /* ============================================================
-       DESIGN PURPOSE: Utilitarian, high-contrast, local-first trust.
-       - No decorative gradients, glows, or fake device illustrations.
-       - Borders and whitespace define hierarchy, not color blobs.
-       - Monochrome palette with stark white accent for primary actions.
-       - Typography prioritizes readability and dense information delivery.
+       DESIGN PURPOSE: AMOLED dual-tone. Deep black (70%) and
+       fluorescent green (~28%) are the two core tones; the page
+       itself gradients between them. Silvery white is the
+       readability + primary-action color (the "shiny" third pole).
+       Green means one thing everywhere: the tether is live.
        ============================================================ */
 
     /* ---------- 1. Design Tokens ---------- */
     :root {
       color-scheme: dark;
 
-      /* 70/25/5: neutral base / steel-tinted surfaces / green signal on connections only */
-      --bg: #0a0a0a;
-      --surface: #0f151b;
-      --surface-raised: #141c24;
-      --surface-hover: #1b252f;
+      /* Core tone A: AMOLED black base */
+      --bg: #020403;
+      /* Core tone B: fluorescent green, in the three intensities the
+         dual-tone needs (wash / mid / full). Reason: the tether link
+         is the product, so the second core tone IS the link color. */
+      --green: #00ff9d;
+      --green-dim: #00c97c;
+      --green-deep: #062d1d;
 
-      --text: #ededed;
-      --text-muted: #a1a1a1;
-      --text-subtle: #737373;
+      /* Silvery white: text and primary actions */
+      --silver: #eef2f0;
+      --silver-dim: #a9b4af;
+      --silver-subtle: #7d8783;
 
-      --accent-bg: #ffffff;
-      --accent-text: #0a0a0a;
-      --signal: #3ddc97;
-      --warn: #f59e0b;
+      --green-wash: rgba(0, 255, 157, 0.06);
+      --green-mid: rgba(0, 255, 157, 0.14);
+      --green-border: rgba(0, 255, 157, 0.35);
 
-      --border: #262626;
-      --border-strong: #404040;
-      --focus: #ffffff;
+      --surface: #050a07;
+      --surface-raised: #08110c;
+      --surface-hover: #0c1a12;
+
+      --text: var(--silver);
+      --text-muted: var(--silver-dim);
+      --text-subtle: var(--silver-subtle);
+      --accent-bg: var(--silver);
+      --accent-text: #020403;
+      --signal: var(--green);
+      --warn: #f5b83d;
+
+      --border: rgba(0, 255, 157, 0.14);
+      --border-strong: rgba(0, 255, 157, 0.42);
+      --focus: var(--green);
 
       --radius-sm: 4px;
-      --radius-md: 8px;
-      --radius-lg: 12px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
 
       --header-h: 64px;
       --gutter: clamp(16px, 4vw, 32px);
       --container: 960px;
       --container-narrow: 720px;
-      --section-space: clamp(48px, 6vw, 80px);
+      --section-space: clamp(56px, 7vw, 96px);
       --gap: clamp(16px, 2vw, 24px);
 
       --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+      --ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1);
+      --dur-fast: 0.18s;
+      --dur-med: 0.4s;
+      --dur-slow: 0.7s;
 
-      --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     }
 
@@ -68,7 +87,7 @@
     }
 
     html, body {
-      overflow-x: clip; /* Hallmark Rule 4 */
+      overflow-x: clip;
     }
 
     html {
@@ -101,13 +120,13 @@
     }
 
     a {
-      color: var(--text);
+      color: var(--green);
       text-decoration-thickness: 1px;
       text-underline-offset: 3px;
-      cursor: pointer; /* antislop-human: interaction affordance */
+      cursor: pointer;
     }
     a:hover {
-      color: var(--text-muted);
+      color: #7dffc4;
     }
 
     ul, ol {
@@ -146,22 +165,22 @@
       background: var(--surface-raised);
       border: 1px solid var(--border-strong);
       border-radius: var(--radius-sm);
-      color: var(--text);
+      color: var(--green);
       font-size: 0.875rem;
       font-weight: 600;
       text-decoration: none;
-      transition: top 0.16s ease-out;
+      transition: top 0.16s var(--ease-out);
     }
     .skip-link:focus {
       top: 12px;
     }
 
-    /* Scroll-reveal: one-shot, no loops. Disabled when reduced-motion is on. */
+    /* Scroll-reveal: one-shot, stagger-capable. Disabled on reduced motion. */
     @media (prefers-reduced-motion: no-preference) {
       .reveal {
         opacity: 0;
-        transform: translateY(14px);
-        transition: opacity 0.55s var(--ease-out), transform 0.55s var(--ease-out);
+        transform: translateY(16px);
+        transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out);
         transition-delay: var(--reveal-delay, 0s);
       }
       .reveal.is-visible {
@@ -176,6 +195,7 @@
       line-height: 1.2;
       letter-spacing: -0.01em;
       text-wrap: balance;
+      color: var(--silver);
     }
 
     h1 {
@@ -207,13 +227,12 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       background: var(--surface);
-      color: var(--text);
+      color: var(--green);
     }
 
-    /* Hallmark Rule 9: No tracked uppercase eyebrows */
     .eyebrow {
       font-size: 0.85rem;
-      color: var(--text-muted);
+      color: var(--green-dim);
       margin-bottom: 12px;
       font-weight: 500;
     }
@@ -230,9 +249,7 @@
     .section {
       padding-block: var(--section-space);
       scroll-margin-top: calc(var(--header-h) + 24px);
-    }
-    .section-lined {
-      border-top: 1px solid var(--border);
+      position: relative;
     }
 
     .section-head {
@@ -254,7 +271,7 @@
       top: 0;
       z-index: 100;
       min-height: var(--header-h);
-      background: rgba(10, 10, 10, 0.9);
+      background: rgba(2, 4, 3, 0.88);
       border-bottom: 1px solid var(--border);
     }
 
@@ -268,14 +285,30 @@
     .brand {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      color: var(--text);
+      gap: 10px;
+      color: var(--silver);
       text-decoration: none;
       font-weight: 600;
       font-size: 1.05rem;
     }
     .brand:hover {
-      color: var(--text);
+      color: var(--green);
+    }
+
+    /* Brand mark: the tether glyph, a green tick on black */
+    .brand-mark {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: var(--surface-raised);
+      border: 1px solid var(--border-strong);
+      display: grid;
+      place-items: center;
+      transition: transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast) var(--ease-out);
+    }
+    .brand:hover .brand-mark {
+      transform: rotate(90deg);
+      box-shadow: 0 0 12px var(--green-mid);
     }
 
     .primary-nav {
@@ -286,6 +319,7 @@
     }
 
     .nav-link {
+      position: relative;
       display: inline-flex;
       align-items: center;
       min-height: 40px;
@@ -294,22 +328,37 @@
       color: var(--text-muted);
       font-size: 0.9rem;
       text-decoration: none;
-      transition: color 0.15s ease-out, background-color 0.15s ease-out;
+      transition: color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out;
+    }
+    .nav-link::after {
+      /* purpose: underline sweep marks the section you're hovering/reading */
+      content: "";
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 4px;
+      height: 1px;
+      background: var(--green);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform var(--dur-med) var(--ease-out);
     }
     .nav-link:hover {
-      color: var(--text);
-      background: var(--surface-hover);
+      color: var(--silver);
+      background: var(--green-wash);
+    }
+    .nav-link:hover::after,
+    .nav-link.is-active::after {
+      transform: scaleX(1);
     }
     .nav-link.is-active {
-      color: var(--text);
-      background: var(--surface-raised);
+      color: var(--green);
     }
 
     .nav-toggle {
       display: none;
     }
 
-    /* Mobile nav: overlay panel, animated in. No inline-style hacks. */
     @media (max-width: 768px) {
       .primary-nav.nav-open {
         display: flex;
@@ -320,9 +369,9 @@
         flex-direction: column;
         align-items: stretch;
         padding: 12px var(--gutter) 20px;
-        background: var(--surface-raised);
+        background: rgba(2, 4, 3, 0.97);
         border-bottom: 1px solid var(--border-strong);
-        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
         opacity: 0;
         transform: translateY(-8px);
         transition: opacity 0.2s var(--ease-out), transform 0.2s var(--ease-out);
@@ -333,20 +382,20 @@
       }
     }
 
-    /* Header shadow appears only once the page scrolls */
     .site-header.is-scrolled {
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
-      background: rgba(10, 10, 10, 0.95);
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 1px 0 var(--border);
+      background: rgba(2, 4, 3, 0.95);
       transition: box-shadow 0.25s var(--ease-out), background 0.25s var(--ease-out);
     }
 
     /* ---------- 6. Buttons & Chips ---------- */
     .btn {
+      position: relative;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: 8px;
-      min-height: 44px; /* antislop-human: minimum tap target */
+      min-height: 44px;
       padding: 10px 20px;
       border-radius: var(--radius-sm);
       border: 1px solid transparent;
@@ -354,7 +403,25 @@
       font-weight: 600;
       text-decoration: none;
       cursor: pointer;
-      transition: background-color 0.15s ease-out, border-color 0.15s ease-out;
+      overflow: hidden;
+      transition: background-color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast) ease-out;
+    }
+    .btn:active {
+      transform: translateY(1px) scale(0.99);
+    }
+
+    /* Shine sweep on hover: a single light pass, like metal catching light */
+    .btn::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.22) 50%, transparent 60%);
+      transform: translateX(-110%);
+      transition: transform 0.6s var(--ease-out);
+      pointer-events: none;
+    }
+    .btn:hover::before {
+      transform: translateX(110%);
     }
 
     .btn-primary {
@@ -363,18 +430,20 @@
       border-color: var(--accent-bg);
     }
     .btn-primary:hover {
-      background: #d4d4d4;
-      border-color: #d4d4d4;
+      background: #ffffff;
+      border-color: #ffffff;
+      box-shadow: 0 4px 24px rgba(238, 242, 240, 0.18);
     }
 
-    .btn-secondary {
-      background: var(--surface);
+    .btn-green {
+      background: transparent;
       border-color: var(--border-strong);
-      color: var(--text);
+      color: var(--green);
     }
-    .btn-secondary:hover {
-      background: var(--surface-hover);
-      border-color: var(--text-muted);
+    .btn-green:hover {
+      background: var(--green-mid);
+      border-color: var(--green);
+      box-shadow: 0 4px 24px rgba(0, 255, 157, 0.12);
     }
 
     .btn-sm {
@@ -383,18 +452,23 @@
       font-size: 0.85rem;
     }
 
-    /* Hallmark Rule 10: No decorative status dots. Warn color marks real build state. */
+    /* Status chip: real build state (warn), border ticks slowly = "in progress" */
     .status-chip {
       display: inline-flex;
       align-items: center;
       padding: 4px 10px;
-      border: 1px solid rgba(245, 158, 11, 0.4);
+      border: 1px solid rgba(245, 184, 61, 0.45);
       border-radius: var(--radius-sm);
-      background: var(--surface);
+      background: rgba(245, 184, 61, 0.08);
       color: var(--warn);
       font-family: var(--font-mono);
       font-size: 0.7rem;
       white-space: nowrap;
+      animation: chip-breathe 3s ease-in-out infinite;
+    }
+    @keyframes chip-breathe {
+      0%, 100% { border-color: rgba(245, 184, 61, 0.45); }
+      50% { border-color: rgba(245, 184, 61, 0.8); }
     }
 
     .chip {
@@ -403,16 +477,43 @@
       padding: 3px 8px;
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
-      background: var(--surface);
-      color: var(--text-subtle);
+      background: var(--green-wash);
+      color: var(--green-dim);
       font-size: 0.75rem;
       font-family: var(--font-mono);
+      transition: border-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .feature:hover .chip,
+    .arch-node:hover .chip {
+      border-color: var(--green-border);
+      color: var(--green);
+      transform: translateY(-1px);
     }
 
     /* ---------- 7. Hero ---------- */
     .hero {
       padding-top: calc(var(--header-h) + 48px);
-      padding-bottom: 64px;
+      padding-bottom: 72px;
+      position: relative;
+      overflow: clip;
+    }
+
+    /* Dual-tone wash: the black half of the page melts toward green
+       behind the hero. Slow drift keeps it alive without pulling focus. */
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: -20% -10%;
+      background:
+        radial-gradient(60% 55% at 78% 20%, rgba(0, 255, 157, 0.14), transparent 70%),
+        radial-gradient(45% 40% at 12% 85%, rgba(0, 255, 157, 0.07), transparent 70%),
+        linear-gradient(160deg, var(--bg) 30%, rgba(0, 60, 38, 0.35) 100%);
+      z-index: -1;
+      animation: hero-drift 26s ease-in-out infinite alternate;
+    }
+    @keyframes hero-drift {
+      from { transform: translate3d(0, 0, 0) scale(1); }
+      to { transform: translate3d(-2%, 2%, 0) scale(1.06); }
     }
 
     .hero-grid {
@@ -427,6 +528,11 @@
       max-width: 58ch;
       margin-bottom: 32px;
       color: var(--text-muted);
+    }
+
+    .hero-lede strong {
+      color: var(--green);
+      font-weight: 600;
     }
 
     .hero-actions {
@@ -448,7 +554,7 @@
       border-top: 1px solid var(--border);
     }
 
-    /* Semantic Topology Diagram (Replaces fake CSS devices) */
+    /* Semantic topology diagram: the tether. Green = live link. */
     .topology {
       display: flex;
       align-items: center;
@@ -456,9 +562,14 @@
       gap: 24px;
       padding: 32px;
       border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: var(--surface);
+      border-radius: var(--radius-lg);
+      background: linear-gradient(150deg, var(--surface) 40%, var(--green-deep) 140%);
       flex-wrap: wrap;
+      transition: border-color var(--dur-med) ease-out, box-shadow var(--dur-med) ease-out;
+    }
+    .topology:hover {
+      border-color: var(--border-strong);
+      box-shadow: 0 8px 40px rgba(0, 255, 157, 0.08);
     }
     .topology-node {
       display: flex;
@@ -466,29 +577,65 @@
       gap: 6px;
       min-width: 160px;
       text-align: center;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface-raised);
+      transition: border-color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .topology-node:hover {
+      border-color: var(--green-border);
+      transform: translateY(-2px);
     }
     .topology-label {
       font-weight: 600;
-      color: var(--text);
+      color: var(--silver);
       font-size: 0.95rem;
     }
     .topology-detail {
       font-family: var(--font-mono);
       font-size: 0.75rem;
-      color: var(--text-muted);
+      color: var(--text-subtle);
     }
     .topology-link {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 4px;
-      color: var(--signal); /* 5% accent: green appears only on the connection */
+      gap: 8px;
+      color: var(--green);
       font-family: var(--font-mono);
       font-size: 0.75rem;
     }
+    .topology-protocol {
+      letter-spacing: 0.02em;
+    }
+    /* Packets travelling the link: the one moving element that IS the product */
+    .topology-wire {
+      position: relative;
+      width: 120px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--green-border), transparent);
+      overflow: hidden;
+    }
+    .topology-wire::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 32px;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, var(--green), transparent);
+      animation: packet 2.4s var(--ease-out) infinite;
+    }
+    @keyframes packet {
+      0% { transform: translateX(-40px); opacity: 0; }
+      25% { opacity: 1; }
+      75% { opacity: 1; }
+      100% { transform: translateX(140px); opacity: 0; }
+    }
     .topology-arrow {
-      font-size: 1.2rem;
-      color: var(--text-muted);
+      font-size: 1.1rem;
+      color: var(--text-subtle);
     }
 
     /* ---------- 8. Overview & Features ---------- */
@@ -504,20 +651,21 @@
     }
 
     .feature {
+      position: relative;
       padding: 24px;
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      background: var(--surface);
-      transition: border-color 0.15s ease-out, transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
+      background: linear-gradient(165deg, var(--surface) 55%, var(--green-deep) 160%);
+      transition: border-color var(--dur-fast) ease-out, transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
     }
     .feature:hover {
-      border-color: var(--border-strong);
-      transform: translateY(-2px);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      border-color: var(--green-border);
+      transform: translateY(-3px);
+      box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5), 0 2px 16px rgba(0, 255, 157, 0.07);
     }
 
     .feature-title {
-      color: var(--text);
+      color: var(--silver);
       margin-bottom: 8px;
     }
     .feature-text {
@@ -532,7 +680,7 @@
       margin-top: 16px;
     }
 
-    /* ---------- 9. Architecture & Networking ---------- */
+    /* ---------- 9. Architecture ---------- */
     .arch-flow {
       display: grid;
       gap: 16px;
@@ -542,18 +690,23 @@
       border-radius: var(--radius-md);
       background: var(--surface);
       padding: 20px;
+      transition: border-color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .arch-node:hover {
+      border-color: var(--green-border);
+      transform: translateX(4px);
     }
     .arch-kind {
       font-family: var(--font-mono);
       font-size: 0.7rem;
-      color: var(--text-subtle);
+      color: var(--green-dim);
       margin-bottom: 4px;
-      text-transform: lowercase; /* Hallmark Rule 9 */
+      text-transform: lowercase;
     }
     .arch-name {
       font-size: 1rem;
       margin-bottom: 6px;
-      color: var(--text);
+      color: var(--silver);
     }
     .arch-desc {
       font-size: 0.9rem;
@@ -581,21 +734,26 @@
       font-weight: 500;
       color: var(--text-muted);
       border-bottom: 2px solid transparent;
-      transition: color 0.15s, border-color 0.15s;
+      transition: color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out;
       text-align: left;
       white-space: nowrap;
     }
     .tab:hover {
-      color: var(--text);
-      background: var(--surface-hover);
+      color: var(--silver);
+      background: var(--green-wash);
     }
     .tab[aria-selected="true"] {
-      color: var(--text);
-      border-bottom-color: var(--text);
-      background: var(--surface-raised);
+      color: var(--green);
+      border-bottom-color: var(--green);
+      background: var(--green-wash);
     }
     .tabpanel {
       padding: 24px;
+      animation: panel-in var(--dur-med) var(--ease-out);
+    }
+    @keyframes panel-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: none; }
     }
     .panel-title {
       font-size: 1.1rem;
@@ -610,6 +768,10 @@
     .role-list > div {
       padding: 12px 0;
       border-bottom: 1px solid var(--border);
+      transition: padding-left var(--dur-fast) var(--ease-out);
+    }
+    .role-list > div:hover {
+      padding-left: 6px;
     }
     .role-list > div:last-child {
       border-bottom: none;
@@ -617,7 +779,7 @@
     .role-list dt {
       font-family: var(--font-mono);
       font-size: 0.8rem;
-      color: var(--text);
+      color: var(--green);
       margin-bottom: 4px;
     }
     .role-list dd {
@@ -638,9 +800,15 @@
       border-bottom: 1px solid var(--border);
     }
     .ref-table th {
-      color: var(--text-subtle);
+      color: var(--green-dim);
       font-weight: 500;
       font-size: 0.8rem;
+    }
+    .ref-table tbody tr {
+      transition: background-color var(--dur-fast) ease-out;
+    }
+    .ref-table tbody tr:hover {
+      background: var(--green-wash);
     }
     .ref-table td {
       color: var(--text-muted);
@@ -651,6 +819,11 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       background: var(--bg);
+      overflow: hidden;
+      transition: border-color var(--dur-fast) ease-out;
+    }
+    .code:hover {
+      border-color: var(--green-border);
     }
     .code-head {
       display: flex;
@@ -667,7 +840,7 @@
       overflow-x: auto;
       font-size: 0.85rem;
       line-height: 1.5;
-      color: var(--text);
+      color: var(--green);
     }
     .copy-btn {
       display: inline-flex;
@@ -677,38 +850,37 @@
       border-radius: var(--radius-sm);
       font-size: 0.75rem;
       color: var(--text-muted);
+      transition: color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
     }
     .copy-btn:hover {
-      background: var(--surface-hover);
-      color: var(--text);
+      background: var(--green-wash);
+      color: var(--green);
+    }
+    .copy-btn:active {
+      transform: scale(0.94);
+    }
+    .copy-btn.is-copied {
+      color: var(--green);
     }
 
     /* ---------- 11. Roadmap & FAQ ---------- */
-    .roadmap {
-      display: grid;
-      gap: 24px;
-    }
-    .roadmap-item {
-      padding-left: 20px;
-      border-left: 2px solid var(--border);
-    }
-    .roadmap-title {
-      font-size: 1rem;
-      margin-bottom: 6px;
-    }
-    .roadmap-status {
-      margin-top: 12px;
-    }
-
     .faq-item {
       border-bottom: 1px solid var(--border);
+      transition: background-color var(--dur-fast) ease-out;
+    }
+    .faq-item:hover {
+      background: var(--green-wash);
     }
     .faq-item summary {
       padding: 16px 0;
       font-weight: 500;
-      color: var(--text);
+      color: var(--silver);
       cursor: pointer;
       list-style: none;
+      transition: color var(--dur-fast) ease-out;
+    }
+    .faq-item summary:hover {
+      color: var(--green);
     }
     .faq-item summary::-webkit-details-marker {
       display: none;
@@ -717,8 +889,8 @@
       content: "+";
       float: right;
       font-family: var(--font-mono);
-      color: var(--text-subtle);
-      transition: transform 0.25s var(--ease-out);
+      color: var(--green-dim);
+      transition: transform var(--dur-med) var(--ease-out);
     }
     .faq-item[open] summary::after {
       content: "\2212";
@@ -733,9 +905,10 @@
 
     /* ---------- 12. CTA & Footer ---------- */
     .section-cta {
-      background: var(--surface);
+      background:
+        radial-gradient(70% 90% at 50% 110%, rgba(0, 255, 157, 0.16), transparent 65%),
+        linear-gradient(180deg, var(--bg), var(--green-deep));
       border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
     }
     .cta-panel {
       text-align: center;
@@ -756,6 +929,7 @@
     .site-footer {
       padding-block: 48px;
       font-size: 0.9rem;
+      border-top: 1px solid var(--border);
     }
     .footer-grid {
       display: grid;
@@ -769,7 +943,7 @@
     }
     .footer-heading {
       font-size: 0.8rem;
-      color: var(--text-subtle);
+      color: var(--green-dim);
       margin-bottom: 16px;
       font-weight: 600;
     }
@@ -779,9 +953,11 @@
     .footer-nav a {
       color: var(--text-muted);
       text-decoration: none;
+      transition: color var(--dur-fast) ease-out, padding-left var(--dur-fast) var(--ease-out);
     }
     .footer-nav a:hover {
-      color: var(--text);
+      color: var(--green);
+      padding-left: 4px;
     }
     .footer-legal {
       border-top: 1px solid var(--border);
@@ -795,37 +971,43 @@
     }
 
     /* ---------- 13. Accessibility & Motion ---------- */
+    /* Every loop and transition dies here. Reveals render final-state. */
     @media (prefers-reduced-motion: reduce) {
-      html {
-        scroll-behavior: auto;
+      html { scroll-behavior: auto; }
+      .topology-wire::after,
+      .status-chip,
+      .hero::before { animation: none; }
+      .btn::before { display: none; }
+      .reveal {
+        opacity: 1;
+        transform: none;
+        transition: none;
       }
-      .topology-arrow {
-        animation: none;
-      }
+      .tabpanel { animation: none; }
     }
 
     @media (max-width: 768px) {
       .primary-nav {
-        display: none; /* shown via .nav-open when the toggle is active */
+        display: none;
       }
       .nav-toggle {
         display: inline-flex;
         margin-left: auto;
         padding: 8px;
-        color: var(--text);
+        color: var(--silver);
       }
       .hero {
         padding-top: calc(var(--header-h) + 24px);
-        padding-bottom: 40px;
+        padding-bottom: 48px;
       }
       .section {
-        padding-block: 40px;
+        padding-block: 48px;
       }
       .feature {
         padding: 18px;
       }
       .cta-actions .btn {
-        width: 100%; /* full-width tap targets on small screens */
+        width: 100%;
       }
       .footer-grid {
         grid-template-columns: 1fr;
@@ -835,8 +1017,22 @@
         flex-direction: column;
         gap: 16px;
       }
-      .topology-link {
-        transform: rotate(90deg);
+      .topology-wire {
+        width: 2px;
+        height: 40px;
+        background: linear-gradient(180deg, transparent, var(--green-border), transparent);
+      }
+      .topology-wire::after {
+        background: linear-gradient(180deg, transparent, var(--green), transparent);
+        width: 100%;
+        height: 14px;
+        animation-name: packet-v;
+      }
+      @keyframes packet-v {
+        0% { transform: translateY(-18px); opacity: 0; }
+        25% { opacity: 1; }
+        75% { opacity: 1; }
+        100% { transform: translateY(46px); opacity: 0; }
       }
     }
   </style>
@@ -846,7 +1042,12 @@
 
   <header class="site-header" id="site-header">
     <div class="container header-inner">
-      <a href="#top" class="brand">Tether</a>
+      <a href="#top" class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 3h8M6 3v6" stroke="#00ff9d" stroke-width="2" stroke-linecap="round"/></svg>
+        </span>
+        Tether
+      </a>
       <button class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="primary-nav">
         <span data-nav-toggle-label>Menu</span>
       </button>
@@ -855,7 +1056,7 @@
         <a href="#features" class="nav-link" data-nav-link="features">Features</a>
         <a href="#architecture" class="nav-link" data-nav-link="architecture">Architecture</a>
         <a href="#developers" class="nav-link" data-nav-link="developers">Developers</a>
-        <a href="https://github.com/tirthsaraiya29/Tether" class="btn btn-sm btn-secondary" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/tirthsaraiya29/Tether" class="btn btn-sm btn-green" target="_blank" rel="noopener">GitHub</a>
       </nav>
     </div>
   </header>
@@ -865,14 +1066,14 @@
     <section class="hero section" id="top">
       <div class="container hero-grid">
         <div>
-          <p class="eyebrow reveal is-visible">Phone + PC: Your own Wi-Fi</p>
-          <h1 class="reveal is-visible" style="--reveal-delay: 0.05s;">Your phone and your PC. Talking directly.</h1>
+          <p class="eyebrow reveal is-visible">Phone + PC: your own Wi-Fi</p>
+          <h1 class="reveal is-visible" style="--reveal-delay: 0.05s;">Your phone and your PC. Talking <strong>directly</strong>.</h1>
           <p class="hero-lede reveal is-visible" style="--reveal-delay: 0.12s;">
             Tether is an open-source personal trust and authentication platform that connects an Android device to a Windows workstation over local Wi-Fi. Unlock Windows via biometric challenge, stream trackpad input, send files, execute emergency lockdowns, and adjust media controls, entirely on your local network with zero cloud dependencies.
           </p>
           <div class="hero-actions reveal is-visible" style="--reveal-delay: 0.2s;">
             <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether/releases">Download Releases</a>
-            <a class="btn btn-secondary" href="https://github.com/tirthsaraiya29/Tether">View on GitHub</a>
+            <a class="btn btn-green" href="https://github.com/tirthsaraiya29/Tether">View on GitHub</a>
           </div>
           <div class="hero-note reveal is-visible" style="--reveal-delay: 0.28s;">
             <span class="status-chip">STILL BEING BUILT</span>
@@ -880,26 +1081,26 @@
           </div>
         </div>
 
-        <!-- Semantic Topology Diagram (Replaces fake CSS devices) -->
         <div class="topology reveal" style="--reveal-delay: 0.35s;">
           <div class="topology-node">
             <span class="topology-label">Android Device</span>
-            <span class="topology-detail">Biometric Auth & Keystore</span>
+            <span class="topology-detail">Biometric Auth &amp; Keystore</span>
           </div>
           <div class="topology-link">
             <span class="topology-protocol">TLS 1.3 · Port 37123</span>
+            <span class="topology-wire" aria-hidden="true"></span>
             <span class="topology-arrow" aria-hidden="true">→</span>
           </div>
           <div class="topology-node">
             <span class="topology-label">Windows Workstation</span>
-            <span class="topology-detail">Session 0 Service & Named Pipes</span>
+            <span class="topology-detail">Session 0 Service &amp; Named Pipes</span>
           </div>
         </div>
       </div>
     </section>
 
     <!-- ============ Overview ============ -->
-    <section class="section section-lined" id="overview" data-nav-section>
+    <section class="section" id="overview" data-nav-section style="border-top: 1px solid var(--border);">
       <div class="container">
         <header class="section-head reveal">
           <p class="eyebrow">Overview</p>
@@ -936,7 +1137,7 @@
     </section>
 
     <!-- ============ Features ============ -->
-    <section class="section section-lined" id="features" data-nav-section>
+    <section class="section" id="features" data-nav-section style="border-top: 1px solid var(--border);">
       <div class="container">
         <header class="section-head reveal">
           <p class="eyebrow">What it does</p>
@@ -952,7 +1153,7 @@
             </div>
           </div>
           <div class="feature reveal" style="--reveal-delay: 0.1s;">
-            <h3 class="feature-title">Remote Trackpad & Input</h3>
+            <h3 class="feature-title">Remote Trackpad &amp; Input</h3>
             <p class="feature-text">Stream synthetic mouse movement, clicks, scrolling, and Windows modifier-key combinations into your active console session via the Session Helper.</p>
           </div>
           <div class="feature reveal" style="--reveal-delay: 0.15s;">
@@ -967,7 +1168,7 @@
             </div>
           </div>
           <div class="feature reveal" style="--reveal-delay: 0.25s;">
-            <h3 class="feature-title">Audio, Display & Apps</h3>
+            <h3 class="feature-title">Audio, Display &amp; Apps</h3>
             <p class="feature-text">Adjust Windows Core Audio endpoint volume, change display brightness via WMI, and launch configured utilities.</p>
           </div>
           <div class="feature reveal" style="--reveal-delay: 0.3s;">
@@ -979,7 +1180,7 @@
     </section>
 
     <!-- ============ Architecture ============ -->
-    <section class="section section-lined" id="architecture" data-nav-section>
+    <section class="section" id="architecture" data-nav-section style="border-top: 1px solid var(--border);">
       <div class="container">
         <header class="section-head reveal">
           <p class="eyebrow">Architecture</p>
@@ -1010,7 +1211,7 @@
     </section>
 
     <!-- ============ Developers ============ -->
-    <section class="section section-lined" id="developers" data-nav-section>
+    <section class="section" id="developers" data-nav-section style="border-top: 1px solid var(--border);">
       <div class="container">
         <header class="section-head reveal">
           <p class="eyebrow">For developers</p>
@@ -1060,8 +1261,8 @@
                 </thead>
                 <tbody>
                   <tr><th scope="row">Transport</th><td>TLS 1.3 over direct TCP</td><td>Encapsulated command channel</td></tr>
-                  <tr><th scope="row">Listen Port</th><td><code>TCP 37123</code> / <code>TCP 37124</code></td><td>Local socket daemon & Kestrel HTTPS</td></tr>
-                  <tr><th scope="row">Discovery</th><td>mDNS & UDP 37124</td><td>Zero-configuration local pairing</td></tr>
+                  <tr><th scope="row">Listen Port</th><td><code>TCP 37123</code> / <code>TCP 37124</code></td><td>Local socket daemon &amp; Kestrel HTTPS</td></tr>
+                  <tr><th scope="row">Discovery</th><td>mDNS &amp; UDP 37124</td><td>Zero-configuration local pairing</td></tr>
                   <tr><th scope="row">Keepalive</th><td>5 seconds</td><td>Heartbeat interval for drop detection</td></tr>
                   <tr><th scope="row">Key Specifications</th><td>ECDSA P-256</td><td>Mutual identity challenge signing</td></tr>
                 </tbody>
@@ -1070,7 +1271,7 @@
           </div>
 
           <div class="tabpanel" id="panel-ipc" role="tabpanel" aria-labelledby="tab-ipc" tabindex="0" hidden>
-            <h3 class="panel-title">Windows IPC & Session 0 Architecture</h3>
+            <h3 class="panel-title">Windows IPC &amp; Session 0 Architecture</h3>
             <p class="panel-lede">Isolated processes communicate through authenticated Windows Named Pipes with strict ACL enforcement.</p>
             <dl class="role-list">
               <div>
@@ -1132,7 +1333,7 @@
     </section>
 
     <!-- ============ FAQ ============ -->
-    <section class="section section-lined" id="faq">
+    <section class="section" id="faq" style="border-top: 1px solid var(--border);">
       <div class="container container-narrow">
         <header class="section-head reveal">
           <p class="eyebrow">Questions</p>
@@ -1170,7 +1371,7 @@
           <p style="color: var(--text-muted); margin-bottom: 24px;">Read the code, follow along, or help improve it. Everything lives on GitHub.</p>
           <div class="cta-actions">
             <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether" target="_blank" rel="noopener">View Tether on GitHub</a>
-            <a class="btn btn-secondary" href="#developers">Read the developer notes</a>
+            <a class="btn btn-green" href="#developers">Read the developer notes</a>
           </div>
           <div class="cta-status">
             <span class="status-chip">STILL BEING BUILT</span>
@@ -1183,7 +1384,7 @@
   <footer class="site-footer">
     <div class="container footer-grid">
       <div class="footer-brand">
-        <p style="font-weight: 600; color: var(--text); font-size: 1.1rem;">Tether</p>
+        <p style="font-weight: 600; color: var(--silver); font-size: 1.1rem;">Tether</p>
         <p>Connecting an Android phone to a Windows PC over your own Wi-Fi. No cloud, no accounts, just two devices you own talking to each other.</p>
         <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px;">
           <span class="chip">Windows 10 / 11</span>
@@ -1221,6 +1422,7 @@
     (function () {
       'use strict';
       var doc = document;
+      var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
       /* Mobile Navigation Toggle */
       var header = doc.getElementById('site-header');
@@ -1228,7 +1430,7 @@
       var navPanel = doc.getElementById('primary-nav');
 
       function setNavOpen(open) {
-        if (!header || !navToggle) return;
+        if (!header || !navToggle || !navPanel) return;
         navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
         var label = navToggle.querySelector('[data-nav-toggle-label]');
         if (label) label.textContent = open ? 'Close' : 'Menu';
@@ -1243,10 +1445,8 @@
 
       if (header && navToggle && navPanel) {
         navToggle.addEventListener('click', function () {
-          var isOpen = navToggle.getAttribute('aria-expanded') === 'true';
-          setNavOpen(!isOpen);
+          setNavOpen(navToggle.getAttribute('aria-expanded') !== 'true');
         });
-        // Close the mobile menu when a link inside it is followed
         navPanel.addEventListener('click', function (e) {
           if (e.target.closest('a')) setNavOpen(false);
         });
@@ -1261,7 +1461,7 @@
 
       /* Scroll-reveal: one-shot IntersectionObserver, no loops */
       var revealEls = Array.prototype.slice.call(doc.querySelectorAll('.reveal'));
-      if ('IntersectionObserver' in window) {
+      if ('IntersectionObserver' in window && !reduceMotion) {
         var io = new IntersectionObserver(function (entries) {
           entries.forEach(function (entry) {
             if (entry.isIntersecting) {
@@ -1273,6 +1473,23 @@
         revealEls.forEach(function (el) { io.observe(el); });
       } else {
         revealEls.forEach(function (el) { el.classList.add('is-visible'); });
+      }
+
+      /* Scroll-spy: highlights the nav link of the section in view */
+      var navLinks = Array.prototype.slice.call(doc.querySelectorAll('[data-nav-link]'));
+      var sections = navLinks
+        .map(function (link) { return doc.getElementById(link.getAttribute('data-nav-link')); })
+        .filter(Boolean);
+      if (sections.length && 'IntersectionObserver' in window) {
+        var spy = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (!entry.isIntersecting) return;
+            navLinks.forEach(function (link) {
+              link.classList.toggle('is-active', link.getAttribute('data-nav-link') === entry.target.id);
+            });
+          });
+        }, { rootMargin: '-45% 0px -50% 0px' });
+        sections.forEach(function (s) { spy.observe(s); });
       }
 
       /* Developer Tabs Interaction */
@@ -1323,12 +1540,14 @@
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(text).then(function () {
             btn.textContent = 'Copied';
+            btn.classList.add('is-copied');
             if (statusMsg) statusMsg.textContent = 'Copied command to clipboard.';
             setTimeout(function () {
               btn.textContent = 'Copy';
+              btn.classList.remove('is-copied');
               if (statusMsg) statusMsg.textContent = '';
             }, 2000);
-          }).catch(function() { /* FIXED SYNTAX ERROR */
+          }).catch(function () {
             if (statusMsg) statusMsg.textContent = 'Failed to copy to clipboard.';
           });
         }
