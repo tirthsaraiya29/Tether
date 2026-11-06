@@ -102,3 +102,4 @@ logs/
 build.bat
 keystore.properties
 *.secret
+.aider*
