@@ -41,6 +41,7 @@ captures/
 
 # Bundles
 *.bundle
+*.zip
 
 *.rc
 release/
@@ -77,6 +78,7 @@ data/secure-storage/
 # -----------------------------------------------------------------------------
 # Inno Setup — installer build artifacts
 # -----------------------------------------------------------------------------
+update-manifest.json
 # Published payload staged for the installer. Populated by `dotnet publish`
 # into installer/pack — never committed.
 installer/pack/
