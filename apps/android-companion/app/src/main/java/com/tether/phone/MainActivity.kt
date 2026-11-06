@@ -515,7 +515,8 @@ class MainActivity : FragmentActivity() {
                             if (dialogVisible && currentUpdateInfo != null) {
                                 UpdateDialog(
                                     updateInfo = currentUpdateInfo,
-                                    onDismiss = { updateViewModel.dismissDialog() },
+                                    onDismiss = { updateViewModel.snooze(this@MainActivity, 4) },
+                                    onSnooze = { hours -> updateViewModel.snooze(this@MainActivity, hours) },
                                     onDownload = {
                                         val downloadUrl = currentUpdateInfo.apkDownloadUrl ?: currentUpdateInfo.releaseUrl
                                         if (downloadUrl.isNotBlank()) {
