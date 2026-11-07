@@ -89,14 +89,15 @@ Tether employs a dual-channel network architecture for control and high-throughp
 * **File Transfer Channel**: TCP Port `37124`. Driven by Kestrel HTTPS server with `FileTransferAuthMiddleware`, `TokenStore` short-lived token authorization, 4GB size limits, Win32 handle resolution to prevent symlink escape, and public key certificate pinning (`TetherPinnedTrustManager`).
 
 ### Frame Structure & Packet Codec
-Network payloads are framed using length-prefixed binary encoding (`FrameCodec.cs`):
+Network payloads are framed using length-prefixed encoding (`FrameCodec.cs`):
 
 ```text
-+-----------------------+-----------------------+-------------------------------+
-|  Length (4 Bytes)     |  Opcode (2 Bytes)     |  Payload JSON (UTF-8 Encoded) |
-|  Big-Endian UInt32    |  Big-Endian UInt16    |  Command or Event Payload     |
-+-----------------------+-----------------------+-------------------------------+
++-----------------------+-------------------------------+
+|  Length (4 Bytes)     |  Payload JSON (UTF-8 Encoded) |
+|  Big-Endian Int32     |  Command or Event Payload     |
++-----------------------+-------------------------------+
 ```
+The JSON payload contains standard routing attributes such as `type` (identifying the message opcode/command), `requestId`, and command-specific parameters.
 
 ### Pairing Handshake Lifecycle
 1. **Discovery**: Android discovers Windows workstation via mDNS or UDP broadcast.

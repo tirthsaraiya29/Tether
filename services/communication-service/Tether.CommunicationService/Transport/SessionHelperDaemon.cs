@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -13,10 +14,14 @@ public sealed class SessionHelperDaemon : IHostedService, IDisposable
     private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(10);
     private const string HelperProcessName = "Tether.SessionHelper";
 
+    [DllImport("kernel32.dll", SetLastError = false)]
+    private static extern uint WTSGetActiveConsoleSessionId();
+
     private readonly ITetherLogger _logger;
     private readonly InputForwarder _inputForwarder;
     private readonly CancellationTokenSource _cts = new();
     private Task? _loop;
+    private int _disconnectedTicks;
 
     public SessionHelperDaemon(ITetherLogger logger, InputForwarder inputForwarder)
     {
@@ -63,36 +68,67 @@ public sealed class SessionHelperDaemon : IHostedService, IDisposable
 
     private void EnsureRunning()
     {
-        if (IsHelperRunning() && _inputForwarder.IsHelperConnected)
+        uint activeSession = WTSGetActiveConsoleSessionId();
+        if (activeSession == 0xFFFFFFFF)
         {
             return;
         }
 
-        bool launched = HardwareExecutor.LaunchHelperDaemonInUserSession(_logger);
-        if (launched)
+        if (_inputForwarder.IsHelperConnected)
         {
-            _logger.Info("SessionHelperDaemon: launched Tether.SessionHelper in active user session.");
+            _disconnectedTicks = 0;
+            return;
         }
-        else
-        {
-            _logger.Debug("SessionHelperDaemon: no active user session available for helper launch.");
-        }
-    }
 
-    private static bool IsHelperRunning()
-    {
+        _disconnectedTicks++;
+
+        // Audit running helper instances in active and background sessions
         Process[] procs;
         try { procs = Process.GetProcessesByName(HelperProcessName); }
-        catch { return false; }
+        catch { procs = Array.Empty<Process>(); }
 
         try
         {
-            if (procs.Length == 0) return false;
+            bool hasRunningInActiveSession = false;
             foreach (var p in procs)
             {
-                try { if (!p.HasExited) return true; } catch { }
+                try
+                {
+                    if (p.HasExited) continue;
+
+                    if ((uint)p.SessionId == activeSession)
+                    {
+                        if (hasRunningInActiveSession || _disconnectedTicks > 2)
+                        {
+                            // Duplicate or hung instance that failed to connect within 20s: kill it
+                            _logger.Warning($"SessionHelperDaemon: terminating hung/duplicate helper PID {p.Id} in session {activeSession}.");
+                            try { p.Kill(); } catch { }
+                        }
+                        else
+                        {
+                            hasRunningInActiveSession = true;
+                        }
+                    }
+                }
+                catch { }
             }
-            return false;
+
+            // If a healthy instance is already in active session and we haven't timed out, give it time
+            if (hasRunningInActiveSession && _disconnectedTicks <= 2)
+            {
+                return;
+            }
+
+            bool launched = HardwareExecutor.LaunchHelperDaemonInUserSession(_logger);
+            if (launched)
+            {
+                _disconnectedTicks = 0;
+                _logger.Info($"SessionHelperDaemon: launched Tether.SessionHelper in active user session {activeSession}.");
+            }
+            else
+            {
+                _logger.Debug($"SessionHelperDaemon: could not launch helper in user session {activeSession}.");
+            }
         }
         finally
         {

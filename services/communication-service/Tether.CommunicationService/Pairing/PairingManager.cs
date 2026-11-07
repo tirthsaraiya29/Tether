@@ -45,7 +45,7 @@ public sealed class PairingManager
         uint Timeout,
         out uint pResponse,
         bool bWait);
-    private const int MaxFailedAttempts = 3;
+    public const int MaxFailedAttempts = 3;
     private const int ExpirationSeconds = 120;
 
     private readonly IEventBus _eventBus;
@@ -359,28 +359,38 @@ public sealed class PairingManager
         return false;
     }
 
+    private readonly SemaphoreSlim _pairingPromptGate = new(1, 1);
+
     private void ShowSecurePairingPrompt(string phoneDisplayName, string pin)
     {
-        _ = Task.Run(() =>
+        _ = Task.Run(async () =>
         {
             try
             {
-                uint activeSession = WTSGetActiveConsoleSessionId();
-                if (activeSession != 0xFFFFFFFF)
+                await _pairingPromptGate.WaitAsync();
+                try
                 {
-                    string title = "Tether — Device Pairing";
-                    string message = $"Pairing Request from {phoneDisplayName}\n\nEnter this 6-digit PIN on your phone:\n\n      {pin}      \n";
-                    WTSSendMessage(
-                        IntPtr.Zero,
-                        activeSession,
-                        title,
-                        (uint)(title.Length * sizeof(char)),
-                        message,
-                        (uint)(message.Length * sizeof(char)),
-                        0x00000040 /* MB_OK | MB_ICONINFORMATION */,
-                        60,
-                        out _,
-                        false);
+                    uint activeSession = WTSGetActiveConsoleSessionId();
+                    if (activeSession != 0xFFFFFFFF)
+                    {
+                        string title = "Tether — Device Pairing";
+                        string message = $"Pairing Request from {phoneDisplayName}\n\nEnter this 6-digit PIN on your phone:\n\n      {pin}      \n";
+                        WTSSendMessage(
+                            IntPtr.Zero,
+                            activeSession,
+                            title,
+                            (uint)(title.Length * sizeof(char)),
+                            message,
+                            (uint)(message.Length * sizeof(char)),
+                            0x00000040 /* MB_OK | MB_ICONINFORMATION */,
+                            60,
+                            out _,
+                            true);
+                    }
+                }
+                finally
+                {
+                    _pairingPromptGate.Release();
                 }
             }
             catch (Exception ex)

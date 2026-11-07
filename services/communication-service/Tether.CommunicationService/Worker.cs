@@ -12,6 +12,7 @@ using Tether.CommunicationService.Power;
 using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
+using Tether.CommunicationService.Trust;
 using Tether.EnforcementEngine;
 using Tether.EventBus;
 using Tether.PanicEngine;
@@ -49,6 +50,7 @@ public sealed class Worker : BackgroundService
     private readonly SessionManager _sessionManager;
     private readonly PowerEventWatcher _powerWatcher;
     private readonly PowerEventNotifier _powerNotifier;
+    private readonly TrustStore _trustStore;
 
     public Worker(
         ILogger<Worker> logger,
@@ -66,7 +68,8 @@ public sealed class Worker : BackgroundService
         PanicManager panicManager,
         RecoveryManager recoveryManager,
         IpcEventRelay ipcEventRelay,
-        IEventBus eventBus)
+        IEventBus eventBus,
+        TrustStore trustStore)
     {
         _logger = logger;
         _tetherLogger = tetherLogger;
@@ -78,12 +81,14 @@ public sealed class Worker : BackgroundService
         _sessionManager = sessionManager;
         _powerWatcher = powerWatcher;
         _powerNotifier = powerNotifier;
+        _trustStore = trustStore;
         _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager; _ = ipcEventRelay;
 
         eventBus.Subscribe(evt =>
         {
             if (evt.EventType == TetherEventType.TELEMETRY_SYNC_REQUESTED)
             {
+                PublishPairedDevicesList(eventBus);
                 if (_sessionManager.ActiveSessionCount > 0)
                 {
                     var firstDevice = _sessionManager.GetActiveSessions().FirstOrDefault()?.Device;
@@ -144,7 +149,52 @@ public sealed class Worker : BackgroundService
                     _tetherLogger.Warning($"Failed handling HARDWARE_SYNC_REQUESTED: {ex.Message}");
                 }
             }
+            else if (evt.EventType == TetherEventType.FORGET_PHONE && !string.IsNullOrEmpty(evt.PayloadJson))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(evt.PayloadJson);
+                    var root = doc.RootElement;
+                    string? fingerprint = root.TryGetProperty("fingerprint", out var fpProp) ? fpProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(fingerprint))
+                    {
+                        _trustStore.Remove(fingerprint);
+                        _sessionManager.DisconnectDevice(fingerprint, "Unpaired by user");
+                        _tetherLogger.Info($"Device with fingerprint {fingerprint} was removed from TrustStore and disconnected.");
+                        PublishPairedDevicesList(eventBus);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _tetherLogger.Warning($"Failed handling FORGET_PHONE: {ex.Message}");
+                }
+            }
         });
+    }
+
+    private void PublishPairedDevicesList(IEventBus eventBus)
+    {
+        try
+        {
+            var trusted = _trustStore.All().Select(p => new
+            {
+                deviceId = p.DeviceId,
+                displayName = p.DisplayName,
+                fingerprint = p.Fingerprint,
+                lastSeen = p.LastSeenUtc
+            }).ToList();
+
+            eventBus.Publish(new TetherEvent
+            {
+                EventType = TetherEventType.PROVISION_PHONE,
+                Source = "TrustStore",
+                PayloadJson = System.Text.Json.JsonSerializer.Serialize(trusted)
+            });
+        }
+        catch (Exception ex)
+        {
+            _tetherLogger.Warning($"Failed publishing paired devices list: {ex.Message}");
+        }
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -171,9 +221,25 @@ public sealed class Worker : BackgroundService
         _tetherLogger.Info($"Transport up. DeviceId={_identity.DeviceId}");
 
         _powerWatcher.Start();
+        _powerWatcher.PowerEventOccurred += evt =>
+        {
+            try
+            {
+                if (_sessionManager.ActiveSessionCount > 0)
+                {
+                    _powerNotifier.FlushToSession(json => _sessionManager.BroadcastRawFrame(json));
+                }
+            }
+            catch (Exception ex)
+            {
+                _tetherLogger.Warning($"Worker: immediate power-event flush failed: {ex.Message}");
+            }
+        };
         _tetherLogger.Info("PowerEventWatcher: started (WMI + SystemEvents corroborators).");
 
         LaptopStateCollector.Initialize(_sessionManager, _tetherLogger);
+
+        StartUnlockPromptRelay();
 
         _ = Task.Run(async () =>
         {
@@ -218,6 +284,64 @@ public sealed class Worker : BackgroundService
         }, stoppingToken);
 
         return Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_ => { }, TaskScheduler.Default);
+    }
+
+    private EventWaitHandle? _unlockPromptEvent;
+    private RegisteredWaitHandle? _unlockPromptWait;
+
+    /// <summary>
+    /// Relays unlock-prompt requests from the credential provider (LogonUI secure desktop)
+    /// to the paired phone as UNLOCK_PROMPT frames over the TLS control channel.
+    /// The CP signals Global\TetherUnlockPromptRequested; we broadcast once per signal.
+    /// </summary>
+    private void StartUnlockPromptRelay()
+    {
+        try
+        {
+            var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
+            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
+            // ManualReset: the CP can't safely Set+Reset from the secure desktop
+            // (lost-signal race), so we consume the signal here.
+            _unlockPromptEvent = EventWaitHandleAcl.Create(
+                false, EventResetMode.ManualReset, @"Global\TetherUnlockPromptRequested", out _, sec);
+        }
+        catch (Exception ex)
+        {
+            _tetherLogger.Error($"UnlockPromptRelay: could not create request event: {ex.Message}");
+            return;
+        }
+
+        _unlockPromptWait = ThreadPool.RegisterWaitForSingleObject(
+            _unlockPromptEvent,
+            (state, timedOut) =>
+            {
+                if (timedOut) return;
+                try
+                {
+                    // Consume the signal first so a rapid re-request isn't lost
+                    // behind this callback's own broadcast work.
+                    _unlockPromptEvent?.Reset();
+
+                    if (_sessionManager.ActiveSessionCount == 0)
+                    {
+                        _tetherLogger.Info("UnlockPromptRelay: phone not connected; prompt request dropped.");
+                        return;
+                    }
+                    _sessionManager.BroadcastRawFrame(System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        type = "UNLOCK_PROMPT",
+                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    }));
+                    _tetherLogger.Info("UnlockPromptRelay: UNLOCK_PROMPT frame broadcast to phone.");
+                }
+                catch (Exception ex)
+                {
+                    _tetherLogger.Warning($"UnlockPromptRelay: broadcast failed: {ex.Message}");
+                }
+            },
+            null,
+            Timeout.Infinite,
+            executeOnlyOnce: false);
     }
 
     private void EnsureFirewallRulesExist()
@@ -309,6 +433,13 @@ public sealed class Worker : BackgroundService
 
         try { _powerWatcher.Dispose(); } catch { }
         PowerEventHub.Watcher = null;
+
+        try
+        {
+            _unlockPromptWait?.Unregister(null);
+            _unlockPromptEvent?.Dispose();
+        }
+        catch { }
 
         _mdns.Stop();
         _udpDiscovery.Stop();

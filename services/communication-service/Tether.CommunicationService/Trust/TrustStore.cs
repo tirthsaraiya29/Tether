@@ -1,3 +1,4 @@
+using System.Text;
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
@@ -29,6 +30,7 @@ public sealed class TrustStore
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether");
     private static readonly string DataFile = Path.Combine(DataDir, "trust.json");
 
+    private static readonly byte[] DpapiEntropy = "Tether_TrustStore_DPAPI_Entropy_v1"u8.ToArray();
     private readonly ITetherLogger _logger;
     private readonly object _gate = new();
     private readonly Dictionary<string, TrustedPhone> _byFingerprint = new(StringComparer.OrdinalIgnoreCase);
@@ -128,11 +130,24 @@ public sealed class TrustStore
 
             if (!File.Exists(DataFile)) return;
 
+            byte[] rawBytes = File.ReadAllBytes(DataFile);
+            if (rawBytes.Length == 0) return;
+
             string json;
-            using (var fs = new FileStream(DataFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            using (var sr = new StreamReader(fs))
+            bool wasPlaintext = false;
+
+            int firstNonWs = 0;
+            while (firstNonWs < rawBytes.Length && char.IsWhiteSpace((char)rawBytes[firstNonWs])) firstNonWs++;
+
+            if (firstNonWs < rawBytes.Length && (rawBytes[firstNonWs] == (byte)'[' || rawBytes[firstNonWs] == (byte)'{'))
             {
-                json = sr.ReadToEnd();
+                json = Encoding.UTF8.GetString(rawBytes);
+                wasPlaintext = true;
+            }
+            else
+            {
+                byte[] plainBytes = ProtectedData.Unprotect(rawBytes, DpapiEntropy, DataProtectionScope.LocalMachine);
+                json = Encoding.UTF8.GetString(plainBytes);
             }
 
             var list = JsonSerializer.Deserialize<List<TrustedPhone>>(json) ?? new();
@@ -145,6 +160,12 @@ public sealed class TrustStore
                 }
             }
             _logger.Info($"Trust store loaded: {_byFingerprint.Count} paired phone(s).");
+
+            if (wasPlaintext)
+            {
+                _logger.Info("Trust store: migrating legacy plaintext storage to DPAPI LocalMachine encryption.");
+                Save();
+            }
         }
         catch (Exception ex)
         {
@@ -161,14 +182,11 @@ public sealed class TrustStore
 
             var snapshot = All();
             var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+            byte[] plainBytes = Encoding.UTF8.GetBytes(json);
+            byte[] cipherBytes = ProtectedData.Protect(plainBytes, DpapiEntropy, DataProtectionScope.LocalMachine);
 
             string tempFile = Path.Combine(DataDir, $"trust_{Guid.NewGuid():N}.tmp");
-            using (var fs = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None))
-            using (var sw = new StreamWriter(fs))
-            {
-                sw.Write(json);
-                sw.Flush();
-            }
+            File.WriteAllBytes(tempFile, cipherBytes);
 
             if (File.Exists(DataFile))
             {

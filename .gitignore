@@ -36,9 +36,12 @@ Thumbs.db
 captures/
 .externalNativeBuild/
 .cxx/
+*.exe
+*.dll
 
 # Bundles
 *.bundle
+*.zip
 
 *.rc
 release/
@@ -75,6 +78,7 @@ data/secure-storage/
 # -----------------------------------------------------------------------------
 # Inno Setup — installer build artifacts
 # -----------------------------------------------------------------------------
+update-manifest.json
 # Published payload staged for the installer. Populated by `dotnet publish`
 # into installer/pack — never committed.
 installer/pack/
@@ -93,3 +97,9 @@ installer/*.tmp
 # state files during development runs. These should never be committed.
 *.jsonl
 logs/
+
+# Build automation scripts & local secrets
+build.bat
+keystore.properties
+*.secret
+.aider*

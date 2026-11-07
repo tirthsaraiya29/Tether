@@ -12,7 +12,8 @@ enum SAMPLE_FIELD_ID
     SFI_PASSWORD = 5,
     SFI_SUBMIT_BUTTON = 6,
     SFI_LOGONSTATUS_TEXT = 7,
-    SFI_NUM_FIELDS = 8
+    SFI_UNLOCK_PROMPT_BUTTON = 8,
+    SFI_NUM_FIELDS = 9
 };
 
 struct FIELD_STATE_PAIR
@@ -31,6 +32,7 @@ static const FIELD_STATE_PAIR s_rgFieldStatePairs[] =
     { CPFS_HIDDEN,                   CPFIS_NONE }, // SFI_PASSWORD        (removed)
     { CPFS_DISPLAY_IN_SELECTED_TILE, CPFIS_NONE }, // SFI_SUBMIT_BUTTON
     { CPFS_DISPLAY_IN_SELECTED_TILE, CPFIS_NONE }, // SFI_LOGONSTATUS_TEXT
+    { CPFS_DISPLAY_IN_SELECTED_TILE, CPFIS_NONE }, // SFI_UNLOCK_PROMPT_BUTTON
 };
 
 static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgCredProvFieldDescriptors[] =
@@ -43,6 +45,7 @@ static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgCredProvFieldDescriptors[]
     { SFI_PASSWORD,         CPFT_PASSWORD_TEXT, const_cast<PWSTR>(L"Enter Security Password") },
     { SFI_SUBMIT_BUTTON,    CPFT_SUBMIT_BUTTON, const_cast<PWSTR>(L"Unlock") },
     { SFI_LOGONSTATUS_TEXT, CPFT_SMALL_TEXT,    const_cast<PWSTR>(L"Status Context") },
+    { SFI_UNLOCK_PROMPT_BUTTON, CPFT_COMMAND_LINK, const_cast<PWSTR>(L"Send unlock prompt to phone") },
 };
 
 static const PWSTR s_rgUnlockMethodStrings[] =

@@ -39,15 +39,7 @@
     <SolidColorBrush x:Key="TerminalBackgroundBrush" Color="{StaticResource TerminalSurfaceColor}" po:Freeze="True"/>
     <SolidColorBrush x:Key="RecessedWellBrush" Color="{StaticResource RecessedWellColor}" po:Freeze="True"/>
 
-    <LinearGradientBrush x:Key="GlassPanelBackgroundBrush" StartPoint="0,0" EndPoint="0,1" po:Freeze="True">
-        <GradientStop Color="#E80F1520" Offset="0.0"/>
-        <GradientStop Color="#E80B0F17" Offset="1.0"/>
-    </LinearGradientBrush>
-
-    <LinearGradientBrush x:Key="GlassPanelHoverBackgroundBrush" StartPoint="0,0" EndPoint="0,1" po:Freeze="True">
-        <GradientStop Color="#EE131A27" Offset="0.0"/>
-        <GradientStop Color="#EE0D121C" Offset="1.0"/>
-    </LinearGradientBrush>
+    <SolidColorBrush x:Key="GlassPanelBackgroundBrush" Color="{StaticResource CardSurfacePrimaryColor}" po:Freeze="True"/>
 
     <SolidColorBrush x:Key="GlassSurfaceSubtleBrush" Color="#0CFFFFFF" po:Freeze="True"/>
     <SolidColorBrush x:Key="GlassControlFillBrush" Color="#12FFFFFF" po:Freeze="True"/>
@@ -61,20 +53,8 @@
     <!-- ===================================================================== -->
     <!-- 1PX HAIRLINE & SPECULAR BORDER BRUSHES                                -->
     <!-- ===================================================================== -->
-    <LinearGradientBrush x:Key="GlassSpecularBorderBrush" StartPoint="0,0" EndPoint="0,1" po:Freeze="True">
-        <GradientStop Color="#24FFFFFF" Offset="0.0"/>
-        <GradientStop Color="#12FFFFFF" Offset="1.0"/>
-    </LinearGradientBrush>
-
-    <LinearGradientBrush x:Key="GlassSpecularHoverBorderBrush" StartPoint="0,0" EndPoint="0,1" po:Freeze="True">
-        <GradientStop Color="#4538BDF8" Offset="0.0"/>
-        <GradientStop Color="#1CFFFFFF" Offset="1.0"/>
-    </LinearGradientBrush>
-
-    <LinearGradientBrush x:Key="GlassControlBorderBrush" StartPoint="0,0" EndPoint="0,1" po:Freeze="True">
-        <GradientStop Color="#28FFFFFF" Offset="0.0"/>
-        <GradientStop Color="#14FFFFFF" Offset="1.0"/>
-    </LinearGradientBrush>
+    <SolidColorBrush x:Key="GlassSpecularBorderBrush" Color="#1FFFFFFF" po:Freeze="True"/>
+    <SolidColorBrush x:Key="GlassControlBorderBrush" Color="#26FFFFFF" po:Freeze="True"/>
 
     <SolidColorBrush x:Key="SubtleDividerBrush" Color="#15FFFFFF" po:Freeze="True"/>
     <SolidColorBrush x:Key="TerminalBorderBrush" Color="#1EFFFFFF" po:Freeze="True"/>
@@ -87,21 +67,10 @@
     <SolidColorBrush x:Key="StatusDegradedBrush" Color="{StaticResource StatusDegradedColor}" po:Freeze="True"/>
     <SolidColorBrush x:Key="StatusCriticalBrush" Color="{StaticResource StatusCriticalColor}" po:Freeze="True"/>
 
-    <!-- Radial Halos -->
-    <RadialGradientBrush x:Key="HealthyHaloBrush" Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.5" RadiusY="0.5">
-        <GradientStop Color="#5510B981" Offset="0.0"/>
-        <GradientStop Color="#0010B981" Offset="1.0"/>
-    </RadialGradientBrush>
-
-    <RadialGradientBrush x:Key="CriticalHaloBrush" Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.5" RadiusY="0.5">
-        <GradientStop Color="#55F43F5E" Offset="0.0"/>
-        <GradientStop Color="#00F43F5E" Offset="1.0"/>
-    </RadialGradientBrush>
-
-    <RadialGradientBrush x:Key="AccentHaloBrush" Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.5" RadiusY="0.5">
-        <GradientStop Color="#4D38BDF8" Offset="0.0"/>
-        <GradientStop Color="#0038BDF8" Offset="1.0"/>
-    </RadialGradientBrush>
+    <!-- Status halo brushes retained as solid fills (code-behind sets them by key) -->
+    <SolidColorBrush x:Key="HealthyHaloBrush" Color="#6610B981" po:Freeze="True"/>
+    <SolidColorBrush x:Key="CriticalHaloBrush" Color="#66F43F5E" po:Freeze="True"/>
+    <SolidColorBrush x:Key="AccentHaloBrush" Color="#6638BDF8" po:Freeze="True"/>
 
     <!-- Semantic Pill Brushes -->
     <SolidColorBrush x:Key="AccentPillBackgroundBrush" Color="#1838BDF8" po:Freeze="True"/>
@@ -116,21 +85,10 @@
     <SolidColorBrush x:Key="NeutralPillBackgroundBrush" Color="#10FFFFFF" po:Freeze="True"/>
     <SolidColorBrush x:Key="NeutralPillBorderBrush" Color="#1FFFFFFF" po:Freeze="True"/>
 
-    <!-- Button & Track Gradients -->
-    <LinearGradientBrush x:Key="AccentGradientBrush" StartPoint="0,0" EndPoint="1,1" po:Freeze="True">
-        <GradientStop Color="#38BDF8" Offset="0.0"/>
-        <GradientStop Color="#0EA5E9" Offset="1.0"/>
-    </LinearGradientBrush>
-
-    <LinearGradientBrush x:Key="AccentHoverGradientBrush" StartPoint="0,0" EndPoint="1,1" po:Freeze="True">
-        <GradientStop Color="#7DD3FC" Offset="0.0"/>
-        <GradientStop Color="#38BDF8" Offset="1.0"/>
-    </LinearGradientBrush>
-
-    <LinearGradientBrush x:Key="DestructiveGradientBrush" StartPoint="0,0" EndPoint="1,1" po:Freeze="True">
-        <GradientStop Color="#F43F5E" Offset="0.0"/>
-        <GradientStop Color="#E11D48" Offset="1.0"/>
-    </LinearGradientBrush>
+    <!-- Accent fills -->
+    <SolidColorBrush x:Key="AccentGradientBrush" Color="{StaticResource AccentPrimaryColor}" po:Freeze="True"/>
+    <SolidColorBrush x:Key="AccentHoverGradientBrush" Color="#5BBDE9FA" po:Freeze="True"/>
+    <SolidColorBrush x:Key="DestructiveGradientBrush" Color="{StaticResource StatusCriticalColor}" po:Freeze="True"/>
 
     <!-- ===================================================================== -->
     <!-- TYPOGRAPHY FOREGROUND BRUSHES                                         -->

@@ -138,9 +138,15 @@ public sealed class TetherWindowsService : ServiceBase
         {
             SessionChangeReason.SessionLock => TetherPowerEventType.Lock,
             SessionChangeReason.SessionUnlock => TetherPowerEventType.Unlock,
+            SessionChangeReason.SessionLogon => TetherPowerEventType.Unlock,
             SessionChangeReason.SessionLogoff => TetherPowerEventType.Logoff,
             _ => TetherPowerEventType.None,
         };
+
+        if (change.Reason == SessionChangeReason.SessionLogon || change.Reason == SessionChangeReason.SessionUnlock)
+        {
+            try { FileTransfer.TokenStore.RefreshLocalUiTokenAcl(); } catch { }
+        }
 
         if (type != TetherPowerEventType.None)
             watcher.RecordInitiated(type, "ServiceBase.OnSessionChange", change.SessionId);

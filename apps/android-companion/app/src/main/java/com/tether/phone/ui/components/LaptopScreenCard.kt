@@ -254,10 +254,20 @@ fun LaptopScreenCard(
                                 fontWeight = FontWeight.Bold,
                             )
                             if (telemetry.isCharging) {
+                                val infiniteTransition = rememberInfiniteTransition(label = "ChargingGlow")
+                                val boltAlpha by infiniteTransition.animateFloat(
+                                    initialValue = 0.35f,
+                                    targetValue = 1f,
+                                    animationSpec = infiniteRepeatable(
+                                        animation = tween(800, easing = FastOutSlowInEasing),
+                                        repeatMode = RepeatMode.Reverse
+                                    ),
+                                    label = "BoltPulse"
+                                )
                                 Icon(
                                     imageVector = Icons.Default.Bolt,
                                     contentDescription = null,
-                                    tint = MatrixGold,
+                                    tint = MatrixGold.copy(alpha = boltAlpha),
                                     modifier = Modifier.size(14.dp),
                                 )
                             }
