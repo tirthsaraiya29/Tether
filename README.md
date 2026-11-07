@@ -126,12 +126,62 @@ Download prebuilt binaries directly from the official releases:
 - **Named-Pipe IPC:** Windows services and desktop clients communicate through authenticated inter-process communication channels.
 - **Service Lifecycle Management:** Direct service restart control from `Tether.DesktopUI` using the Windows Service Control Manager (SCM) APIs.
 
-### Remote Control and Execution
+### Expanded Capability Ecosystem
 
-- **Audio Control:** Adjust system audio levels directly from Android.
-- **Display Brightness:** Adjust monitor brightness via the interactive session helper.
-- **Remote Input:** Stream mouse movement, clicks, scrolling, and modifier-key events.
-- **Application Launching:** Launch configured Windows utilities into the active desktop session.
+Tether provides nine integrated remote capability domains accessible from the Android companion app:
+
+1. **Remote Desktop Streaming:**
+   - Real-time low-latency screen streaming (multipart MJPEG on Port 37124).
+   - High-resolution screenshot capture.
+   - Targeting of the full desktop or specific open application windows.
+   - Touch-to-pointer input mapping for direct workstation navigation.
+
+2. **Advanced Audio and Media Stack:**
+   - Per-application volume control and mute toggling via Windows Core Audio session managers.
+   - Audio endpoint device switching across active playback and recording hardware.
+   - Microphone gain adjustments and hardware muting.
+   - System Media Transport Controls (SMTC) integration supporting track title, artist, album, thumbnail extraction, play/pause, track skipping, and scrubbing.
+
+3. **Interactive Remote Terminal:**
+   - Multi-session pseudoterminal interface supporting Windows PowerShell 5.1, Command Prompt, PowerShell 7 (pwsh), and Windows Subsystem for Linux (WSL).
+   - Scrollable monospace output canvas with streaming UTF-8 I/O.
+   - Virtual terminal shortcut bar (Tab, Ctrl+C, Esc, Arrow keys) and quick diagnostic presets.
+
+4. **Bidirectional Clipboard Synchronization:**
+   - Live synchronization of text between Windows and Android clipboards.
+   - SHA-256 content hashing to eliminate echo loops.
+   - Remote Copy (Ctrl+C) and Remote Paste (Ctrl+V) command execution.
+   - Local clipboard history buffer.
+
+5. **Notification Bridge:**
+   - Windows toast notification forwarding to the companion app.
+   - Android notification mirroring to Windows desktop toasts via NotificationListenerService.
+   - Remote notification dismissal across devices.
+
+6. **Advanced File Management:**
+   - Directory navigation with recursive search.
+   - Remote file renaming, moving, and folder creation.
+   - Recycle Bin integration for safe deletion with optional permanent removal.
+   - One-tap Recycle Bin emptying.
+   - Resumable chunked file transfers protected by SHA-512 integrity hashes.
+
+7. **Windows Administration and Diagnostics:**
+   - Hardware telemetry: CPU load percentage, RAM usage, logical disk storage meters, and network adapter throughput.
+   - Battery health analytics: Design capacity, full charge capacity, wear level percentage, and charge cycle counts via WMI.
+   - Windows ACPI power plan switching via native powrprof APIs.
+   - USB peripheral enumeration and printer spooler queue monitoring.
+   - Windows Services control: start, stop, and restart services by name.
+   - Windows Update queries: pending update counts and title inspection.
+
+8. **Application and Window Management:**
+   - Start Menu catalog scanning with one-tap application launching.
+   - Live desktop window management: focus, left/right snap, maximize, minimize, graceful close, and process termination.
+
+9. **Automation Workflows:**
+   - Persistent multi-command workflow recipes stored on the Windows host.
+   - Trigger options: manual execution, recurring time intervals, and scheduled wall-clock times.
+   - Conditional evaluation: execution gated on battery level, charging status, or process presence.
+   - Sequenced action pipelines: automatic workstation lock, mute, process shutdown, and sleep.
 
 ### Android Update Checks and Permissions
 
