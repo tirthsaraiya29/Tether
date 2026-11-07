@@ -76,8 +76,8 @@ public sealed class CapabilityManager
                 or "browser" or "taskmgr" or "explorer" or "settings"
                 or "calc" or "notepad" => "APP_LAUNCH",
 
-            "ping" or "pong" => "MEDIA",
-            or "PING" or "PONG" => "MEDIA",
+            "ping" or "pong" or "PING" or "PONG" => "MEDIA",
+
 
             _ => null
         };

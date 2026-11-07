@@ -1418,6 +1418,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
                 activeLockSessionId?.let { dismissedLockSessionId = null }
                 postPowerEventNotification("LOCK", System.currentTimeMillis(), activeLockSessionId, force = true)
+            }
             "CLIPBOARD_SYNC" -> {
                 val contentStr = json.optString("content", "")
                 val hash = json.optString("hash", "")
