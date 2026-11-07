@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       run_mode:
-        description: "Run a full audit or only verify setup without using Beam"
+        description: "Run a full audit or only verify setup without using Nemotron"
         required: true
         type: choice
         default: audit
@@ -237,7 +237,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # GET only. This does not invoke Beam or generate inference tokens.
+          # GET only. This does not invoke Nemotron or generate inference tokens.
           RESPONSE="$RUNNER_TEMP/ollama-models.json"
 
           HTTP_CODE="$(
@@ -315,7 +315,7 @@ jobs:
             echo ""
             echo "All configured preflight checks passed."
             echo ""
-            echo "Beam was not invoked. No inference tokens were requested."
+            echo "Nemotron was not invoked. No inference tokens were requested."
           } >> "$REPORT_PATH"
 
       - name: Install OpenCode
@@ -340,7 +340,7 @@ jobs:
 
           opencode --version
 
-      - name: Configure read-only Beam agent
+      - name: Configure read-only Nemotron agent
         if: github.event_name == 'schedule' || inputs.run_mode == 'audit'
         shell: bash
         run: |
@@ -349,7 +349,7 @@ jobs:
           cat > opencode.json <<'JSON'
           {
             "$schema": "https://opencode.ai/config.json",
-            "model": "ollama-cloud/beam:cloud",
+            "model": "ollama-cloud/nemotron-3-ultra:cloud",
             "autoupdate": false,
             "compaction": {
               "auto": true,
@@ -365,8 +365,8 @@ jobs:
                   "apiKey": "{env:OLLAMA_API_KEY}"
                 },
                 "models": {
-                  "beam:cloud": {
-                    "name": "Reflection Beam",
+                  "nemotron-3-ultra:cloud": {
+                    "name": "Reflection Nemotron 3 Ultra",
                     "limit": {
                       "context": 1000000,
                       "output": 65536
@@ -414,7 +414,7 @@ jobs:
 
           echo "OpenCode configuration validated."
 
-      - name: Run independent security audit with Beam
+      - name: Run independent security audit with Nemotron
         if: github.event_name == 'schedule' || inputs.run_mode == 'audit'
         id: audit
         continue-on-error: true
@@ -423,12 +423,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          OUTPUT="$RUNNER_TEMP/beam-audit-output.md"
+          OUTPUT="$RUNNER_TEMP/nemotron-audit-output.md"
           STDERR_LOG="$RUNNER_TEMP/opencode-stderr.log"
 
           TARGET_SHA="${{ steps.baseline.outputs.target_sha }}"
 
-          cat > "$RUNNER_TEMP/beam-task.txt" <<EOF
+          cat > "$RUNNER_TEMP/nemotron-task.txt" <<EOF
           Perform a complete, independent, read-only security audit of this
           checked-out Tether repository.
 
@@ -534,17 +534,17 @@ jobs:
           zero eligible advisories.
           EOF
 
-          echo "Invoking Beam for the full audit."
+          echo "Invoking Nemotron for the full audit."
 
           set +e
 
           opencode run \
-            --model ollama-cloud/beam:cloud \
+            --model ollama-cloud/nemotron-3-ultra:cloud \
             --agent security-auditor \
             --title "Tether Security Audit $GITHUB_RUN_NUMBER" \
             --file .audit-input/AUDIT_PROMPT.md \
             -- \
-            "$(cat "$RUNNER_TEMP/beam-task.txt")" \
+            "$(cat "$RUNNER_TEMP/nemotron-task.txt")" \
             > "$OUTPUT" \
             2> "$STDERR_LOG"
 
@@ -555,7 +555,7 @@ jobs:
           if [[ -s "$OUTPUT" ]]; then
             {
               echo ""
-              echo "## Beam Audit Output"
+              echo "## Nemotron Audit Output"
               echo ""
               cat "$OUTPUT"
               echo ""
@@ -574,16 +574,16 @@ jobs:
           fi
 
           if [[ "$STATUS" -ne 0 ]]; then
-            echo "::error::OpenCode/Beam audit failed with exit code $STATUS."
+            echo "::error::OpenCode/Nemotron audit failed with exit code $STATUS."
             exit "$STATUS"
           fi
 
           if [[ ! -s "$OUTPUT" ]]; then
-            echo "::error::Beam returned an empty report."
+            echo "::error::Nemotron returned an empty report."
             exit 1
           fi
 
-          echo "Beam audit completed."
+          echo "Nemotron audit completed."
 
       - name: Extract and validate findings
         if: steps.audit.outcome == 'success'
@@ -594,7 +594,7 @@ jobs:
           set -euo pipefail
 
           python .github/scripts/submit_advisories.py \
-            --extract "$RUNNER_TEMP/beam-audit-output.md" \
+            --extract "$RUNNER_TEMP/nemotron-audit-output.md" \
             --output "$RUNNER_TEMP/advisory-findings.json"
 
           echo "Findings extracted and validated."
@@ -711,7 +711,7 @@ jobs:
           FAILED=0
 
           if [[ "${{ steps.audit.outcome }}" != "success" ]]; then
-            echo "::error::The Beam audit did not complete successfully."
+            echo "::error::The Nemotron audit did not complete successfully."
             FAILED=1
           fi
 
