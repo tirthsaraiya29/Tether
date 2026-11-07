@@ -3,9 +3,11 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Tether.CommunicationService.Automation;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.FileTransfer;
+using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
 using Tether.EventBus;
 using Tether.Shared.Events;
@@ -19,13 +21,39 @@ public sealed class PacketRouter
     private readonly CapabilityManager _capabilityManager;
     private readonly IEventBus _eventBus;
     private readonly TokenStore _tokenStore;
+    private readonly InputForwarder _inputForwarder;
+    private readonly WindowsAdminManager _adminManager;
+    private readonly AutomationEngine _automationEngine;
+    private readonly SessionManager _sessionManager;
 
-    public PacketRouter(ITetherLogger logger, CapabilityManager capabilityManager, IEventBus eventBus, TokenStore tokenStore)
+    public PacketRouter(
+        ITetherLogger logger,
+        CapabilityManager capabilityManager,
+        IEventBus eventBus,
+        TokenStore tokenStore,
+        InputForwarder inputForwarder,
+        WindowsAdminManager adminManager,
+        AutomationEngine automationEngine,
+        SessionManager sessionManager)
     {
         _logger = logger;
         _capabilityManager = capabilityManager;
         _eventBus = eventBus;
         _tokenStore = tokenStore;
+        _inputForwarder = inputForwarder;
+        _adminManager = adminManager;
+        _automationEngine = automationEngine;
+        _sessionManager = sessionManager;
+
+        // Relay events from SessionHelper (Windows desktop) to connected phone sessions
+        _inputForwarder.OnHelperEventReceived += rawJson =>
+        {
+            try
+            {
+                _sessionManager.BroadcastRawFrame(rawJson);
+            }
+            catch { }
+        };
     }
 
     public async Task RouteFrameAsync(JsonDocument doc, TetherSession session, TetherDevice device, Stream stream, CancellationToken ct)
@@ -33,6 +61,8 @@ public sealed class PacketRouter
         string type;
         try { type = doc.RootElement.GetProperty("type").GetString() ?? ""; }
         catch { return; }
+
+        string reqId = doc.RootElement.TryGetProperty("requestId", out var rProp) ? (rProp.GetString() ?? "") : "";
 
         switch (type)
         {
@@ -61,8 +91,6 @@ public sealed class PacketRouter
 
             case "FILE_TRANSFER_TOKEN_REQUEST":
                 _logger.Info($"PacketRouter: Received FILE_TRANSFER_TOKEN_REQUEST from '{device.DisplayName}'. Generating token for fingerprint '{device.Fingerprint}'.");
-                string reqId = "";
-                if (doc.RootElement.TryGetProperty("requestId", out var rProp)) reqId = rProp.GetString() ?? "";
                 var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(60), device.Fingerprint);
                 await session.WriteJsonFrameSafeAsync(new { type = "FILE_TRANSFER_TOKEN_RESPONSE", requestId = reqId, token = token, validForMinutes = 60 }, ct);
                 break;
@@ -72,6 +100,176 @@ public sealed class PacketRouter
             case "FS_UPLOAD_RESULT":
             case "FS_TRANSFER_STATUS":
                 FileTransferServer.HandleRemoteResponse(type, doc.RootElement.GetRawText());
+                break;
+
+            // Terminal Frames
+            case "TERMINAL_START":
+            case "TERMINAL_INPUT":
+            case "TERMINAL_CLOSE":
+            case "TERMINAL_LIST":
+                if (!_capabilityManager.CanDeviceExecuteCommand(device, "terminal_input"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Terminal capability required" }, ct);
+                    return;
+                }
+                if (type == "TERMINAL_START" || type == "TERMINAL_LIST")
+                {
+                    string? tRes = await _inputForwarder.RequestAsync(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!, reqId, TimeSpan.FromSeconds(5), ct);
+                    if (tRes != null)
+                    {
+                        await session.WriteRawFrameSafeAsync(System.Text.Encoding.UTF8.GetBytes(tRes), ct);
+                    }
+                }
+                else
+                {
+                    _inputForwarder.PostToHelper(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!);
+                }
+                break;
+
+            // Clipboard Frames
+            case "CLIPBOARD_SYNC":
+            case "CLIPBOARD_SET":
+            case "CLIPBOARD_GET":
+            case "CLIPBOARD_SIMULATE_COPY":
+            case "CLIPBOARD_SIMULATE_PASTE":
+                if (!_capabilityManager.CanDeviceExecuteCommand(device, "clipboard"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Clipboard capability required" }, ct);
+                    return;
+                }
+                if (type == "CLIPBOARD_GET")
+                {
+                    string? cRes = await _inputForwarder.RequestAsync(new { type = "CLIPBOARD_GET", requestId = reqId }, reqId, TimeSpan.FromSeconds(3), ct);
+                    if (cRes != null)
+                    {
+                        await session.WriteRawFrameSafeAsync(System.Text.Encoding.UTF8.GetBytes(cRes), ct);
+                    }
+                }
+                else
+                {
+                    _inputForwarder.PostToHelper(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!);
+                    if (reqId != "")
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = true }, ct);
+                    }
+                }
+                break;
+
+            // Notification Frames
+            case "NOTIFICATION_EVENT": // Mirrored from phone to PC
+                string nTitle = doc.RootElement.TryGetProperty("title", out var ntProp) ? (ntProp.GetString() ?? "") : "";
+                string nBody = doc.RootElement.TryGetProperty("body", out var nbProp) ? (nbProp.GetString() ?? "") : "";
+                string nApp = doc.RootElement.TryGetProperty("app", out var naProp) ? (naProp.GetString() ?? "") : "Phone";
+                _inputForwarder.PostToHelper(new { type = "NOTIFICATION_SHOW_DESKTOP", title = nTitle, body = nBody, app = nApp });
+                break;
+
+            case "NOTIFICATION_DISMISS":
+                _inputForwarder.PostToHelper(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!);
+                break;
+
+            // Media & Audio Frames
+            case "MEDIA_CONTROL":
+            case "MEDIA_GET_METADATA":
+            case "AUDIO_SESSIONS_GET":
+            case "AUDIO_APP_VOLUME_SET":
+            case "AUDIO_APP_MUTE_SET":
+            case "AUDIO_DEVICES_GET":
+            case "AUDIO_DEFAULT_DEVICE_SET":
+            case "MIC_GET_STATE":
+            case "MIC_SET_STATE":
+                string? mRes = await _inputForwarder.RequestAsync(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!, reqId, TimeSpan.FromSeconds(5), ct);
+                if (mRes != null)
+                {
+                    await session.WriteRawFrameSafeAsync(System.Text.Encoding.UTF8.GetBytes(mRes), ct);
+                }
+                break;
+
+            // Application Management Frames
+            case "APP_GET_INSTALLED":
+            case "APP_LAUNCH":
+            case "APP_GET_WINDOWS":
+            case "APP_SWITCH_WINDOW":
+            case "APP_SET_WINDOW_STATE":
+            case "APP_CLOSE_WINDOW":
+                string? aRes = await _inputForwarder.RequestAsync(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!, reqId, TimeSpan.FromSeconds(5), ct);
+                if (aRes != null)
+                {
+                    await session.WriteRawFrameSafeAsync(System.Text.Encoding.UTF8.GetBytes(aRes), ct);
+                }
+                break;
+
+            // Windows Administration Frames
+            case "ADMIN_TELEMETRY_GET":
+                var telemetry = _adminManager.GetSystemTelemetry();
+                await session.WriteJsonFrameSafeAsync(new { type = "ADMIN_TELEMETRY_RESPONSE", requestId = reqId, telemetry }, ct);
+                break;
+
+            case "BATTERY_HEALTH_GET":
+                var bHealth = _adminManager.GetBatteryHealth();
+                await session.WriteJsonFrameSafeAsync(new { type = "BATTERY_HEALTH_RESPONSE", requestId = reqId, batteryHealth = bHealth }, ct);
+                break;
+
+            case "POWER_PLANS_GET":
+                var plans = _adminManager.GetPowerPlans();
+                await session.WriteJsonFrameSafeAsync(new { type = "POWER_PLANS_RESPONSE", requestId = reqId, powerPlans = plans }, ct);
+                break;
+
+            case "POWER_PLAN_SET":
+                string pGuid = doc.RootElement.GetProperty("guid").GetString() ?? "";
+                bool pOk = _adminManager.SetActivePowerPlan(pGuid);
+                await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = pOk }, ct);
+                break;
+
+            case "PRINTERS_GET":
+                var printers = _adminManager.GetPrinters();
+                await session.WriteJsonFrameSafeAsync(new { type = "PRINTERS_RESPONSE", requestId = reqId, printers }, ct);
+                break;
+
+            case "USB_DEVICES_GET":
+                var usbList = _adminManager.GetUsbDevices();
+                await session.WriteJsonFrameSafeAsync(new { type = "USB_DEVICES_RESPONSE", requestId = reqId, usbDevices = usbList }, ct);
+                break;
+
+            case "SERVICES_GET":
+                string? sFilter = doc.RootElement.TryGetProperty("search", out var sfProp) ? sfProp.GetString() : null;
+                var services = _adminManager.GetServices(sFilter);
+                await session.WriteJsonFrameSafeAsync(new { type = "SERVICES_RESPONSE", requestId = reqId, services }, ct);
+                break;
+
+            case "SERVICE_CONTROL":
+                string sName = doc.RootElement.GetProperty("serviceName").GetString() ?? "";
+                string sAction = doc.RootElement.GetProperty("action").GetString() ?? "";
+                bool sOk = _adminManager.ControlService(sName, sAction);
+                await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = sOk }, ct);
+                break;
+
+            case "UPDATES_CHECK":
+                var updates = _adminManager.CheckWindowsUpdates();
+                await session.WriteJsonFrameSafeAsync(new { type = "UPDATES_RESPONSE", requestId = reqId, updates }, ct);
+                break;
+
+            // Automation Frames
+            case "WORKFLOW_LIST":
+                var wfList = _automationEngine.GetWorkflows();
+                await session.WriteJsonFrameSafeAsync(new { type = "WORKFLOW_LIST_RESPONSE", requestId = reqId, workflows = wfList }, ct);
+                break;
+
+            case "WORKFLOW_SAVE":
+                var wfObj = JsonSerializer.Deserialize<TetherWorkflow>(doc.RootElement.GetProperty("workflow").GetRawText());
+                if (wfObj != null) _automationEngine.SaveWorkflow(wfObj);
+                await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = wfObj != null }, ct);
+                break;
+
+            case "WORKFLOW_DELETE":
+                string wfDelId = doc.RootElement.GetProperty("id").GetString() ?? "";
+                bool delOk = _automationEngine.DeleteWorkflow(wfDelId);
+                await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = delOk }, ct);
+                break;
+
+            case "WORKFLOW_RUN":
+                string wfRunId = doc.RootElement.GetProperty("id").GetString() ?? "";
+                var runRes = await _automationEngine.RunWorkflowAsync(wfRunId, ct);
+                await session.WriteJsonFrameSafeAsync(new { type = "WORKFLOW_STATUS", requestId = reqId, result = runRes }, ct);
                 break;
 
             default:
@@ -167,22 +365,8 @@ public sealed class PacketRouter
         int currentBri = HardwareExecutor.GetSystemBrightnessLevelInUserSession(_logger);
 
         if (cmdLower.StartsWith("volume_") || cmdLower.StartsWith("set_volume:") || cmdLower.StartsWith("vol_") ||
-            cmdLower.StartsWith("brightness_") || cmdLower.StartsWith("set_brightness:") || cmdLower.StartsWith("bright_"))
-        {
-            var snap = LaptopStateCollector.GetLaptopSnapshot(_logger);
-            await session.WriteJsonFrameSafeAsync(new
-            {
-                type = "HARDWARE_METRICS",
-                volumeLevel = currentVol,
-                brightnessLevel = currentBri,
-                batteryLevel = snap.BatteryLevel,
-                batteryPercent = snap.BatteryLevel,
-                isCharging = snap.IsCharging,
-                lockState = snap.LockState,
-                wallpaperB64 = snap.WallpaperB64
-            }, ct);
-        }
-        else if (cmd.Command.Equals("volume_get", StringComparison.OrdinalIgnoreCase) ||
+            cmdLower.StartsWith("brightness_") || cmdLower.StartsWith("set_brightness:") || cmdLower.StartsWith("bright_") ||
+            cmd.Command.Equals("volume_get", StringComparison.OrdinalIgnoreCase) ||
             cmd.Command.Equals("vol_get", StringComparison.OrdinalIgnoreCase) ||
             cmd.Command.Equals("get_volume", StringComparison.OrdinalIgnoreCase) ||
             cmd.Command.Equals("brightness_get", StringComparison.OrdinalIgnoreCase) ||

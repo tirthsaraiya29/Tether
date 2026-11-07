@@ -5,6 +5,9 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
+import java.security.MessageDigest
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -104,6 +107,22 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         const val ALARM_ACTION = "com.tether.phone.ALARM_HEALTH_CHECK"
         const val ACTION_RESTART_SERVER = "com.tether.phone.ACTION_RESTART_SERVER"
+        const val ACTION_CLIPBOARD_SYNC = "com.tether.phone.ACTION_CLIPBOARD_SYNC"
+        const val ACTION_NOTIFICATION_SYNC = "com.tether.phone.ACTION_NOTIFICATION_SYNC"
+        const val ACTION_TERMINAL_OUTPUT = "com.tether.phone.ACTION_TERMINAL_OUTPUT"
+        const val ACTION_TERMINAL_SESSION = "com.tether.phone.ACTION_TERMINAL_SESSION"
+        const val ACTION_MEDIA_UPDATE = "com.tether.phone.ACTION_MEDIA_UPDATE"
+        const val ACTION_AUDIO_SESSIONS_UPDATE = "com.tether.phone.ACTION_AUDIO_SESSIONS_UPDATE"
+        const val ACTION_ADMIN_TELEMETRY = "com.tether.phone.ACTION_ADMIN_TELEMETRY"
+        const val ACTION_BATTERY_HEALTH = "com.tether.phone.ACTION_BATTERY_HEALTH"
+        const val ACTION_POWER_PLANS = "com.tether.phone.ACTION_POWER_PLANS"
+        const val ACTION_PRINTERS = "com.tether.phone.ACTION_PRINTERS"
+        const val ACTION_USB_DEVICES = "com.tether.phone.ACTION_USB_DEVICES"
+        const val ACTION_SERVICES = "com.tether.phone.ACTION_SERVICES"
+        const val ACTION_UPDATES = "com.tether.phone.ACTION_UPDATES"
+        const val ACTION_WORKFLOWS = "com.tether.phone.ACTION_WORKFLOWS"
+        const val ACTION_WORKFLOW_STATUS = "com.tether.phone.ACTION_WORKFLOW_STATUS"
+        const val ACTION_WINDOWS_LIST = "com.tether.phone.ACTION_WINDOWS_LIST"
 
         private const val CHANNEL_ID = "tether_lan_channel"
         private const val NOTIFICATION_ID = 1
@@ -158,6 +177,21 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
+    private var lastClipboardHash: String = ""
+    private var clipboardListener: ClipboardManager.OnPrimaryClipChangedListener? = null
+
+    private val notificationMirrorReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == TetherNotificationListenerService.ACTION_NOTIFICATION_POSTED) {
+                val id = intent.getLongExtra(TetherNotificationListenerService.EXTRA_NOTIF_ID, 0L)
+                val pkg = intent.getStringExtra(TetherNotificationListenerService.EXTRA_NOTIF_PKG) ?: ""
+                val title = intent.getStringExtra(TetherNotificationListenerService.EXTRA_NOTIF_TITLE) ?: ""
+                val text = intent.getStringExtra(TetherNotificationListenerService.EXTRA_NOTIF_TEXT) ?: ""
+                val time = intent.getLongExtra(TetherNotificationListenerService.EXTRA_NOTIF_TIME, System.currentTimeMillis())
+                sendNotificationMirror(id, pkg, title, text, time)
+            }
+        }
+    }
 
     @Volatile var currentPowerState: LaptopPowerState = LaptopPowerState.UNKNOWN
     @Volatile var batteryPercent: Int = -1
@@ -427,6 +461,17 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
 
         TetherNotificationChannels.createAllChannels(this)
+        setupClipboardSync()
+        try {
+            ContextCompat.registerReceiver(
+                this,
+                notificationMirrorReceiver,
+                IntentFilter(TetherNotificationListenerService.ACTION_NOTIFICATION_POSTED),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register notification mirror receiver: ${e.message}")
+        }
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -1363,7 +1408,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     }
                 }
             }
-            "UNLOCK_PROMPT" -> {
+"UNLOCK_PROMPT" -> {
                 // PC-side credential provider explicitly asked the phone to surface
                 // the unlock prompt. This request is authoritative: bypass the
                 // dismissed-session and local power-state gates (the phone's lock
@@ -1373,6 +1418,197 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
                 activeLockSessionId?.let { dismissedLockSessionId = null }
                 postPowerEventNotification("LOCK", System.currentTimeMillis(), activeLockSessionId, force = true)
+            "CLIPBOARD_SYNC" -> {
+                val contentStr = json.optString("content", "")
+                val hash = json.optString("hash", "")
+                val resolvedHash = if (hash.isNotEmpty()) hash else computeSha256(contentStr)
+                if (resolvedHash != lastClipboardHash && contentStr.isNotEmpty()) {
+                    lastClipboardHash = resolvedHash
+                    mainHandler.post {
+                        try {
+                            val cb = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            cb?.setPrimaryClip(ClipData.newPlainText("Tether", contentStr))
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error updating Android clipboard: ${e.message}")
+                        }
+                    }
+                }
+                mainHandler.post {
+                    val intent = Intent(ACTION_CLIPBOARD_SYNC).apply {
+                        putExtra("content", contentStr)
+                        putExtra("hash", resolvedHash)
+                        putExtra("timestamp", json.optLong("timestamp", System.currentTimeMillis()))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "NOTIFICATION_EVENT" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_NOTIFICATION_SYNC).apply {
+                        putExtra("action", json.optString("action", "POSTED"))
+                        putExtra("id", json.optLong("id", 0L))
+                        putExtra("app", json.optString("app", ""))
+                        putExtra("title", json.optString("title", ""))
+                        putExtra("body", json.optString("body", ""))
+                        putExtra("timestamp", json.optLong("timestamp", System.currentTimeMillis()))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "TERMINAL_OUTPUT" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_TERMINAL_OUTPUT).apply {
+                        putExtra("sessionId", json.optString("sessionId", ""))
+                        putExtra("data", json.optString("data", ""))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "TERMINAL_SESSION_STARTED", "TERMINAL_SESSION_CLOSED" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_TERMINAL_SESSION).apply {
+                        putExtra("type", type)
+                        putExtra("sessionId", json.optString("sessionId", ""))
+                        putExtra("shellType", json.optString("shellType", ""))
+                        putExtra("workingDir", json.optString("workingDir", ""))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "MEDIA_METADATA_UPDATE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_MEDIA_UPDATE).apply {
+                        putExtra("title", json.optString("title", ""))
+                        putExtra("artist", json.optString("artist", ""))
+                        putExtra("album", json.optString("album", ""))
+                        putExtra("isPlaying", json.optBoolean("isPlaying", false))
+                        putExtra("position", json.optLong("position", 0L))
+                        putExtra("duration", json.optLong("duration", 0L))
+                        putExtra("thumbnail", json.optString("thumbnail", ""))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "AUDIO_SESSIONS_UPDATE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_AUDIO_SESSIONS_UPDATE).apply {
+                        putExtra("sessionsJson", json.optJSONArray("sessions")?.toString() ?: "[]")
+                        putExtra("devicesJson", json.optJSONArray("devices")?.toString() ?: "[]")
+                        putExtra("masterMuted", json.optBoolean("masterMuted", false))
+                        putExtra("micMuted", json.optBoolean("micMuted", false))
+                        putExtra("micGain", json.optInt("micGain", 50))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "ADMIN_TELEMETRY_RESPONSE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_ADMIN_TELEMETRY).apply {
+                        putExtra("rawJson", json.toString())
+                        putExtra("cpuUsage", json.optInt("cpuUsage", 0))
+                        putExtra("totalRamMb", json.optLong("totalRamMb", 0L))
+                        putExtra("availRamMb", json.optLong("availRamMb", 0L))
+                        putExtra("ramUsagePct", json.optInt("ramUsagePct", 0))
+                        putExtra("disksJson", json.optJSONArray("disks")?.toString() ?: "[]")
+                        putExtra("networksJson", json.optJSONArray("networks")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "BATTERY_HEALTH_RESPONSE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_BATTERY_HEALTH).apply {
+                        putExtra("designCapacityMwh", json.optDouble("designCapacityMwh", 0.0))
+                        putExtra("fullChargeCapacityMwh", json.optDouble("fullChargeCapacityMwh", 0.0))
+                        putExtra("wearLevelPct", json.optInt("wearLevelPct", 0))
+                        putExtra("cycleCount", json.optInt("cycleCount", 0))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "POWER_PLANS_RESPONSE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_POWER_PLANS).apply {
+                        putExtra("plansJson", json.optJSONArray("plans")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "PRINTERS_RESPONSE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_PRINTERS).apply {
+                        putExtra("printersJson", json.optJSONArray("printers")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "USB_DEVICES_RESPONSE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_USB_DEVICES).apply {
+                        putExtra("devicesJson", json.optJSONArray("devices")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "SERVICES_RESPONSE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_SERVICES).apply {
+                        putExtra("servicesJson", json.optJSONArray("services")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "UPDATES_RESPONSE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_UPDATES).apply {
+                        putExtra("pendingCount", json.optInt("pendingCount", 0))
+                        putExtra("isAvailable", json.optBoolean("isAvailable", false))
+                        putExtra("titlesJson", json.optJSONArray("titles")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "WORKFLOW_LIST_RESPONSE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_WORKFLOWS).apply {
+                        putExtra("workflowsJson", json.optJSONArray("workflows")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "WORKFLOW_STATUS" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_WORKFLOW_STATUS).apply {
+                        putExtra("id", json.optString("id", ""))
+                        putExtra("status", json.optString("status", ""))
+                        putExtra("timestamp", json.optLong("timestamp", System.currentTimeMillis()))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "WINDOWS_LIST_RESPONSE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_WINDOWS_LIST).apply {
+                        putExtra("windowsJson", json.optJSONArray("windows")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
             }
             "HARDWARE_METRICS", "LAPTOP_STATE" -> {
                 val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
@@ -1641,6 +1877,17 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun showPairingNotification(result: PairingResult.PairingPending) {
         TetherNotificationChannels.createAllChannels(this)
+        setupClipboardSync()
+        try {
+            ContextCompat.registerReceiver(
+                this,
+                notificationMirrorReceiver,
+                IntentFilter(TetherNotificationListenerService.ACTION_NOTIFICATION_POSTED),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register notification mirror receiver: ${e.message}")
+        }
 
         val promptIntent = Intent(this, PairingConfirmationActivity::class.java).apply {
             action = ACTION_SHOW_PAIRING_PROMPT
@@ -1877,6 +2124,11 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         serviceJob.cancelChildren()
 
         try { unregisterReceiver(powerSaveReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(notificationMirrorReceiver) } catch (_: Exception) {}
+        clipboardListener?.let {
+            val cb = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            cb?.removePrimaryClipChangedListener(it)
+        }
         try { connectivityManager.unregisterNetworkCallback(wifiNetworkCallback) } catch (_: Exception) {}
 
         discoveryManager.stopDiscovery()
@@ -1891,5 +2143,316 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         mainHandler.removeCallbacksAndMessages(null)
         networkExecutor.shutdown()
         super.onDestroy()
+    }
+
+    private fun computeSha256(input: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val bytes = digest.digest(input.toByteArray(StandardCharsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun setupClipboardSync() {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        clipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
+            try {
+                val clip = clipboard.primaryClip
+                if (clip != null && clip.itemCount > 0) {
+                    val text = clip.getItemAt(0).text?.toString() ?: ""
+                    if (text.isNotEmpty()) {
+                        val hash = computeSha256(text)
+                        if (hash != lastClipboardHash) {
+                            lastClipboardHash = hash
+                            sendClipboardSyncFrame(text, hash)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error in onPrimaryClipChanged: ${e.message}")
+            }
+        }
+        clipboard.addPrimaryClipChangedListener(clipboardListener)
+    }
+
+    fun sendClipboardSyncFrame(text: String, hash: String = computeSha256(text)) {
+        val json = JSONObject().apply {
+            put("type", "CLIPBOARD_SYNC")
+            put("content", text)
+            put("hash", hash)
+            put("timestamp", System.currentTimeMillis())
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendRemoteCopy() {
+        val json = JSONObject().apply {
+            put("type", "COMMAND_EXECUTE")
+            put("requestId", UUID.randomUUID().toString())
+            put("command", "CLIPBOARD_COPY")
+            put("timestamp", System.currentTimeMillis())
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendRemotePaste() {
+        val json = JSONObject().apply {
+            put("type", "COMMAND_EXECUTE")
+            put("requestId", UUID.randomUUID().toString())
+            put("command", "CLIPBOARD_PASTE")
+            put("timestamp", System.currentTimeMillis())
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendNotificationMirror(id: Long, app: String, title: String, body: String, timestamp: Long) {
+        val json = JSONObject().apply {
+            put("type", "NOTIFICATION_EVENT")
+            put("action", "POSTED")
+            put("id", id)
+            put("app", app)
+            put("title", title)
+            put("body", body)
+            put("timestamp", timestamp)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendNotificationDismiss(id: Long) {
+        val json = JSONObject().apply {
+            put("type", "COMMAND_EXECUTE")
+            put("requestId", UUID.randomUUID().toString())
+            put("command", "NOTIFICATION_DISMISS")
+            put("id", id)
+            put("timestamp", System.currentTimeMillis())
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendTerminalStart(shellType: String = "powershell", workingDir: String = "") {
+        val json = JSONObject().apply {
+            put("type", "TERMINAL_START")
+            put("shellType", shellType)
+            put("workingDir", workingDir)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendTerminalInput(sessionId: String, data: String) {
+        val json = JSONObject().apply {
+            put("type", "TERMINAL_INPUT")
+            put("sessionId", sessionId)
+            put("data", data)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendTerminalClose(sessionId: String) {
+        val json = JSONObject().apply {
+            put("type", "TERMINAL_CLOSE")
+            put("sessionId", sessionId)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendMediaControl(action: String, seekSeconds: Long? = null) {
+        val json = JSONObject().apply {
+            put("type", "MEDIA_CONTROL")
+            put("action", action)
+            if (seekSeconds != null) {
+                put("seekSeconds", seekSeconds)
+            }
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSetAppVolume(pid: Int, volume: Int) {
+        val json = JSONObject().apply {
+            put("type", "SET_APP_VOLUME")
+            put("pid", pid)
+            put("volume", volume)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSetAppMute(pid: Int, mute: Boolean) {
+        val json = JSONObject().apply {
+            put("type", "SET_APP_MUTE")
+            put("pid", pid)
+            put("mute", mute)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSetAudioDevice(deviceId: String, isInput: Boolean) {
+        val json = JSONObject().apply {
+            put("type", "SET_AUDIO_DEVICE")
+            put("deviceId", deviceId)
+            put("isInput", isInput)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSetMicGain(gain: Int) {
+        val json = JSONObject().apply {
+            put("type", "SET_MIC_GAIN")
+            put("gain", gain)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSetMicMute(mute: Boolean) {
+        val json = JSONObject().apply {
+            put("type", "SET_MIC_MUTE")
+            put("mute", mute)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestAdminTelemetry() {
+        val json = JSONObject().apply {
+            put("type", "GET_ADMIN_TELEMETRY")
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestBatteryHealth() {
+        val json = JSONObject().apply {
+            put("type", "GET_BATTERY_HEALTH")
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestPowerPlans() {
+        val json = JSONObject().apply {
+            put("type", "GET_POWER_PLANS")
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSetPowerPlan(guid: String) {
+        val json = JSONObject().apply {
+            put("type", "SET_POWER_PLAN")
+            put("guid", guid)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestPrinters() {
+        val json = JSONObject().apply {
+            put("type", "GET_PRINTERS")
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestUsbDevices() {
+        val json = JSONObject().apply {
+            put("type", "GET_USB_DEVICES")
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestWindowsServices(filter: String = "") {
+        val json = JSONObject().apply {
+            put("type", "GET_SERVICES")
+            put("filter", filter)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendControlService(serviceName: String, action: String) {
+        val json = JSONObject().apply {
+            put("type", "CONTROL_SERVICE")
+            put("serviceName", serviceName)
+            put("action", action)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestWindowsUpdates() {
+        val json = JSONObject().apply {
+            put("type", "CHECK_UPDATES")
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendLaunchApp(path: String, args: String = "") {
+        val json = JSONObject().apply {
+            put("type", "APP_LAUNCH")
+            put("path", path)
+            put("args", args)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendWindowFocus(hwnd: Long) {
+        val json = JSONObject().apply {
+            put("type", "WINDOW_FOCUS")
+            put("hwnd", hwnd)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendWindowSnap(hwnd: Long, direction: String) {
+        val json = JSONObject().apply {
+            put("type", "WINDOW_SNAP")
+            put("hwnd", hwnd)
+            put("direction", direction)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendWindowState(hwnd: Long, state: String) {
+        val json = JSONObject().apply {
+            put("type", "WINDOW_STATE")
+            put("hwnd", hwnd)
+            put("state", state)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendWindowClose(hwnd: Long, forceKill: Boolean = false) {
+        val json = JSONObject().apply {
+            put("type", "WINDOW_CLOSE")
+            put("hwnd", hwnd)
+            put("force", forceKill)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestRunningWindows() {
+        val json = JSONObject().apply {
+            put("type", "GET_RUNNING_WINDOWS")
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestWorkflows() {
+        val json = JSONObject().apply {
+            put("type", "GET_WORKFLOWS")
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSaveWorkflow(workflowJson: JSONObject) {
+        val json = JSONObject().apply {
+            put("type", "SAVE_WORKFLOW")
+            put("workflow", workflowJson)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendDeleteWorkflow(id: String) {
+        val json = JSONObject().apply {
+            put("type", "DELETE_WORKFLOW")
+            put("id", id)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendTriggerWorkflow(id: String) {
+        val json = JSONObject().apply {
+            put("type", "RUN_WORKFLOW")
+            put("id", id)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 }

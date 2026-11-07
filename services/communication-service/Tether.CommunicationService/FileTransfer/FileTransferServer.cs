@@ -35,6 +35,7 @@ public class FileTransferServer : IHostedService
     private readonly TokenStore _tokenStore;
     private readonly SessionManager _sessionManager;
     private readonly TrustStore _trustStore;
+    private readonly Tether.CommunicationService.Transport.InputForwarder _inputForwarder;
     private WebApplication? _app;
 
     private static readonly SemaphoreSlim _transferThrottle = new(MaxConcurrentTransfers, MaxConcurrentTransfers);
@@ -48,6 +49,30 @@ public class FileTransferServer : IHostedService
     };
 
     private static readonly string[] BlockedDirectoryPrefixes = InitializeBlockedPrefixes();
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHFileOperation(ref SHFILEOPSTRUCT lpFileOp);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct SHFILEOPSTRUCT
+    {
+        public IntPtr hwnd;
+        public uint wFunc;
+        public string pFrom;
+        public string? pTo;
+        public ushort fFlags;
+        public bool fAnyOperationsAborted;
+        public IntPtr hNameMappings;
+        public string? lpszProgressTitle;
+    }
+
+    private const uint FO_DELETE = 0x0003;
+    private const ushort FOF_ALLOWUNDO = 0x0040;
+    private const ushort FOF_NOCONFIRMATION = 0x0010;
+    private const ushort FOF_SILENT = 0x0004;
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHEmptyRecycleBin(IntPtr hwnd, string? pszRootPath, uint dwFlags);
 
     #region Win32 Final Path Resolution
     [DllImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true, CharSet = CharSet.Unicode)]
@@ -110,13 +135,14 @@ public class FileTransferServer : IHostedService
     }
     #endregion
 
-    public FileTransferServer(ITetherLogger logger, WindowsIdentity identity, TokenStore tokenStore, SessionManager sessionManager, TrustStore trustStore)
+    public FileTransferServer(ITetherLogger logger, WindowsIdentity identity, TokenStore tokenStore, SessionManager sessionManager, TrustStore trustStore, Tether.CommunicationService.Transport.InputForwarder inputForwarder)
     {
         _logger = logger;
         _identity = identity;
         _tokenStore = tokenStore;
         _sessionManager = sessionManager;
         _trustStore = trustStore;
+        _inputForwarder = inputForwarder;
     }
 
     private static string[] InitializeBlockedPrefixes()
@@ -677,6 +703,392 @@ public class FileTransferServer : IHostedService
             return Results.Ok();
         });
 
+        // Remote Desktop Streaming Endpoint (MJPEG)
+        _app.MapGet("/api/desktop/stream", async (HttpContext context, int? fps, int? quality) =>
+        {
+            context.Response.Headers["Content-Type"] = "multipart/x-mixed-replace; boundary=--frame";
+            context.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+            context.Response.Headers["Connection"] = "close";
+
+            int targetFps = Math.Clamp(fps ?? 15, 1, 30);
+            int targetQual = Math.Clamp(quality ?? 50, 10, 90);
+
+            _inputForwarder.PostToHelper(new { type = "START_SCREEN_STREAM", fps = targetFps, quality = targetQual });
+
+            var stream = context.Response.Body;
+            var frameChannel = System.Threading.Channels.Channel.CreateBounded<byte[]>(
+                new System.Threading.Channels.BoundedChannelOptions(2) { FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest });
+
+            Action<string> onFrame = b64 =>
+            {
+                try
+                {
+                    byte[] bytes = Convert.FromBase64String(b64);
+                    frameChannel.Writer.TryWrite(bytes);
+                }
+                catch { }
+            };
+
+            _inputForwarder.OnDesktopFrameReceived += onFrame;
+
+            try
+            {
+                while (!context.RequestAborted.IsCancellationRequested)
+                {
+                    var frame = await frameChannel.Reader.ReadAsync(context.RequestAborted);
+                    var header = Encoding.ASCII.GetBytes($"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {frame.Length}\r\n\r\n");
+                    await stream.WriteAsync(header, context.RequestAborted);
+                    await stream.WriteAsync(frame, context.RequestAborted);
+                    await stream.WriteAsync(Encoding.ASCII.GetBytes("\r\n"), context.RequestAborted);
+                    await stream.FlushAsync(context.RequestAborted);
+                }
+            }
+            catch (OperationCanceledException) { }
+            finally
+            {
+                _inputForwarder.OnDesktopFrameReceived -= onFrame;
+                _inputForwarder.PostToHelper(new { type = "STOP_SCREEN_STREAM" });
+            }
+        });
+
+        // Remote Desktop Screenshot Endpoint
+        _app.MapGet("/api/desktop/screenshot", async (HttpContext context, long? windowId, int? quality) =>
+        {
+            string reqId = Guid.NewGuid().ToString("N");
+            int q = Math.Clamp(quality ?? 75, 10, 100);
+            string? resJson = await _inputForwarder.RequestAsync(
+                new { type = "SCREENSHOT_REQUEST", hwnd = windowId ?? 0L, quality = q, requestId = reqId },
+                reqId,
+                TimeSpan.FromSeconds(5),
+                context.RequestAborted);
+
+            if (resJson != null)
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(resJson);
+                    string b64 = doc.RootElement.TryGetProperty("imageB64", out var imgProp) ? (imgProp.GetString() ?? "") : "";
+                    if (!string.IsNullOrEmpty(b64))
+                    {
+                        byte[] bytes = Convert.FromBase64String(b64);
+                        return Results.File(bytes, "image/jpeg");
+                    }
+                }
+                catch { }
+            }
+            return Results.Problem("Screenshot capture failed or timed out.");
+        });
+
+        // Active Windows List Endpoint
+        _app.MapGet("/api/desktop/windows", async (HttpContext context) =>
+        {
+            string reqId = Guid.NewGuid().ToString("N");
+            string? resJson = await _inputForwarder.RequestAsync(
+                new { type = "WINDOWS_LIST_REQUEST", requestId = reqId },
+                reqId,
+                TimeSpan.FromSeconds(5),
+                context.RequestAborted);
+
+            if (resJson != null)
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(resJson);
+                    if (doc.RootElement.TryGetProperty("windows", out var windows))
+                    {
+                        return Results.Content(windows.GetRawText(), "application/json");
+                    }
+                }
+                catch { }
+            }
+            return Results.Ok(Array.Empty<object>());
+        });
+
+        // Installed Applications Catalog Endpoint
+        _app.MapGet("/api/apps/catalog", async (HttpContext context) =>
+        {
+            string reqId = Guid.NewGuid().ToString("N");
+            string? resJson = await _inputForwarder.RequestAsync(
+                new { type = "APP_GET_INSTALLED", requestId = reqId },
+                reqId,
+                TimeSpan.FromSeconds(5),
+                context.RequestAborted);
+
+            if (resJson != null)
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(resJson);
+                    if (doc.RootElement.TryGetProperty("apps", out var apps))
+                    {
+                        return Results.Content(apps.GetRawText(), "application/json");
+                    }
+                }
+                catch { }
+            }
+            return Results.Ok(Array.Empty<object>());
+        });
+
+        // Advanced File Search
+        _app.MapGet("/api/fs/search", (string? path, string? query, bool? recursive, int? maxResults) =>
+        {
+            try
+            {
+                string rootPath = string.IsNullOrWhiteSpace(path)
+                    ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                    : path;
+
+                if (!TryGetValidPath(rootPath, out var fullPath) || !Directory.Exists(fullPath))
+                {
+                    return Results.NotFound(new { error = "Directory not found or access restricted" });
+                }
+
+                string q = query?.Trim() ?? "";
+                int limit = Math.Clamp(maxResults ?? 100, 1, 500);
+                bool isRec = recursive ?? true;
+                var results = new List<object>();
+
+                var searchOption = isRec ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                var dirInfo = new DirectoryInfo(fullPath);
+
+                foreach (var file in dirInfo.EnumerateFiles("*", searchOption))
+                {
+                    if (results.Count >= limit) break;
+                    if ((file.Attributes & FileAttributes.ReparsePoint) != 0 || (file.Attributes & FileAttributes.Hidden) != 0) continue;
+                    if (IsPathInBlockedPrefix(file.FullName)) continue;
+
+                    if (string.IsNullOrEmpty(q) || file.Name.Contains(q, StringComparison.OrdinalIgnoreCase))
+                    {
+                        results.Add(new
+                        {
+                            name = file.Name,
+                            path = file.FullName,
+                            isDirectory = false,
+                            size = file.Length,
+                            lastModified = (DateTimeOffset)file.LastWriteTimeUtc
+                        });
+                    }
+                }
+
+                return Results.Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Search error: {ex.Message}");
+                return Results.Problem("Search failed");
+            }
+        });
+
+        // File Rename
+        _app.MapPost("/api/fs/rename", (RenamePayload req) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Path) || string.IsNullOrWhiteSpace(req.NewName))
+            {
+                return Results.BadRequest(new { error = "Missing path or newName" });
+            }
+
+            if (req.NewName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                return Results.BadRequest(new { error = "Invalid new file name" });
+            }
+
+            if (!TryGetValidPath(req.Path, out var fullPath))
+            {
+                return Results.BadRequest(new { error = "Invalid path or access restricted" });
+            }
+
+            string dir = Path.GetDirectoryName(fullPath) ?? "";
+            string newPath = Path.Combine(dir, req.NewName);
+
+            try
+            {
+                if (File.Exists(fullPath))
+                {
+                    File.Move(fullPath, newPath);
+                    return Results.Ok(new { success = true, newPath });
+                }
+                else if (Directory.Exists(fullPath))
+                {
+                    Directory.Move(fullPath, newPath);
+                    return Results.Ok(new { success = true, newPath });
+                }
+                return Results.NotFound(new { error = "File or directory not found" });
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem($"Rename failed: {ex.Message}");
+            }
+        });
+
+        // File Move
+        _app.MapPost("/api/fs/move", (MovePayload req) =>
+        {
+            if (!TryGetValidPath(req.SourcePath, out var srcPath) || !TryGetValidPath(req.DestinationPath, out var dstPath, isUpload: true))
+            {
+                return Results.BadRequest(new { error = "Invalid source or destination path" });
+            }
+
+            try
+            {
+                if (File.Exists(srcPath))
+                {
+                    string finalDst = Directory.Exists(dstPath) ? Path.Combine(dstPath, Path.GetFileName(srcPath)) : dstPath;
+                    File.Move(srcPath, finalDst);
+                    return Results.Ok(new { success = true, destination = finalDst });
+                }
+                else if (Directory.Exists(srcPath))
+                {
+                    Directory.Move(srcPath, dstPath);
+                    return Results.Ok(new { success = true, destination = dstPath });
+                }
+                return Results.NotFound(new { error = "Source not found" });
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem($"Move failed: {ex.Message}");
+            }
+        });
+
+        // File Delete (Recycle Bin / Permanent)
+        _app.MapPost("/api/fs/delete", (DeletePayload req) =>
+        {
+            if (!TryGetValidPath(req.Path, out var fullPath))
+            {
+                return Results.BadRequest(new { error = "Invalid path or access restricted" });
+            }
+
+            try
+            {
+                if (req.Permanent)
+                {
+                    if (File.Exists(fullPath)) File.Delete(fullPath);
+                    else if (Directory.Exists(fullPath)) Directory.Delete(fullPath, true);
+                    else return Results.NotFound(new { error = "Item not found" });
+                }
+                else
+                {
+                    var shf = new SHFILEOPSTRUCT
+                    {
+                        wFunc = FO_DELETE,
+                        pFrom = fullPath + '\0' + '\0',
+                        fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
+                    };
+                    int hr = SHFileOperation(ref shf);
+                    if (hr != 0)
+                    {
+                        if (File.Exists(fullPath)) File.Delete(fullPath);
+                        else if (Directory.Exists(fullPath)) Directory.Delete(fullPath, true);
+                    }
+                }
+                return Results.Ok(new { success = true });
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem($"Delete failed: {ex.Message}");
+            }
+        });
+
+        // Directory Creation
+        _app.MapPost("/api/fs/mkdir", (MkdirPayload req) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Path) || string.IsNullOrWhiteSpace(req.Name))
+            {
+                return Results.BadRequest(new { error = "Missing path or name" });
+            }
+
+            if (req.Name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                return Results.BadRequest(new { error = "Invalid directory name" });
+            }
+
+            if (!TryGetValidPath(req.Path, out var fullPath) || !Directory.Exists(fullPath))
+            {
+                return Results.BadRequest(new { error = "Invalid parent path" });
+            }
+
+            string newDir = Path.Combine(fullPath, req.Name);
+            try
+            {
+                Directory.CreateDirectory(newDir);
+                return Results.Ok(new { success = true, path = newDir });
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem($"Create directory failed: {ex.Message}");
+            }
+        });
+
+        // Recycle Bin Empty
+        _app.MapPost("/api/fs/recycle-bin/empty", () =>
+        {
+            try
+            {
+                SHEmptyRecycleBin(IntPtr.Zero, null, 7);
+                return Results.Ok(new { success = true });
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem($"Empty recycle bin failed: {ex.Message}");
+            }
+        });
+
+        // Resumable Chunked Upload
+        _app.MapPost("/api/fs/upload-resumable", async (string path, long offset, long totalSize, string? hash, HttpContext context) =>
+        {
+            if (!await _transferThrottle.WaitAsync(TimeSpan.FromSeconds(5)))
+            {
+                return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            }
+
+            try
+            {
+                if (!TryGetValidPath(path, out var fullPath, isUpload: true))
+                {
+                    return Results.BadRequest("Destination path is invalid or restricted");
+                }
+
+                string partPath = fullPath + ".tether_part";
+                var dir = Path.GetDirectoryName(fullPath);
+                if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+                using (var fs = new FileStream(partPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None))
+                {
+                    if (offset < fs.Length)
+                    {
+                        fs.SetLength(offset);
+                    }
+                    fs.Seek(offset, SeekOrigin.Begin);
+                    await context.Request.Body.CopyToAsync(fs, context.RequestAborted);
+                }
+
+                var fi = new FileInfo(partPath);
+                if (fi.Length >= totalSize)
+                {
+                    if (!string.IsNullOrEmpty(hash))
+                    {
+                        string computed = ComputeSha512Hex(partPath);
+                        if (!string.Equals(computed, hash.Trim(), StringComparison.OrdinalIgnoreCase))
+                        {
+                            try { File.Delete(partPath); } catch { }
+                            return Results.BadRequest("Checksum mismatch for completed upload");
+                        }
+                    }
+                    File.Move(partPath, fullPath, overwrite: true);
+                    return Results.Ok(new { completed = true, totalSize = fi.Length });
+                }
+
+                return Results.Ok(new { completed = false, currentOffset = fi.Length });
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem($"Chunk upload failed: {ex.Message}");
+            }
+            finally
+            {
+                _transferThrottle.Release();
+            }
+        });
+
         await _app.StartAsync(cancellationToken);
         _logger.Info("FileTransferServer started on port 37124.");
     }
@@ -697,4 +1109,28 @@ public class FileTransferServer : IHostedService
             _logger.Info("FileTransferServer stopped.");
         }
     }
+}
+
+public sealed class RenamePayload
+{
+    public string Path { get; set; } = string.Empty;
+    public string NewName { get; set; } = string.Empty;
+}
+
+public sealed class MovePayload
+{
+    public string SourcePath { get; set; } = string.Empty;
+    public string DestinationPath { get; set; } = string.Empty;
+}
+
+public sealed class DeletePayload
+{
+    public string Path { get; set; } = string.Empty;
+    public bool Permanent { get; set; }
+}
+
+public sealed class MkdirPayload
+{
+    public string Path { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
 }

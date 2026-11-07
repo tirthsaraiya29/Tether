@@ -18,9 +18,45 @@ public sealed class CapabilityManager
     public static string? MapCommandToCapability(string command)
     {
         string cmd = command.Trim().ToLowerInvariant();
+
         if (cmd.StartsWith("volume_") || cmd.StartsWith("set_volume") || cmd.StartsWith("vol_") ||
-            cmd.StartsWith("brightness_") || cmd.StartsWith("set_brightness") || cmd.StartsWith("bright_"))
+            cmd.StartsWith("brightness_") || cmd.StartsWith("set_brightness") || cmd.StartsWith("bright_") ||
+            cmd.StartsWith("audio_") || cmd.StartsWith("mic_") || cmd.StartsWith("media_"))
+        {
             return "MEDIA";
+        }
+
+        if (cmd.StartsWith("terminal_") || cmd is "cmd" or "powershell" or "powershell7" or "wsl" or "bash")
+        {
+            return "TERMINAL";
+        }
+
+        if (cmd.StartsWith("clipboard_") || cmd is "copy" or "paste" or "clipboard")
+        {
+            return "CLIPBOARD";
+        }
+
+        if (cmd.StartsWith("notification_"))
+        {
+            return "NOTIFICATIONS";
+        }
+
+        if (cmd.StartsWith("admin_") || cmd.StartsWith("service_") || cmd.StartsWith("power_plan") ||
+            cmd is "battery_health_get" or "printers_get" or "usb_devices_get" or "services_get" or "updates_check")
+        {
+            return "WINDOWS_ADMIN";
+        }
+
+        if (cmd.StartsWith("app_") || cmd.StartsWith("launch_") ||
+            cmd is "browser" or "taskmgr" or "explorer" or "settings" or "calc" or "notepad")
+        {
+            return "APP_MANAGEMENT";
+        }
+
+        if (cmd.StartsWith("workflow_"))
+        {
+            return "AUTOMATION";
+        }
 
         return cmd switch
         {
@@ -31,7 +67,7 @@ public sealed class CapabilityManager
             "lock_now" or "panic"
                 or "reset_pending" or "laptop_state_get" or "get_laptop_state" or "laptop_state" => "MEDIA",
 
-            "volume_up" or "volume_down" or "vol_up" or "vol_down"
+"volume_up" or "volume_down" or "vol_up" or "vol_down"
                 or "volume_mute" or "mute" or "brightness_up" or "brightness_down"
                 or "bright_up" or "bright_down" => "MEDIA",
 
@@ -41,6 +77,7 @@ public sealed class CapabilityManager
                 or "calc" or "notepad" => "APP_LAUNCH",
 
             "ping" or "pong" => "MEDIA",
+            or "PING" or "PONG" => "MEDIA",
 
             _ => null
         };
@@ -58,8 +95,11 @@ public sealed class CapabilityManager
             return false;
         }
 
+        // Standard capabilities or elevated equivalents
         bool hasCap = device.Capabilities.Contains(requiredCap, StringComparer.OrdinalIgnoreCase)
-                   || (requiredCap == "POWER_ELEVATED" && (device.Capabilities.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)));
+                   || (requiredCap == "POWER_ELEVATED" && (device.Capabilities.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)))
+                   || (requiredCap is "WINDOWS_ADMIN" or "APP_MANAGEMENT" or "AUTOMATION" && (device.Capabilities.Contains("POWER_ELEVATED", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("MEDIA", StringComparer.OrdinalIgnoreCase)));
+
         if (!hasCap)
         {
             _logger.Warning($"CapabilityManager: Device '{device.DisplayName}' ({device.Fingerprint}) denied execution of '{command}' (requires {requiredCap}).");

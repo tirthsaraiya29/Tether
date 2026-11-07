@@ -25,7 +25,7 @@ namespace Tether.CommunicationService;
 
 public sealed class Worker : BackgroundService
 {
-    private const string AdvertisedCaps = "CLIPBOARD,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED";
+    private const string AdvertisedCaps = "CLIPBOARD,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,WINDOWS_ADMIN,APP_MANAGEMENT,AUTOMATION";
 
     // Legacy rules to purge
     private const string RuleLegacyExe = "Tether Service Exe";
