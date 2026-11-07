@@ -4,6 +4,7 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
+  <Project Path="apps/updater/Tether.Updater/Tether.Updater.csproj" Id="7d09e927-ccae-4148-a671-538ced469ffb" />
   <Project Path="apps/desktop-ui/Tether.DesktopUI/Tether.DesktopUI.csproj" Id="a070738e-07bb-4121-ae87-cc2d2c5b5515" />
   <Project Path="services/communication-service/Tether.CommunicationService/Tether.CommunicationService.csproj" Id="52fd365d-08fc-4891-9b33-acae9bbff409" />
   <Project Path="services/communication-service/Tether.SessionHelper/Tether.SessionHelper.csproj" Id="f7f26105-65e6-4900-b04a-c374ec05362d" />

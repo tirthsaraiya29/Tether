@@ -81,6 +81,10 @@ private:
     static LRESULT CALLBACK WebAuthMsgProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void _CreateMessageWindow();
     void _DestroyMessageWindow();
+    void _BeginUnlockPromptCooldown();
+    static void CALLBACK _OnCooldownTimerFired(PTP_CALLBACK_INSTANCE Instance, PVOID lpParameter, PTP_TIMER Timer);
+    void _OnCooldownTick();
+    void _SetStatusText(PCWSTR pszStatus);
 
     HRESULT _PackActualPasswordCredential(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
         CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
@@ -119,5 +123,10 @@ private:
     HANDLE                                  _hWaitScreen;
     HWND                                    _hWndMessage;
 
-    std::atomic<bool>                       _isValid;
+    PTP_TIMER                               _pCooldownTimer{ nullptr };
+
+    std::atomic<bool>                       _isValid{ true };
+    std::atomic<bool>                       _fInstancePhoneAppTriggered{ false };
+    std::atomic<bool>                       _fInstanceAutoLogonReady{ false };
+    std::atomic<long long>                  _promptCooldownEndMs{ 0 };
 };

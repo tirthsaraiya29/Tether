@@ -81,9 +81,12 @@ object TetherNotificationChannels {
                 NotificationChannel(
                     CHANNEL_UPDATES,
                     "Tether App Updates",
-                    NotificationManager.IMPORTANCE_DEFAULT,
+                    NotificationManager.IMPORTANCE_HIGH,
                 ).apply {
-                    description = "Notifications when a new version of Tether is available"
+                    description = "Critical security and system update notifications"
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 150, 100, 150)
                     setShowBadge(true)
                 }
             )

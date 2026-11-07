@@ -31,11 +31,13 @@ public sealed class PowerEventNotifier
         {
             type = "POWER_EVENT",
             timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            lockSessionId = events.LastOrDefault(e => !string.IsNullOrEmpty(e.LockSessionId))?.LockSessionId ?? "",
             events = events.Select(e => new
             {
                 eventType = e.Type.ToString().ToUpperInvariant(),
                 timestamp = e.TimestampUtc.ToUnixTimeMilliseconds(),
                 source = e.Source,
+                lockSessionId = e.LockSessionId ?? "",
             }).ToArray(),
         };
 

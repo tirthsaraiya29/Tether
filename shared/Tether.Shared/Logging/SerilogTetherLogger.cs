@@ -1,4 +1,6 @@
-﻿using Serilog;
+using System;
+using System.IO;
+using Serilog;
 
 namespace Tether.Shared.Logging
 {
@@ -8,9 +10,15 @@ namespace Tether.Shared.Logging
 
         public SerilogTetherLogger()
         {
+            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether", "logs");
+            try { Directory.CreateDirectory(logDir); } catch { }
+            var logPath = Path.Combine(logDir, "tether-.log");
+
             _logger = new LoggerConfiguration()
-                .WriteTo.File(@"C:\Dev\Tether\data\logs\tether.log",
+                .WriteTo.File(logPath,
                               rollingInterval: RollingInterval.Day,
+                              fileSizeLimitBytes: 10 * 1024 * 1024,
+                              rollOnFileSizeLimit: true,
                               retainedFileCountLimit: 7)
                 .WriteTo.Console()
                 .CreateLogger();

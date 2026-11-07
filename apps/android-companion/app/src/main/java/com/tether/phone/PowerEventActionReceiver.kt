@@ -14,6 +14,7 @@ class PowerEventActionReceiver : BroadcastReceiver() {
         const val ACTION_REJECT = "com.tether.phone.POWER_EVENT_REJECT"
         const val EXTRA_POWER_EVENT_TYPE = "eventType"
         const val EXTRA_POWER_EVENT_TIMESTAMP = "eventTimestamp"
+        const val EXTRA_LOCK_SESSION_ID = "lockSessionId"
         const val EXTRA_ACTION = "extra_action"
     }
 
@@ -21,6 +22,7 @@ class PowerEventActionReceiver : BroadcastReceiver() {
         val action = intent?.action ?: return
         val eventType = intent.getStringExtra(EXTRA_POWER_EVENT_TYPE) ?: "LOCK"
         val timestamp = intent.getLongExtra(EXTRA_POWER_EVENT_TIMESTAMP, 0L)
+        val lockSessionId = intent.getStringExtra(EXTRA_LOCK_SESSION_ID)
 
         val prefs = context.getSharedPreferences("tether_secure_prefs", Context.MODE_PRIVATE)
         prefs.edit {
@@ -34,6 +36,7 @@ class PowerEventActionReceiver : BroadcastReceiver() {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     putExtra(EXTRA_POWER_EVENT_TYPE, eventType)
                     putExtra(EXTRA_POWER_EVENT_TIMESTAMP, timestamp)
+                    putExtra(EXTRA_LOCK_SESSION_ID, lockSessionId)
                     putExtra(EXTRA_ACTION, "ACCEPT")
                 }
                 context.startActivity(activityIntent)
@@ -43,8 +46,13 @@ class PowerEventActionReceiver : BroadcastReceiver() {
             }
             ACTION_REJECT -> {
                 prefs.edit {
-                    putBoolean("is_unlock_prompt_dismissed", true)
+                    remove("is_unlock_prompt_dismissed")
                 }
+                val dismissIntent = Intent(context, TetherLanService::class.java).apply {
+                    this.action = TetherLanService.ACTION_DISMISS_LOCK_SESSION
+                    putExtra(TetherLanService.EXTRA_LOCK_SESSION_ID, lockSessionId)
+                }
+                context.startService(dismissIntent)
                 val nm = NotificationManagerCompat.from(context)
                 nm.cancel(POWER_EVENT_NOTIFICATION_ID)
                 nm.cancel(UnlockPromptNotifier.UNLOCK_NOTIFICATION_ID)

@@ -371,53 +371,73 @@ public sealed class TetherSession : IDisposable
             using var pairingCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             pairingCts.CancelAfter(TimeSpan.FromSeconds(120));
 
-            using var confirmedDoc = await FrameCodec.ReadJsonFrameAsync(stream, pairingCts.Token);
-            if (confirmedDoc == null)
+            while (!pairingCts.Token.IsCancellationRequested)
             {
-                _logger.Warning($"TetherSession [{SessionId}]: No PAIRING_CONFIRMED frame received.");
-                return false;
+                using var confirmedDoc = await FrameCodec.ReadJsonFrameAsync(stream, pairingCts.Token);
+                if (confirmedDoc == null)
+                {
+                    _logger.Warning($"TetherSession [{SessionId}]: No PAIRING_CONFIRMED frame received.");
+                    return false;
+                }
+
+                string confirmedType = confirmedDoc.RootElement.TryGetProperty("type", out var typeProp) ? typeProp.GetString() ?? "" : "";
+                if (string.Equals(confirmedType, "PAIRING_REJECTED", StringComparison.Ordinal))
+                {
+                    string reqIdToCancel = confirmedDoc.RootElement.TryGetProperty("requestId", out var rProp) ? rProp.GetString() ?? "" : pending.RequestId;
+                    _pairingManager.CancelRequest(reqIdToCancel);
+                    _logger.Info($"TetherSession [{SessionId}]: Pairing rejected by phone for requestId '{reqIdToCancel}'.");
+                    return false;
+                }
+
+                if (!string.Equals(confirmedType, "PAIRING_CONFIRMED", StringComparison.Ordinal))
+                {
+                    _logger.Warning($"TetherSession [{SessionId}]: Expected PAIRING_CONFIRMED but got '{confirmedType}'.");
+                    return false;
+                }
+
+                string reqId = confirmedDoc.RootElement.TryGetProperty("requestId", out var reqProp) ? reqProp.GetString() ?? "" : "";
+                string proofBase64 = confirmedDoc.RootElement.TryGetProperty("proof", out var proofProp) ? proofProp.GetString() ?? "" : "";
+
+                bool verified = _pairingManager.TryVerifyPhoneProof(reqId, proofBase64, out string winProofBase64, out var pendingPairing);
+
+                if (!verified)
+                {
+                    int failedAttempts = pendingPairing?.FailedAttempts ?? PairingManager.MaxFailedAttempts;
+                    int remainingAttempts = Math.Max(0, PairingManager.MaxFailedAttempts - failedAttempts);
+
+                    if (remainingAttempts > 0)
+                    {
+                        _logger.Warning($"TetherSession [{SessionId}]: Proof verification failed for requestId '{reqId}'. {remainingAttempts} attempts remaining.");
+                        await WriteJsonFrameSafeAsync(new
+                        {
+                            type = "PAIRING_INVALID_PIN",
+                            requestId = reqId,
+                            remainingAttempts = remainingAttempts,
+                            message = $"Incorrect PIN. {remainingAttempts} attempt(s) remaining."
+                        }, ct);
+                        continue;
+                    }
+
+                    _logger.Warning($"TetherSession [{SessionId}]: Proof verification failed for requestId '{reqId}'. Max attempts exhausted. Tearing down session.");
+                    _pairingManager.CancelRequest(reqId);
+                    try { await WriteJsonFrameSafeAsync(new { type = "PAIRING_COMPLETE", status = "DENIED", reason = "Max attempts exhausted" }, ct); } catch { }
+                    Close("Pairing proof verification failed");
+                    return false;
+                }
+
+                await WriteJsonFrameSafeAsync(new
+                {
+                    type = "PAIRING_COMPLETE",
+                    status = "OK",
+                    proof = winProofBase64,
+                    capabilities = ServerCaps
+                }, ct);
+
+                Device = _deviceManager.GetByFingerprint(phoneFingerprint);
+                _logger.Info($"TetherSession [{SessionId}]: Pairing successfully finalized for '{phoneFingerprint}'.");
+                return true;
             }
-
-            string confirmedType = confirmedDoc.RootElement.TryGetProperty("type", out var typeProp) ? typeProp.GetString() ?? "" : "";
-            if (string.Equals(confirmedType, "PAIRING_REJECTED", StringComparison.Ordinal))
-            {
-                string reqIdToCancel = confirmedDoc.RootElement.TryGetProperty("requestId", out var rProp) ? rProp.GetString() ?? "" : pending.RequestId;
-                _pairingManager.CancelRequest(reqIdToCancel);
-                _logger.Info($"TetherSession [{SessionId}]: Pairing rejected by phone for requestId '{reqIdToCancel}'.");
-                return false;
-            }
-
-            if (!string.Equals(confirmedType, "PAIRING_CONFIRMED", StringComparison.Ordinal))
-            {
-                _logger.Warning($"TetherSession [{SessionId}]: Expected PAIRING_CONFIRMED but got '{confirmedType}'.");
-                return false;
-            }
-
-            string reqId = confirmedDoc.RootElement.TryGetProperty("requestId", out var reqProp) ? reqProp.GetString() ?? "" : "";
-            string proofBase64 = confirmedDoc.RootElement.TryGetProperty("proof", out var proofProp) ? proofProp.GetString() ?? "" : "";
-
-            bool verified = _pairingManager.TryVerifyPhoneProof(reqId, proofBase64, out string winProofBase64, out _);
-
-            if (!verified)
-            {
-                _logger.Warning($"TetherSession [{SessionId}]: Proof verification failed for requestId '{reqId}'. Tearing down session.");
-                _pairingManager.CancelRequest(reqId);
-                try { await WriteJsonFrameSafeAsync(new { type = "PAIRING_COMPLETE", status = "DENIED" }, ct); } catch { }
-                Close("Pairing proof verification failed");
-                return false;
-            }
-
-            await WriteJsonFrameSafeAsync(new
-            {
-                type = "PAIRING_COMPLETE",
-                status = "OK",
-                proof = winProofBase64,
-                capabilities = ServerCaps
-            }, ct);
-
-            Device = _deviceManager.GetByFingerprint(phoneFingerprint);
-            _logger.Info($"TetherSession [{SessionId}]: Pairing successfully finalized for '{phoneFingerprint}'.");
-            return true;
+            return false;
         }
 
         // =========================================================================

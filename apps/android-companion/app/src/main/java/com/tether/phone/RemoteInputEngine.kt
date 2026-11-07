@@ -53,6 +53,10 @@ class RemoteInputEngine(
 
     private val engineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    // Single lane for down->delay->up click sequences: concurrent taps must
+    // not interleave into down,down,up,up (which registers as one broken click).
+    private val clickLane = Dispatchers.IO.limitedParallelism(1)
+
     // Sensitivity Settings
     var pointerSensitivity by mutableFloatStateOf(1.0f)
     var scrollSensitivity by mutableFloatStateOf(1.0f)
@@ -78,19 +82,30 @@ class RemoteInputEngine(
 
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
     private val gyroSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
-    private val accelSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    private var sensorThread: android.os.HandlerThread? = null
+
+    // Sub-pixel movement accumulators to retain continuous precision on slow drags
+    @Volatile private var accumulatedDx = 0f
+    @Volatile private var accumulatedDy = 0f
+    @Volatile private var accumulatedScroll = 0f
+
+    fun resetAccumulators() {
+        accumulatedDx = 0f
+        accumulatedDy = 0f
+        accumulatedScroll = 0f
+    }
 
     fun dispatchEvent(event: InputEvent) {
         val frame = event.toBinaryFrame()
         if (frame.isNotEmpty()) {
             val firstByte = frame[0]
-            Log.d(TAG, "Emitting input frame (firstByte=0x${String.format(java.util.Locale.US, "%02X", firstByte)}, size=${frame.size})")
+            // high-frequency stream: avoid logcat overhead
         }
         sendFrameCallback(frame)
     }
 
     fun dispatchEvents(events: List<InputEvent>) {
-        engineScope.launch {
+        engineScope.launch(clickLane) {
             for (event in events) {
                 dispatchEvent(event)
             }
@@ -104,15 +119,21 @@ class RemoteInputEngine(
     fun processPointerDrag(rawDx: Float, rawDy: Float) {
         val rawVel = hypot(rawDx, rawDy)
         // Deadzone: sub-pixel jitter from the touch panel.
-        if (rawVel < 0.5f) return
+        if (rawVel < 0.2f) return
 
         val accelFactor = 1.0f + (rawVel / POINTER_ACCEL_VEL_REF)
             .coerceIn(0f, POINTER_ACCEL_MAX - 1.0f)
 
         val scale = POINTER_BASE_SCALE * pointerSensitivity * accelFactor
 
-        val scaledDx = (rawDx * scale).roundToInt().coerceIn(-32768, 32767).toShort()
-        val scaledDy = (rawDy * scale).roundToInt().coerceIn(-32768, 32767).toShort()
+        accumulatedDx += rawDx * scale
+        accumulatedDy += rawDy * scale
+        val stepDx = accumulatedDx.toInt()
+        val stepDy = accumulatedDy.toInt()
+        accumulatedDx -= stepDx
+        accumulatedDy -= stepDy
+        val scaledDx = stepDx.coerceIn(-32768, 32767).toShort()
+        val scaledDy = stepDy.coerceIn(-32768, 32767).toShort()
 
         if ((scaledDx != 0.toShort()) || (scaledDy != 0.toShort())) {
             dispatchEvent(InputEvent.RelativeMove(scaledDx, scaledDy))
@@ -124,8 +145,11 @@ class RemoteInputEngine(
      * WHEEL_DELTA ticks (each tick == 120 wheel units), so keep it small.
      */
     fun processScrollDrag(rawDy: Float) {
-        val scrollAmount = (rawDy * SCROLL_BASE_SCALE * scrollSensitivity)
-            .roundToInt()
+        accumulatedScroll += (rawDy * SCROLL_BASE_SCALE * scrollSensitivity)
+        val stepScroll = accumulatedScroll.toInt()
+        accumulatedScroll -= stepScroll
+        val scrollAmount = stepScroll
+
             .coerceIn(-32768, 32767)
             .toShort()
         if (scrollAmount != 0.toShort()) {
@@ -134,7 +158,7 @@ class RemoteInputEngine(
     }
 
     fun triggerSingleTapClick() {
-        engineScope.launch {
+        engineScope.launch(clickLane) {
             dispatchEvent(InputEvent.ButtonState(MOUSE_BUTTON_LEFT, BUTTON_STATE_DOWN))
             delay(CLICK_HOLD_DELAY_MS)
             dispatchEvent(InputEvent.ButtonState(MOUSE_BUTTON_LEFT, BUTTON_STATE_UP))
@@ -142,7 +166,7 @@ class RemoteInputEngine(
     }
 
     fun triggerTwoFingerTapClick() {
-        engineScope.launch {
+        engineScope.launch(clickLane) {
             dispatchEvent(InputEvent.ButtonState(MOUSE_BUTTON_RIGHT, BUTTON_STATE_DOWN))
             delay(CLICK_HOLD_DELAY_MS)
             dispatchEvent(InputEvent.ButtonState(MOUSE_BUTTON_RIGHT, BUTTON_STATE_UP))
@@ -195,7 +219,7 @@ class RemoteInputEngine(
     }
 
     fun triggerKeyTap(vkCode: Short, isExtended: Boolean = false) {
-        engineScope.launch {
+        engineScope.launch(clickLane) {
             val flags = if (isExtended) KEY_STATE_EXTENDED else KEY_STATE_DOWN
             dispatchEvent(InputEvent.VirtualKey(vkCode, flags))
             delay(CLICK_HOLD_DELAY_MS)
@@ -239,8 +263,11 @@ class RemoteInputEngine(
         }
         if (!isAirMouseActive) {
             isAirMouseActive = true
-            sensorManager.registerListener(this, gyroSensor, SensorManager.SENSOR_DELAY_GAME)
-            accelSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+            val thread = android.os.HandlerThread("AirMouseThread").apply { start() }
+            sensorThread = thread
+            val handler = android.os.Handler(thread.looper)
+            sensorManager.registerListener(this, gyroSensor, SensorManager.SENSOR_DELAY_GAME, handler)
+            // Gyroscope-only tracking
             Log.i(TAG, "Air Mouse sensor fusion started")
         }
     }
@@ -249,6 +276,8 @@ class RemoteInputEngine(
         if (isAirMouseActive) {
             isAirMouseActive = false
             sensorManager?.unregisterListener(this)
+            sensorThread?.quitSafely()
+            sensorThread = null
             Log.i(TAG, "Air Mouse sensor fusion stopped")
         }
     }
@@ -263,10 +292,18 @@ class RemoteInputEngine(
             val radMagnitude = hypot(gyroZ, gyroX)
             if (radMagnitude < GYRO_DEADZONE) return
 
-            val deltaX = (-gyroZ * GYRO_GAIN * airMouseSensitivity)
-                .roundToInt().coerceIn(-32768, 32767).toShort()
-            val deltaY = (-gyroX * GYRO_GAIN * airMouseSensitivity)
-                .roundToInt().coerceIn(-32768, 32767).toShort()
+            val rawDx = -gyroZ * GYRO_GAIN * airMouseSensitivity
+            val rawDy = -gyroX * GYRO_GAIN * airMouseSensitivity
+            accumulatedDx += rawDx
+            accumulatedDy += rawDy
+            val stepDx = accumulatedDx.toInt()
+            val stepDy = accumulatedDy.toInt()
+            accumulatedDx -= stepDx
+            accumulatedDy -= stepDy
+            val deltaX = stepDx
+    .coerceIn(-32768, 32767).toShort()
+            val deltaY = stepDy
+    .coerceIn(-32768, 32767).toShort()
 
             if ((deltaX != 0.toShort()) || (deltaY != 0.toShort())) {
                 dispatchEvent(InputEvent.RelativeMove(deltaX, deltaY))

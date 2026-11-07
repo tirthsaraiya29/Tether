@@ -11,7 +11,7 @@
 ; ============================================================================
 
 #define MyAppName           "Tether"
-#define MyAppVersion        "1.1.2"
+#define MyAppVersion        "1.1.7"
 #define MyAppPublisher      "Tether Project"
 #define MyAppURL            "https://github.com/tirthsaraiya29/Tether"
 #define MyAppExeName        "Tether.CommunicationService.exe"
@@ -39,7 +39,6 @@
 ;  Runtime prerequisite URLs (official Microsoft endpoints)
 ; ---------------------------------------------------------------------------
 #define UrlVCRedistX64      "https://aka.ms/vs/17/release/vc_redist.x64.exe"
-#define UrlVCRedistX86      "https://aka.ms/vs/17/release/vc_redist.x86.exe"
 #define UrlDotNetDesktop    "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.13/windowsdesktop-runtime-10.0.13-win-x64.exe"
 
 [Setup]
@@ -89,7 +88,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 english.InstallServiceTask=Install and configure Tether background service
 english.FirewallTask=Configure Windows Firewall rules (TCP 37123, UDP 37124, UDP 5353, TCP 37124 on Private/Domain profiles)
 english.DesktopShortcutTask=Create a desktop shortcut for Tether
-english.LaunchUITask=Launch Tether Desktop UI with administrator privileges
+english.LaunchUITask=Launch Tether Desktop UI
 english.VaultUninstallPrompt=Tether stores encrypted credentials in HKLM\SOFTWARE\Tether.%n%nDo you want to permanently erase this stored vault data?%n%nSelect 'No' to preserve your pairing for future installations.
 english.ServiceStarting=Registering and starting {#MyServiceDisplay}...
 english.ServiceStopping=Stopping {#MyServiceDisplay}...
@@ -135,11 +134,6 @@ Root: HKLM64; Subkey: "SOFTWARE\Classes\CLSID\{#MyCredProvGuid}\InprocServer32";
 
 ; 2. Windows Logon Credential Provider
 Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{#MyCredProvGuid}"; \
-    ValueType: string; ValueName: ""; ValueData: "{#MyCredProvName}"; \
-    Flags: uninsdeletekey
-
-; 3. Windows Logon Credential Provider Filter
-Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{#MyCredProvGuid}"; \
     ValueType: string; ValueName: ""; ValueData: "{#MyCredProvName}"; \
     Flags: uninsdeletekey
 
@@ -199,9 +193,8 @@ Filename: "{sys}\netsh.exe"; \
     Flags: runhidden waituntilterminated; \
     Tasks: firewall
 
-; Post-install launch with administrator privileges
+; Post-install launch (non-elevated; the UI elevates per-action only when needed)
 Filename: "{app}\{#MyDesktopUIExeName}"; \
-    Verb: "runas"; \
     Description: "{cm:LaunchUITask}"; \
     Flags: shellexec nowait postinstall skipifsilent; \
     Tasks: launchui
@@ -227,7 +220,6 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 [UninstallDelete]
 Type: files;          Name: "{sys}\{#MyCredProvDll}"
 Type: filesandordirs; Name: "{app}"
-Type: filesandordirs; Name: "{commonappdata}\Tether"
 
 ; ============================================================================
 ;  PASCAL CODE SCRIPTING
@@ -498,16 +490,13 @@ begin
   if CurPageID = wpReady then
   begin
     NeedVcx64 := not IsVCRedistInstalled('x64');
-    NeedVcx86 := not IsVCRedistInstalled('x86');
     NeedDotNet := not IsDotNetDesktopInstalled();
 
-    if NeedVcx64 or NeedVcx86 or NeedDotNet then
+    if NeedVcx64 or NeedDotNet then
     begin
       DownloadPage.Clear;
       if NeedVcx64 then
         DownloadPage.Add('{#UrlVCRedistX64}', 'vc_redist.x64.exe', '');
-      if NeedVcx86 then
-        DownloadPage.Add('{#UrlVCRedistX86}', 'vc_redist.x86.exe', '');
       if NeedDotNet then
         DownloadPage.Add('{#UrlDotNetDesktop}', 'dotnet10desktop-x64.exe', '');
 
@@ -528,12 +517,6 @@ begin
         begin
           Vcx64Path := ExpandConstant('{tmp}\vc_redist.x64.exe');
           Exec(Vcx64Path, '/install /quiet /norestart', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-        end;
-
-        if NeedVcx86 then
-        begin
-          Vcx86Path := ExpandConstant('{tmp}\vc_redist.x86.exe');
-          Exec(Vcx86Path, '/install /quiet /norestart', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
         end;
 
         if NeedDotNet then
@@ -590,12 +573,13 @@ begin
     StopAllTetherProcesses();
 
     VaultKey := 'SOFTWARE\{#MyAppName}';
-    if RegKeyExists(HKLM64, VaultKey) then
+    if MsgBox(ExpandConstant('{cm:VaultUninstallPrompt}'), mbConfirmation, MB_YESNO) = IDYES then
     begin
-      if MsgBox(ExpandConstant('{cm:VaultUninstallPrompt}'), mbConfirmation, MB_YESNO) = IDYES then
+      if RegKeyExists(HKLM64, VaultKey) then
       begin
         RegDeleteKeyIncludingSubkeys(HKLM64, VaultKey);
       end;
+      DelTree(ExpandConstant('{commonappdata}\{#MyAppName}'), True, True, True);
     end;
   end;
 end;

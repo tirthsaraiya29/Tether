@@ -54,6 +54,15 @@ public static class HardwareExecutor
         uint TokenInformationLength);
 
     private const int TokenSessionId = 12;
+    private const int TokenLinkedToken = 19;
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(
+        IntPtr TokenHandle,
+        int TokenInformationClass,
+        IntPtr TokenInformation,
+        uint TokenInformationLength,
+        out uint ReturnLength);
 
     [DllImport("userenv.dll", SetLastError = true)]
     private static extern bool CreateEnvironmentBlock(
@@ -413,6 +422,31 @@ public static class HardwareExecutor
         return exitCode == 0;
     }
 
+    private static IntPtr GetBestSessionToken(IntPtr userToken, out IntPtr linkedTokenToClose, ITetherLogger? logger = null)
+    {
+        linkedTokenToClose = IntPtr.Zero;
+        IntPtr pLinked = Marshal.AllocHGlobal(IntPtr.Size);
+        try
+        {
+            if (GetTokenInformation(userToken, TokenLinkedToken, pLinked, (uint)IntPtr.Size, out _))
+            {
+                IntPtr linked = Marshal.ReadIntPtr(pLinked);
+                if (linked != IntPtr.Zero)
+                {
+                    linkedTokenToClose = linked;
+                    logger?.Info("HardwareExecutor: using elevated linked token for user session execution.");
+                    return linked;
+                }
+            }
+        }
+        catch { }
+        finally
+        {
+            Marshal.FreeHGlobal(pLinked);
+        }
+        return userToken;
+    }
+
     private static bool SpawnHelperDaemonInUserSession(uint activeSession, ITetherLogger logger)
     {
         if (!WTSQueryUserToken(activeSession, out IntPtr userToken))
@@ -422,7 +456,10 @@ public static class HardwareExecutor
 
         try
         {
-            if (!DuplicateTokenEx(userToken, 0x10000000, IntPtr.Zero, 2, 1, out IntPtr primaryToken))
+            IntPtr tokenToDuplicate = GetBestSessionToken(userToken, out IntPtr linkedTokenToClose, logger);
+            try
+            {
+                if (!DuplicateTokenEx(tokenToDuplicate, 0x10000000, IntPtr.Zero, 2, 1, out IntPtr primaryToken))
             {
                 return false;
             }
@@ -481,7 +518,12 @@ public static class HardwareExecutor
                     if (envCreated && envBlock != IntPtr.Zero) DestroyEnvironmentBlock(envBlock);
                 }
             }
-            finally { CloseHandle(primaryToken); }
+                finally { CloseHandle(primaryToken); }
+            }
+            finally
+            {
+                if (linkedTokenToClose != IntPtr.Zero) CloseHandle(linkedTokenToClose);
+            }
         }
         finally { CloseHandle(userToken); }
     }
@@ -496,7 +538,10 @@ public static class HardwareExecutor
 
         try
         {
-            if (!DuplicateTokenEx(userToken, 0x10000000, IntPtr.Zero, 2, 1, out IntPtr primaryToken))
+            IntPtr tokenToDuplicate = GetBestSessionToken(userToken, out IntPtr linkedTokenToClose, logger);
+            try
+            {
+                if (!DuplicateTokenEx(tokenToDuplicate, 0x10000000, IntPtr.Zero, 2, 1, out IntPtr primaryToken))
             {
                 logger.Warning($"HardwareExecutor: DuplicateTokenEx failed err={Marshal.GetLastWin32Error()}.");
                 return -1;
@@ -562,7 +607,12 @@ public static class HardwareExecutor
                     if (envCreated && envBlock != IntPtr.Zero) DestroyEnvironmentBlock(envBlock);
                 }
             }
-            finally { CloseHandle(primaryToken); }
+                finally { CloseHandle(primaryToken); }
+            }
+            finally
+            {
+                if (linkedTokenToClose != IntPtr.Zero) CloseHandle(linkedTokenToClose);
+            }
         }
         finally { CloseHandle(userToken); }
     }

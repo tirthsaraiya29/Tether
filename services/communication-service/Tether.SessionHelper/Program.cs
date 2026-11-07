@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.IO.Pipes;
 using System.Management;
@@ -13,11 +13,31 @@ internal static class Program
     private const string InputPipeName = "Tether.InputPipe";
     private const int MaxFrameBytes = 1024 * 1024;
 
+    private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
     [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool GetNamedPipeServerProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle hPipe, out uint ServerProcessId);
 
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool ProcessIdToSessionId(uint dwProcessId, out uint pSessionId);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint processAccess, bool bInheritHandle, uint processId);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags, System.Text.StringBuilder lpExeName, ref uint lpdwSize);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
+    private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
+
     private static async Task<int> Main(string[] args)
     {
+        try { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); } catch { }
+
         if (args is { Length: > 0 })
         {
             return await RunCommandAsync(args);
@@ -220,7 +240,7 @@ internal static class Program
 
     private static async Task<int> RunPipeClientAsync()
     {
-        var injector = new InputInjector();
+        using var injector = new InputInjector();
 
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
@@ -249,6 +269,11 @@ internal static class Program
                 }
 
                 await PumpAsync(pipe, injector, cts.Token);
+
+                // Pipe session ended (service restart, reconnect, helper kill):
+                // lift anything still held so the host is not stuck with a
+                // phantom pressed key or mouse button.
+                injector.ReleaseAllHeld();
             }
             catch (OperationCanceledException)
             {
@@ -262,6 +287,9 @@ internal static class Program
             catch { break; }
         }
 
+        // Process exit path (shutdown, service kill): same release, so held
+        // input state never outlives this process.
+        injector.ReleaseAllHeld();
         return 0;
     }
 
@@ -272,11 +300,68 @@ internal static class Program
             if (!GetNamedPipeServerProcessId(pipe.SafePipeHandle, out uint serverPid))
                 return false;
 
-            using var serverProc = System.Diagnostics.Process.GetProcessById((int)serverPid);
-            if (serverProc.SessionId != 0) return false;
+            // 1. Validate that serverPid corresponds to Tether.CommunicationService running in Session 0.
+            // Using Process.GetProcessesByName queries the system process table via NtQuerySystemInformation
+            // without requiring open handles or PROCESS_QUERY_LIMITED_INFORMATION, which standard medium-integrity
+            // user tokens are denied on Session 0 SYSTEM processes.
+            bool isMatchingCommService = false;
+            try
+            {
+                var candidates = System.Diagnostics.Process.GetProcessesByName("Tether.CommunicationService");
+                foreach (var p in candidates)
+                {
+                    try
+                    {
+                        if (p.Id == (int)serverPid && p.SessionId == 0)
+                        {
+                            isMatchingCommService = true;
+                            break;
+                        }
+                    }
+                    catch { }
+                    finally
+                    {
+                        try { p.Dispose(); } catch { }
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
 
-            string procName = serverProc.ProcessName;
-            return string.Equals(procName, "Tether.CommunicationService", StringComparison.OrdinalIgnoreCase);
+            if (!isMatchingCommService)
+                return false;
+
+            // 2. Defense-in-depth: If the caller is elevated and can acquire a PROCESS_QUERY_LIMITED_INFORMATION handle,
+            // also verify that the image filename matches. If access is denied (standard user token), the verified
+            // Session 0 process table identity is accepted.
+            try
+            {
+                IntPtr hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, serverPid);
+                if (hProc != IntPtr.Zero)
+                {
+                    try
+                    {
+                        var sb = new System.Text.StringBuilder(1024);
+                        uint size = (uint)sb.Capacity;
+                        if (QueryFullProcessImageName(hProc, 0, sb, ref size))
+                        {
+                            string fullPath = sb.ToString();
+                            string fileName = System.IO.Path.GetFileName(fullPath);
+                            if (!string.Equals(fileName, "Tether.CommunicationService.exe", StringComparison.OrdinalIgnoreCase))
+                                return false;
+                        }
+                    }
+                    finally
+                    {
+                        CloseHandle(hProc);
+                    }
+                }
+            }
+            catch { }
+
+            return true;
         }
         catch
         {
@@ -297,7 +382,7 @@ internal static class Program
             var body = new byte[len];
             if (!await ReadExactAsync(pipe, body, ct)) return;
 
-            try { injector.Handle(body); } catch { }
+            try { injector.Enqueue(body); } catch { }
         }
     }
 

@@ -87,6 +87,14 @@ public class TokenStore
         }
     }
 
+    public static void RefreshLocalUiTokenAcl()
+    {
+        if (File.Exists(LocalTokenFile))
+        {
+            EnsureFileAcl(LocalTokenFile);
+        }
+    }
+
     public bool ValidateToken(string token, string? expectedDeviceFingerprint = null)
     {
         if (string.IsNullOrWhiteSpace(token)) return false;
@@ -194,8 +202,7 @@ public class TokenStore
             {
                 using var wi = new System.Security.Principal.WindowsIdentity(hToken);
                 if (wi.User != null &&
-                    !wi.User.IsWellKnown(WellKnownSidType.LocalSystemSid) &&
-                    !wi.User.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid))
+                    !wi.User.IsWellKnown(WellKnownSidType.LocalSystemSid))
                 {
                     userSid = wi.User;
                     return true;
