@@ -41,6 +41,18 @@ internal sealed class ApplicationManager
     [DllImport("user32.dll")]
     private static extern bool IsZoomed(IntPtr hWnd);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "GetClassLongPtrW")]
+    private static extern IntPtr GetClassLongPtr(IntPtr hWnd, int nIndex);
+
+    private const uint WM_GETICON = 0x007F;
+    private const int ICON_SMALL = 0;
+    private const int ICON_BIG = 1;
+    private const int GCLP_HICON = -14;
+    private const int GCLP_HICONSM = -34;
+
     private const int SW_RESTORE = 9;
     private const int SW_MINIMIZE = 6;
     private const int SW_MAXIMIZE = 3;
@@ -122,10 +134,12 @@ internal sealed class ApplicationManager
 
                             if (seenNames.Add(dispName))
                             {
+                                string? appIconB64 = GetAppIconBase64(launchTarget);
                                 list.Add(new InstalledAppInfo
                                 {
                                     Name = dispName,
-                                    ShortcutPath = launchTarget
+                                    ShortcutPath = launchTarget,
+                                    IconB64 = appIconB64
                                 });
                             }
                         }
@@ -183,6 +197,7 @@ internal sealed class ApplicationManager
                 }
                 catch { }
 
+                string? iconB64 = GetWindowIconBase64(hWnd, (int)pid);
                 list.Add(new RunningWindowInfo
                 {
                     Hwnd = hWnd.ToInt64(),
@@ -190,7 +205,8 @@ internal sealed class ApplicationManager
                     ProcessName = procName,
                     ProcessId = (int)pid,
                     IsMinimized = IsIconic(hWnd),
-                    IsMaximized = IsZoomed(hWnd)
+                    IsMaximized = IsZoomed(hWnd),
+                    IconB64 = iconB64
                 });
             }
             catch { }
@@ -249,6 +265,63 @@ internal sealed class ApplicationManager
         PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
         return true;
     }
+
+    public static string? GetWindowIconBase64(IntPtr hWnd, int pid)
+    {
+        try
+        {
+            IntPtr hIcon = SendMessage(hWnd, WM_GETICON, (IntPtr)ICON_SMALL, IntPtr.Zero);
+            if (hIcon == IntPtr.Zero) hIcon = SendMessage(hWnd, WM_GETICON, (IntPtr)ICON_BIG, IntPtr.Zero);
+            if (hIcon == IntPtr.Zero) hIcon = GetClassLongPtr(hWnd, GCLP_HICONSM);
+            if (hIcon == IntPtr.Zero) hIcon = GetClassLongPtr(hWnd, GCLP_HICON);
+
+            if (hIcon != IntPtr.Zero)
+            {
+                using var icon = (System.Drawing.Icon)System.Drawing.Icon.FromHandle(hIcon).Clone();
+                using var bmp = icon.ToBitmap();
+                using var ms = new MemoryStream();
+                bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                return Convert.ToBase64String(ms.ToArray());
+            }
+
+            if (pid > 0)
+            {
+                using var proc = Process.GetProcessById(pid);
+                string? exe = proc.MainModule?.FileName;
+                if (!string.IsNullOrEmpty(exe) && File.Exists(exe))
+                {
+                    using var icon = System.Drawing.Icon.ExtractAssociatedIcon(exe);
+                    if (icon != null)
+                    {
+                        using var bmp = icon.ToBitmap();
+                        using var ms = new MemoryStream();
+                        bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                        return Convert.ToBase64String(ms.ToArray());
+                    }
+                }
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    public static string? GetAppIconBase64(string path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+            using var icon = System.Drawing.Icon.ExtractAssociatedIcon(path);
+            if (icon != null)
+            {
+                using var bmp = icon.ToBitmap();
+                using var ms = new MemoryStream();
+                bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                return Convert.ToBase64String(ms.ToArray());
+            }
+        }
+        catch { }
+        return null;
+    }
 }
 
 public sealed class InstalledAppInfo
@@ -256,6 +329,7 @@ public sealed class InstalledAppInfo
     public string Name { get; set; } = string.Empty;
     public string ShortcutPath { get; set; } = string.Empty;
     public string Path => ShortcutPath;
+    public string? IconB64 { get; set; }
 }
 
 public sealed class RunningWindowInfo
@@ -267,4 +341,5 @@ public sealed class RunningWindowInfo
     public int Pid => ProcessId;
     public bool IsMinimized { get; set; }
     public bool IsMaximized { get; set; }
+    public string? IconB64 { get; set; }
 }

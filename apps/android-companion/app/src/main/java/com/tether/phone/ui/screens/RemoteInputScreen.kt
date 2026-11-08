@@ -128,7 +128,13 @@ fun RemoteInputScreen(
     val activeTouchPoints = remember { mutableStateListOf<TouchPoint>() }
 
     DisposableEffect(Unit) {
+        val s = TetherLanService.instance
+        s?.isHeavyTaskActive = true
+        s?.currentActiveScreen = "RemoteInput"
         onDispose {
+            s?.isHeavyTaskActive = false
+            s?.currentActiveScreen = null
+            s?.triggerFullSyncIfNeeded()
             inputEngine.stopAirMouse()
             inputEngine.releaseAllModifiers()
         }

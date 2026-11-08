@@ -161,6 +161,7 @@ internal sealed class ScreenCaptureEngine
                 }
                 catch { }
 
+                string? winIconB64 = ApplicationManager.GetWindowIconBase64(hWnd, (int)pid);
                 list.Add(new WindowInfo
                 {
                     Hwnd = hWnd.ToInt64(),
@@ -168,7 +169,8 @@ internal sealed class ScreenCaptureEngine
                     ProcessName = procName,
                     ProcessId = (int)pid,
                     Width = r.Width,
-                    Height = r.Height
+                    Height = r.Height,
+                    IconB64 = winIconB64
                 });
             }
             catch { }
@@ -236,6 +238,8 @@ public sealed class WindowInfo
     public string Title { get; set; } = string.Empty;
     public string ProcessName { get; set; } = string.Empty;
     public int ProcessId { get; set; }
+    public int Pid => ProcessId;
     public int Width { get; set; }
     public int Height { get; set; }
+    public string? IconB64 { get; set; }
 }

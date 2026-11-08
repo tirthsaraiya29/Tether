@@ -40,20 +40,25 @@ fun WindowsAdminScreen(
     val service = TetherLanService.instance
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Telemetry", "Hardware", "Power", "Services & Updates")
+    val tabs = listOf("Telemetry", "Hardware & Battery", "Power Plans", "Services & Updates")
 
-    // Telemetry State
-    var telemetry by remember { mutableStateOf(AdminTelemetry()) }
-    var batteryHealth by remember { mutableStateOf(BatteryHealthState()) }
-    var powerPlans by remember { mutableStateOf<List<PowerPlanItem>>(emptyList()) }
+    // State initialised from persistent LaptopStateCache so UI is populated immediately
+    var telemetry by remember { mutableStateOf(LaptopStateCache.getAdminTelemetry(context) ?: AdminTelemetry()) }
+    var batteryHealth by remember { mutableStateOf(LaptopStateCache.getBatteryHealth(context) ?: BatteryHealthState()) }
+    var batteryReport by remember { mutableStateOf(LaptopStateCache.getBatteryReport(context) ?: BatteryReportDetails()) }
+    var hardwareSpecs by remember { mutableStateOf(LaptopStateCache.getHardwareSpecs(context) ?: HardwareSpecs()) }
+    var powerPlans by remember { mutableStateOf(LaptopStateCache.getPowerPlans(context)) }
     var printers by remember { mutableStateOf<List<PrinterItem>>(emptyList()) }
     var usbDevices by remember { mutableStateOf<List<UsbItem>>(emptyList()) }
-    var servicesList by remember { mutableStateOf<List<WindowsServiceItem>>(emptyList()) }
-    var updateState by remember { mutableStateOf(WindowsUpdateState()) }
+    var servicesList by remember { mutableStateOf(LaptopStateCache.getServices(context)) }
+    var updateState by remember { mutableStateOf(LaptopStateCache.getUpdates(context) ?: WindowsUpdateState()) }
     var serviceFilter by remember { mutableStateOf("") }
     var isCheckingUpdates by remember { mutableStateOf(false) }
+    var isGeneratingBatteryReport by remember { mutableStateOf(false) }
 
     DisposableEffect(context) {
+        service?.currentActiveScreen = "WindowsAdmin"
+
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 when (intent?.action) {
@@ -62,6 +67,20 @@ fun WindowsAdminScreen(
                         val totalRam = intent.getLongExtra("totalRamMb", 0L)
                         val availRam = intent.getLongExtra("availRamMb", 0L)
                         val ramPct = intent.getIntExtra("ramUsagePct", 0)
+                        val rawJson = intent.getStringExtra("rawJson") ?: "{}"
+
+                        var gpu = ""
+                        var vram = 0L
+                        var cores = 0
+                        var uptime = 0L
+                        try {
+                            val rObj = JSONObject(rawJson)
+                            val tObj = rObj.optJSONObject("telemetry") ?: rObj
+                            gpu = tObj.optString("gpuName", "")
+                            vram = tObj.optLong("gpuVramMb", 0L)
+                            cores = tObj.optInt("cpuCores", 0)
+                            uptime = tObj.optLong("uptimeSeconds", 0L)
+                        } catch (_: Exception) {}
 
                         val disksList = mutableListOf<DiskUsageItem>()
                         try {
@@ -98,7 +117,18 @@ fun WindowsAdminScreen(
                             }
                         } catch (_: Exception) {}
 
-                        telemetry = AdminTelemetry(cpu, totalRam, availRam, ramPct, disksList, netList)
+                        telemetry = AdminTelemetry(
+                            cpuUsage = cpu,
+                            totalRamMb = totalRam,
+                            availRamMb = availRam,
+                            ramUsagePct = ramPct,
+                            disks = disksList,
+                            networks = netList,
+                            gpuName = if (gpu.isNotBlank()) gpu else telemetry.gpuName,
+                            gpuVramMb = if (vram > 0) vram else telemetry.gpuVramMb,
+                            cpuCores = if (cores > 0) cores else telemetry.cpuCores,
+                            uptimeSeconds = if (uptime > 0) uptime else telemetry.uptimeSeconds
+                        )
                     }
                     TetherLanService.ACTION_BATTERY_HEALTH -> {
                         batteryHealth = BatteryHealthState(
@@ -107,6 +137,44 @@ fun WindowsAdminScreen(
                             wearLevelPct = intent.getIntExtra("wearLevelPct", 0),
                             cycleCount = intent.getIntExtra("cycleCount", 0)
                         )
+                    }
+                    TetherLanService.ACTION_BATTERY_REPORT -> {
+                        isGeneratingBatteryReport = false
+                        try {
+                            val reportJson = intent.getStringExtra("reportJson") ?: "{}"
+                            val r = JSONObject(reportJson)
+                            batteryReport = BatteryReportDetails(
+                                success = r.optBoolean("success", false),
+                                batteryName = r.optString("batteryName", ""),
+                                manufacturer = r.optString("manufacturer", ""),
+                                serialNumber = r.optString("serialNumber", ""),
+                                chemistry = r.optString("chemistry", ""),
+                                designCapacityMwh = r.optDouble("designCapacityMwh", 0.0),
+                                fullChargeCapacityMwh = r.optDouble("fullChargeCapacityMwh", 0.0),
+                                cycleCount = r.optInt("cycleCount", 0),
+                                healthPercent = r.optInt("healthPercent", 100),
+                                reportTimestamp = r.optString("reportTimestamp", ""),
+                                errorMessage = r.optString("errorMessage", "")
+                            )
+                        } catch (_: Exception) {}
+                    }
+                    TetherLanService.ACTION_HARDWARE_SPECS -> {
+                        try {
+                            val specsJson = intent.getStringExtra("specsJson") ?: "{}"
+                            val s = JSONObject(specsJson)
+                            hardwareSpecs = HardwareSpecs(
+                                processorName = s.optString("processorName", ""),
+                                coreCount = s.optInt("coreCount", 0),
+                                totalMemoryMb = s.optLong("totalMemoryMb", 0L),
+                                gpuName = s.optString("gpuName", ""),
+                                gpuVramMb = s.optLong("gpuVramMb", 0L),
+                                systemManufacturer = s.optString("systemManufacturer", ""),
+                                systemModel = s.optString("systemModel", ""),
+                                biosVersion = s.optString("biosVersion", ""),
+                                osDescription = s.optString("osDescription", ""),
+                                uptimeSeconds = s.optLong("uptimeSeconds", 0L)
+                            )
+                        } catch (_: Exception) {}
                     }
                     TetherLanService.ACTION_POWER_PLANS -> {
                         try {
@@ -200,6 +268,8 @@ fun WindowsAdminScreen(
         val filter = IntentFilter().apply {
             addAction(TetherLanService.ACTION_ADMIN_TELEMETRY)
             addAction(TetherLanService.ACTION_BATTERY_HEALTH)
+            addAction(TetherLanService.ACTION_BATTERY_REPORT)
+            addAction(TetherLanService.ACTION_HARDWARE_SPECS)
             addAction(TetherLanService.ACTION_POWER_PLANS)
             addAction(TetherLanService.ACTION_PRINTERS)
             addAction(TetherLanService.ACTION_USB_DEVICES)
@@ -208,8 +278,9 @@ fun WindowsAdminScreen(
         }
         ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
 
-        // Request initial data
+        // Request initial live sync
         service?.requestAdminTelemetry()
+        service?.requestHardwareSpecs()
         service?.requestBatteryHealth()
         service?.requestPowerPlans()
         service?.requestPrinters()
@@ -218,6 +289,7 @@ fun WindowsAdminScreen(
         service?.requestWindowsUpdates()
 
         onDispose {
+            service?.currentActiveScreen = null
             try { context.unregisterReceiver(receiver) } catch (_: Exception) {}
         }
     }
@@ -237,11 +309,13 @@ fun WindowsAdminScreen(
                     actions = {
                         IconButton(onClick = {
                             service?.requestAdminTelemetry()
+                            service?.requestHardwareSpecs()
                             service?.requestBatteryHealth()
                             service?.requestPowerPlans()
                             service?.requestPrinters()
                             service?.requestUsbDevices()
                             service?.requestWindowsServices(serviceFilter)
+                            service?.requestWindowsUpdates()
                         }) {
                             Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = LiquidCyan)
                         }
@@ -256,7 +330,6 @@ fun WindowsAdminScreen(
                     .padding(padding)
                     .fillMaxSize()
             ) {
-                // Tab Row
                 ScrollableTabRow(
                     selectedTabIndex = selectedTab,
                     containerColor = SurfaceElevated.copy(alpha = 0.5f),
@@ -279,10 +352,20 @@ fun WindowsAdminScreen(
                     }
                 }
 
-                // Tab Contents
                 when (selectedTab) {
-                    0 -> TelemetryTabContent(telemetry)
-                    1 -> HardwareTabContent(batteryHealth, printers, usbDevices)
+                    0 -> TelemetryTabContent(telemetry, hardwareSpecs)
+                    1 -> HardwareTabContent(
+                        batteryHealth = batteryHealth,
+                        batteryReport = batteryReport,
+                        hardwareSpecs = hardwareSpecs,
+                        printers = printers,
+                        usbDevices = usbDevices,
+                        isGeneratingReport = isGeneratingBatteryReport,
+                        onGenerateReport = {
+                            isGeneratingBatteryReport = true
+                            service?.requestGenerateBatteryReport()
+                        }
+                    )
                     2 -> PowerTabContent(powerPlans) { guid -> service?.sendSetPowerPlan(guid) }
                     3 -> ServicesAndUpdatesTabContent(
                         servicesList = servicesList,
@@ -306,7 +389,7 @@ fun WindowsAdminScreen(
 }
 
 @Composable
-fun TelemetryTabContent(telemetry: AdminTelemetry) {
+fun TelemetryTabContent(telemetry: AdminTelemetry, specs: HardwareSpecs) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -322,12 +405,18 @@ fun TelemetryTabContent(telemetry: AdminTelemetry) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Processor Activity (CPU)", color = TextPrimary, fontWeight = FontWeight.Bold)
-                        Text("${telemetry.cpuUsage}%", color = LiquidCyan, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Column {
+                            Text("Processor Activity (CPU)", color = TextPrimary, fontWeight = FontWeight.Bold)
+                            val procName = if (specs.processorName.isNotBlank()) specs.processorName else "${specs.coreCount.takeIf { it > 0 } ?: telemetry.cpuCores.takeIf { it > 0 } ?: 0} Cores"
+                            if (procName.isNotBlank() && procName != "0 Cores") {
+                                Text(procName, color = TextMuted, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        Text("${telemetry.cpuUsage}%", color = LiquidCyan, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                     }
                     Spacer(modifier = Modifier.height(10.dp))
                     LinearProgressIndicator(
-                        progress = { telemetry.cpuUsage / 100f },
+                        progress = { (telemetry.cpuUsage / 100f).coerceIn(0f, 1f) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(8.dp)
@@ -349,11 +438,11 @@ fun TelemetryTabContent(telemetry: AdminTelemetry) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Physical Memory (RAM)", color = TextPrimary, fontWeight = FontWeight.Bold)
-                        Text("${telemetry.ramUsagePct}%", color = IntegrityGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text("${telemetry.ramUsagePct}%", color = IntegrityGreen, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                     }
                     Spacer(modifier = Modifier.height(6.dp))
-                    val usedRamGb = ((telemetry.totalRamMb - telemetry.availRamMb) / 1024.0)
-                    val totalRamGb = (telemetry.totalRamMb / 1024.0)
+                    val usedRamGb = ((telemetry.totalRamMb - telemetry.availRamMb) / 1024.0).coerceAtLeast(0.0)
+                    val totalRamGb = (telemetry.totalRamMb / 1024.0).coerceAtLeast(0.0)
                     Text(
                         String.format("%.1f GB used of %.1f GB", usedRamGb, totalRamGb),
                         color = TextSecondary,
@@ -361,7 +450,7 @@ fun TelemetryTabContent(telemetry: AdminTelemetry) {
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     LinearProgressIndicator(
-                        progress = { telemetry.ramUsagePct / 100f },
+                        progress = { (telemetry.ramUsagePct / 100f).coerceIn(0f, 1f) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(8.dp)
@@ -373,14 +462,59 @@ fun TelemetryTabContent(telemetry: AdminTelemetry) {
             }
         }
 
+        // GPU & Uptime Card
+        val gpuName = if (telemetry.gpuName.isNotBlank()) telemetry.gpuName else specs.gpuName
+        val gpuVram = if (telemetry.gpuVramMb > 0) telemetry.gpuVramMb else specs.gpuVramMb
+        val uptime = if (telemetry.uptimeSeconds > 0) telemetry.uptimeSeconds else specs.uptimeSeconds
+
+        if (gpuName.isNotBlank() || uptime > 0) {
+            item {
+                ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        if (gpuName.isNotBlank()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.VideogameAsset, contentDescription = null, tint = MatrixGold)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text("Graphics Processing Unit (GPU)", color = TextMuted, style = MaterialTheme.typography.labelSmall)
+                                    Text(gpuName, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                    if (gpuVram > 0) {
+                                        Text("${gpuVram} MB VRAM (${String.format("%.1f", gpuVram / 1024.0)} GB)", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (uptime > 0) {
+                            if (gpuName.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Divider(color = GlassBorder)
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Timer, contentDescription = null, tint = LiquidCyan)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text("System Uptime", color = TextMuted, style = MaterialTheme.typography.labelSmall)
+                                    val hours = uptime / 3600
+                                    val mins = (uptime % 3600) / 60
+                                    Text("${hours} hours, ${mins} mins", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Logical Storage Volumes
         item {
-            Text("Storage Volumes", color = TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+            Text("Storage Volumes (${telemetry.disks.size})", color = TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
         }
 
         items(telemetry.disks) { disk ->
             val usedGb = (disk.totalGb - disk.freeGb).coerceAtLeast(0.0)
-            val usedPct = if (disk.totalGb > 0) ((usedGb / disk.totalGb) * 100).toInt() else 0
+            val usedPct = if (disk.totalGb > 0) ((usedGb / disk.totalGb) * 100).toInt().coerceIn(0, 100) else 0
 
             ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -408,7 +542,7 @@ fun TelemetryTabContent(telemetry: AdminTelemetry) {
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     LinearProgressIndicator(
-                        progress = { usedPct / 100f },
+                        progress = { (usedPct / 100f).coerceIn(0f, 1f) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(6.dp)
@@ -423,7 +557,7 @@ fun TelemetryTabContent(telemetry: AdminTelemetry) {
         // Network Adapters
         if (telemetry.networks.isNotEmpty()) {
             item {
-                Text("Network Interfaces", color = TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                Text("Network Interfaces (${telemetry.networks.size})", color = TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
             }
             items(telemetry.networks) { net ->
                 ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
@@ -451,8 +585,12 @@ fun TelemetryTabContent(telemetry: AdminTelemetry) {
 @Composable
 fun HardwareTabContent(
     batteryHealth: BatteryHealthState,
+    batteryReport: BatteryReportDetails,
+    hardwareSpecs: HardwareSpecs,
     printers: List<PrinterItem>,
-    usbDevices: List<UsbItem>
+    usbDevices: List<UsbItem>,
+    isGeneratingReport: Boolean,
+    onGenerateReport: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -460,14 +598,56 @@ fun HardwareTabContent(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Battery Health Diagnostics Card
+        // Hardware Specifications Card
         item {
             ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.BatteryChargingFull, contentDescription = null, tint = IntegrityGreen)
+                        Icon(Icons.Default.Computer, contentDescription = null, tint = LiquidCyan)
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("Battery Health & Wear Analytics", color = TextPrimary, fontWeight = FontWeight.Bold)
+                        Text("Hardware Specifications", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (hardwareSpecs.processorName.isNotBlank()) {
+                        SpecRow("Processor", hardwareSpecs.processorName)
+                    }
+                    if (hardwareSpecs.coreCount > 0) {
+                        SpecRow("Cores", "${hardwareSpecs.coreCount} Cores")
+                    }
+                    if (hardwareSpecs.totalMemoryMb > 0) {
+                        SpecRow("Memory (RAM)", "${hardwareSpecs.totalMemoryMb / 1024} GB (${hardwareSpecs.totalMemoryMb} MB)")
+                    }
+                    if (hardwareSpecs.gpuName.isNotBlank()) {
+                        SpecRow("GPU", hardwareSpecs.gpuName)
+                    }
+                    if (hardwareSpecs.systemManufacturer.isNotBlank() || hardwareSpecs.systemModel.isNotBlank()) {
+                        SpecRow("Machine", "${hardwareSpecs.systemManufacturer} ${hardwareSpecs.systemModel}".trim())
+                    }
+                    if (hardwareSpecs.biosVersion.isNotBlank()) {
+                        SpecRow("BIOS", hardwareSpecs.biosVersion)
+                    }
+                    if (hardwareSpecs.osDescription.isNotBlank()) {
+                        SpecRow("Operating System", hardwareSpecs.osDescription)
+                    }
+                }
+            }
+        }
+
+        // Battery Health Diagnostics Card
+        item {
+            ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.BatteryChargingFull, contentDescription = null, tint = IntegrityGreen)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Battery Health & Wear Analytics", color = TextPrimary, fontWeight = FontWeight.Bold)
+                        }
                     }
                     Spacer(modifier = Modifier.height(14.dp))
                     Row(
@@ -486,6 +666,65 @@ fun HardwareTabContent(
                             Text("Full Charge", color = TextMuted, style = MaterialTheme.typography.labelSmall)
                             Text(String.format("%.0f mWh", batteryHealth.fullChargeCapacityMwh), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
+                        Column {
+                            Text("Design Cap", color = TextMuted, style = MaterialTheme.typography.labelSmall)
+                            Text(String.format("%.0f mWh", batteryHealth.designCapacityMwh), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Battery Report Generation Action & Details Card
+        item {
+            ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Assessment, contentDescription = null, tint = LiquidCyan)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Windows Battery Report", color = TextPrimary, fontWeight = FontWeight.Bold)
+                        }
+
+                        if (isGeneratingReport) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = LiquidCyan, strokeWidth = 2.dp)
+                        } else {
+                            Button(
+                                onClick = onGenerateReport,
+                                colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text("Generate Report", color = DeepSpace, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    if (batteryReport.success) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Divider(color = GlassBorder)
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        if (batteryReport.batteryName.isNotBlank()) SpecRow("Battery Name", batteryReport.batteryName)
+                        if (batteryReport.manufacturer.isNotBlank()) SpecRow("Manufacturer", batteryReport.manufacturer)
+                        if (batteryReport.serialNumber.isNotBlank()) SpecRow("Serial Number", batteryReport.serialNumber)
+                        if (batteryReport.chemistry.isNotBlank()) SpecRow("Chemistry", batteryReport.chemistry)
+                        SpecRow("Health", "${batteryReport.healthPercent}%")
+                        SpecRow("Cycle Count", "${batteryReport.cycleCount}")
+                        SpecRow("Design Capacity", String.format("%.0f mWh", batteryReport.designCapacityMwh))
+                        SpecRow("Full Charge Capacity", String.format("%.0f mWh", batteryReport.fullChargeCapacityMwh))
+                        if (batteryReport.reportTimestamp.isNotBlank()) {
+                            SpecRow("Report Time", batteryReport.reportTimestamp)
+                        }
+                    } else if (batteryReport.errorMessage.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text("Report error: ${batteryReport.errorMessage}", color = AlertRed, style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Tap 'Generate Report' to run Windows powercfg and display complete battery hardware analytics.", color = TextMuted, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -544,6 +783,19 @@ fun HardwareTabContent(
 }
 
 @Composable
+private fun SpecRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, color = TextMuted, style = MaterialTheme.typography.bodySmall)
+        Text(value, color = TextPrimary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
 fun PowerTabContent(
     powerPlans: List<PowerPlanItem>,
     onSelectPlan: (String) -> Unit
@@ -562,7 +814,13 @@ fun PowerTabContent(
 
         if (powerPlans.isEmpty()) {
             item {
-                Text("Querying Windows Power Management subsystem...", color = TextMuted)
+                ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = LiquidCyan, strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Querying Windows Power Management subsystem...", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
         }
 
@@ -658,7 +916,7 @@ fun ServicesAndUpdatesTabContent(
 
         // Services Filter Header
         item {
-            Text("Windows Services Control", color = TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+            Text("Windows Services Control (${servicesList.size})", color = TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
             Spacer(modifier = Modifier.height(6.dp))
             TextField(
                 value = filter,

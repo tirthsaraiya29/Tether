@@ -63,23 +63,65 @@ fun FileTransferScreen(
     val service = com.tether.phone.TetherLanService.instance
     val hostIp = service?.connectedHostAddress
 
+    DisposableEffect(Unit) {
+        service?.isHeavyTaskActive = true
+        service?.currentActiveScreen = "FileTransfer"
+        onDispose {
+            service?.isHeavyTaskActive = false
+            service?.currentActiveScreen = null
+            service?.triggerFullSyncIfNeeded()
+        }
+    }
+
     fun refreshFileList() {
-        if (token != null && hostIp != null) {
+        if (hostIp != null) {
             coroutineScope.launch {
                 try {
                     isLoading = true
                     errorMessage = null
-                    if (isSearchActive && searchQuery.isNotBlank()) {
-                        files = FileTransferClient.searchFiles(
-                            hostIp = hostIp,
-                            path = currentPath,
-                            query = searchQuery,
-                            recursive = true,
-                            token = token!!,
-                            context = context
-                        )
-                    } else {
-                        files = FileTransferClient.listDirectory(hostIp, currentPath, token!!, context)
+                    if (token == null) {
+                        token = service?.requestFileTransferToken()
+                    }
+                    val currentToken = token
+                    if (currentToken == null) {
+                        errorMessage = "Acquiring secure authorization..."
+                        return@launch
+                    }
+                    try {
+                        if (isSearchActive && searchQuery.isNotBlank()) {
+                            files = FileTransferClient.searchFiles(
+                                hostIp = hostIp,
+                                path = currentPath,
+                                query = searchQuery,
+                                recursive = true,
+                                token = currentToken,
+                                context = context
+                            )
+                        } else {
+                            files = FileTransferClient.listDirectory(hostIp, currentPath, currentToken, context)
+                        }
+                    } catch (e: Exception) {
+                        val msg = e.message ?: ""
+                        if (msg.contains("401") || msg.contains("Unauthorized", ignoreCase = true) || msg.contains("Token validation failed", ignoreCase = true)) {
+                            val freshToken = service?.requestFileTransferToken()
+                            if (freshToken != null) {
+                                token = freshToken
+                                if (isSearchActive && searchQuery.isNotBlank()) {
+                                    files = FileTransferClient.searchFiles(
+                                        hostIp = hostIp,
+                                        path = currentPath,
+                                        query = searchQuery,
+                                        recursive = true,
+                                        token = freshToken,
+                                        context = context
+                                    )
+                                } else {
+                                    files = FileTransferClient.listDirectory(hostIp, currentPath, freshToken, context)
+                                }
+                                return@launch
+                            }
+                        }
+                        throw e
                     }
                 } catch (e: Exception) {
                     errorMessage = e.message
@@ -248,13 +290,32 @@ fun FileTransferScreen(
                 if (isLoading) {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = LiquidCyan)
                 } else if (errorMessage != null) {
-                    Text(
-                        text = errorMessage!!,
-                        color = AlertRed,
+                    Column(
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .padding(16.dp)
-                    )
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = MatrixGold, modifier = Modifier.size(40.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = errorMessage!!,
+                            color = AlertRed,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    token = service?.requestFileTransferToken()
+                                    refreshFileList()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan)
+                        ) {
+                            Text("Re-authenticate & Refresh", color = DeepSpace, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(files) { file ->

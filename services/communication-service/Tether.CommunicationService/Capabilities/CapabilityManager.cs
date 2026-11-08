@@ -96,8 +96,8 @@ public sealed class CapabilityManager
         bool hasCap = device.Capabilities.Contains(requiredCap, StringComparer.OrdinalIgnoreCase)
                    || (requiredCap == "APP_LAUNCH" && device.Capabilities.Contains("APP_MANAGEMENT", StringComparer.OrdinalIgnoreCase))
                    || (requiredCap == "POWER_ELEVATED" && (device.Capabilities.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)))
-                   || (requiredCap is "WINDOWS_ADMIN" or "APP_MANAGEMENT" or "AUTOMATION" or "TERMINAL" && (device.Capabilities.Contains("POWER_ELEVATED", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("TERMINAL", StringComparer.OrdinalIgnoreCase)))
-                   || (device.TrustState == DeviceTrustState.Paired && (device.Capabilities.Count == 0 || device.Capabilities.Contains("*") || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)));
+                   || (requiredCap is "WINDOWS_ADMIN" or "APP_MANAGEMENT" or "AUTOMATION" or "TERMINAL" && (device.Capabilities.Contains("POWER_ELEVATED", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("TERMINAL", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains(requiredCap, StringComparer.OrdinalIgnoreCase)))
+                   || (device.TrustState == DeviceTrustState.Paired && (device.Capabilities.Count == 0 || device.Capabilities.Contains("*") || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("WINDOWS_ADMIN", StringComparer.OrdinalIgnoreCase)));
 
         return hasCap;
     }

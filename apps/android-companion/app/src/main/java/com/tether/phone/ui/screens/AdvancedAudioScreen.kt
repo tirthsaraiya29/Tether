@@ -52,8 +52,9 @@ fun AdvancedAudioScreen(
     var mediaDuration by remember { mutableLongStateOf(0L) }
     var mediaThumbnailB64 by remember { mutableStateOf("") }
 
-    var appSessions by remember { mutableStateOf<List<AppAudioSessionItem>>(emptyList()) }
-    var audioDevices by remember { mutableStateOf<List<AudioDeviceItem>>(emptyList()) }
+    // Instant initialisation from persistent cache
+    var appSessions by remember { mutableStateOf(LaptopStateCache.getAudioSessions(context)) }
+    var audioDevices by remember { mutableStateOf(LaptopStateCache.getAudioDevices(context)) }
     var isMasterMuted by remember { mutableStateOf(false) }
     var isMicMuted by remember { mutableStateOf(false) }
     var micGain by remember { mutableIntStateOf(50) }
@@ -62,6 +63,8 @@ fun AdvancedAudioScreen(
     var showDeviceDialog by remember { mutableStateOf(false) }
 
     DisposableEffect(context) {
+        service?.currentActiveScreen = "AdvancedAudio"
+
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 when (intent?.action) {
@@ -79,41 +82,47 @@ fun AdvancedAudioScreen(
                         isMicMuted = intent.getBooleanExtra("micMuted", false)
                         micGain = intent.getIntExtra("micGain", 50)
 
-                        val sessionsJson = intent.getStringExtra("sessionsJson") ?: "[]"
-                        try {
-                            val arr = JSONArray(sessionsJson)
-                            val list = mutableListOf<AppAudioSessionItem>()
-                            for (i in 0 until arr.length()) {
-                                val obj = arr.getJSONObject(i)
-                                list.add(
-                                    AppAudioSessionItem(
-                                        pid = obj.optInt("pid", 0),
-                                        processName = obj.optString("processName", "Application"),
-                                        volumePercent = obj.optInt("volumePercent", 50),
-                                        isMuted = obj.optBoolean("isMuted", false)
+                        val sessionsJson = intent.getStringExtra("sessionsJson")
+                        if (!sessionsJson.isNullOrBlank() && sessionsJson != "[]") {
+                            try {
+                                val arr = JSONArray(sessionsJson)
+                                val list = mutableListOf<AppAudioSessionItem>()
+                                for (i in 0 until arr.length()) {
+                                    val obj = arr.getJSONObject(i)
+                                    list.add(
+                                        AppAudioSessionItem(
+                                            pid = obj.optInt("pid", 0),
+                                            processName = obj.optString("processName", "Application"),
+                                            volumePercent = obj.optInt("volumePercent", 50),
+                                            isMuted = obj.optBoolean("isMuted", false)
+                                        )
                                     )
-                                )
-                            }
-                            appSessions = list
-                        } catch (_: Exception) {}
+                                }
+                                appSessions = list
+                                LaptopStateCache.saveAudioSessions(context, list)
+                            } catch (_: Exception) {}
+                        }
 
-                        val devicesJson = intent.getStringExtra("devicesJson") ?: "[]"
-                        try {
-                            val arr = JSONArray(devicesJson)
-                            val list = mutableListOf<AudioDeviceItem>()
-                            for (i in 0 until arr.length()) {
-                                val obj = arr.getJSONObject(i)
-                                list.add(
-                                    AudioDeviceItem(
-                                        id = obj.optString("id", ""),
-                                        name = obj.optString("name", "Audio Device"),
-                                        isDefault = obj.optBoolean("isDefault", false),
-                                        isInput = obj.optBoolean("isInput", false)
+                        val devicesJson = intent.getStringExtra("devicesJson")
+                        if (!devicesJson.isNullOrBlank() && devicesJson != "[]") {
+                            try {
+                                val arr = JSONArray(devicesJson)
+                                val list = mutableListOf<AudioDeviceItem>()
+                                for (i in 0 until arr.length()) {
+                                    val obj = arr.getJSONObject(i)
+                                    list.add(
+                                        AudioDeviceItem(
+                                            id = obj.optString("id", ""),
+                                            name = obj.optString("name", "Audio Device"),
+                                            isDefault = obj.optBoolean("isDefault", false),
+                                            isInput = obj.optBoolean("isInput", false)
+                                        )
                                     )
-                                )
-                            }
-                            audioDevices = list
-                        } catch (_: Exception) {}
+                                }
+                                audioDevices = list
+                                LaptopStateCache.saveAudioDevices(context, list)
+                            } catch (_: Exception) {}
+                        }
                     }
                 }
             }
@@ -132,6 +141,7 @@ fun AdvancedAudioScreen(
         service?.requestMicState()
 
         onDispose {
+            service?.currentActiveScreen = null
             try { context.unregisterReceiver(receiver) } catch (_: Exception) {}
         }
     }
@@ -149,6 +159,13 @@ fun AdvancedAudioScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = {
+                            service?.requestAudioSessions()
+                            service?.requestAudioDevices()
+                            service?.sendMediaControl("GET_METADATA")
+                        }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = LiquidCyan)
+                        }
                         IconButton(onClick = { showDeviceDialog = true }) {
                             Icon(Icons.Default.Speaker, contentDescription = "Audio Devices", tint = LiquidCyan)
                         }
@@ -179,29 +196,37 @@ fun AdvancedAudioScreen(
                                 val thumbBitmap = remember(mediaThumbnailB64) {
                                     if (mediaThumbnailB64.isNotEmpty()) {
                                         try {
-                                            val b = Base64.decode(mediaThumbnailB64, Base64.DEFAULT)
-                                            BitmapFactory.decodeByteArray(b, 0, b.size)
-                                        } catch (_: Exception) { null }
+                                            val bytes = Base64.decode(mediaThumbnailB64, Base64.DEFAULT)
+                                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                        } catch (_: Exception) {
+                                            null
+                                        }
                                     } else null
                                 }
 
                                 if (thumbBitmap != null) {
                                     Image(
                                         bitmap = thumbBitmap.asImageBitmap(),
-                                        contentDescription = "Album Art",
+                                        contentDescription = "Media Artwork",
                                         modifier = Modifier
                                             .size(72.dp)
-                                            .clip(RoundedCornerShape(14.dp))
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .border(1.dp, GlassBorder, RoundedCornerShape(12.dp))
                                     )
                                 } else {
                                     Box(
                                         modifier = Modifier
                                             .size(72.dp)
-                                            .clip(RoundedCornerShape(14.dp))
+                                            .clip(RoundedCornerShape(12.dp))
                                             .background(SurfaceElevated),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(Icons.Default.MusicNote, contentDescription = null, tint = LiquidCyan, modifier = Modifier.size(36.dp))
+                                        Icon(
+                                            Icons.Default.MusicNote,
+                                            contentDescription = null,
+                                            tint = LiquidCyan,
+                                            modifier = Modifier.size(36.dp)
+                                        )
                                     }
                                 }
 
@@ -209,7 +234,7 @@ fun AdvancedAudioScreen(
 
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        if (mediaTitle.isNotEmpty()) mediaTitle else "No Media Active",
+                                        if (mediaTitle.isNotEmpty()) mediaTitle else "No Active Media",
                                         color = TextPrimary,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
@@ -219,7 +244,7 @@ fun AdvancedAudioScreen(
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         if (mediaArtist.isNotEmpty()) mediaArtist else "Windows Media Session",
-                                        color = TextSecondary,
+                                        color = LiquidCyan,
                                         style = MaterialTheme.typography.bodySmall,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -238,115 +263,139 @@ fun AdvancedAudioScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            // Playback timeline slider
-                            if (mediaDuration > 0L) {
-                                Slider(
-                                    value = mediaPosition.toFloat(),
-                                    onValueChange = { mediaPosition = it.toLong() },
-                                    onValueChangeFinished = {
-                                        service?.sendMediaControl("SEEK", mediaPosition)
-                                    },
-                                    valueRange = 0f..mediaDuration.toFloat(),
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = LiquidCyan,
-                                        activeTrackColor = LiquidCyan,
-                                        inactiveTrackColor = SurfaceElevated
-                                    )
+                            // Playback Progress Bar
+                            if (mediaDuration > 0) {
+                                LinearProgressIndicator(
+                                    progress = { (mediaPosition.toFloat() / mediaDuration.toFloat()).coerceIn(0f, 1f) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(CircleShape),
+                                    color = LiquidCyan,
+                                    trackColor = SurfaceElevated
                                 )
+                                Spacer(modifier = Modifier.height(12.dp))
                             }
 
-                            // Controls Row
+                            // Media Transport Controls
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 IconButton(onClick = { service?.sendMediaControl("PREVIOUS") }) {
-                                    Icon(Icons.Default.SkipPrevious, contentDescription = "Previous Track", tint = TextPrimary)
+                                    Icon(Icons.Default.SkipPrevious, contentDescription = "Previous", tint = TextPrimary)
                                 }
-                                Box(
+                                IconButton(
+                                    onClick = { service?.sendMediaControl("PLAY_PAUSE") },
                                     modifier = Modifier
-                                        .size(52.dp)
-                                        .clip(CircleShape)
-                                        .background(LiquidCyan)
-                                        .clickable {
-                                            service?.sendMediaControl(if (isPlaying) "PAUSE" else "PLAY")
-                                            isPlaying = !isPlaying
-                                        },
-                                    contentAlignment = Alignment.Center
+                                        .size(48.dp)
+                                        .background(LiquidCyan, CircleShape)
                                 ) {
                                     Icon(
                                         if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        contentDescription = "Play / Pause",
-                                        tint = DeepSpace,
-                                        modifier = Modifier.size(30.dp)
+                                        contentDescription = "Play/Pause",
+                                        tint = DeepSpace
                                     )
                                 }
                                 IconButton(onClick = { service?.sendMediaControl("NEXT") }) {
-                                    Icon(Icons.Default.SkipNext, contentDescription = "Next Track", tint = TextPrimary)
+                                    Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = TextPrimary)
                                 }
                             }
                         }
                     }
                 }
 
-                // Microphone Control Card
+                // Audio Endpoint Hardware Devices Card
+                item {
+                    val defaultDevice = audioDevices.find { it.isDefault && !it.isInput } ?: audioDevices.firstOrNull { !it.isInput }
+                    ProfessionalGlassSurface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showDeviceDialog = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.SpeakerGroup, contentDescription = null, tint = LiquidCyan)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Active Audio Output Device", color = TextMuted, style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    defaultDevice?.name ?: if (audioDevices.isNotEmpty()) "${audioDevices.size} Endpoints Available" else "Scanning Audio Endpoints...",
+                                    color = if (defaultDevice != null) IntegrityGreen else TextPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
+                            TextButton(onClick = { showDeviceDialog = true }) {
+                                Text("Switch (${audioDevices.size})", color = LiquidCyan, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+
+                // Master & Mic Quick Controls
                 item {
                     ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(18.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Mic, contentDescription = null, tint = LiquidCyan)
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text("Microphone Input", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Master Volume Mute Toggle
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = {
+                                    isMasterMuted = !isMasterMuted
+                                    service?.sendSetMasterMute(isMasterMuted)
+                                }) {
+                                    Icon(
+                                        if (isMasterMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                                        contentDescription = "Master Mute",
+                                        tint = if (isMasterMuted) AlertRed else LiquidCyan
+                                    )
                                 }
-                                IconButton(
-                                    onClick = {
-                                        isMicMuted = !isMicMuted
-                                        service?.sendSetMicMute(isMicMuted)
-                                    }
-                                ) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text("Master Audio", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                    Text(if (isMasterMuted) "MUTED" else "UNMUTED", color = if (isMasterMuted) AlertRed else IntegrityGreen, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+
+                            // Microphone Mute Toggle
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = {
+                                    isMicMuted = !isMicMuted
+                                    service?.sendSetMicMute(isMicMuted)
+                                }) {
                                     Icon(
                                         if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                                        contentDescription = "Mic Mute",
+                                        contentDescription = "Microphone Mute",
                                         tint = if (isMicMuted) AlertRed else IntegrityGreen
                                     )
                                 }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Gain: ${micGain}%", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Slider(
-                                    value = micGain.toFloat(),
-                                    onValueChange = { micGain = it.toInt() },
-                                    onValueChangeFinished = { service?.sendSetMicGain(micGain) },
-                                    valueRange = 0f..100f,
-                                    modifier = Modifier.weight(1f),
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = LiquidCyan,
-                                        activeTrackColor = LiquidCyan,
-                                        inactiveTrackColor = SurfaceElevated
-                                    )
-                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text("Microphone", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                    Text(if (isMicMuted) "MUTED" else "ACTIVE", color = if (isMicMuted) AlertRed else IntegrityGreen, style = MaterialTheme.typography.labelSmall)
+                                }
                             }
                         }
                     }
                 }
 
-                // Per-Application Volume Header
+                // Per-Application Audio Sessions Header
                 item {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "Per-App Audio Sessions",
+                            "Per-Application Audio Mixer",
                             color = TextPrimary,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
@@ -422,7 +471,7 @@ fun AdvancedAudioScreen(
     if (showDeviceDialog) {
         AlertDialog(
             onDismissRequest = { showDeviceDialog = false },
-            title = { Text("Audio Endpoint Devices", color = TextPrimary) },
+            title = { Text("Audio Endpoint Devices (${audioDevices.size})", color = TextPrimary) },
             text = {
                 LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 350.dp)) {
                     if (audioDevices.isEmpty()) {

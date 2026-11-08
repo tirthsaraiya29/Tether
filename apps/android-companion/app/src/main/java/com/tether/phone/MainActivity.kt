@@ -321,6 +321,16 @@ class MainActivity : FragmentActivity() {
             else -> LaptopPowerState.DISCONNECTED
         }
 
+        val cachedTelem = LaptopStateCache.getLaptopTelemetry(applicationContext)
+        if (cachedTelem != null) {
+            laptopTelemetry.value = cachedTelem
+        }
+        val cachedMetrics = LaptopStateCache.getMetrics(applicationContext)
+        if (cachedMetrics != null) {
+            volumeLevel.value = cachedMetrics.first
+            brightnessLevel.value = cachedMetrics.second
+        }
+
         lifecycleScope.launch(Dispatchers.IO) {
             val oldPng = java.io.File(filesDir, "laptop_wallpaper.png")
             if (oldPng.exists()) try { oldPng.delete() } catch (_: Exception) {}
@@ -329,12 +339,16 @@ class MainActivity : FragmentActivity() {
             val wpPath = if (wpFile.exists() && wpFile.length() > 0) wpFile.absolutePath else null
             
             withContext(Dispatchers.Main) {
-                laptopTelemetry.value = LaptopTelemetry(
-                    powerState = initialPowerState,
-                    lastPowerCommand = persistedCmd,
-                    lastPowerCommandAtMs = persistedCmdAtMs,
-                    wallpaperPath = wpPath,
-                )
+                if (cachedTelem == null) {
+                    laptopTelemetry.value = LaptopTelemetry(
+                        powerState = initialPowerState,
+                        lastPowerCommand = persistedCmd,
+                        lastPowerCommandAtMs = persistedCmdAtMs,
+                        wallpaperPath = wpPath,
+                    )
+                } else if (wpPath != null && cachedTelem.wallpaperPath == null) {
+                    laptopTelemetry.value = cachedTelem.copy(wallpaperPath = wpPath)
+                }
             }
         }
 

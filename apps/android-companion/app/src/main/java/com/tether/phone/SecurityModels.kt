@@ -61,7 +61,8 @@ data class DesktopWindow(
     val processName: String = "",
     val processId: Int = 0,
     val width: Int = 0,
-    val height: Int = 0
+    val height: Int = 0,
+    val iconB64: String? = null
 )
 
 data class AppAudioSessionItem(
@@ -126,7 +127,38 @@ data class AdminTelemetry(
     val availRamMb: Long = 0L,
     val ramUsagePct: Int = 0,
     val disks: List<DiskUsageItem> = emptyList(),
-    val networks: List<NetworkAdapterItem> = emptyList()
+    val networks: List<NetworkAdapterItem> = emptyList(),
+    val gpuName: String = "",
+    val gpuVramMb: Long = 0L,
+    val cpuCores: Int = 0,
+    val uptimeSeconds: Long = 0L
+)
+
+data class BatteryReportDetails(
+    val success: Boolean = false,
+    val batteryName: String = "",
+    val manufacturer: String = "",
+    val serialNumber: String = "",
+    val chemistry: String = "",
+    val designCapacityMwh: Double = 0.0,
+    val fullChargeCapacityMwh: Double = 0.0,
+    val cycleCount: Int = 0,
+    val healthPercent: Int = 100,
+    val reportTimestamp: String = "",
+    val errorMessage: String = ""
+)
+
+data class HardwareSpecs(
+    val processorName: String = "",
+    val coreCount: Int = 0,
+    val totalMemoryMb: Long = 0L,
+    val gpuName: String = "",
+    val gpuVramMb: Long = 0L,
+    val systemManufacturer: String = "",
+    val systemModel: String = "",
+    val biosVersion: String = "",
+    val osDescription: String = "",
+    val uptimeSeconds: Long = 0L
 )
 
 data class BatteryHealthState(
@@ -170,7 +202,8 @@ data class WindowsUpdateState(
 
 data class InstalledAppItem(
     val name: String = "",
-    val path: String = ""
+    val path: String = "",
+    val iconB64: String? = null
 )
 
 data class RunningWindowItem(
