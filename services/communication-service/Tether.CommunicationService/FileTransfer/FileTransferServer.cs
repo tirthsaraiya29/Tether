@@ -899,18 +899,22 @@ public class FileTransferServer : IHostedService
 
             string dir = Path.GetDirectoryName(fullPath) ?? "";
             string newPath = Path.Combine(dir, req.NewName);
+            if (!TryGetValidPath(newPath, out var validNewPath, isUpload: true))
+            {
+                return Results.BadRequest(new { error = "Invalid new path or access restricted" });
+            }
 
             try
             {
                 if (File.Exists(fullPath))
                 {
-                    File.Move(fullPath, newPath);
-                    return Results.Ok(new { success = true, newPath });
+                    File.Move(fullPath, validNewPath);
+                    return Results.Ok(new { success = true, newPath = validNewPath });
                 }
                 else if (Directory.Exists(fullPath))
                 {
-                    Directory.Move(fullPath, newPath);
-                    return Results.Ok(new { success = true, newPath });
+                    Directory.Move(fullPath, validNewPath);
+                    return Results.Ok(new { success = true, newPath = validNewPath });
                 }
                 return Results.NotFound(new { error = "File or directory not found" });
             }
@@ -933,13 +937,22 @@ public class FileTransferServer : IHostedService
                 if (File.Exists(srcPath))
                 {
                     string finalDst = Directory.Exists(dstPath) ? Path.Combine(dstPath, Path.GetFileName(srcPath)) : dstPath;
-                    File.Move(srcPath, finalDst);
-                    return Results.Ok(new { success = true, destination = finalDst });
+                    if (!TryGetValidPath(finalDst, out var validFinalDst, isUpload: true))
+                    {
+                        return Results.BadRequest(new { error = "Invalid destination path" });
+                    }
+                    File.Move(srcPath, validFinalDst);
+                    return Results.Ok(new { success = true, destination = validFinalDst });
                 }
                 else if (Directory.Exists(srcPath))
                 {
-                    Directory.Move(srcPath, dstPath);
-                    return Results.Ok(new { success = true, destination = dstPath });
+                    string finalDst = Directory.Exists(dstPath) ? Path.Combine(dstPath, Path.GetFileName(srcPath)) : dstPath;
+                    if (!TryGetValidPath(finalDst, out var validFinalDst, isUpload: true))
+                    {
+                        return Results.BadRequest(new { error = "Invalid destination path" });
+                    }
+                    Directory.Move(srcPath, validFinalDst);
+                    return Results.Ok(new { success = true, destination = validFinalDst });
                 }
                 return Results.NotFound(new { error = "Source not found" });
             }
@@ -976,8 +989,7 @@ public class FileTransferServer : IHostedService
                     int hr = SHFileOperation(ref shf);
                     if (hr != 0)
                     {
-                        if (File.Exists(fullPath)) File.Delete(fullPath);
-                        else if (Directory.Exists(fullPath)) Directory.Delete(fullPath, true);
+                        return Results.Problem($"Failed to move item to Recycle Bin (error code {hr})");
                     }
                 }
                 return Results.Ok(new { success = true });
@@ -1042,9 +1054,28 @@ public class FileTransferServer : IHostedService
 
             try
             {
+                if (offset < 0 || totalSize <= 0 || totalSize > MaxUploadSizeBytes)
+                {
+                    return Results.BadRequest("Invalid offset or totalSize exceeding limits");
+                }
+
                 if (!TryGetValidPath(path, out var fullPath, isUpload: true))
                 {
                     return Results.BadRequest("Destination path is invalid or restricted");
+                }
+
+                string? rootDir = Path.GetPathRoot(fullPath);
+                if (!string.IsNullOrEmpty(rootDir))
+                {
+                    try
+                    {
+                        var drive = new DriveInfo(rootDir);
+                        if (drive.AvailableFreeSpace < totalSize)
+                        {
+                            return Results.StatusCode(StatusCodes.Status507InsufficientStorage);
+                        }
+                    }
+                    catch { }
                 }
 
                 string partPath = fullPath + ".tether_part";
@@ -1053,6 +1084,10 @@ public class FileTransferServer : IHostedService
 
                 using (var fs = new FileStream(partPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None))
                 {
+                    if (offset > fs.Length)
+                    {
+                        return Results.BadRequest($"Offset {offset} is beyond current part length {fs.Length}");
+                    }
                     if (offset < fs.Length)
                     {
                         fs.SetLength(offset);
@@ -1062,17 +1097,37 @@ public class FileTransferServer : IHostedService
                 }
 
                 var fi = new FileInfo(partPath);
-                if (fi.Length >= totalSize)
+                if (fi.Length > totalSize)
                 {
-                    if (!string.IsNullOrEmpty(hash))
+                    try { File.Delete(partPath); } catch { }
+                    return Results.BadRequest("Uploaded data exceeded declared total size");
+                }
+
+                if (fi.Length == totalSize)
+                {
+                    if (string.IsNullOrWhiteSpace(hash))
                     {
-                        string computed = ComputeSha512Hex(partPath);
-                        if (!string.Equals(computed, hash.Trim(), StringComparison.OrdinalIgnoreCase))
+                        try { File.Delete(partPath); } catch { }
+                        return Results.BadRequest("Hash required for upload completion");
+                    }
+
+                    string computed = ComputeSha512Hex(partPath);
+                    if (!string.Equals(computed, hash.Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        try { File.Delete(partPath); } catch { }
+                        return Results.BadRequest("Checksum mismatch for completed upload");
+                    }
+
+                    if (File.Exists(fullPath))
+                    {
+                        var targetFi = new FileInfo(fullPath);
+                        if ((targetFi.Attributes & (FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.ReparsePoint)) != 0)
                         {
                             try { File.Delete(partPath); } catch { }
-                            return Results.BadRequest("Checksum mismatch for completed upload");
+                            return Results.BadRequest("Destination file is read-only, hidden, or reparse point");
                         }
                     }
+
                     File.Move(partPath, fullPath, overwrite: true);
                     return Results.Ok(new { completed = true, totalSize = fi.Length });
                 }

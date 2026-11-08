@@ -44,8 +44,17 @@ internal sealed class ScreenCaptureEngine
     [DllImport("gdi32.dll")]
     private static extern bool BitBlt(IntPtr hObject, int nXDest, int nYDest, int nWidth, int nHeight, IntPtr hObjectSource, int nXSrc, int nYSrc, int dwRop);
 
+    [DllImport("gdi32.dll")]
+    private static extern bool StretchBlt(IntPtr hdcDest, int nXOriginDest, int nYOriginDest, int nWidthDest, int nHeightDest, IntPtr hdcSrc, int nXOriginSrc, int nYOriginSrc, int nWidthSrc, int nHeightSrc, int dwRop);
+
+    [DllImport("gdi32.dll")]
+    private static extern int SetStretchBltMode(IntPtr hdc, int nStretchMode);
+
     private const int SRCCOPY = 0x00CC0020;
+    private const int HALFTONE = 4;
     private const uint PW_RENDERFULLCONTENT = 0x00000002;
+
+    private static readonly ImageCodecInfo? _jpegCodec = GetEncoder(ImageFormat.Jpeg);
 
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT
@@ -63,13 +72,29 @@ internal sealed class ScreenCaptureEngine
         try
         {
             var bounds = Screen.PrimaryScreen?.Bounds ?? new Rectangle(0, 0, 1920, 1080);
-            using var bmp = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppRgb);
+            float ratio = Math.Min(1f, Math.Min((float)maxWidth / Math.Max(1, bounds.Width), (float)maxHeight / Math.Max(1, bounds.Height)));
+            int targetW = Math.Max(1, (int)(bounds.Width * ratio));
+            int targetH = Math.Max(1, (int)(bounds.Height * ratio));
+
+            using var bmp = new Bitmap(targetW, targetH, PixelFormat.Format32bppRgb);
             using (var g = Graphics.FromImage(bmp))
             {
-                g.CopyFromScreen(bounds.X, bounds.Y, 0, 0, bounds.Size, CopyPixelOperation.SourceCopy);
+                IntPtr destHdc = g.GetHdc();
+                IntPtr deskHwnd = GetDesktopWindow();
+                IntPtr srcHdc = GetWindowDC(deskHwnd);
+                try
+                {
+                    SetStretchBltMode(destHdc, HALFTONE);
+                    StretchBlt(destHdc, 0, 0, targetW, targetH, srcHdc, bounds.X, bounds.Y, bounds.Width, bounds.Height, SRCCOPY);
+                }
+                finally
+                {
+                    ReleaseDC(deskHwnd, srcHdc);
+                    g.ReleaseHdc(destHdc);
+                }
             }
 
-            return EncodeBitmap(bmp, quality, maxWidth, maxHeight);
+            return EncodeBitmap(bmp, quality, targetW, targetH);
         }
         catch
         {
@@ -176,12 +201,12 @@ internal sealed class ScreenCaptureEngine
         try
         {
             using var ms = new MemoryStream();
-            var encoder = GetEncoder(ImageFormat.Jpeg);
-            if (encoder != null)
+            if (_jpegCodec != null)
             {
-                var encoderParams = new EncoderParameters(1);
-                encoderParams.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)Math.Clamp(quality, 10, 100));
-                finalBmp.Save(ms, encoder, encoderParams);
+                using var encoderParams = new EncoderParameters(1);
+                using var param = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)Math.Clamp(quality, 10, 100));
+                encoderParams.Param[0] = param;
+                finalBmp.Save(ms, _jpegCodec, encoderParams);
             }
             else
             {

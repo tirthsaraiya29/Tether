@@ -157,6 +157,11 @@ public sealed class PacketRouter
 
             // Notification Frames
             case "NOTIFICATION_EVENT": // Mirrored from phone to PC
+                if (!_capabilityManager.HasCapability(device, "NOTIFICATIONS"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Notifications capability required" }, ct);
+                    break;
+                }
                 string nTitle = doc.RootElement.TryGetProperty("title", out var ntProp) ? (ntProp.GetString() ?? "") : "";
                 string nBody = doc.RootElement.TryGetProperty("body", out var nbProp) ? (nbProp.GetString() ?? "") : "";
                 string nApp = doc.RootElement.TryGetProperty("app", out var naProp) ? (naProp.GetString() ?? "") : "Phone";
@@ -164,6 +169,11 @@ public sealed class PacketRouter
                 break;
 
             case "NOTIFICATION_DISMISS":
+                if (!_capabilityManager.HasCapability(device, "NOTIFICATIONS"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Notifications capability required" }, ct);
+                    break;
+                }
                 _inputForwarder.PostToHelper(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!);
                 break;
 
@@ -172,11 +182,21 @@ public sealed class PacketRouter
             case "MEDIA_GET_METADATA":
             case "AUDIO_SESSIONS_GET":
             case "AUDIO_APP_VOLUME_SET":
+            case "SET_APP_VOLUME":
             case "AUDIO_APP_MUTE_SET":
+            case "SET_APP_MUTE":
             case "AUDIO_DEVICES_GET":
             case "AUDIO_DEFAULT_DEVICE_SET":
+            case "SET_AUDIO_DEVICE":
             case "MIC_GET_STATE":
             case "MIC_SET_STATE":
+            case "SET_MIC_GAIN":
+            case "SET_MIC_MUTE":
+                if (!_capabilityManager.HasCapability(device, "MEDIA"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Media capability required" }, ct);
+                    break;
+                }
                 string? mRes = await _inputForwarder.RequestAsync(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!, reqId, TimeSpan.FromSeconds(5), ct);
                 if (mRes != null)
                 {
@@ -188,9 +208,19 @@ public sealed class PacketRouter
             case "APP_GET_INSTALLED":
             case "APP_LAUNCH":
             case "APP_GET_WINDOWS":
+            case "GET_RUNNING_WINDOWS":
             case "APP_SWITCH_WINDOW":
+            case "WINDOW_FOCUS":
+            case "WINDOW_SNAP":
             case "APP_SET_WINDOW_STATE":
+            case "WINDOW_STATE":
             case "APP_CLOSE_WINDOW":
+            case "WINDOW_CLOSE":
+                if (!_capabilityManager.HasCapability(device, "APP_MANAGEMENT"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "App management capability required" }, ct);
+                    break;
+                }
                 string? aRes = await _inputForwarder.RequestAsync(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!, reqId, TimeSpan.FromSeconds(5), ct);
                 if (aRes != null)
                 {
@@ -200,73 +230,151 @@ public sealed class PacketRouter
 
             // Windows Administration Frames
             case "ADMIN_TELEMETRY_GET":
+            case "GET_ADMIN_TELEMETRY":
+                if (!_capabilityManager.HasCapability(device, "WINDOWS_ADMIN"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Windows admin capability required" }, ct);
+                    break;
+                }
                 var telemetry = _adminManager.GetSystemTelemetry();
                 await session.WriteJsonFrameSafeAsync(new { type = "ADMIN_TELEMETRY_RESPONSE", requestId = reqId, telemetry }, ct);
                 break;
 
             case "BATTERY_HEALTH_GET":
+            case "GET_BATTERY_HEALTH":
+                if (!_capabilityManager.HasCapability(device, "WINDOWS_ADMIN"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Windows admin capability required" }, ct);
+                    break;
+                }
                 var bHealth = _adminManager.GetBatteryHealth();
                 await session.WriteJsonFrameSafeAsync(new { type = "BATTERY_HEALTH_RESPONSE", requestId = reqId, batteryHealth = bHealth }, ct);
                 break;
 
             case "POWER_PLANS_GET":
+            case "GET_POWER_PLANS":
+                if (!_capabilityManager.HasCapability(device, "WINDOWS_ADMIN"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Windows admin capability required" }, ct);
+                    break;
+                }
                 var plans = _adminManager.GetPowerPlans();
-                await session.WriteJsonFrameSafeAsync(new { type = "POWER_PLANS_RESPONSE", requestId = reqId, powerPlans = plans }, ct);
+                await session.WriteJsonFrameSafeAsync(new { type = "POWER_PLANS_RESPONSE", requestId = reqId, powerPlans = plans, plans }, ct);
                 break;
 
             case "POWER_PLAN_SET":
-                string pGuid = doc.RootElement.GetProperty("guid").GetString() ?? "";
+            case "SET_POWER_PLAN":
+                if (!_capabilityManager.HasCapability(device, "WINDOWS_ADMIN"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Windows admin capability required" }, ct);
+                    break;
+                }
+                string pGuid = doc.RootElement.TryGetProperty("guid", out var gProp) ? (gProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("planId", out var piProp) ? (piProp.GetString() ?? "") : "");
                 bool pOk = _adminManager.SetActivePowerPlan(pGuid);
                 await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = pOk }, ct);
                 break;
 
             case "PRINTERS_GET":
+            case "GET_PRINTERS":
+                if (!_capabilityManager.HasCapability(device, "WINDOWS_ADMIN"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Windows admin capability required" }, ct);
+                    break;
+                }
                 var printers = _adminManager.GetPrinters();
                 await session.WriteJsonFrameSafeAsync(new { type = "PRINTERS_RESPONSE", requestId = reqId, printers }, ct);
                 break;
 
             case "USB_DEVICES_GET":
+            case "GET_USB_DEVICES":
+                if (!_capabilityManager.HasCapability(device, "WINDOWS_ADMIN"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Windows admin capability required" }, ct);
+                    break;
+                }
                 var usbList = _adminManager.GetUsbDevices();
-                await session.WriteJsonFrameSafeAsync(new { type = "USB_DEVICES_RESPONSE", requestId = reqId, usbDevices = usbList }, ct);
+                await session.WriteJsonFrameSafeAsync(new { type = "USB_DEVICES_RESPONSE", requestId = reqId, usbDevices = usbList, devices = usbList }, ct);
                 break;
 
             case "SERVICES_GET":
-                string? sFilter = doc.RootElement.TryGetProperty("search", out var sfProp) ? sfProp.GetString() : null;
+            case "GET_SERVICES":
+                if (!_capabilityManager.HasCapability(device, "WINDOWS_ADMIN"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Windows admin capability required" }, ct);
+                    break;
+                }
+                string? sFilter = doc.RootElement.TryGetProperty("filter", out var fProp) ? fProp.GetString() : (doc.RootElement.TryGetProperty("search", out var sfProp) ? sfProp.GetString() : null);
                 var services = _adminManager.GetServices(sFilter);
                 await session.WriteJsonFrameSafeAsync(new { type = "SERVICES_RESPONSE", requestId = reqId, services }, ct);
                 break;
 
             case "SERVICE_CONTROL":
-                string sName = doc.RootElement.GetProperty("serviceName").GetString() ?? "";
+            case "CONTROL_SERVICE":
+                if (!_capabilityManager.HasCapability(device, "WINDOWS_ADMIN"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Windows admin capability required" }, ct);
+                    break;
+                }
+                string sName = doc.RootElement.TryGetProperty("serviceName", out var snProp) ? (snProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("service", out var sProp) ? (sProp.GetString() ?? "") : "");
                 string sAction = doc.RootElement.GetProperty("action").GetString() ?? "";
                 bool sOk = _adminManager.ControlService(sName, sAction);
                 await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = sOk }, ct);
                 break;
 
             case "UPDATES_CHECK":
+            case "CHECK_UPDATES":
+                if (!_capabilityManager.HasCapability(device, "WINDOWS_ADMIN"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Windows admin capability required" }, ct);
+                    break;
+                }
                 var updates = _adminManager.CheckWindowsUpdates();
                 await session.WriteJsonFrameSafeAsync(new { type = "UPDATES_RESPONSE", requestId = reqId, updates }, ct);
                 break;
 
             // Automation Frames
             case "WORKFLOW_LIST":
+            case "GET_WORKFLOWS":
+                if (!_capabilityManager.HasCapability(device, "AUTOMATION"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Automation capability required" }, ct);
+                    break;
+                }
                 var wfList = _automationEngine.GetWorkflows();
                 await session.WriteJsonFrameSafeAsync(new { type = "WORKFLOW_LIST_RESPONSE", requestId = reqId, workflows = wfList }, ct);
                 break;
 
             case "WORKFLOW_SAVE":
+            case "SAVE_WORKFLOW":
+                if (!_capabilityManager.HasCapability(device, "AUTOMATION"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Automation capability required" }, ct);
+                    break;
+                }
                 var wfObj = JsonSerializer.Deserialize<TetherWorkflow>(doc.RootElement.GetProperty("workflow").GetRawText());
                 if (wfObj != null) _automationEngine.SaveWorkflow(wfObj);
                 await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = wfObj != null }, ct);
                 break;
 
             case "WORKFLOW_DELETE":
+            case "DELETE_WORKFLOW":
+                if (!_capabilityManager.HasCapability(device, "AUTOMATION"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Automation capability required" }, ct);
+                    break;
+                }
                 string wfDelId = doc.RootElement.GetProperty("id").GetString() ?? "";
                 bool delOk = _automationEngine.DeleteWorkflow(wfDelId);
                 await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = delOk }, ct);
                 break;
 
             case "WORKFLOW_RUN":
+            case "RUN_WORKFLOW":
+                if (!_capabilityManager.HasCapability(device, "AUTOMATION"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Automation capability required" }, ct);
+                    break;
+                }
                 string wfRunId = doc.RootElement.GetProperty("id").GetString() ?? "";
                 var runRes = await _automationEngine.RunWorkflowAsync(wfRunId, ct);
                 await session.WriteJsonFrameSafeAsync(new { type = "WORKFLOW_STATUS", requestId = reqId, result = runRes }, ct);
@@ -302,6 +410,25 @@ public sealed class PacketRouter
         _logger.Info($"PacketRouter: Command accepted for '{device.DisplayName}': {cmd.Command} (requestId={cmd.RequestId}).");
 
         string cmdLower = cmd.Command.Trim().ToLowerInvariant();
+        if (cmdLower is "clipboard_copy")
+        {
+            _inputForwarder.PostToHelper(new { type = "CLIPBOARD_SIMULATE_COPY" });
+            await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_COMMAND", confirmedCommand = cmd.Command, success = true, reason = "OK" }, ct);
+            return;
+        }
+        if (cmdLower is "clipboard_paste")
+        {
+            _inputForwarder.PostToHelper(new { type = "CLIPBOARD_SIMULATE_PASTE" });
+            await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_COMMAND", confirmedCommand = cmd.Command, success = true, reason = "OK" }, ct);
+            return;
+        }
+        if (cmdLower is "notification_dismiss")
+        {
+            _inputForwarder.PostToHelper(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!);
+            await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_COMMAND", confirmedCommand = cmd.Command, success = true, reason = "OK" }, ct);
+            return;
+        }
+
         if (cmdLower is "laptop_state_get" or "get_laptop_state" or "laptop_state")
         {
             _logger.Info($"PacketRouter: Building LAPTOP_STATE snapshot for '{device.DisplayName}'.");

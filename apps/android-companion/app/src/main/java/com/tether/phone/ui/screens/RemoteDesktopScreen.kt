@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,8 +23,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tether.phone.*
@@ -35,6 +38,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
@@ -52,7 +56,7 @@ fun RemoteDesktopScreen(
     var currentFrame by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var isStreaming by remember { mutableStateOf(true) }
     var streamError by remember { mutableStateOf<String?>(null) }
-    var targetFps by remember { mutableIntStateOf(15) }
+    var targetFps by remember { mutableIntStateOf(20) }
     var targetQuality by remember { mutableIntStateOf(50) }
 
     var showWindowDialog by remember { mutableStateOf(false) }
@@ -62,6 +66,8 @@ fun RemoteDesktopScreen(
     var showScreenshotPreview by remember { mutableStateOf(false) }
     var screenshotBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var isCapturingScreenshot by remember { mutableStateOf(false) }
+
+    var imageBoxSize by remember { mutableStateOf(IntSize.Zero) }
 
     LaunchedEffect(Unit) {
         if (service != null && hostIp != null) {
@@ -75,7 +81,7 @@ fun RemoteDesktopScreen(
         }
     }
 
-    // MJPEG Streaming coroutine
+    // High-performance MJPEG Streaming coroutine
     LaunchedEffect(hostIp, token, isStreaming, targetFps, targetQuality) {
         if (!isStreaming || hostIp == null || token == null) return@LaunchedEffect
 
@@ -104,42 +110,78 @@ fun RemoteDesktopScreen(
                         streamError = "Stream connection failed: HTTP ${response.code}"
                         return@use
                     }
-                    val stream: InputStream = response.body?.byteStream() ?: return@use
-                    val buffer = ByteArray(16384)
-                    val frameBuffer = ByteArrayOutputStream()
+                    val rawStream: InputStream = response.body?.byteStream() ?: return@use
+                    val bis = BufferedInputStream(rawStream, 65536)
+
+                    val headerBuf = ByteArrayOutputStream(256)
+                    val frameBuffer = ByteArrayOutputStream(65536)
+
+                    fun readLine(): String {
+                        headerBuf.reset()
+                        var prev = -1
+                        while (isActive && isStreaming) {
+                            val c = bis.read()
+                            if (c == -1) break
+                            if (prev == '\r'.code && c == '\n'.code) {
+                                val bytes = headerBuf.toByteArray()
+                                return if (bytes.size > 1) String(bytes, 0, bytes.size - 1, Charsets.US_ASCII) else ""
+                            }
+                            headerBuf.write(c)
+                            prev = c
+                        }
+                        return ""
+                    }
 
                     while (isActive && isStreaming) {
-                        val read = stream.read(buffer)
-                        if (read == -1) break
-                        frameBuffer.write(buffer, 0, read)
-
-                        val bytes = frameBuffer.toByteArray()
-                        var startIndex = -1
-                        var endIndex = -1
-
-                        // Find JPEG markers: SOI (0xFF, 0xD8) and EOI (0xFF, 0xD9)
-                        for (i in 0 until bytes.size - 1) {
-                            if (bytes[i] == 0xFF.toByte() && bytes[i + 1] == 0xD8.toByte()) {
-                                startIndex = i
-                            }
-                            if (startIndex != -1 && bytes[i] == 0xFF.toByte() && bytes[i + 1] == 0xD9.toByte()) {
-                                endIndex = i + 2
-                                break
+                        var contentLength = -1
+                        while (isActive && isStreaming) {
+                            val line = readLine()
+                            if (line.isEmpty()) break
+                            if (line.startsWith("Content-Length:", ignoreCase = true)) {
+                                contentLength = line.substringAfter(":").trim().toIntOrNull() ?: -1
                             }
                         }
 
-                        if (startIndex != -1 && endIndex != -1 && endIndex > startIndex) {
-                            val jpegBytes = bytes.copyOfRange(startIndex, endIndex)
-                            val bmp = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
-                            if (bmp != null) {
-                                currentFrame = bmp
+                        if (contentLength > 0 && contentLength < 10_000_000) {
+                            val imgBytes = ByteArray(contentLength)
+                            var readTotal = 0
+                            while (readTotal < contentLength && isActive && isStreaming) {
+                                val r = bis.read(imgBytes, readTotal, contentLength - readTotal)
+                                if (r == -1) break
+                                readTotal += r
                             }
-                            frameBuffer.reset()
-                            if (endIndex < bytes.size) {
-                                frameBuffer.write(bytes, endIndex, bytes.size - endIndex)
+
+                            if (readTotal == contentLength) {
+                                val bmp = BitmapFactory.decodeByteArray(imgBytes, 0, contentLength)
+                                if (bmp != null) {
+                                    currentFrame = bmp
+                                }
                             }
-                        } else if (frameBuffer.size() > 5000000) {
-                            frameBuffer.reset()
+                        } else {
+                            // Fallback SOI/EOI scan if content-length missing
+                            val buf = ByteArray(8192)
+                            val r = bis.read(buf)
+                            if (r == -1) break
+                            frameBuffer.write(buf, 0, r)
+                            val b = frameBuffer.toByteArray()
+                            var s = -1
+                            var e = -1
+                            for (i in 0 until b.size - 1) {
+                                if (b[i] == 0xFF.toByte() && b[i + 1] == 0xD8.toByte()) s = i
+                                if (s != -1 && b[i] == 0xFF.toByte() && b[i + 1] == 0xD9.toByte()) {
+                                    e = i + 2
+                                    break
+                                }
+                            }
+                            if (s != -1 && e != -1 && e > s) {
+                                val jpg = b.copyOfRange(s, e)
+                                val bmp = BitmapFactory.decodeByteArray(jpg, 0, jpg.size)
+                                if (bmp != null) currentFrame = bmp
+                                frameBuffer.reset()
+                                if (e < b.size) frameBuffer.write(b, e, b.size - e)
+                            } else if (frameBuffer.size() > 2_000_000) {
+                                frameBuffer.reset()
+                            }
                         }
                     }
                 }
@@ -245,13 +287,60 @@ fun RemoteDesktopScreen(
                         contentDescription = "Desktop Stream",
                         modifier = Modifier
                             .fillMaxSize()
+                            .onGloballyPositioned { coordinates ->
+                                imageBoxSize = coordinates.size
+                            }
+                            .pointerInput(Unit) {
+                                detectDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    // Smooth relative mouse navigation while dragging
+                                    val dx = (dragAmount.x * 1.5f).toInt().coerceIn(-32000, 32000).toShort()
+                                    val dy = (dragAmount.y * 1.5f).toInt().coerceIn(-32000, 32000).toShort()
+                                    if (dx != 0.toShort() || dy != 0.toShort()) {
+                                        service?.sendInputFrame(InputEvent.RelativeMove(dx, dy).toBinaryFrame())
+                                    }
+                                }
+                            }
                             .pointerInput(Unit) {
                                 detectTapGestures(
-                                    onTap = { _ ->
-                                        val downFrame = InputEvent.ButtonState(MOUSE_BUTTON_LEFT, BUTTON_STATE_DOWN).toBinaryFrame()
-                                        val upFrame = InputEvent.ButtonState(MOUSE_BUTTON_LEFT, BUTTON_STATE_UP).toBinaryFrame()
-                                        service?.sendInputFrame(downFrame)
-                                        service?.sendInputFrame(upFrame)
+                                    onTap = { offset ->
+                                        if (imageBoxSize.width > 0 && imageBoxSize.height > 0) {
+                                            val normX = ((offset.x / imageBoxSize.width.toFloat()) * 65535f).toInt().coerceIn(0, 65535)
+                                            val normY = ((offset.y / imageBoxSize.height.toFloat()) * 65535f).toInt().coerceIn(0, 65535)
+                                            val absMove = InputEvent.AbsoluteMove(normX, normY).toBinaryFrame()
+                                            val down = InputEvent.ButtonState(MOUSE_BUTTON_LEFT, BUTTON_STATE_DOWN).toBinaryFrame()
+                                            val up = InputEvent.ButtonState(MOUSE_BUTTON_LEFT, BUTTON_STATE_UP).toBinaryFrame()
+                                            service?.sendInputFrame(absMove)
+                                            service?.sendInputFrame(down)
+                                            service?.sendInputFrame(up)
+                                        }
+                                    },
+                                    onDoubleTap = { offset ->
+                                        if (imageBoxSize.width > 0 && imageBoxSize.height > 0) {
+                                            val normX = ((offset.x / imageBoxSize.width.toFloat()) * 65535f).toInt().coerceIn(0, 65535)
+                                            val normY = ((offset.y / imageBoxSize.height.toFloat()) * 65535f).toInt().coerceIn(0, 65535)
+                                            val absMove = InputEvent.AbsoluteMove(normX, normY).toBinaryFrame()
+                                            val down = InputEvent.ButtonState(MOUSE_BUTTON_LEFT, BUTTON_STATE_DOWN).toBinaryFrame()
+                                            val up = InputEvent.ButtonState(MOUSE_BUTTON_LEFT, BUTTON_STATE_UP).toBinaryFrame()
+                                            service?.sendInputFrame(absMove)
+                                            service?.sendInputFrame(down)
+                                            service?.sendInputFrame(up)
+                                            service?.sendInputFrame(down)
+                                            service?.sendInputFrame(up)
+                                        }
+                                    },
+                                    onLongPress = { offset ->
+                                        // Two-finger or long-press right click
+                                        if (imageBoxSize.width > 0 && imageBoxSize.height > 0) {
+                                            val normX = ((offset.x / imageBoxSize.width.toFloat()) * 65535f).toInt().coerceIn(0, 65535)
+                                            val normY = ((offset.y / imageBoxSize.height.toFloat()) * 65535f).toInt().coerceIn(0, 65535)
+                                            val absMove = InputEvent.AbsoluteMove(normX, normY).toBinaryFrame()
+                                            val down = InputEvent.ButtonState(MOUSE_BUTTON_RIGHT, BUTTON_STATE_DOWN).toBinaryFrame()
+                                            val up = InputEvent.ButtonState(MOUSE_BUTTON_RIGHT, BUTTON_STATE_UP).toBinaryFrame()
+                                            service?.sendInputFrame(absMove)
+                                            service?.sendInputFrame(down)
+                                            service?.sendInputFrame(up)
+                                        }
                                     }
                                 )
                             },

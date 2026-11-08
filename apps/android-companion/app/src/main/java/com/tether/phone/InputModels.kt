@@ -10,6 +10,7 @@ const val SUBTYPE_BUTTON_STATE: Byte = 0x02
 const val SUBTYPE_SCROLL_DELTA: Byte = 0x03
 const val SUBTYPE_VIRTUAL_KEY: Byte = 0x04
 const val SUBTYPE_UNICODE_CHAR: Byte = 0x05
+const val SUBTYPE_ABSOLUTE_MOVE: Byte = 0x06
 
 const val MOUSE_BUTTON_LEFT: Byte = 0x01
 const val MOUSE_BUTTON_RIGHT: Byte = 0x02
@@ -118,6 +119,23 @@ sealed class InputEvent {
                 .put(SUBTYPE_VIRTUAL_KEY)
                 .putShort(vkCode)
                 .put(flags)
+                .array()
+        }
+    }
+
+    /**
+     * Subtype 0x06: Normalized Absolute Move (0..65535)
+     */
+    data class AbsoluteMove(
+        val normX: Int,
+        val normY: Int
+    ) : InputEvent() {
+        override fun toBinaryFrame(): ByteArray {
+            return ByteBuffer.allocate(6).order(ByteOrder.BIG_ENDIAN)
+                .put(PACKET_TYPE_INPUT_EVENT)
+                .put(SUBTYPE_ABSOLUTE_MOVE)
+                .putShort((normX.coerceIn(0, 65535)).toShort())
+                .putShort((normY.coerceIn(0, 65535)).toShort())
                 .array()
         }
     }

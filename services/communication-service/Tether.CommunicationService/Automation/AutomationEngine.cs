@@ -22,6 +22,8 @@ public sealed class AutomationEngine : IHostedService, IDisposable
     private readonly ITetherLogger _logger;
     private readonly WindowsAdminManager _adminManager;
     private readonly ConcurrentDictionary<string, TetherWorkflow> _workflows = new();
+    private readonly ConcurrentDictionary<string, byte> _runningWorkflows = new();
+    private readonly object _persistLock = new();
     private readonly CancellationTokenSource _cts = new();
     private Task? _schedulerTask;
 
@@ -78,6 +80,11 @@ public sealed class AutomationEngine : IHostedService, IDisposable
             return new WorkflowExecutionResult { WorkflowId = id, Success = false, Message = "Workflow not found" };
         }
 
+        if (!_runningWorkflows.TryAdd(id, 0))
+        {
+            return new WorkflowExecutionResult { WorkflowId = id, Success = false, Message = "Workflow is already running" };
+        }
+
         // Evaluate Condition if specified
         if (!string.IsNullOrEmpty(wf.ConditionType) && wf.ConditionType != "none")
         {
@@ -120,6 +127,8 @@ public sealed class AutomationEngine : IHostedService, IDisposable
         wf.LastStatus = allOk ? "SUCCESS" : "FAILED";
         PersistWorkflows();
 
+        _runningWorkflows.TryRemove(id, out _);
+
         return new WorkflowExecutionResult
         {
             WorkflowId = id,
@@ -140,7 +149,7 @@ public sealed class AutomationEngine : IHostedService, IDisposable
                         var snap = LaptopStateCollector.GetLaptopSnapshot(_logger);
                         return snap.BatteryLevel < threshold;
                     }
-                    break;
+                    return false;
 
                 case "battery_not_charging":
                     var snapChg = LaptopStateCollector.GetLaptopSnapshot(_logger);
@@ -153,11 +162,18 @@ public sealed class AutomationEngine : IHostedService, IDisposable
                         var procs = Process.GetProcessesByName(pName);
                         return procs.Length > 0;
                     }
-                    break;
+                    return false;
+
+                default:
+                    _logger.Warning($"AutomationEngine: Unknown condition type '{type}'. Failing closed.");
+                    return false;
             }
         }
-        catch { }
-        return true;
+        catch (Exception ex)
+        {
+            _logger.Warning($"AutomationEngine: Condition evaluation threw exception: {ex.Message}. Failing closed.");
+            return false;
+        }
     }
 
     private async Task SchedulerLoopAsync(CancellationToken ct)
@@ -252,18 +268,23 @@ public sealed class AutomationEngine : IHostedService, IDisposable
 
     private void PersistWorkflows()
     {
-        try
+        lock (_persistLock)
         {
-            if (!Directory.Exists(WorkflowsDir))
+            try
             {
-                Directory.CreateDirectory(WorkflowsDir);
+                if (!Directory.Exists(WorkflowsDir))
+                {
+                    Directory.CreateDirectory(WorkflowsDir);
+                }
+                string json = JsonSerializer.Serialize(_workflows.Values.ToList(), new JsonSerializerOptions { WriteIndented = true });
+                string tempFile = WorkflowsFile + $".tmp_{Guid.NewGuid():N}";
+                File.WriteAllText(tempFile, json);
+                File.Move(tempFile, WorkflowsFile, overwrite: true);
             }
-            string json = JsonSerializer.Serialize(_workflows.Values.ToList(), new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(WorkflowsFile, json);
-        }
-        catch (Exception ex)
-        {
-            _logger.Warning($"AutomationEngine: Failed to persist workflows: {ex.Message}");
+            catch (Exception ex)
+            {
+                _logger.Warning($"AutomationEngine: Failed to persist workflows: {ex.Message}");
+            }
         }
     }
 

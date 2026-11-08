@@ -439,6 +439,7 @@ internal static class AdvancedAudioController
 public sealed class AppAudioSession
 {
     public int ProcessId { get; set; }
+    public int Pid => ProcessId;
     public string ProcessName { get; set; } = string.Empty;
     public int VolumePercent { get; set; }
     public bool IsMuted { get; set; }

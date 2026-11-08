@@ -166,10 +166,12 @@ fun WindowsAdminScreen(
                             val list = mutableListOf<WindowsServiceItem>()
                             for (i in 0 until arr.length()) {
                                 val s = arr.getJSONObject(i)
+                                val svcName = s.optString("name", s.optString("serviceName", ""))
+                                val dispName = s.optString("displayName", svcName)
                                 list.add(
                                     WindowsServiceItem(
-                                        name = s.optString("name", ""),
-                                        displayName = s.optString("displayName", s.optString("name", "")),
+                                        name = svcName,
+                                        displayName = if (dispName.isNotBlank()) dispName else svcName,
                                         status = s.optString("status", "Stopped"),
                                         canStop = s.optBoolean("canStop", true)
                                     )

@@ -127,6 +127,9 @@ fun AdvancedAudioScreen(
 
         // Request initial audio refresh
         service?.sendMediaControl("GET_METADATA")
+        service?.requestAudioSessions()
+        service?.requestAudioDevices()
+        service?.requestMicState()
 
         onDispose {
             try { context.unregisterReceiver(receiver) } catch (_: Exception) {}

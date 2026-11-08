@@ -47,8 +47,13 @@ public sealed class CapabilityManager
             return "WINDOWS_ADMIN";
         }
 
-        if (cmd.StartsWith("app_") || cmd.StartsWith("launch_") ||
+        if (cmd.StartsWith("launch_") ||
             cmd is "browser" or "taskmgr" or "explorer" or "settings" or "calc" or "notepad")
+        {
+            return "APP_LAUNCH";
+        }
+
+        if (cmd.StartsWith("app_"))
         {
             return "APP_MANAGEMENT";
         }
@@ -83,6 +88,20 @@ public sealed class CapabilityManager
         };
     }
 
+    public bool HasCapability(TetherDevice device, string requiredCap)
+    {
+        if (device == null || string.IsNullOrEmpty(requiredCap))
+            return false;
+
+        bool hasCap = device.Capabilities.Contains(requiredCap, StringComparer.OrdinalIgnoreCase)
+                   || (requiredCap == "APP_LAUNCH" && device.Capabilities.Contains("APP_MANAGEMENT", StringComparer.OrdinalIgnoreCase))
+                   || (requiredCap == "POWER_ELEVATED" && (device.Capabilities.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)))
+                   || (requiredCap is "WINDOWS_ADMIN" or "APP_MANAGEMENT" or "AUTOMATION" or "TERMINAL" && (device.Capabilities.Contains("POWER_ELEVATED", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("TERMINAL", StringComparer.OrdinalIgnoreCase)))
+                   || (device.TrustState == DeviceTrustState.Paired && (device.Capabilities.Count == 0 || device.Capabilities.Contains("*") || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)));
+
+        return hasCap;
+    }
+
     public bool CanDeviceExecuteCommand(TetherDevice device, string command)
     {
         if (device == null || string.IsNullOrEmpty(command))
@@ -95,10 +114,7 @@ public sealed class CapabilityManager
             return false;
         }
 
-        // Standard capabilities or elevated equivalents
-        bool hasCap = device.Capabilities.Contains(requiredCap, StringComparer.OrdinalIgnoreCase)
-                   || (requiredCap == "POWER_ELEVATED" && (device.Capabilities.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)))
-                   || (requiredCap is "WINDOWS_ADMIN" or "APP_MANAGEMENT" or "AUTOMATION" && (device.Capabilities.Contains("POWER_ELEVATED", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("MEDIA", StringComparer.OrdinalIgnoreCase)));
+        bool hasCap = HasCapability(device, requiredCap);
 
         if (!hasCap)
         {
@@ -112,5 +128,5 @@ public sealed class CapabilityManager
         new[] { "MEDIA", "APP_LAUNCH", "FILES" };
 
     public static IEnumerable<string> ElevatedCapabilities =>
-        new[] { "MEDIA", "APP_LAUNCH", "FILES", "POWER_ELEVATED" };
+        new[] { "MEDIA", "APP_LAUNCH", "FILES", "POWER_ELEVATED", "WINDOWS_ADMIN", "APP_MANAGEMENT", "AUTOMATION", "TERMINAL", "CLIPBOARD", "NOTIFICATIONS" };
 }

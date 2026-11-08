@@ -359,12 +359,14 @@ internal static class Program
         });
 
         // Initialize Terminal Session Manager
-        var terminalMgr = new TerminalSessionManager((sessionId, data) =>
+        var terminalMgr = new TerminalSessionManager((sessionId, data, workingDir) =>
         {
             _ = SendJsonFrameAsync(new
             {
                 type = "TERMINAL_OUTPUT",
                 terminalId = sessionId,
+                sessionId = sessionId,
+                workingDir,
                 data
             });
         });
@@ -454,8 +456,9 @@ internal static class Program
                             break;
 
                         case "AUDIO_APP_MUTE_SET":
+                        case "SET_APP_MUTE":
                             int mutePid = doc.RootElement.GetProperty("pid").GetInt32();
-                            bool isMuted = doc.RootElement.GetProperty("isMuted").GetBoolean();
+                            bool isMuted = doc.RootElement.TryGetProperty("isMuted", out var imProp) ? imProp.GetBoolean() : (doc.RootElement.TryGetProperty("mute", out var mProp) && mProp.GetBoolean());
                             bool muteOk = AdvancedAudioController.SetAppMute(mutePid, isMuted);
                             await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = muteOk });
                             break;
@@ -467,6 +470,7 @@ internal static class Program
                             break;
 
                         case "AUDIO_DEFAULT_DEVICE_SET":
+                        case "SET_AUDIO_DEVICE":
                             string devId = doc.RootElement.GetProperty("deviceId").GetString() ?? "";
                             bool devOk = AdvancedAudioController.SetDefaultAudioDevice(devId);
                             await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = devOk });
@@ -478,15 +482,17 @@ internal static class Program
                             break;
 
                         case "MIC_SET_STATE":
-                            int micLevel = doc.RootElement.TryGetProperty("level", out var mlProp) ? mlProp.GetInt32() : 50;
-                            bool? micMute = doc.RootElement.TryGetProperty("isMuted", out var mmProp) ? mmProp.GetBoolean() : null;
+                        case "SET_MIC_GAIN":
+                        case "SET_MIC_MUTE":
+                            int micLevel = doc.RootElement.TryGetProperty("level", out var mlProp) ? mlProp.GetInt32() : (doc.RootElement.TryGetProperty("gain", out var gProp) ? gProp.GetInt32() : 50);
+                            bool? micMute = doc.RootElement.TryGetProperty("isMuted", out var mmProp) ? mmProp.GetBoolean() : (doc.RootElement.TryGetProperty("mute", out var muProp) ? muProp.GetBoolean() : null);
                             bool micOk = AdvancedAudioController.SetMicrophoneState(micLevel, micMute);
                             await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = micOk });
                             break;
 
                         case "MEDIA_CONTROL":
                             string mediaAction = doc.RootElement.GetProperty("action").GetString() ?? "";
-                            long? seekSec = doc.RootElement.TryGetProperty("seek", out var skProp) ? skProp.GetInt64() : null;
+                            long? seekSec = doc.RootElement.TryGetProperty("seek", out var skProp) ? skProp.GetInt64() : (doc.RootElement.TryGetProperty("seekSeconds", out var sksProp) ? sksProp.GetInt64() : null);
                             bool mOk = await MediaSessionController.ExecuteMediaControlAsync(mediaAction, seekSec);
                             await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = mOk });
                             break;
@@ -508,14 +514,15 @@ internal static class Program
                             break;
 
                         case "CLIPBOARD_SET":
-                            string clipText = doc.RootElement.GetProperty("text").GetString() ?? "";
+                        case "CLIPBOARD_SYNC":
+                            string clipText = doc.RootElement.TryGetProperty("text", out var tTextProp) ? (tTextProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("content", out var cProp) ? (cProp.GetString() ?? "") : "");
                             clipboardController?.SetText(clipText);
                             await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = true });
                             break;
 
                         case "CLIPBOARD_GET":
                             string curText = ClipboardController.GetCurrentText();
-                            await SendJsonFrameAsync(new { type = "CLIPBOARD_SYNC", requestId = reqId, text = curText, source = "PC" });
+                            await SendJsonFrameAsync(new { type = "CLIPBOARD_SYNC", requestId = reqId, text = curText, content = curText, source = "PC" });
                             break;
 
                         case "CLIPBOARD_SIMULATE_COPY":
@@ -542,21 +549,21 @@ internal static class Program
                             break;
 
                         case "TERMINAL_START":
-                            string shell = doc.RootElement.TryGetProperty("shell", out var shProp) ? (shProp.GetString() ?? "powershell") : "powershell";
-                            string? initialDir = doc.RootElement.TryGetProperty("initialDir", out var idProp) ? idProp.GetString() : null;
-                            string? termId = doc.RootElement.TryGetProperty("terminalId", out var tidProp) ? tidProp.GetString() : null;
+                            string shell = doc.RootElement.TryGetProperty("shell", out var shProp) ? (shProp.GetString() ?? "powershell") : (doc.RootElement.TryGetProperty("shellType", out var stProp) ? (stProp.GetString() ?? "powershell") : "powershell");
+                            string? initialDir = doc.RootElement.TryGetProperty("initialDir", out var idProp) ? idProp.GetString() : (doc.RootElement.TryGetProperty("workingDir", out var wdProp) ? wdProp.GetString() : null);
+                            string? termId = doc.RootElement.TryGetProperty("terminalId", out var tidProp) ? tidProp.GetString() : (doc.RootElement.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetString() : null);
                             var tInfo = terminalMgr.StartSession(shell, initialDir, termId);
-                            await SendJsonFrameAsync(new { type = "TERMINAL_START_RESPONSE", requestId = reqId, terminal = tInfo });
+                            await SendJsonFrameAsync(new { type = "TERMINAL_START_RESPONSE", requestId = reqId, terminal = tInfo, sessionId = tInfo.Id });
                             break;
 
                         case "TERMINAL_INPUT":
-                            string targetTermId = doc.RootElement.GetProperty("terminalId").GetString() ?? "";
+                            string targetTermId = doc.RootElement.TryGetProperty("terminalId", out var ttidProp) ? (ttidProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("sessionId", out var tsidProp) ? (tsidProp.GetString() ?? "") : "");
                             string termInput = doc.RootElement.GetProperty("data").GetString() ?? "";
                             terminalMgr.SendInput(targetTermId, termInput);
                             break;
 
                         case "TERMINAL_CLOSE":
-                            string closeTermId = doc.RootElement.GetProperty("terminalId").GetString() ?? "";
+                            string closeTermId = doc.RootElement.TryGetProperty("terminalId", out var ctidProp) ? (ctidProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("sessionId", out var csidProp) ? (csidProp.GetString() ?? "") : "");
                             terminalMgr.CloseSession(closeTermId);
                             break;
 
@@ -578,24 +585,35 @@ internal static class Program
                             break;
 
                         case "APP_GET_WINDOWS":
+                        case "GET_RUNNING_WINDOWS":
                             var winInfoList = ApplicationManager.GetRunningWindows();
                             await SendJsonFrameAsync(new { type = "APP_WINDOWS_RESPONSE", requestId = reqId, windows = winInfoList });
                             break;
 
                         case "APP_SWITCH_WINDOW":
+                        case "WINDOW_FOCUS":
                             long swHwnd = doc.RootElement.GetProperty("hwnd").GetInt64();
                             bool swOk = ApplicationManager.SwitchWindow(new IntPtr(swHwnd));
                             await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = swOk });
                             break;
 
                         case "APP_SET_WINDOW_STATE":
+                        case "WINDOW_STATE":
                             long stHwnd = doc.RootElement.GetProperty("hwnd").GetInt64();
-                            string winState = doc.RootElement.GetProperty("state").GetString() ?? "restore";
+                            string winState = doc.RootElement.TryGetProperty("state", out var wsProp) ? (wsProp.GetString() ?? "restore") : "restore";
                             bool stOk = ApplicationManager.SetWindowState(new IntPtr(stHwnd), winState);
                             await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = stOk });
                             break;
 
+                        case "WINDOW_SNAP":
+                            long snHwnd = doc.RootElement.GetProperty("hwnd").GetInt64();
+                            string snDir = doc.RootElement.TryGetProperty("direction", out var sndProp) ? (sndProp.GetString() ?? "restore") : "restore";
+                            bool snOk = ApplicationManager.SetWindowState(new IntPtr(snHwnd), snDir);
+                            await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = snOk });
+                            break;
+
                         case "APP_CLOSE_WINDOW":
+                        case "WINDOW_CLOSE":
                             long clHwnd = doc.RootElement.GetProperty("hwnd").GetInt64();
                             bool forceClose = doc.RootElement.TryGetProperty("force", out var fcProp) && fcProp.GetBoolean();
                             bool clOk = ApplicationManager.CloseWindow(new IntPtr(clHwnd), forceClose);

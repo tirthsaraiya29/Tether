@@ -49,159 +49,222 @@ HRESULT CSampleProvider::SetUsageScenario(
     _In_ CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     _In_ DWORD dwFlags)
 {
-    HRESULT hr = S_OK;
-
-    switch (cpus)
+    try
     {
-    case CPUS_LOGON:
-    case CPUS_UNLOCK_WORKSTATION: // Supports locked workstation transitions natively
-    case CPUS_CREDUI:
-        _cpus = cpus;
-        hr = S_OK;
-        break;
+        HRESULT hr = S_OK;
 
-    case CPUS_CHANGE_PASSWORD:
-    case CPUS_PLAP:
-    case CPUS_INVALID:
-        _cpus = cpus;
-        hr = E_NOTIMPL;
-        break;
+        switch (cpus)
+        {
+        case CPUS_LOGON:
+        case CPUS_UNLOCK_WORKSTATION: // Supports locked workstation transitions natively
+        case CPUS_CREDUI:
+            _cpus = cpus;
+            hr = S_OK;
+            break;
 
-    default:
-        hr = E_INVALIDARG;
-        break;
+        case CPUS_CHANGE_PASSWORD:
+        case CPUS_PLAP:
+        case CPUS_INVALID:
+            _cpus = cpus;
+            hr = E_NOTIMPL;
+            break;
+
+        default:
+            hr = E_INVALIDARG;
+            break;
+        }
+
+        return hr;
     }
-
-    return hr;
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleProvider::GetFieldDescriptorCount(_Out_ DWORD* pdwCount)
 {
-    if (pdwCount == nullptr)
+    try
     {
-        return E_POINTER;
+        if (pdwCount == nullptr)
+        {
+            return E_POINTER;
+        }
+        *pdwCount = SFI_NUM_FIELDS;
+        return S_OK;
     }
-    *pdwCount = SFI_NUM_FIELDS;
-    return S_OK;
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleProvider::GetFieldDescriptorAt(
     _In_ DWORD dwIndex,
     _Outptr_result_nullonfailure_ CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR** ppcpfd)
 {
-    HRESULT hr = E_INVALIDARG;
-    if (ppcpfd == nullptr)
+    try
     {
-        return E_POINTER;
-    }
-    *ppcpfd = nullptr;
+        HRESULT hr = E_INVALIDARG;
+        if (ppcpfd == nullptr)
+        {
+            return E_POINTER;
+        }
+        *ppcpfd = nullptr;
 
-    if (dwIndex < SFI_NUM_FIELDS)
+        if (dwIndex < SFI_NUM_FIELDS)
+        {
+            hr = FieldDescriptorCoAllocCopy(s_rgCredProvFieldDescriptors[dwIndex], ppcpfd);
+        }
+
+        return hr;
+    }
+    catch (...)
     {
-        hr = FieldDescriptorCoAllocCopy(s_rgCredProvFieldDescriptors[dwIndex], ppcpfd);
+        return E_UNEXPECTED;
     }
-
-    return hr;
 }
 
 HRESULT CSampleProvider::GetCredentialCount(_Out_ DWORD* pdwCount,
     _Out_ DWORD* pdwDefault,
     _Out_ BOOL* pbAutoLogonWithDefault)
 {
-    if (pdwCount == nullptr || pdwDefault == nullptr || pbAutoLogonWithDefault == nullptr)
-        return E_POINTER;
-
-    *pdwCount = 0;
-    *pdwDefault = CREDENTIAL_PROVIDER_NO_DEFAULT;
-    *pbAutoLogonWithDefault = FALSE;
-
-    HRESULT hr = S_OK;
-    if (_pCredential == nullptr)
-        hr = _EnumerateCredentials();
-
-    if (SUCCEEDED(hr) && _pCredential != nullptr)
+    try
     {
-        *pdwCount = 1;
-        *pdwDefault = 0;
-        if (g_fAutoLogonReady.load())
-            *pbAutoLogonWithDefault = TRUE;
-        else
-            *pbAutoLogonWithDefault = FALSE;
+        if (pdwCount == nullptr || pdwDefault == nullptr || pbAutoLogonWithDefault == nullptr)
+            return E_POINTER;
+
+        *pdwCount = 0;
+        *pdwDefault = CREDENTIAL_PROVIDER_NO_DEFAULT;
+        *pbAutoLogonWithDefault = FALSE;
+
+        HRESULT hr = S_OK;
+        if (_pCredential == nullptr)
+            hr = _EnumerateCredentials();
+
+        if (SUCCEEDED(hr) && _pCredential != nullptr)
+        {
+            *pdwCount = 1;
+            *pdwDefault = 0;
+            if (g_fAutoLogonReady.load())
+                *pbAutoLogonWithDefault = TRUE;
+            else
+                *pbAutoLogonWithDefault = FALSE;
+        }
+        return hr;
     }
-    return hr;
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleProvider::GetCredentialAt(
     _In_ DWORD dwIndex,
     _Outptr_result_nullonfailure_ ICredentialProviderCredential** ppcpc)
 {
-    if (ppcpc == nullptr)
+    try
     {
-        return E_POINTER;
+        if (ppcpc == nullptr)
+        {
+            return E_POINTER;
+        }
+        *ppcpc = nullptr;
+
+        HRESULT hr = E_INVALIDARG;
+
+        if (dwIndex == 0 && _pCredential != nullptr)
+        {
+            hr = _pCredential->QueryInterface(IID_PPV_ARGS(ppcpc));
+        }
+
+        return hr;
     }
-    *ppcpc = nullptr;
-
-    HRESULT hr = E_INVALIDARG;
-
-    if (dwIndex == 0 && _pCredential != nullptr)
+    catch (...)
     {
-        hr = _pCredential->QueryInterface(IID_PPV_ARGS(ppcpc));
+        return E_UNEXPECTED;
     }
-
-    return hr;
 }
 
 HRESULT CSampleProvider::SetUserArray(_In_ ICredentialProviderUserArray* users)
 {
-    if (_pCredProviderUserArray != nullptr)
+    try
     {
-        _pCredProviderUserArray->Release();
-        _pCredProviderUserArray = nullptr;
-    }
+        if (_pCredProviderUserArray != nullptr)
+        {
+            _pCredProviderUserArray->Release();
+            _pCredProviderUserArray = nullptr;
+        }
 
-    _pCredProviderUserArray = users;
-    if (_pCredProviderUserArray != nullptr)
+        _pCredProviderUserArray = users;
+        if (_pCredProviderUserArray != nullptr)
+        {
+            _pCredProviderUserArray->AddRef();
+        }
+
+        return S_OK;
+    }
+    catch (...)
     {
-        _pCredProviderUserArray->AddRef();
+        return E_UNEXPECTED;
     }
-
-    return S_OK;
 }
 
 HRESULT CSampleProvider::Advise(_In_ ICredentialProviderEvents* pcpe, _In_ UINT_PTR upAdviseContext)
 {
-    if (_pCredProviderEvents != nullptr)
+    try
     {
-        _pCredProviderEvents->Release();
-        _pCredProviderEvents = nullptr;
+        if (_pCredProviderEvents != nullptr)
+        {
+            _pCredProviderEvents->Release();
+            _pCredProviderEvents = nullptr;
+        }
+
+        _pCredProviderEvents = pcpe;
+        _upAdviseContext = upAdviseContext;
+
+        if (_pCredProviderEvents != nullptr)
+        {
+            _pCredProviderEvents->AddRef();
+        }
+
+        return S_OK;
     }
-
-    _pCredProviderEvents = pcpe;
-    _upAdviseContext = upAdviseContext;
-
-    if (_pCredProviderEvents != nullptr)
+    catch (...)
     {
-        _pCredProviderEvents->AddRef();
+        return E_UNEXPECTED;
     }
-
-    return S_OK;
 }
 
 HRESULT CSampleProvider::UnAdvise()
 {
-    if (_pCredProviderEvents != nullptr)
+    try
     {
-        _pCredProviderEvents->Release();
-        _pCredProviderEvents = nullptr;
+        if (_pCredProviderEvents != nullptr)
+        {
+            _pCredProviderEvents->Release();
+            _pCredProviderEvents = nullptr;
+        }
+        _upAdviseContext = 0;
+        return S_OK;
     }
-    _upAdviseContext = 0;
-    return S_OK;
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleProvider::SetSerialization(_In_ const CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs)
 {
-    UNREFERENCED_PARAMETER(pcpcs);
-    return S_OK;
+    try
+    {
+        UNREFERENCED_PARAMETER(pcpcs);
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 // Fixed: Unified body signature returning HRESULT matching the header file declaration
