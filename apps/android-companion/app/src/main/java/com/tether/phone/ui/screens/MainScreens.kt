@@ -575,7 +575,8 @@ fun SettingsScreen(
     phoneFingerprint: String = "",
     windowsFingerprint: String = "",
     onRestartServer: () -> Unit,
-    onForgetTrust: () -> Unit = {}
+    onForgetTrust: () -> Unit = {},
+    onCheckForUpdates: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
@@ -740,6 +741,46 @@ fun SettingsScreen(
                         ) {
                             Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp), tint = LiquidCyan)
                             Text(text = stringResource(R.string.label_restart_server), color = LiquidCyan, style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 450)) + 
+                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 450)) { it / 3 }
+        ) {
+            ProfessionalGlassSurface {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "SECURITY & SOFTWARE UPDATES",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "Installed version: v${BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
+                    Button(
+                        onClick = onCheckForUpdates,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan.copy(alpha = 0.12f)),
+                        border = BorderStroke(width = 0.5.dp, color = LiquidCyan),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp), tint = LiquidCyan)
+                            Text(text = "CHECK FOR UPDATES", color = LiquidCyan, style = MaterialTheme.typography.labelLarge)
                         }
                     }
                 }
@@ -1178,6 +1219,7 @@ fun TetherNavigationShell(
     onCancelPairing: () -> Unit = {},
     onConfirmPairing: (String) -> Unit = {},
     onForgetTrust: () -> Unit = {},
+    onCheckForUpdates: () -> Unit = {},
     permissionItems: List<PermissionItemState> = emptyList(),
     showPermissionsBanner: Boolean = false,
     missingPermissionsCount: Int = 0,
@@ -1345,7 +1387,8 @@ fun TetherNavigationShell(
                             phoneFingerprint = phoneFingerprint,
                             windowsFingerprint = windowsFingerprint,
                             onRestartServer = onRestartServer,
-                            onForgetTrust = onForgetTrust
+                            onForgetTrust = onForgetTrust,
+                            onCheckForUpdates = onCheckForUpdates
                         )
                         AppScreen.LAPTOP_CONTROL -> LaptopControlScreen(
                             isConnected = isConnected,

@@ -46,9 +46,9 @@ object UpdateChecker {
         return isDebuggable
     }
 
-    suspend fun fetchLatestRelease(context: Context): UpdateInfo? = withContext(Dispatchers.IO) {
-        if (isDebugMode(context)) {
-            Log.d(TAG, "Debug build detected - update checks bypassed.")
+    suspend fun fetchLatestRelease(context: Context, force: Boolean = false): UpdateInfo? = withContext(Dispatchers.IO) {
+        if (!force && isDebugMode(context)) {
+            Log.d(TAG, "Debug build detected - background update checks bypassed.")
             return@withContext null
         }
 
@@ -61,7 +61,7 @@ object UpdateChecker {
                 requestMethod = "GET"
                 setRequestProperty("Accept", "application/vnd.github+json")
                 setRequestProperty("User-Agent", "Tether-Android-UpdateChecker")
-                if (!cachedEtag.isNullOrBlank()) {
+                if (!force && !cachedEtag.isNullOrBlank()) {
                     setRequestProperty("If-None-Match", cachedEtag)
                 }
                 connectTimeout = 8_000

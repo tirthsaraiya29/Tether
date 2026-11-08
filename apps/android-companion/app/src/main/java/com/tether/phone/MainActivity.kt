@@ -492,6 +492,9 @@ class MainActivity : FragmentActivity() {
                                 onCancelPairing = ::cancelPairing,
                                 onConfirmPairing = ::confirmPairing,
                                 onForgetTrust = ::forgetTrust,
+                                onCheckForUpdates = {
+                                    updateViewModel.checkForUpdate(BuildConfig.VERSION_NAME, this@MainActivity, force = true)
+                                },
                             )
 
                             pendingPowerAction.value?.let { action: PowerAction ->

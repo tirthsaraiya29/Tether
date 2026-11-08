@@ -68,11 +68,20 @@ namespace Tether.DesktopUI.Updates
             }
         }
 
-        private void CmbRemindMe_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void BtnRemindMenu_Click(object sender, RoutedEventArgs e)
+        {
+            if (BtnRemindMenu.ContextMenu != null)
+            {
+                BtnRemindMenu.ContextMenu.PlacementTarget = BtnRemindMenu;
+                BtnRemindMenu.ContextMenu.IsOpen = true;
+            }
+        }
+
+        private void MenuItem_Remind_Click(object sender, RoutedEventArgs e)
         {
             if (_currentUpdate == null || Visibility != Visibility.Visible) return;
 
-            if (CmbRemindMe.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int hours))
+            if (sender is MenuItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int hours))
             {
                 _watcherService.Snooze(TimeSpan.FromHours(hours), _currentUpdate.LatestVersion);
                 Visibility = Visibility.Collapsed;
