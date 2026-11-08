@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -12,14 +14,13 @@ using Tether.Shared.Logging;
 namespace Tether.CommunicationService.Transport;
 
 /// <summary>
-/// Service-side (Session 0) named pipe host that relays raw input frames
-/// to the interactive-session <c>Tether.SessionHelper</c> process, which
-/// is the only component allowed to call <c>SendInput</c>.
+/// Service-side (Session 0) named pipe host that relays raw input frames and bidirectional
+/// control commands to and from the interactive-session Tether.SessionHelper process.
 /// </summary>
 public sealed class InputForwarder : IHostedService, IDisposable
 {
     public const string BasePipeName = "Tether.InputPipe";
-    private const int PipeBufferSize = 64 * 1024;
+    private const int PipeBufferSize = 10 * 1024 * 1024;
     private const int WriteQueueCapacity = 4096;
 
     [DllImport("kernel32.dll", SetLastError = false)]
@@ -45,11 +46,15 @@ public sealed class InputForwarder : IHostedService, IDisposable
     private readonly Channel<byte[]> _queue;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _pipeLock = new();
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingRequests = new();
 
     private Task? _acceptTask;
     private Task? _writeTask;
     private NamedPipeServerStream? _activePipe;
     private TaskCompletionSource<bool>? _clientDisconnectTcs;
+
+    public event Action<string>? OnHelperEventReceived;
+    public event Action<string>? OnDesktopFrameReceived;
 
     public InputForwarder(ITetherLogger logger)
     {
@@ -78,7 +83,7 @@ public sealed class InputForwarder : IHostedService, IDisposable
     {
         _acceptTask = Task.Run(() => AcceptLoopAsync(_cts.Token));
         _writeTask = Task.Run(() => WriteLoopAsync(_cts.Token));
-        _logger.Info($"InputForwarder started.");
+        _logger.Info("InputForwarder started.");
         return Task.CompletedTask;
     }
 
@@ -90,13 +95,50 @@ public sealed class InputForwarder : IHostedService, IDisposable
         _logger.Info("InputForwarder stopped.");
     }
 
-    /// <summary>
-    /// Called from the TLS read loop. Never blocks.
-    /// </summary>
     public void Forward(ReadOnlySpan<byte> frame)
     {
         if (frame.Length <= 0) return;
         _queue.Writer.TryWrite(frame.ToArray());
+    }
+
+    public void PostToHelper(object payload)
+    {
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
+        _queue.Writer.TryWrite(bytes);
+    }
+
+    public async Task<string?> RequestAsync(object payload, string requestId, TimeSpan timeout, CancellationToken ct)
+    {
+        if (!IsHelperConnected) return null;
+
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingRequests[requestId] = tcs;
+
+        try
+        {
+            PostToHelper(payload);
+
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            linkedCts.CancelAfter(timeout);
+
+            using (linkedCts.Token.Register(() => tcs.TrySetCanceled()))
+            {
+                return await tcs.Task;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"InputForwarder: RequestAsync failed for requestId={requestId}: {ex.Message}");
+            return null;
+        }
+        finally
+        {
+            _pendingRequests.TryRemove(requestId, out _);
+        }
     }
 
     private async Task AcceptLoopAsync(CancellationToken ct)
@@ -104,40 +146,35 @@ public sealed class InputForwarder : IHostedService, IDisposable
         while (!ct.IsCancellationRequested)
         {
             NamedPipeServerStream? pipe = null;
-            TaskCompletionSource<bool> disconnectTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            var disconnectTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             try
             {
-                SecurityIdentifier? userSid = GetActiveConsoleUserSid(out uint activeSessionId);
-                if (userSid == null || activeSessionId == 0xFFFFFFFF)
+                var userSid = GetActiveConsoleUserSid(out uint activeSessionId);
+                if (userSid is null)
                 {
-                    try { await Task.Delay(1000, ct); } catch { break; }
+                    await Task.Delay(1000, ct);
                     continue;
                 }
 
                 string pipeName = $"{BasePipeName}.{activeSessionId}";
-
                 var security = new PipeSecurity();
 
-                // Explicitly DENY Network SID to reject any remote/network-based named pipe connection (SMB/RPC)
                 security.AddAccessRule(new PipeAccessRule(
                     new SecurityIdentifier(WellKnownSidType.NetworkSid, null),
                     PipeAccessRights.ReadWrite,
                     AccessControlType.Deny));
 
-                // Allow SYSTEM
                 security.AddAccessRule(new PipeAccessRule(
                     new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
                     PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
                     AccessControlType.Allow));
 
-                // Allow Administrators
                 security.AddAccessRule(new PipeAccessRule(
                     new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
                     PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
                     AccessControlType.Allow));
 
-                // Allow only the active console user session SID
                 security.AddAccessRule(new PipeAccessRule(
                     userSid,
                     PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
@@ -145,7 +182,7 @@ public sealed class InputForwarder : IHostedService, IDisposable
 
                 pipe = NamedPipeServerStreamAcl.Create(
                     pipeName,
-                    PipeDirection.Out,
+                    PipeDirection.InOut,
                     NamedPipeServerStream.MaxAllowedServerInstances,
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous,
@@ -184,7 +221,9 @@ public sealed class InputForwarder : IHostedService, IDisposable
                     _activePipe = pipe;
                     _clientDisconnectTcs = disconnectTcs;
                 }
-                _logger.Info($"SessionHelper connected to input pipe '{pipeName}'.");
+                _logger.Info($"SessionHelper connected to bridge pipe '{pipeName}'.");
+
+                var readTask = Task.Run(() => ReadLoopAsync(pipe, disconnectTcs, ct), ct);
 
                 using var reg = ct.Register(() => disconnectTcs.TrySetResult(true));
 
@@ -203,6 +242,7 @@ public sealed class InputForwarder : IHostedService, IDisposable
                     catch (OperationCanceledException) { disconnectTcs.TrySetResult(true); break; }
                 }
                 await disconnectTcs.Task.ConfigureAwait(false);
+                try { await readTask; } catch { }
             }
             catch (OperationCanceledException)
             {
@@ -224,9 +264,57 @@ public sealed class InputForwarder : IHostedService, IDisposable
                     }
                 }
                 try { pipe?.Dispose(); } catch { }
-                _logger.Info("SessionHelper disconnected from input pipe.");
+                _logger.Info("SessionHelper disconnected from bridge pipe.");
             }
         }
+    }
+
+    private async Task ReadLoopAsync(NamedPipeServerStream pipe, TaskCompletionSource<bool> disconnectTcs, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested && pipe.IsConnected)
+        {
+            byte[]? frame;
+            try
+            {
+                frame = await FrameCodec.ReadFrameAsync(pipe, ct);
+            }
+            catch
+            {
+                break;
+            }
+
+            if (frame is null || frame.Length == 0) break;
+
+            if (frame[0] == (byte)'{')
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(frame);
+                    var root = doc.RootElement;
+                    string type = root.TryGetProperty("type", out var tProp) ? (tProp.GetString() ?? "") : "";
+
+                    if (type == "DESKTOP_FRAME")
+                    {
+                        string b64 = root.TryGetProperty("frameB64", out var fbProp) ? (fbProp.GetString() ?? "") : "";
+                        OnDesktopFrameReceived?.Invoke(b64);
+                        continue;
+                    }
+
+                    string reqId = root.TryGetProperty("requestId", out var rProp) ? (rProp.GetString() ?? "") : "";
+                    if (!string.IsNullOrEmpty(reqId) && _pendingRequests.TryGetValue(reqId, out var tcs))
+                    {
+                        tcs.TrySetResult(System.Text.Encoding.UTF8.GetString(frame));
+                    }
+
+                    if (type is "CLIPBOARD_SYNC" or "NOTIFICATION_EVENT" or "MEDIA_METADATA_UPDATE" or "TERMINAL_OUTPUT")
+                    {
+                        OnHelperEventReceived?.Invoke(System.Text.Encoding.UTF8.GetString(frame));
+                    }
+                }
+                catch { }
+            }
+        }
+        disconnectTcs.TrySetResult(true);
     }
 
     private async Task WriteLoopAsync(CancellationToken ct)
@@ -276,7 +364,7 @@ public sealed class InputForwarder : IHostedService, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.Warning($"Input pipe forward error: {ex.Message}");
+                _logger.Warning($"Bridge pipe forward / keepalive error: {ex.Message}");
 
                 TaskCompletionSource<bool>? tcs = null;
                 lock (_pipeLock)

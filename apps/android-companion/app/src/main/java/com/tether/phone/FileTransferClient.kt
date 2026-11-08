@@ -8,6 +8,8 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okio.BufferedSink
 import org.json.JSONArray
+import org.json.JSONObject
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.net.Socket
 import java.security.MessageDigest
@@ -341,6 +343,7 @@ object FileTransferClient {
             if (!expectedHashHex.isNullOrBlank()) {
                 val actualHashHex = digest.digest().joinToString("") { "%02x".format(it) }
                 if (!expectedHashHex.equals(actualHashHex, ignoreCase = true)) {
+                    try { context.contentResolver.delete(destUri, null, null) } catch (_: Exception) {}
                     throw Exception("SHA-512 integrity check failed for downloaded file: expected $expectedHashHex, got $actualHashHex")
                 }
             }
@@ -410,6 +413,334 @@ object FileTransferClient {
             if (!response.isSuccessful) {
                 throw Exception("Failed to upload file: ${response.code} ${response.message}")
             }
+        }
+    }
+
+    suspend fun searchFiles(
+        hostIp: String,
+        path: String?,
+        query: String,
+        recursive: Boolean = true,
+        token: String,
+        context: Context? = null,
+        customPinnedKey: ByteArray? = null
+    ): List<FileNode> = withContext(Dispatchers.IO) {
+        val client = getPinnedClient(context, customPinnedKey)
+        val urlBuilder = HttpUrl.Builder()
+            .scheme("https")
+            .host(hostIp)
+            .port(37124)
+            .addPathSegment("api")
+            .addPathSegment("fs")
+            .addPathSegment("search")
+            .addQueryParameter("query", query)
+            .addQueryParameter("recursive", recursive.toString())
+
+        if (!path.isNullOrEmpty()) {
+            urlBuilder.addQueryParameter("path", path)
+        }
+
+        val requestBuilder = Request.Builder().url(urlBuilder.build())
+        addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
+
+        client.newCall(requestBuilder.build()).executeWithDiagnostics { response ->
+            if (!response.isSuccessful) {
+                throw Exception("Failed to search files: ${response.code} ${response.message}")
+            }
+            val responseBody = response.body?.string() ?: throw Exception("Empty response body")
+            val jsonArray = JSONArray(responseBody)
+            val result = mutableListOf<FileNode>()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                result.add(
+                    FileNode(
+                        name = obj.getString("name"),
+                        isDirectory = obj.getBoolean("isDirectory"),
+                        size = obj.optLong("size", 0L),
+                        modifiedMs = obj.optLong("lastModified", 0L),
+                        path = obj.getString("path")
+                    )
+                )
+            }
+            result
+        }
+    }
+
+    suspend fun renameFile(
+        hostIp: String,
+        path: String,
+        newName: String,
+        token: String,
+        context: Context? = null,
+        customPinnedKey: ByteArray? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val client = getPinnedClient(context, customPinnedKey)
+        val url = HttpUrl.Builder()
+            .scheme("https")
+            .host(hostIp)
+            .port(37124)
+            .addPathSegment("api")
+            .addPathSegment("fs")
+            .addPathSegment("rename")
+            .build()
+
+        val json = JSONObject().apply {
+            put("path", path)
+            put("newName", newName)
+        }.toString()
+
+        val body = json.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+        val requestBuilder = Request.Builder().url(url).post(body)
+        addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
+
+        client.newCall(requestBuilder.build()).executeWithDiagnostics { response ->
+            response.isSuccessful
+        }
+    }
+
+    suspend fun moveFile(
+        hostIp: String,
+        sourcePath: String,
+        destinationPath: String,
+        token: String,
+        context: Context? = null,
+        customPinnedKey: ByteArray? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val client = getPinnedClient(context, customPinnedKey)
+        val url = HttpUrl.Builder()
+            .scheme("https")
+            .host(hostIp)
+            .port(37124)
+            .addPathSegment("api")
+            .addPathSegment("fs")
+            .addPathSegment("move")
+            .build()
+
+        val json = JSONObject().apply {
+            put("sourcePath", sourcePath)
+            put("destinationPath", destinationPath)
+        }.toString()
+
+        val body = json.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+        val requestBuilder = Request.Builder().url(url).post(body)
+        addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
+
+        client.newCall(requestBuilder.build()).executeWithDiagnostics { response ->
+            response.isSuccessful
+        }
+    }
+
+    suspend fun deleteFile(
+        hostIp: String,
+        path: String,
+        permanent: Boolean,
+        token: String,
+        context: Context? = null,
+        customPinnedKey: ByteArray? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val client = getPinnedClient(context, customPinnedKey)
+        val url = HttpUrl.Builder()
+            .scheme("https")
+            .host(hostIp)
+            .port(37124)
+            .addPathSegment("api")
+            .addPathSegment("fs")
+            .addPathSegment("delete")
+            .build()
+
+        val json = JSONObject().apply {
+            put("path", path)
+            put("permanent", permanent)
+        }.toString()
+
+        val body = json.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+        val requestBuilder = Request.Builder().url(url).post(body)
+        addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
+
+        client.newCall(requestBuilder.build()).executeWithDiagnostics { response ->
+            response.isSuccessful
+        }
+    }
+
+    suspend fun createDirectory(
+        hostIp: String,
+        path: String,
+        name: String,
+        token: String,
+        context: Context? = null,
+        customPinnedKey: ByteArray? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val client = getPinnedClient(context, customPinnedKey)
+        val url = HttpUrl.Builder()
+            .scheme("https")
+            .host(hostIp)
+            .port(37124)
+            .addPathSegment("api")
+            .addPathSegment("fs")
+            .addPathSegment("mkdir")
+            .build()
+
+        val json = JSONObject().apply {
+            put("path", path)
+            put("name", name)
+        }.toString()
+
+        val body = json.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+        val requestBuilder = Request.Builder().url(url).post(body)
+        addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
+
+        client.newCall(requestBuilder.build()).executeWithDiagnostics { response ->
+            response.isSuccessful
+        }
+    }
+
+    suspend fun emptyRecycleBin(
+        hostIp: String,
+        token: String,
+        context: Context? = null,
+        customPinnedKey: ByteArray? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val client = getPinnedClient(context, customPinnedKey)
+        val url = HttpUrl.Builder()
+            .scheme("https")
+            .host(hostIp)
+            .port(37124)
+            .addPathSegment("api")
+            .addPathSegment("fs")
+            .addPathSegment("recycle-bin")
+            .addPathSegment("empty")
+            .build()
+
+        val body = ByteArray(0).toRequestBody(null)
+        val requestBuilder = Request.Builder().url(url).post(body)
+        addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
+
+        client.newCall(requestBuilder.build()).executeWithDiagnostics { response ->
+            response.isSuccessful
+        }
+    }
+
+    suspend fun fetchDesktopWindows(
+        hostIp: String,
+        token: String,
+        context: Context? = null,
+        customPinnedKey: ByteArray? = null
+    ): List<DesktopWindow> = withContext(Dispatchers.IO) {
+        val client = getPinnedClient(context, customPinnedKey)
+        val url = HttpUrl.Builder()
+            .scheme("https")
+            .host(hostIp)
+            .port(37124)
+            .addPathSegment("api")
+            .addPathSegment("desktop")
+            .addPathSegment("windows")
+            .build()
+
+        val requestBuilder = Request.Builder().url(url)
+        addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
+
+        client.newCall(requestBuilder.build()).executeWithDiagnostics { response ->
+            if (!response.isSuccessful) {
+                return@executeWithDiagnostics emptyList<DesktopWindow>()
+            }
+            val responseBody = response.body?.string() ?: return@executeWithDiagnostics emptyList<DesktopWindow>()
+            val jsonArray = JSONArray(responseBody)
+            val result = mutableListOf<DesktopWindow>()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                val hwnd = obj.optLong("hwnd", obj.optLong("id", obj.optLong("Id", 0L)))
+                val title = obj.optString("title", obj.optString("Title", ""))
+                val processName = obj.optString("processName", obj.optString("ProcessName", obj.optString("appName", "")))
+                val processId = obj.optInt("processId", obj.optInt("ProcessId", obj.optInt("pid", obj.optInt("Pid", 0))))
+                val width = obj.optInt("width", obj.optInt("Width", 0))
+                val height = obj.optInt("height", obj.optInt("Height", 0))
+                val iconB64 = obj.optString("iconB64", obj.optString("IconB64", "")).ifEmpty { null }
+                result.add(
+                    DesktopWindow(
+                        hwnd = hwnd,
+                        title = title,
+                        processName = processName,
+                        processId = processId,
+                        width = width,
+                        height = height,
+                        iconB64 = iconB64
+                    )
+                )
+            }
+            result
+        }
+    }
+
+    suspend fun fetchInstalledApps(
+        hostIp: String,
+        token: String,
+        context: Context? = null,
+        customPinnedKey: ByteArray? = null
+    ): List<InstalledAppItem> = withContext(Dispatchers.IO) {
+        val client = getPinnedClient(context, customPinnedKey)
+        val url = HttpUrl.Builder()
+            .scheme("https")
+            .host(hostIp)
+            .port(37124)
+            .addPathSegment("api")
+            .addPathSegment("apps")
+            .addPathSegment("catalog")
+            .build()
+
+        val requestBuilder = Request.Builder().url(url)
+        addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
+
+        client.newCall(requestBuilder.build()).executeWithDiagnostics { response ->
+            if (!response.isSuccessful) {
+                return@executeWithDiagnostics emptyList<InstalledAppItem>()
+            }
+            val responseBody = response.body?.string() ?: return@executeWithDiagnostics emptyList<InstalledAppItem>()
+            val jsonArray = JSONArray(responseBody)
+            val result = mutableListOf<InstalledAppItem>()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                val appPath = obj.optString("path", "").ifEmpty {
+                    obj.optString("shortcutPath", obj.optString("ShortcutPath", ""))
+                }
+                val appName = obj.optString("name", obj.optString("Name", ""))
+                val iconB64 = obj.optString("iconB64", obj.optString("IconB64", "")).ifEmpty { null }
+                result.add(
+                    InstalledAppItem(
+                        name = appName,
+                        path = appPath,
+                        iconB64 = iconB64
+                    )
+                )
+            }
+            result
+        }
+    }
+
+    suspend fun fetchScreenshotBytes(
+        hostIp: String,
+        windowId: Long = 0L,
+        quality: Int = 75,
+        token: String,
+        context: Context? = null,
+        customPinnedKey: ByteArray? = null
+    ): ByteArray? = withContext(Dispatchers.IO) {
+        val client = getPinnedClient(context, customPinnedKey)
+        val url = HttpUrl.Builder()
+            .scheme("https")
+            .host(hostIp)
+            .port(37124)
+            .addPathSegment("api")
+            .addPathSegment("desktop")
+            .addPathSegment("screenshot")
+            .addQueryParameter("windowId", windowId.toString())
+            .addQueryParameter("quality", quality.toString())
+            .build()
+
+        val requestBuilder = Request.Builder().url(url)
+        addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
+
+        client.newCall(requestBuilder.build()).executeWithDiagnostics { response ->
+            if (!response.isSuccessful) null else response.body?.bytes()
         }
     }
 }
