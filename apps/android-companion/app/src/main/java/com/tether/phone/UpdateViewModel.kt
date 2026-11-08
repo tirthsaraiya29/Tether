@@ -27,29 +27,35 @@ class UpdateViewModel : ViewModel() {
      * Call this on every app launch and foreground entry.
      * [currentVersion] should come from BuildConfig.VERSION_NAME.
      */
-    fun checkForUpdate(currentVersion: String, context: Context) {
-        if (UpdateChecker.isDebugMode(context)) {
-            Log.d("UpdateViewModel", "Debug mode active - update checking bypassed.")
+    /**
+     * Call this on every app launch, foreground entry, or manual check request.
+     * [currentVersion] should come from BuildConfig.VERSION_NAME.
+     */
+    fun checkForUpdate(currentVersion: String, context: Context, force: Boolean = false) {
+        if (!force && UpdateChecker.isDebugMode(context)) {
+            Log.d("UpdateViewModel", "Debug mode active - background update checking bypassed.")
             return
         }
 
         val now = System.currentTimeMillis()
-        if (now - lastCheckTimestamp < 5_000L) return
+        if (!force && now - lastCheckTimestamp < 5_000L) return
         lastCheckTimestamp = now
 
         // Check cached update info first for immediate UI if newer and not snoozed
-        val cached = UpdateChecker.getCachedUpdateInfo(context)
-        if (cached != null && UpdateChecker.isNewerVersion(local = currentVersion, remote = cached.latestVersion)) {
-            if (!UpdateChecker.isSnoozed(context, cached.latestVersion)) {
-                _updateInfo.value = cached
-                _dialogVisible.value = true
+        if (!force) {
+            val cached = UpdateChecker.getCachedUpdateInfo(context)
+            if (cached != null && UpdateChecker.isNewerVersion(local = currentVersion, remote = cached.latestVersion)) {
+                if (!UpdateChecker.isSnoozed(context, cached.latestVersion)) {
+                    _updateInfo.value = cached
+                    _dialogVisible.value = true
+                }
             }
         }
 
         viewModelScope.launch {
-            val latest = UpdateChecker.fetchLatestRelease(context) ?: return@launch
+            val latest = UpdateChecker.fetchLatestRelease(context, force = force) ?: return@launch
             if (UpdateChecker.isNewerVersion(local = currentVersion, remote = latest.latestVersion)) {
-                if (!UpdateChecker.isSnoozed(context, latest.latestVersion)) {
+                if (force || !UpdateChecker.isSnoozed(context, latest.latestVersion)) {
                     Log.i("UpdateViewModel", "New version available: ${latest.latestVersion}")
                     _updateInfo.value = latest
                     _dialogVisible.value = true
