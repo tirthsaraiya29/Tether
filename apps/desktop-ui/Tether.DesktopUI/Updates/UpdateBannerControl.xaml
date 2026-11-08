@@ -19,7 +19,6 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- Row 0: Primary Notification Bar -->
             <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -27,7 +26,6 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Status Icon with Glow Box -->
                 <Border Grid.Column="0"
                         Width="36" Height="36"
                         CornerRadius="8"
@@ -44,7 +42,6 @@
                                VerticalAlignment="Center"/>
                 </Border>
 
-                <!-- Text Header and Metadata -->
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Border Background="#22F43F5E"
@@ -78,11 +75,9 @@
                                Margin="0,3,0,0"/>
                 </StackPanel>
 
-                <!-- Actions: Update Now & Remind In Dropdown -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <!-- Toggle Changelog View -->
                     <Button x:Name="BtnToggleNotes"
-                            Style="{StaticResource SecondaryButton}"
+                            Style="{DynamicResource SubtleIconButton}"
                             Height="32"
                             Padding="8,0"
                             Margin="0,0,8,0"
@@ -95,7 +90,6 @@
                                    Foreground="{StaticResource TextSecondaryBrush}"/>
                     </Button>
 
-                    <!-- Remind Me In Dropdown -->
                     <ComboBox x:Name="CmbRemindMe"
                               Height="32"
                               Width="140"
@@ -107,7 +101,6 @@
                         <ComboBoxItem Content="Remind in 24h" Tag="24"/>
                     </ComboBox>
 
-                    <!-- Update Now Button -->
                     <Button x:Name="BtnUpdateNow"
                             Style="{StaticResource AccentButton}"
                             Height="32"
@@ -130,7 +123,6 @@
                 </StackPanel>
             </Grid>
 
-            <!-- Row 1: Expandable Release Notes Details -->
             <Border x:Name="NotesBorder"
                     Grid.Row="1"
                     Visibility="Collapsed"
