@@ -343,6 +343,7 @@ object FileTransferClient {
             if (!expectedHashHex.isNullOrBlank()) {
                 val actualHashHex = digest.digest().joinToString("") { "%02x".format(it) }
                 if (!expectedHashHex.equals(actualHashHex, ignoreCase = true)) {
+                    try { context.contentResolver.delete(destUri, null, null) } catch (_: Exception) {}
                     throw Exception("SHA-512 integrity check failed for downloaded file: expected $expectedHashHex, got $actualHashHex")
                 }
             }
@@ -690,10 +691,13 @@ object FileTransferClient {
             val result = mutableListOf<InstalledAppItem>()
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
+                val appPath = obj.optString("path", "").ifEmpty {
+                    obj.optString("shortcutPath", obj.optString("ShortcutPath", ""))
+                }
                 result.add(
                     InstalledAppItem(
                         name = obj.optString("name", ""),
-                        path = obj.optString("path", "")
+                        path = appPath
                     )
                 )
             }

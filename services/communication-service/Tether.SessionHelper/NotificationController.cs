@@ -55,11 +55,15 @@ internal sealed class NotificationController
         }
     }
 
+    private static System.Windows.Forms.NotifyIcon? _fallbackNotifyIcon;
+    private static readonly object _notifyLock = new();
+
     public static void ShowToastOnDesktop(string title, string body, string? sourceApp = null)
     {
+        string appName = string.IsNullOrEmpty(sourceApp) ? "Tether" : sourceApp;
+        bool toastShown = false;
         try
         {
-            string appName = string.IsNullOrEmpty(sourceApp) ? "Tether" : sourceApp;
             string xml = $@"
 <toast>
     <visual>
@@ -75,8 +79,29 @@ internal sealed class NotificationController
             doc.LoadXml(xml);
             var toast = new ToastNotification(doc);
             ToastNotificationManager.CreateToastNotifier("Tether").Show(toast);
+            toastShown = true;
         }
         catch { }
+
+        if (!toastShown)
+        {
+            try
+            {
+                lock (_notifyLock)
+                {
+                    if (_fallbackNotifyIcon == null)
+                    {
+                        _fallbackNotifyIcon = new System.Windows.Forms.NotifyIcon
+                        {
+                            Icon = System.Drawing.SystemIcons.Information,
+                            Visible = true
+                        };
+                    }
+                    _fallbackNotifyIcon.ShowBalloonTip(4000, $"{appName}: {title}", body, System.Windows.Forms.ToolTipIcon.Info);
+                }
+            }
+            catch { }
+        }
     }
 
     private static NotificationPayload? ExtractNotificationPayload(UserNotification notif)
@@ -84,6 +109,12 @@ internal sealed class NotificationController
         try
         {
             string app = notif.AppInfo?.DisplayInfo?.DisplayName ?? "Windows";
+            if (string.Equals(app, "Tether", StringComparison.OrdinalIgnoreCase) ||
+                app.StartsWith("Tether", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
             string title = "";
             string body = "";
 

@@ -123,6 +123,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         const val ACTION_WORKFLOWS = "com.tether.phone.ACTION_WORKFLOWS"
         const val ACTION_WORKFLOW_STATUS = "com.tether.phone.ACTION_WORKFLOW_STATUS"
         const val ACTION_WINDOWS_LIST = "com.tether.phone.ACTION_WINDOWS_LIST"
+        const val ACTION_INSTALLED_APPS = "com.tether.phone.ACTION_INSTALLED_APPS"
 
         private const val CHANNEL_ID = "tether_lan_channel"
         private const val NOTIFICATION_ID = 1
@@ -1420,10 +1421,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 postPowerEventNotification("LOCK", System.currentTimeMillis(), activeLockSessionId, force = true)
             }
             "CLIPBOARD_SYNC" -> {
-                val contentStr = json.optString("content", "")
+                val contentStr = json.optString("text", json.optString("content", ""))
                 val hash = json.optString("hash", "")
                 val resolvedHash = if (hash.isNotEmpty()) hash else computeSha256(contentStr)
-                if (resolvedHash != lastClipboardHash && contentStr.isNotEmpty()) {
+                val prefs = getSharedPreferences("tether_clipboard_prefs", MODE_PRIVATE)
+                val isLiveSync = prefs.getBoolean("live_sync_enabled", true)
+                if (isLiveSync && !resolvedHash.equals(lastClipboardHash, ignoreCase = true) && contentStr.isNotEmpty()) {
                     lastClipboardHash = resolvedHash
                     mainHandler.post {
                         try {
@@ -1463,18 +1466,23 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     val intent = Intent(ACTION_TERMINAL_OUTPUT).apply {
                         putExtra("sessionId", json.optString("sessionId", ""))
                         putExtra("data", json.optString("data", ""))
+                        putExtra("workingDir", json.optString("workingDir", ""))
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
                 }
             }
-            "TERMINAL_SESSION_STARTED", "TERMINAL_SESSION_CLOSED" -> {
+            "TERMINAL_SESSION_STARTED", "TERMINAL_START_RESPONSE", "TERMINAL_SESSION_CLOSED" -> {
+                val termObj = json.optJSONObject("terminal")
+                val sid = if (termObj != null) termObj.optString("id", "") else json.optString("sessionId", json.optString("terminalId", ""))
+                val shell = if (termObj != null) termObj.optString("shellType", "") else json.optString("shellType", "")
+                val dir = if (termObj != null) termObj.optString("workingDir", "") else json.optString("workingDir", "")
                 mainHandler.post {
                     val intent = Intent(ACTION_TERMINAL_SESSION).apply {
-                        putExtra("type", type)
-                        putExtra("sessionId", json.optString("sessionId", ""))
-                        putExtra("shellType", json.optString("shellType", ""))
-                        putExtra("workingDir", json.optString("workingDir", ""))
+                        putExtra("type", if (type == "TERMINAL_START_RESPONSE") "TERMINAL_SESSION_STARTED" else type)
+                        putExtra("sessionId", sid)
+                        putExtra("shellType", shell)
+                        putExtra("workingDir", dir)
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
@@ -1495,7 +1503,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     sendBroadcast(intent)
                 }
             }
-            "AUDIO_SESSIONS_UPDATE" -> {
+            "AUDIO_SESSIONS_UPDATE", "AUDIO_SESSIONS_RESPONSE" -> {
                 mainHandler.post {
                     val intent = Intent(ACTION_AUDIO_SESSIONS_UPDATE).apply {
                         putExtra("sessionsJson", json.optJSONArray("sessions")?.toString() ?: "[]")
@@ -1509,36 +1517,39 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             }
             "ADMIN_TELEMETRY_RESPONSE" -> {
+                val tObj = json.optJSONObject("telemetry") ?: json
                 mainHandler.post {
                     val intent = Intent(ACTION_ADMIN_TELEMETRY).apply {
                         putExtra("rawJson", json.toString())
-                        putExtra("cpuUsage", json.optInt("cpuUsage", 0))
-                        putExtra("totalRamMb", json.optLong("totalRamMb", 0L))
-                        putExtra("availRamMb", json.optLong("availRamMb", 0L))
-                        putExtra("ramUsagePct", json.optInt("ramUsagePct", 0))
-                        putExtra("disksJson", json.optJSONArray("disks")?.toString() ?: "[]")
-                        putExtra("networksJson", json.optJSONArray("networks")?.toString() ?: "[]")
+                        putExtra("cpuUsage", tObj.optInt("cpuUsage", tObj.optInt("cpuUsagePercent", 0)))
+                        putExtra("totalRamMb", tObj.optLong("totalRamMb", tObj.optLong("totalMemoryMb", 0L)))
+                        putExtra("availRamMb", tObj.optLong("availRamMb", tObj.optLong("availableMemoryMb", 0L)))
+                        putExtra("ramUsagePct", tObj.optInt("ramUsagePct", tObj.optInt("memoryUsagePercent", 0)))
+                        putExtra("disksJson", tObj.optJSONArray("disks")?.toString() ?: "[]")
+                        putExtra("networksJson", tObj.optJSONArray("networks")?.toString() ?: "[]")
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
                 }
             }
             "BATTERY_HEALTH_RESPONSE" -> {
+                val bObj = json.optJSONObject("batteryHealth") ?: json
                 mainHandler.post {
                     val intent = Intent(ACTION_BATTERY_HEALTH).apply {
-                        putExtra("designCapacityMwh", json.optDouble("designCapacityMwh", 0.0))
-                        putExtra("fullChargeCapacityMwh", json.optDouble("fullChargeCapacityMwh", 0.0))
-                        putExtra("wearLevelPct", json.optInt("wearLevelPct", 0))
-                        putExtra("cycleCount", json.optInt("cycleCount", 0))
+                        putExtra("designCapacityMwh", bObj.optDouble("designCapacityMwh", bObj.optDouble("designedCapacityMwh", 0.0)))
+                        putExtra("fullChargeCapacityMwh", bObj.optDouble("fullChargeCapacityMwh", 0.0))
+                        putExtra("wearLevelPct", bObj.optInt("wearLevelPct", bObj.optInt("wearLevelPercent", 0)))
+                        putExtra("cycleCount", bObj.optInt("cycleCount", 0))
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
                 }
             }
             "POWER_PLANS_RESPONSE" -> {
+                val pArr = json.optJSONArray("powerPlans") ?: json.optJSONArray("plans")
                 mainHandler.post {
                     val intent = Intent(ACTION_POWER_PLANS).apply {
-                        putExtra("plansJson", json.optJSONArray("plans")?.toString() ?: "[]")
+                        putExtra("plansJson", pArr?.toString() ?: "[]")
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
@@ -1554,9 +1565,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             }
             "USB_DEVICES_RESPONSE" -> {
+                val dArr = json.optJSONArray("usbDevices") ?: json.optJSONArray("devices")
                 mainHandler.post {
                     val intent = Intent(ACTION_USB_DEVICES).apply {
-                        putExtra("devicesJson", json.optJSONArray("devices")?.toString() ?: "[]")
+                        putExtra("devicesJson", dArr?.toString() ?: "[]")
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
@@ -1572,11 +1584,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             }
             "UPDATES_RESPONSE" -> {
+                val uObj = json.optJSONObject("updates") ?: json
                 mainHandler.post {
                     val intent = Intent(ACTION_UPDATES).apply {
-                        putExtra("pendingCount", json.optInt("pendingCount", 0))
-                        putExtra("isAvailable", json.optBoolean("isAvailable", false))
-                        putExtra("titlesJson", json.optJSONArray("titles")?.toString() ?: "[]")
+                        putExtra("pendingCount", uObj.optInt("pendingCount", uObj.optInt("pendingUpdatesCount", 0)))
+                        putExtra("isAvailable", uObj.optBoolean("isAvailable", uObj.optBoolean("isUpdateAvailable", false)))
+                        putExtra("titlesJson", uObj.optJSONArray("titles")?.toString() ?: "[]")
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
@@ -1602,10 +1615,19 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     sendBroadcast(intent)
                 }
             }
-            "WINDOWS_LIST_RESPONSE" -> {
+            "WINDOWS_LIST_RESPONSE", "APP_WINDOWS_RESPONSE" -> {
                 mainHandler.post {
                     val intent = Intent(ACTION_WINDOWS_LIST).apply {
                         putExtra("windowsJson", json.optJSONArray("windows")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "APP_INSTALLED_RESPONSE", "APPS_LIST_RESPONSE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_INSTALLED_APPS).apply {
+                        putExtra("appsJson", json.optJSONArray("apps")?.toString() ?: "[]")
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
@@ -1878,18 +1900,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun showPairingNotification(result: PairingResult.PairingPending) {
         TetherNotificationChannels.createAllChannels(this)
-        setupClipboardSync()
-        try {
-            ContextCompat.registerReceiver(
-                this,
-                notificationMirrorReceiver,
-                IntentFilter(TetherNotificationListenerService.ACTION_NOTIFICATION_POSTED),
-                ContextCompat.RECEIVER_NOT_EXPORTED,
-            )
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to register notification mirror receiver: ${e.message}")
-        }
-
         val promptIntent = Intent(this, PairingConfirmationActivity::class.java).apply {
             action = ACTION_SHOW_PAIRING_PROMPT
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -2186,9 +2196,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     fun sendRemoteCopy() {
         val json = JSONObject().apply {
-            put("type", "COMMAND_EXECUTE")
+            put("type", "CLIPBOARD_SIMULATE_COPY")
             put("requestId", UUID.randomUUID().toString())
-            put("command", "CLIPBOARD_COPY")
             put("timestamp", System.currentTimeMillis())
         }
         sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
@@ -2196,15 +2205,16 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     fun sendRemotePaste() {
         val json = JSONObject().apply {
-            put("type", "COMMAND_EXECUTE")
+            put("type", "CLIPBOARD_SIMULATE_PASTE")
             put("requestId", UUID.randomUUID().toString())
-            put("command", "CLIPBOARD_PASTE")
             put("timestamp", System.currentTimeMillis())
         }
         sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendNotificationMirror(id: Long, app: String, title: String, body: String, timestamp: Long) {
+        val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
+        if (!prefs.getBoolean("mirror_phone_to_pc", true)) return
         val json = JSONObject().apply {
             put("type", "NOTIFICATION_EVENT")
             put("action", "POSTED")
@@ -2219,12 +2229,29 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     fun sendNotificationDismiss(id: Long) {
         val json = JSONObject().apply {
-            put("type", "COMMAND_EXECUTE")
+            put("type", "NOTIFICATION_DISMISS")
             put("requestId", UUID.randomUUID().toString())
-            put("command", "NOTIFICATION_DISMISS")
             put("id", id)
             put("timestamp", System.currentTimeMillis())
         }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestAudioSessions() {
+        val json = JSONObject().apply { put("type", "AUDIO_SESSIONS_GET") }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestAudioDevices(isInput: Boolean = false) {
+        val json = JSONObject().apply {
+            put("type", "AUDIO_DEVICES_GET")
+            put("isInput", isInput)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestMicState() {
+        val json = JSONObject().apply { put("type", "MIC_GET_STATE") }
         sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
@@ -2371,6 +2398,22 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     fun requestWindowsUpdates() {
         val json = JSONObject().apply {
             put("type", "CHECK_UPDATES")
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendClipboardGet() {
+        val json = JSONObject().apply {
+            put("type", "CLIPBOARD_GET")
+            put("requestId", java.util.UUID.randomUUID().toString())
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestInstalledApps() {
+        val json = JSONObject().apply {
+            put("type", "APP_GET_INSTALLED")
+            put("requestId", java.util.UUID.randomUUID().toString())
         }
         sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }

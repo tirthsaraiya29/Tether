@@ -281,9 +281,47 @@ public sealed class WindowsAdminManager
                 bufferSize = 16;
             }
         }
+        catch { }
         finally
         {
             Marshal.FreeHGlobal(guidBuffer);
+        }
+
+        // Fallback for Session 0 (SYSTEM) where PowerEnumerate may return no plans
+        if (list.Count == 0)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "powercfg.exe",
+                    Arguments = "/list",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using var p = Process.Start(psi);
+                if (p != null)
+                {
+                    string output = p.StandardOutput.ReadToEnd();
+                    p.WaitForExit(3000);
+                    var matches = System.Text.RegularExpressions.Regex.Matches(
+                        output,
+                        @"GUID:\s+([a-fA-F0-9\-]+)\s+\(([^)]+)\)(\s+\*)?",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (System.Text.RegularExpressions.Match m in matches)
+                    {
+                        list.Add(new PowerPlanInfo
+                        {
+                            Guid = m.Groups[1].Value.Trim(),
+                            Name = m.Groups[2].Value.Trim(),
+                            IsActive = m.Groups[3].Success
+                        });
+                    }
+                }
+            }
+            catch { }
         }
 
         return list;
@@ -293,7 +331,22 @@ public sealed class WindowsAdminManager
     {
         if (Guid.TryParse(guidString, out var guid))
         {
-            return PowerSetActiveScheme(IntPtr.Zero, ref guid) == 0;
+            if (PowerSetActiveScheme(IntPtr.Zero, ref guid) == 0) return true;
+
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "powercfg.exe",
+                    Arguments = $"/setactive {guidString}",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using var p = Process.Start(psi);
+                p?.WaitForExit(3000);
+                return p?.ExitCode == 0;
+            }
+            catch { }
         }
         return false;
     }
@@ -379,15 +432,27 @@ public sealed class WindowsAdminManager
                     string name = Convert.ToString(obj["Name"]) ?? "";
                     string devId = Convert.ToString(obj["DeviceID"]) ?? "";
                     string status = Convert.ToString(obj["Status"]) ?? "OK";
-                    if (!string.IsNullOrEmpty(name))
+                    if (string.IsNullOrEmpty(name)) continue;
+
+                    // Filter out internal root hubs, generic hubs, composite devices, virtual router PDOs
+                    if (devId.StartsWith(@"USB\ROOT_HUB", StringComparison.OrdinalIgnoreCase) ||
+                        devId.StartsWith(@"USB4\ROOT_", StringComparison.OrdinalIgnoreCase) ||
+                        devId.Contains("VIRTUAL_POWER", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("Root Hub", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("Generic USB Hub", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("Composite Device", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("Root Router", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("Host Controller", StringComparison.OrdinalIgnoreCase))
                     {
-                        list.Add(new UsbDeviceInfo
-                        {
-                            DeviceId = devId,
-                            Name = name,
-                            Status = status
-                        });
+                        continue;
                     }
+
+                    list.Add(new UsbDeviceInfo
+                    {
+                        DeviceId = devId,
+                        Name = name,
+                        Status = status
+                    });
                 }
             }
         }
@@ -477,7 +542,7 @@ public sealed class WindowsAdminManager
                 if (updateSession != null)
                 {
                     dynamic searcher = updateSession.CreateUpdateSearcher();
-                    dynamic searchResult = searcher.Search("IsInstalled=0 and Type='Software'");
+                    dynamic searchResult = searcher.Search("IsInstalled=0 and IsHidden=0");
                     dynamic updates = searchResult.Updates;
                     int count = updates.Count;
                     info.PendingUpdatesCount = count;
@@ -502,9 +567,13 @@ public sealed class WindowsAdminManager
 public sealed class SystemTelemetrySnapshot
 {
     public int CpuUsagePercent { get; set; }
+    public int CpuUsage => CpuUsagePercent;
     public ulong TotalMemoryMb { get; set; }
+    public ulong TotalRamMb => TotalMemoryMb;
     public ulong AvailableMemoryMb { get; set; }
+    public ulong AvailRamMb => AvailableMemoryMb;
     public int MemoryUsagePercent { get; set; }
+    public int RamUsagePct => MemoryUsagePercent;
     public List<DiskUsageInfo> Disks { get; set; } = new();
     public List<NetworkInterfaceInfo> Networks { get; set; } = new();
     public long Timestamp { get; set; }
@@ -532,8 +601,10 @@ public sealed class NetworkInterfaceInfo
 public sealed class BatteryHealthInfo
 {
     public double DesignedCapacityMwh { get; set; }
+    public double DesignCapacityMwh => DesignedCapacityMwh;
     public double FullChargeCapacityMwh { get; set; }
     public int WearLevelPercent { get; set; }
+    public int WearLevelPct => WearLevelPercent;
     public int CycleCount { get; set; }
 }
 
@@ -562,6 +633,7 @@ public sealed class UsbDeviceInfo
 public sealed class WindowsServiceDetails
 {
     public string ServiceName { get; set; } = string.Empty;
+    public string Name => ServiceName;
     public string DisplayName { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public bool CanStop { get; set; }
@@ -571,7 +643,9 @@ public sealed class WindowsServiceDetails
 public sealed class WindowsUpdateInfo
 {
     public int PendingUpdatesCount { get; set; }
+    public int PendingCount => PendingUpdatesCount;
     public bool IsUpdateAvailable { get; set; }
+    public bool IsAvailable => IsUpdateAvailable;
     public List<string> Titles { get; set; } = new();
     public string StatusMessage { get; set; } = "OK";
 }

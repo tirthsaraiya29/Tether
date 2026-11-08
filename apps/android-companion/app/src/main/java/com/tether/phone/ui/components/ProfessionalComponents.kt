@@ -583,8 +583,6 @@ fun TacticalAction(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                rotationX = tilt
-                cameraDistance = 12f * density
                 alpha = if (enabled) 1f else 0.45f
             }
             .fillMaxWidth()
@@ -628,13 +626,18 @@ fun TacticalAction(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        ) {
             Text(
                 text = label.uppercase(),
                 style = MaterialTheme.typography.labelLarge,
                 color = if (enabled) accentColor else TextMuted,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 4.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = Modifier.graphicsLayer {
                     translationY = if (isPressed) 1.dp.toPx() else 0f
                 },
@@ -644,7 +647,9 @@ fun TacticalAction(
                     text = it.uppercase(),
                     style = MaterialTheme.typography.labelSmall,
                     color = (if (enabled) accentColor else TextMuted).copy(alpha = 0.7f),
-                    letterSpacing = 2.sp,
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
         }

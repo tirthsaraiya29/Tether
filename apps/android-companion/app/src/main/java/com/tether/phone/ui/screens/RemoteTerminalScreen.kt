@@ -68,9 +68,18 @@ fun RemoteTerminalScreen(
                     TetherLanService.ACTION_TERMINAL_OUTPUT -> {
                         val sessId = intent.getStringExtra("sessionId") ?: "default"
                         val data = intent.getStringExtra("data") ?: ""
+                        val wd = intent.getStringExtra("workingDir")
+                        if (!wd.isNullOrBlank()) {
+                            activeSessions = activeSessions.map {
+                                if (it.id == sessId || (it.id == "default" && activeSessions.size == 1)) it.copy(workingDir = wd) else it
+                            }
+                        }
+                        if (currentSessionId == "default" && sessId != "default" && activeSessions.size == 1 && activeSessions[0].id == "default") {
+                            activeSessions = listOf(TerminalTab(sessId, "powershell", wd ?: ""))
+                            currentSessionId = sessId
+                        }
                         val sb = sessionOutputs.getOrPut(sessId) { StringBuilder() }
                         sb.append(data)
-                        // Trigger recomposition by re-putting
                         sessionOutputs[sessId] = StringBuilder(sb.toString())
                     }
                     TetherLanService.ACTION_TERMINAL_SESSION -> {
@@ -80,7 +89,11 @@ fun RemoteTerminalScreen(
                         val dir = intent.getStringExtra("workingDir") ?: ""
 
                         if (type == "TERMINAL_SESSION_STARTED" && sessId.isNotEmpty()) {
-                            if (activeSessions.none { it.id == sessId }) {
+                            if (activeSessions.size == 1 && activeSessions[0].id == "default") {
+                                activeSessions = listOf(TerminalTab(sessId, shell, dir))
+                                currentSessionId = sessId
+                                sessionOutputs[sessId] = StringBuilder("Session started: $shell ($sessId)\n\n")
+                            } else if (activeSessions.none { it.id == sessId }) {
                                 activeSessions = activeSessions + TerminalTab(sessId, shell, dir)
                                 currentSessionId = sessId
                                 sessionOutputs[sessId] = StringBuilder("Session started: $shell ($sessId)\n\n")
@@ -104,6 +117,12 @@ fun RemoteTerminalScreen(
 
         onDispose {
             try { context.unregisterReceiver(receiver) } catch (_: Exception) {}
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (activeSessions.all { it.id == "default" }) {
+            service?.sendTerminalStart("powershell")
         }
     }
 
@@ -185,6 +204,48 @@ fun RemoteTerminalScreen(
                                 }
                             }
                         )
+                    }
+                }
+
+                // Working Directory Status Bar
+                val currentTab = activeSessions.find { it.id == currentSessionId }
+                val displayDir = currentTab?.workingDir?.ifBlank { "C:\\Users\\" } ?: "C:\\"
+                Surface(
+                    color = SurfaceElevated.copy(alpha = 0.5f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorder)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Folder, contentDescription = null, tint = LiquidCyan, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = displayDir,
+                            color = TextPrimary,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            color = IntegrityGreen.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "NON-ADMIN SAFE",
+                                color = IntegrityGreen,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
                     }
                 }
 

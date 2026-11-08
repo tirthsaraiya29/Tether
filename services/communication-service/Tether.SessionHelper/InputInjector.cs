@@ -24,6 +24,9 @@ internal sealed class InputInjector : IDisposable
     private const byte SubtypeScrollDelta = 0x03;
     private const byte SubtypeVirtualKey = 0x04;
     private const byte SubtypeUnicodeChar = 0x05;
+    private const byte SubtypeAbsoluteMove = 0x06;
+    private const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
+    private const uint MOUSEEVENTF_VIRTUALDESK = 0x4000;
 
     private const byte MouseButtonLeft = 0x01;
     private const byte MouseButtonRight = 0x02;
@@ -168,6 +171,13 @@ internal sealed class InputInjector : IDisposable
 
         switch (subtype)
         {
+            case SubtypeAbsoluteMove:
+                if (payload.Length < 4) return;
+                HandleAbsoluteMove(
+                    BinaryPrimitives.ReadUInt16BigEndian(payload[..2]),
+                    BinaryPrimitives.ReadUInt16BigEndian(payload[2..4]));
+                break;
+
             case SubtypeRelativeMove:
                 if (payload.Length < 4) return;
                 HandleRelativeMove(
@@ -249,6 +259,30 @@ internal sealed class InputInjector : IDisposable
         }
 
         return false;
+    }
+
+    private void HandleAbsoluteMove(ushort normX, ushort normY)
+    {
+        var bounds = System.Windows.Forms.Screen.PrimaryScreen?.Bounds ?? new System.Drawing.Rectangle(0, 0, 1920, 1080);
+        int targetX = bounds.Left + (int)((long)normX * bounds.Width / 65535);
+        int targetY = bounds.Top + (int)((long)normY * bounds.Height / 65535);
+        var input = new INPUT
+        {
+            type = INPUT_MOUSE,
+            u = new InputUnion
+            {
+                mi = new MOUSEINPUT
+                {
+                    dx = (int)((long)normX * 65536 / 65535),
+                    dy = (int)((long)normY * 65536 / 65535),
+                    mouseData = 0,
+                    dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+                    time = 0,
+                    dwExtraInfo = IntPtr.Zero
+                }
+            }
+        };
+        if (!Send(in input)) SetCursorPos(targetX, targetY);
     }
 
     private void HandleRelativeMove(short dx, short dy)

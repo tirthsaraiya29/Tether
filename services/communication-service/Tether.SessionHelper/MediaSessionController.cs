@@ -20,6 +20,11 @@ internal sealed class MediaSessionController
 
     private static GlobalSystemMediaTransportControlsSessionManager? _sessionManager;
     private static Action<MediaMetadata>? _metadataChangedHandler;
+    private static GlobalSystemMediaTransportControlsSession? _subscribedSession;
+
+    private static string _cachedTitle = string.Empty;
+    private static string _cachedAlbum = string.Empty;
+    private static string _cachedThumbnailB64 = string.Empty;
 
     public static async Task InitializeAsync(Action<MediaMetadata> onMetadataChanged)
     {
@@ -31,8 +36,26 @@ internal sealed class MediaSessionController
             {
                 _sessionManager.CurrentSessionChanged += async (s, e) =>
                 {
+                    HookCurrentSessionEvents();
                     await NotifyCurrentMetadataAsync();
                 };
+                HookCurrentSessionEvents();
+            }
+        }
+        catch { }
+    }
+
+    private static void HookCurrentSessionEvents()
+    {
+        try
+        {
+            var session = _sessionManager?.GetCurrentSession();
+            if (session != null && session != _subscribedSession)
+            {
+                _subscribedSession = session;
+                session.MediaPropertiesChanged += async (s, e) => await NotifyCurrentMetadataAsync();
+                session.PlaybackInfoChanged += async (s, e) => await NotifyCurrentMetadataAsync();
+                session.TimelinePropertiesChanged += async (s, e) => await NotifyCurrentMetadataAsync();
             }
         }
         catch { }
@@ -58,7 +81,11 @@ internal sealed class MediaSessionController
                 meta.Artist = props.Artist ?? "";
                 meta.Album = props.AlbumTitle ?? "";
 
-                if (props.Thumbnail != null)
+                if (props.Title == _cachedTitle && props.AlbumTitle == _cachedAlbum && !string.IsNullOrEmpty(_cachedThumbnailB64))
+                {
+                    meta.ThumbnailBase64 = _cachedThumbnailB64;
+                }
+                else if (props.Thumbnail != null)
                 {
                     try
                     {
@@ -66,7 +93,14 @@ internal sealed class MediaSessionController
                         using var netStream = stream.AsStreamForRead();
                         using var ms = new MemoryStream();
                         await netStream.CopyToAsync(ms);
-                        meta.ThumbnailBase64 = Convert.ToBase64String(ms.ToArray());
+                        byte[] bytes = ms.ToArray();
+                        if (bytes.Length > 0 && bytes.Length < 512 * 1024)
+                        {
+                            meta.ThumbnailBase64 = Convert.ToBase64String(bytes);
+                            _cachedTitle = meta.Title;
+                            _cachedAlbum = meta.Album;
+                            _cachedThumbnailB64 = meta.ThumbnailBase64;
+                        }
                     }
                     catch { }
                 }
@@ -98,6 +132,14 @@ internal sealed class MediaSessionController
 
     public static async Task<bool> ExecuteMediaControlAsync(string action, long? seekSeconds = null)
     {
+        string act = action.Trim().ToLowerInvariant();
+        if (act == "get_metadata" || act == "refresh")
+        {
+            await NotifyCurrentMetadataAsync();
+            return true;
+        }
+
+        bool handled = false;
         try
         {
             if (_sessionManager == null)
@@ -108,24 +150,29 @@ internal sealed class MediaSessionController
             var session = _sessionManager?.GetCurrentSession();
             if (session != null)
             {
-                switch (action.ToLowerInvariant())
+                switch (act)
                 {
                     case "play":
-                        return await session.TryPlayAsync();
+                        handled = await session.TryPlayAsync();
+                        break;
                     case "pause":
-                        return await session.TryPauseAsync();
+                        handled = await session.TryPauseAsync();
+                        break;
                     case "toggle":
                     case "play_pause":
-                        return await session.TryTogglePlayPauseAsync();
+                        handled = await session.TryTogglePlayPauseAsync();
+                        break;
                     case "next":
-                        return await session.TrySkipNextAsync();
+                        handled = await session.TrySkipNextAsync();
+                        break;
                     case "prev":
                     case "previous":
-                        return await session.TrySkipPreviousAsync();
+                        handled = await session.TrySkipPreviousAsync();
+                        break;
                     case "seek":
                         if (seekSeconds.HasValue)
                         {
-                            return await session.TryChangePlaybackPositionAsync(seekSeconds.Value * 10_000_000L);
+                            handled = await session.TryChangePlaybackPositionAsync(seekSeconds.Value * 10_000_000L);
                         }
                         break;
                 }
@@ -133,9 +180,19 @@ internal sealed class MediaSessionController
         }
         catch { }
 
-        // Fallback to virtual keyboard media events
-        SendVirtualMediaKey(action);
-        return true;
+        if (!handled)
+        {
+            // Only send virtual media key if it is a standard transport action
+            if (act is "play" or "pause" or "toggle" or "play_pause" or "next" or "prev" or "previous" or "stop")
+            {
+                SendVirtualMediaKey(act);
+                handled = true;
+            }
+        }
+
+        // Notify updated metadata shortly after command execution
+        _ = Task.Delay(120).ContinueWith(async _ => await NotifyCurrentMetadataAsync());
+        return handled;
     }
 
     private static void SendVirtualMediaKey(string action)

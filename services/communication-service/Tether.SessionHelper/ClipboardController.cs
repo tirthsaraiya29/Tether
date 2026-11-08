@@ -60,7 +60,7 @@ internal sealed class ClipboardController : Form
                     if (!string.IsNullOrEmpty(text))
                     {
                         string hash = ComputeHash(text);
-                        if (hash != _lastSentHash)
+                        if (!string.Equals(hash, _lastSentHash, StringComparison.OrdinalIgnoreCase))
                         {
                             _lastSentHash = hash;
                             _onClipboardChanged(text);
@@ -104,18 +104,25 @@ internal sealed class ClipboardController : Form
         string result = string.Empty;
         var thread = new Thread(() =>
         {
-            try
+            for (int i = 0; i < 3; i++)
             {
-                if (Clipboard.ContainsText())
+                try
                 {
-                    result = Clipboard.GetText();
+                    if (Clipboard.ContainsText())
+                    {
+                        result = Clipboard.GetText();
+                        break;
+                    }
+                }
+                catch
+                {
+                    Thread.Sleep(50);
                 }
             }
-            catch { }
         });
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
-        thread.Join(500);
+        thread.Join(600);
         return result;
     }
 

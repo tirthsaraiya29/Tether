@@ -55,13 +55,15 @@ internal sealed class ApplicationManager
 
         var dirs = new[]
         {
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
+            Environment.GetFolderPath(Environment.SpecialFolder.Programs),
             Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu),
             Environment.GetFolderPath(Environment.SpecialFolder.StartMenu)
         };
 
         foreach (var dir in dirs)
         {
-            if (!Directory.Exists(dir)) continue;
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) continue;
             try
             {
                 var shortcuts = Directory.GetFiles(dir, "*.lnk", SearchOption.AllDirectories);
@@ -79,6 +81,59 @@ internal sealed class ApplicationManager
                 }
             }
             catch { }
+        }
+
+        var regRoots = new[]
+        {
+            Microsoft.Win32.Registry.LocalMachine,
+            Microsoft.Win32.Registry.CurrentUser
+        };
+
+        var regPaths = new[]
+        {
+            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+            @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+        };
+
+        foreach (var root in regRoots)
+        {
+            foreach (var rPath in regPaths)
+            {
+                try
+                {
+                    using var baseKey = root.OpenSubKey(rPath);
+                    if (baseKey == null) continue;
+                    foreach (var subName in baseKey.GetSubKeyNames())
+                    {
+                        try
+                        {
+                            using var sub = baseKey.OpenSubKey(subName);
+                            if (sub == null) continue;
+                            string? dispName = sub.GetValue("DisplayName") as string;
+                            if (string.IsNullOrWhiteSpace(dispName) || seenNames.Contains(dispName)) continue;
+                            if (sub.GetValue("SystemComponent") is int sys && sys == 1) continue;
+                            if (sub.GetValue("ParentKeyName") != null) continue;
+
+                            string? installLoc = sub.GetValue("InstallLocation") as string;
+                            string? displayIcon = sub.GetValue("DisplayIcon") as string;
+                            string launchTarget = !string.IsNullOrEmpty(displayIcon) && displayIcon.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(displayIcon)
+                                ? displayIcon
+                                : (!string.IsNullOrEmpty(installLoc) ? installLoc : dispName);
+
+                            if (seenNames.Add(dispName))
+                            {
+                                list.Add(new InstalledAppInfo
+                                {
+                                    Name = dispName,
+                                    ShortcutPath = launchTarget
+                                });
+                            }
+                        }
+                        catch { }
+                    }
+                }
+                catch { }
+            }
         }
 
         return list;
@@ -200,6 +255,7 @@ public sealed class InstalledAppInfo
 {
     public string Name { get; set; } = string.Empty;
     public string ShortcutPath { get; set; } = string.Empty;
+    public string Path => ShortcutPath;
 }
 
 public sealed class RunningWindowInfo
@@ -208,6 +264,7 @@ public sealed class RunningWindowInfo
     public string Title { get; set; } = string.Empty;
     public string ProcessName { get; set; } = string.Empty;
     public int ProcessId { get; set; }
+    public int Pid => ProcessId;
     public bool IsMinimized { get; set; }
     public bool IsMaximized { get; set; }
 }

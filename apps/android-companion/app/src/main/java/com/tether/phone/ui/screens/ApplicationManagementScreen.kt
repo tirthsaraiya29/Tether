@@ -49,13 +49,18 @@ fun ApplicationManagementScreen(
     var isLoading by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
+        service?.requestRunningWindows()
+        service?.requestInstalledApps()
         if (service != null && hostIp != null) {
             try {
                 token = service.requestFileTransferToken()
-                // Initial loads
                 isLoading = true
-                runningWindows = FileTransferClient.fetchDesktopWindows(hostIp, token!!, context)
-                installedApps = FileTransferClient.fetchInstalledApps(hostIp, token!!, context)
+                if (token != null) {
+                    val w = FileTransferClient.fetchDesktopWindows(hostIp, token!!, context)
+                    if (w.isNotEmpty()) runningWindows = w
+                    val a = FileTransferClient.fetchInstalledApps(hostIp, token!!, context)
+                    if (a.isNotEmpty()) installedApps = a
+                }
             } catch (_: Exception) {
             } finally {
                 isLoading = false
@@ -66,31 +71,53 @@ fun ApplicationManagementScreen(
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
-                if (intent?.action == TetherLanService.ACTION_WINDOWS_LIST) {
-                    val jsonStr = intent.getStringExtra("windowsJson") ?: "[]"
-                    try {
-                        val arr = JSONArray(jsonStr)
-                        val list = mutableListOf<DesktopWindow>()
-                        for (i in 0 until arr.length()) {
-                            val obj = arr.getJSONObject(i)
-                            list.add(
-                                DesktopWindow(
-                                    hwnd = obj.optLong("hwnd", obj.optLong("id", 0L)),
-                                    title = obj.optString("title", ""),
-                                    processName = obj.optString("processName", ""),
-                                    processId = obj.optInt("processId", obj.optInt("pid", 0)),
-                                    width = obj.optInt("width", 0),
-                                    height = obj.optInt("height", 0)
+                when (intent?.action) {
+                    TetherLanService.ACTION_WINDOWS_LIST -> {
+                        val jsonStr = intent.getStringExtra("windowsJson") ?: "[]"
+                        try {
+                            val arr = JSONArray(jsonStr)
+                            val list = mutableListOf<DesktopWindow>()
+                            for (i in 0 until arr.length()) {
+                                val obj = arr.getJSONObject(i)
+                                list.add(
+                                    DesktopWindow(
+                                        hwnd = obj.optLong("hwnd", obj.optLong("id", 0L)),
+                                        title = obj.optString("title", ""),
+                                        processName = obj.optString("processName", ""),
+                                        processId = obj.optInt("processId", obj.optInt("pid", 0)),
+                                        width = obj.optInt("width", 0),
+                                        height = obj.optInt("height", 0)
+                                    )
                                 )
-                            )
-                        }
-                        runningWindows = list
-                    } catch (_: Exception) {}
+                            }
+                            runningWindows = list
+                        } catch (_: Exception) {}
+                    }
+                    TetherLanService.ACTION_INSTALLED_APPS -> {
+                        val jsonStr = intent.getStringExtra("appsJson") ?: "[]"
+                        try {
+                            val arr = JSONArray(jsonStr)
+                            val list = mutableListOf<InstalledAppItem>()
+                            for (i in 0 until arr.length()) {
+                                val obj = arr.getJSONObject(i)
+                                list.add(
+                                    InstalledAppItem(
+                                        name = obj.optString("name", ""),
+                                        path = obj.optString("path", obj.optString("shortcutPath", ""))
+                                    )
+                                )
+                            }
+                            installedApps = list
+                        } catch (_: Exception) {}
+                    }
                 }
             }
         }
 
-        val filter = IntentFilter(TetherLanService.ACTION_WINDOWS_LIST)
+        val filter = IntentFilter().apply {
+            addAction(TetherLanService.ACTION_WINDOWS_LIST)
+            addAction(TetherLanService.ACTION_INSTALLED_APPS)
+        }
         ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
 
         onDispose {
@@ -240,7 +267,7 @@ fun ApplicationManagementScreen(
                                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                                             colors = ButtonDefaults.outlinedButtonColors(contentColor = LiquidCyan)
                                         ) {
-                                            Text("Focus", fontSize = 11.sp)
+                                            Text("Focus", fontSize = 10.sp, maxLines = 1)
                                         }
                                         OutlinedButton(
                                             onClick = { service?.sendWindowSnap(win.hwnd, "LEFT") },
@@ -248,7 +275,7 @@ fun ApplicationManagementScreen(
                                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                                             colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
                                         ) {
-                                            Text("Snap L", fontSize = 11.sp)
+                                            Text("Snap L", fontSize = 10.sp, maxLines = 1)
                                         }
                                         OutlinedButton(
                                             onClick = { service?.sendWindowSnap(win.hwnd, "RIGHT") },
@@ -256,7 +283,7 @@ fun ApplicationManagementScreen(
                                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                                             colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
                                         ) {
-                                            Text("Snap R", fontSize = 11.sp)
+                                            Text("Snap R", fontSize = 10.sp, maxLines = 1)
                                         }
                                         OutlinedButton(
                                             onClick = { service?.sendWindowState(win.hwnd, "MINIMIZE") },
@@ -264,7 +291,7 @@ fun ApplicationManagementScreen(
                                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                                             colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary)
                                         ) {
-                                            Text("Min", fontSize = 11.sp)
+                                            Text("Min", fontSize = 10.sp, maxLines = 1)
                                         }
                                         OutlinedButton(
                                             onClick = { service?.sendWindowState(win.hwnd, "MAXIMIZE") },
@@ -272,7 +299,7 @@ fun ApplicationManagementScreen(
                                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                                             colors = ButtonDefaults.outlinedButtonColors(contentColor = IntegrityGreen)
                                         ) {
-                                            Text("Max", fontSize = 11.sp)
+                                            Text("Max", fontSize = 10.sp, maxLines = 1)
                                         }
                                     }
                                 }

@@ -59,8 +59,9 @@ fun ClipboardScreen(
     var historyItems by remember { mutableStateOf<List<ClipboardHistoryItem>>(emptyList()) }
     var phoneClipboardText by remember { mutableStateOf("") }
 
-    // Read phone clipboard initially
+    // Read phone clipboard and fetch PC clipboard initially
     LaunchedEffect(Unit) {
+        service?.sendClipboardGet()
         val sysCb = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         val clip = sysCb?.primaryClip
         if (clip != null && clip.itemCount > 0) {
@@ -146,34 +147,41 @@ fun ClipboardScreen(
                     }
                 }
 
-                // Remote Command Shortcuts
+                // Real-time Clipboard Transfer Actions
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
-                            onClick = { service?.sendRemoteCopy() },
+                            onClick = { service?.sendClipboardGet() },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = SurfaceElevated),
                             shape = RoundedCornerShape(14.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorder)
                         ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = LiquidCyan, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Download, contentDescription = null, tint = LiquidCyan, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Remote Copy", color = TextPrimary, fontSize = 12.sp)
+                            Text("Pull from PC", color = TextPrimary, fontSize = 12.sp)
                         }
 
                         Button(
-                            onClick = { service?.sendRemotePaste() },
+                            onClick = {
+                                if (phoneClipboardText.isNotEmpty()) {
+                                    service?.sendClipboardSyncFrame(phoneClipboardText)
+                                    historyItems = listOf(
+                                        ClipboardHistoryItem(phoneClipboardText, "PHONE", System.currentTimeMillis())
+                                    ) + historyItems.take(49)
+                                }
+                            },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = SurfaceElevated),
                             shape = RoundedCornerShape(14.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorder)
                         ) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = null, tint = IntegrityGreen, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Upload, contentDescription = null, tint = IntegrityGreen, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Remote Paste", color = TextPrimary, fontSize = 12.sp)
+                            Text("Push to PC", color = TextPrimary, fontSize = 12.sp)
                         }
                     }
                 }
