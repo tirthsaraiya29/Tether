@@ -56,12 +56,12 @@ Locate target components using the map below to avoid broad filesystem scans:
 
 | Subsystem | Primary Path | Technology / Core Files |
 | --- | --- | --- |
-| **Windows Service Host** | `services/communication-service/Tether.CommunicationService/` | C# .NET 10 (`Worker.cs`, `TetherTcpServer.cs`, `PacketRouter.cs`, `TrustStore.cs`) |
-| **Interactive Session Bridge** | `services/communication-service/Tether.SessionHelper/` | C# .NET 10 (`Program.cs`, `InputInjector.cs`, `AudioController.cs`) |
+| **Windows Service Host** | `services/communication-service/Tether.CommunicationService/` | C# .NET 10 (`Worker.cs`, `TetherTcpServer.cs`, `PacketRouter.cs`, `TrustStore.cs`, `WindowsAdminManager.cs`, `AutomationEngine.cs`, `FileTransferServer.cs`) |
+| **Interactive Session Bridge** | `services/communication-service/Tether.SessionHelper/` | C# .NET 10 (`Program.cs`, `InputInjector.cs`, `ScreenCaptureEngine.cs`, `AdvancedAudioController.cs`, `MediaSessionController.cs`, `ClipboardController.cs`, `NotificationController.cs`, `TerminalSessionManager.cs`, `ApplicationManager.cs`) |
 | **Win32 Credential Provider** | `TetherCredentialProvider/` | C++20 Win32 COM (`TetherProvider.cpp`, `TetherCredential.cpp`, `core.h`) |
 | **Desktop Management UI** | `apps/desktop-ui/Tether.DesktopUI/` | C# .NET 10 WPF (`MainWindow.xaml.cs`, `Themes/FluentTheme.xaml`) |
 | **Core Engines & Shared** | `services/`, `shared/Tether.Shared/` | `TrustEngine/`, `PanicEngine/`, `EnforcementEngine/`, `EventBus/`, `IpcConstants.cs` |
-| **Android Companion App** | `apps/android-companion/app/src/main/java/com/tether/phone/` | Kotlin / Jetpack Compose (`TetherLanService.kt`, `ProductionSecurityEngine.kt`, `MainScreens.kt`) |
+| **Android Companion App** | `apps/android-companion/app/src/main/java/com/tether/phone/` | Kotlin / Jetpack Compose (`TetherLanService.kt`, `ProductionSecurityEngine.kt`, `FileTransferClient.kt`, `TetherNotificationListenerService.kt`, `ui/screens/*.kt`) |
 | **Installer Packaging** | `installer/` | Inno Setup script (`Tether.iss`) compiling `Tether-Setup-*.exe` |
 
 ---

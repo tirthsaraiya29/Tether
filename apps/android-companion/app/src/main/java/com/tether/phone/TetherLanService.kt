@@ -5,6 +5,9 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
+import java.security.MessageDigest
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -104,6 +107,25 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         const val ALARM_ACTION = "com.tether.phone.ALARM_HEALTH_CHECK"
         const val ACTION_RESTART_SERVER = "com.tether.phone.ACTION_RESTART_SERVER"
+        const val ACTION_CLIPBOARD_SYNC = "com.tether.phone.ACTION_CLIPBOARD_SYNC"
+        const val ACTION_NOTIFICATION_SYNC = "com.tether.phone.ACTION_NOTIFICATION_SYNC"
+        const val ACTION_TERMINAL_OUTPUT = "com.tether.phone.ACTION_TERMINAL_OUTPUT"
+        const val ACTION_TERMINAL_SESSION = "com.tether.phone.ACTION_TERMINAL_SESSION"
+        const val ACTION_MEDIA_UPDATE = "com.tether.phone.ACTION_MEDIA_UPDATE"
+        const val ACTION_AUDIO_SESSIONS_UPDATE = "com.tether.phone.ACTION_AUDIO_SESSIONS_UPDATE"
+        const val ACTION_ADMIN_TELEMETRY = "com.tether.phone.ACTION_ADMIN_TELEMETRY"
+        const val ACTION_BATTERY_HEALTH = "com.tether.phone.ACTION_BATTERY_HEALTH"
+        const val ACTION_POWER_PLANS = "com.tether.phone.ACTION_POWER_PLANS"
+        const val ACTION_PRINTERS = "com.tether.phone.ACTION_PRINTERS"
+        const val ACTION_USB_DEVICES = "com.tether.phone.ACTION_USB_DEVICES"
+        const val ACTION_SERVICES = "com.tether.phone.ACTION_SERVICES"
+        const val ACTION_UPDATES = "com.tether.phone.ACTION_UPDATES"
+        const val ACTION_WORKFLOWS = "com.tether.phone.ACTION_WORKFLOWS"
+        const val ACTION_WORKFLOW_STATUS = "com.tether.phone.ACTION_WORKFLOW_STATUS"
+        const val ACTION_WINDOWS_LIST = "com.tether.phone.ACTION_WINDOWS_LIST"
+        const val ACTION_INSTALLED_APPS = "com.tether.phone.ACTION_INSTALLED_APPS"
+        const val ACTION_BATTERY_REPORT = "com.tether.phone.ACTION_BATTERY_REPORT"
+        const val ACTION_HARDWARE_SPECS = "com.tether.phone.ACTION_HARDWARE_SPECS"
 
         private const val CHANNEL_ID = "tether_lan_channel"
         private const val NOTIFICATION_ID = 1
@@ -158,6 +180,21 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
+    private var lastClipboardHash: String = ""
+    private var clipboardListener: ClipboardManager.OnPrimaryClipChangedListener? = null
+
+    private val notificationMirrorReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == TetherNotificationListenerService.ACTION_NOTIFICATION_POSTED) {
+                val id = intent.getLongExtra(TetherNotificationListenerService.EXTRA_NOTIF_ID, 0L)
+                val pkg = intent.getStringExtra(TetherNotificationListenerService.EXTRA_NOTIF_PKG) ?: ""
+                val title = intent.getStringExtra(TetherNotificationListenerService.EXTRA_NOTIF_TITLE) ?: ""
+                val text = intent.getStringExtra(TetherNotificationListenerService.EXTRA_NOTIF_TEXT) ?: ""
+                val time = intent.getLongExtra(TetherNotificationListenerService.EXTRA_NOTIF_TIME, System.currentTimeMillis())
+                sendNotificationMirror(id, pkg, title, text, time)
+            }
+        }
+    }
 
     @Volatile var currentPowerState: LaptopPowerState = LaptopPowerState.UNKNOWN
     @Volatile var batteryPercent: Int = -1
@@ -333,19 +370,104 @@ class TetherLanService : Service(), TetherDiscoveryListener {
      * pump was previously launched only from the interactive pairing flow, so
      * pinned-key reconnects (the normal path) silently dropped every input.
      */
+    @Volatile
+    var isHeavyTaskActive: Boolean = false
+
+    @Volatile
+    var currentActiveScreen: String? = null
+
     @Synchronized
     private fun startInputPump() {
         if (inputPumpJob?.isActive == true) return
         inputPumpJob = serviceScope.launch(Dispatchers.IO) {
-            for (frame in inputFrameChannel) {
+            for (firstFrame in inputFrameChannel) {
                 try {
                     val transport = activeTransport
                     if (transport != null && transport.isConnected()) {
-                        transport.sendFrame(frame)
+                        var frameToSend = firstFrame
+                        // High-speed move coalescing: aggregate micro mouse deltas if queued under backpressure
+                        if (frameToSend.size == 6 && frameToSend[0] == 0x05.toByte() && frameToSend[1] == 0x01.toByte()) {
+                            var dx = (frameToSend[2].toInt() shl 8) or (frameToSend[3].toInt() and 0xFF)
+                            var dy = (frameToSend[4].toInt() shl 8) or (frameToSend[5].toInt() and 0xFF)
+                            if (dx > 32767) dx -= 65536
+                            if (dy > 32767) dy -= 65536
+
+                            while (true) {
+                                val next = inputFrameChannel.tryReceive().getOrNull() ?: break
+                                if (next.size == 6 && next[0] == 0x05.toByte() && next[1] == 0x01.toByte()) {
+                                    var ndx = (next[2].toInt() shl 8) or (next[3].toInt() and 0xFF)
+                                    var ndy = (next[4].toInt() shl 8) or (next[5].toInt() and 0xFF)
+                                    if (ndx > 32767) ndx -= 65536
+                                    if (ndy > 32767) ndy -= 65536
+                                    dx = (dx + ndx).coerceIn(-32000, 32000)
+                                    dy = (dy + ndy).coerceIn(-32000, 32000)
+                                } else {
+                                    val b = ByteArray(6)
+                                    b[0] = 0x05
+                                    b[1] = 0x01
+                                    b[2] = ((dx shr 8) and 0xFF).toByte()
+                                    b[3] = (dx and 0xFF).toByte()
+                                    b[4] = ((dy shr 8) and 0xFF).toByte()
+                                    b[5] = (dy and 0xFF).toByte()
+                                    transport.sendFrame(b)
+                                    frameToSend = next
+                                    break
+                                }
+                            }
+
+                            if (frameToSend === firstFrame) {
+                                val b = ByteArray(6)
+                                b[0] = 0x05
+                                b[1] = 0x01
+                                b[2] = ((dx shr 8) and 0xFF).toByte()
+                                b[3] = (dx and 0xFF).toByte()
+                                b[4] = ((dy shr 8) and 0xFF).toByte()
+                                b[5] = (dy and 0xFF).toByte()
+                                frameToSend = b
+                            }
+                        }
+                        transport.sendFrame(frameToSend)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Sequential input transmission error: ${e.message}")
                 }
+            }
+        }
+    }
+
+    fun triggerFullSyncIfNeeded() {
+        if (isHeavyTaskActive) {
+            Log.i(TAG, "Heavy task active. Skipping background full sync.")
+            return
+        }
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                if (isHeavyTaskActive) return@launch
+                dispatchCommand("laptop_state_get")
+                delay(120)
+                if (isHeavyTaskActive) return@launch
+                dispatchCommand("volume_get")
+                dispatchCommand("brightness_get")
+                delay(120)
+                if (isHeavyTaskActive) return@launch
+                requestAudioSessions()
+                requestAudioDevices()
+                delay(120)
+                if (isHeavyTaskActive) return@launch
+                requestAdminTelemetry()
+                requestHardwareSpecs()
+                requestBatteryHealth()
+                delay(120)
+                if (isHeavyTaskActive) return@launch
+                requestPowerPlans()
+                requestRunningWindows()
+                requestInstalledApps()
+                delay(150)
+                if (isHeavyTaskActive) return@launch
+                requestWindowsServices()
+                requestWindowsUpdates()
+            } catch (e: Exception) {
+                Log.w(TAG, "Background sync error: ${e.message}")
             }
         }
     }
@@ -427,6 +549,17 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
 
         TetherNotificationChannels.createAllChannels(this)
+        setupClipboardSync()
+        try {
+            ContextCompat.registerReceiver(
+                this,
+                notificationMirrorReceiver,
+                IntentFilter(TetherNotificationListenerService.ACTION_NOTIFICATION_POSTED),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register notification mirror receiver: ${e.message}")
+        }
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -822,8 +955,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                                 currentState = TransportState.READY
                                 dispatchCommand("volume_get")
                                 dispatchCommand("brightness_get")
+                                triggerFullSyncIfNeeded()
                             },
-                            200,
+                            150,
                         )
 
                         listenSocketLoop(transport)
@@ -1363,7 +1497,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     }
                 }
             }
-            "UNLOCK_PROMPT" -> {
+"UNLOCK_PROMPT" -> {
                 // PC-side credential provider explicitly asked the phone to surface
                 // the unlock prompt. This request is authoritative: bypass the
                 // dismissed-session and local power-state gates (the phone's lock
@@ -1374,7 +1508,329 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 activeLockSessionId?.let { dismissedLockSessionId = null }
                 postPowerEventNotification("LOCK", System.currentTimeMillis(), activeLockSessionId, force = true)
             }
+            "CLIPBOARD_SYNC" -> {
+                val contentStr = json.optString("text", json.optString("content", ""))
+                val hash = json.optString("hash", "")
+                val resolvedHash = if (hash.isNotEmpty()) hash else computeSha256(contentStr)
+                val prefs = getSharedPreferences("tether_clipboard_prefs", MODE_PRIVATE)
+                val isLiveSync = prefs.getBoolean("live_sync_enabled", true)
+                if (isLiveSync && !resolvedHash.equals(lastClipboardHash, ignoreCase = true) && contentStr.isNotEmpty()) {
+                    lastClipboardHash = resolvedHash
+                    mainHandler.post {
+                        try {
+                            val cb = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            cb?.setPrimaryClip(ClipData.newPlainText("Tether", contentStr))
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error updating Android clipboard: ${e.message}")
+                        }
+                    }
+                }
+                mainHandler.post {
+                    val intent = Intent(ACTION_CLIPBOARD_SYNC).apply {
+                        putExtra("content", contentStr)
+                        putExtra("hash", resolvedHash)
+                        putExtra("timestamp", json.optLong("timestamp", System.currentTimeMillis()))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "NOTIFICATION_EVENT" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_NOTIFICATION_SYNC).apply {
+                        putExtra("action", json.optString("action", "POSTED"))
+                        putExtra("id", json.optLong("id", 0L))
+                        putExtra("app", json.optString("app", ""))
+                        putExtra("title", json.optString("title", ""))
+                        putExtra("body", json.optString("body", ""))
+                        putExtra("timestamp", json.optLong("timestamp", System.currentTimeMillis()))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "TERMINAL_OUTPUT" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_TERMINAL_OUTPUT).apply {
+                        putExtra("sessionId", json.optString("sessionId", ""))
+                        putExtra("data", json.optString("data", ""))
+                        putExtra("workingDir", json.optString("workingDir", ""))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "TERMINAL_SESSION_STARTED", "TERMINAL_START_RESPONSE", "TERMINAL_SESSION_CLOSED" -> {
+                val termObj = json.optJSONObject("terminal")
+                val sid = if (termObj != null) termObj.optString("id", "") else json.optString("sessionId", json.optString("terminalId", ""))
+                val shell = if (termObj != null) termObj.optString("shellType", "") else json.optString("shellType", "")
+                val dir = if (termObj != null) termObj.optString("workingDir", "") else json.optString("workingDir", "")
+                mainHandler.post {
+                    val intent = Intent(ACTION_TERMINAL_SESSION).apply {
+                        putExtra("type", if (type == "TERMINAL_START_RESPONSE") "TERMINAL_SESSION_STARTED" else type)
+                        putExtra("sessionId", sid)
+                        putExtra("shellType", shell)
+                        putExtra("workingDir", dir)
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "MEDIA_METADATA_UPDATE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_MEDIA_UPDATE).apply {
+                        putExtra("title", json.optString("title", ""))
+                        putExtra("artist", json.optString("artist", ""))
+                        putExtra("album", json.optString("album", ""))
+                        putExtra("isPlaying", json.optBoolean("isPlaying", false))
+                        putExtra("position", json.optLong("position", 0L))
+                        putExtra("duration", json.optLong("duration", 0L))
+                        putExtra("thumbnail", json.optString("thumbnail", ""))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "AUDIO_DEVICES_RESPONSE" -> {
+                val dArr = json.optJSONArray("devices")
+                if (dArr != null) {
+                    val devList = mutableListOf<AudioDeviceItem>()
+                    for (i in 0 until dArr.length()) {
+                        val d = dArr.getJSONObject(i)
+                        devList.add(AudioDeviceItem(
+                            id = d.optString("id", d.optString("Id", "")),
+                            name = d.optString("name", d.optString("Name", "Audio Device")),
+                            isDefault = d.optBoolean("isDefault", d.optBoolean("IsDefault", false)),
+                            isInput = d.optBoolean("isInput", d.optBoolean("IsInput", false))
+                        ))
+                    }
+                    LaptopStateCache.saveAudioDevices(applicationContext, devList)
+                }
+                mainHandler.post {
+                    val intent = Intent(ACTION_AUDIO_SESSIONS_UPDATE).apply {
+                        putExtra("devicesJson", json.optJSONArray("devices")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "AUDIO_SESSIONS_UPDATE", "AUDIO_SESSIONS_RESPONSE" -> {
+                val sArr = json.optJSONArray("sessions")
+                if (sArr != null) {
+                    val sList = mutableListOf<AppAudioSessionItem>()
+                    for (i in 0 until sArr.length()) {
+                        val s = sArr.getJSONObject(i)
+                        sList.add(AppAudioSessionItem(
+                            pid = s.optInt("pid", s.optInt("Pid", 0)),
+                            processName = s.optString("processName", s.optString("ProcessName", "Application")),
+                            volumePercent = s.optInt("volumePercent", s.optInt("VolumePercent", 50)),
+                            isMuted = s.optBoolean("isMuted", s.optBoolean("IsMuted", false))
+                        ))
+                    }
+                    LaptopStateCache.saveAudioSessions(applicationContext, sList)
+                }
+                val dArr = json.optJSONArray("devices")
+                if (dArr != null) {
+                    val devList = mutableListOf<AudioDeviceItem>()
+                    for (i in 0 until dArr.length()) {
+                        val d = dArr.getJSONObject(i)
+                        devList.add(AudioDeviceItem(
+                            id = d.optString("id", d.optString("Id", "")),
+                            name = d.optString("name", d.optString("Name", "Audio Device")),
+                            isDefault = d.optBoolean("isDefault", d.optBoolean("IsDefault", false)),
+                            isInput = d.optBoolean("isInput", d.optBoolean("IsInput", false))
+                        ))
+                    }
+                    LaptopStateCache.saveAudioDevices(applicationContext, devList)
+                }
+                mainHandler.post {
+                    val intent = Intent(ACTION_AUDIO_SESSIONS_UPDATE).apply {
+                        putExtra("sessionsJson", json.optJSONArray("sessions")?.toString() ?: "[]")
+                        putExtra("devicesJson", json.optJSONArray("devices")?.toString() ?: "[]")
+                        putExtra("masterMuted", json.optBoolean("masterMuted", false))
+                        putExtra("micMuted", json.optBoolean("micMuted", false))
+                        putExtra("micGain", json.optInt("micGain", 50))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "HARDWARE_SPECS_RESPONSE" -> {
+                val sObj = json.optJSONObject("specs") ?: json
+                val specs = HardwareSpecs(
+                    processorName = sObj.optString("processorName", ""),
+                    coreCount = sObj.optInt("coreCount", 0),
+                    totalMemoryMb = sObj.optLong("totalMemoryMb", 0L),
+                    gpuName = sObj.optString("gpuName", ""),
+                    gpuVramMb = sObj.optLong("gpuVramMb", 0L),
+                    systemManufacturer = sObj.optString("systemManufacturer", ""),
+                    systemModel = sObj.optString("systemModel", ""),
+                    biosVersion = sObj.optString("biosVersion", ""),
+                    osDescription = sObj.optString("osDescription", ""),
+                    uptimeSeconds = sObj.optLong("uptimeSeconds", 0L)
+                )
+                LaptopStateCache.saveHardwareSpecs(applicationContext, specs)
+                mainHandler.post {
+                    val intent = Intent(ACTION_HARDWARE_SPECS).apply {
+                        putExtra("specsJson", sObj.toString())
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "BATTERY_REPORT_RESPONSE" -> {
+                val rObj = json.optJSONObject("batteryReport") ?: json
+                val report = BatteryReportDetails(
+                    success = rObj.optBoolean("success", false),
+                    batteryName = rObj.optString("batteryName", ""),
+                    manufacturer = rObj.optString("manufacturer", ""),
+                    serialNumber = rObj.optString("serialNumber", ""),
+                    chemistry = rObj.optString("chemistry", ""),
+                    designCapacityMwh = rObj.optDouble("designCapacityMwh", 0.0),
+                    fullChargeCapacityMwh = rObj.optDouble("fullChargeCapacityMwh", 0.0),
+                    cycleCount = rObj.optInt("cycleCount", 0),
+                    healthPercent = rObj.optInt("healthPercent", 100),
+                    reportTimestamp = rObj.optString("reportTimestamp", ""),
+                    errorMessage = rObj.optString("errorMessage", "")
+                )
+                LaptopStateCache.saveBatteryReport(applicationContext, report)
+                mainHandler.post {
+                    val intent = Intent(ACTION_BATTERY_REPORT).apply {
+                        putExtra("reportJson", rObj.toString())
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "ADMIN_TELEMETRY_RESPONSE" -> {
+                val tObj = json.optJSONObject("telemetry") ?: json
+                LaptopStateCache.saveAdminTelemetry(applicationContext, json.toString())
+                mainHandler.post {
+                    val intent = Intent(ACTION_ADMIN_TELEMETRY).apply {
+                        putExtra("rawJson", json.toString())
+                        putExtra("cpuUsage", tObj.optInt("cpuUsage", tObj.optInt("cpuUsagePercent", 0)))
+                        putExtra("totalRamMb", tObj.optLong("totalRamMb", tObj.optLong("totalMemoryMb", 0L)))
+                        putExtra("availRamMb", tObj.optLong("availRamMb", tObj.optLong("availableMemoryMb", 0L)))
+                        putExtra("ramUsagePct", tObj.optInt("ramUsagePct", tObj.optInt("memoryUsagePercent", 0)))
+                        putExtra("disksJson", tObj.optJSONArray("disks")?.toString() ?: "[]")
+                        putExtra("networksJson", tObj.optJSONArray("networks")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "BATTERY_HEALTH_RESPONSE" -> {
+                val bObj = json.optJSONObject("batteryHealth") ?: json
+                LaptopStateCache.saveBatteryHealth(applicationContext, bObj.toString())
+                mainHandler.post {
+                    val intent = Intent(ACTION_BATTERY_HEALTH).apply {
+                        putExtra("designCapacityMwh", bObj.optDouble("designCapacityMwh", bObj.optDouble("designedCapacityMwh", 0.0)))
+                        putExtra("fullChargeCapacityMwh", bObj.optDouble("fullChargeCapacityMwh", 0.0))
+                        putExtra("wearLevelPct", bObj.optInt("wearLevelPct", bObj.optInt("wearLevelPercent", 0)))
+                        putExtra("cycleCount", bObj.optInt("cycleCount", 0))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "POWER_PLANS_RESPONSE" -> {
+                val pArr = json.optJSONArray("powerPlans") ?: json.optJSONArray("plans")
+                if (pArr != null) LaptopStateCache.savePowerPlans(applicationContext, pArr.toString())
+                mainHandler.post {
+                    val intent = Intent(ACTION_POWER_PLANS).apply {
+                        putExtra("plansJson", pArr?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "PRINTERS_RESPONSE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_PRINTERS).apply {
+                        putExtra("printersJson", json.optJSONArray("printers")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "USB_DEVICES_RESPONSE" -> {
+                val dArr = json.optJSONArray("usbDevices") ?: json.optJSONArray("devices")
+                mainHandler.post {
+                    val intent = Intent(ACTION_USB_DEVICES).apply {
+                        putExtra("devicesJson", dArr?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "SERVICES_RESPONSE" -> {
+                val sArr = json.optJSONArray("services")
+                if (sArr != null) LaptopStateCache.saveServices(applicationContext, sArr.toString())
+                mainHandler.post {
+                    val intent = Intent(ACTION_SERVICES).apply {
+                        putExtra("servicesJson", json.optJSONArray("services")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "UPDATES_RESPONSE" -> {
+                val uObj = json.optJSONObject("updates") ?: json
+                LaptopStateCache.saveUpdates(applicationContext, uObj.toString())
+                mainHandler.post {
+                    val intent = Intent(ACTION_UPDATES).apply {
+                        putExtra("pendingCount", uObj.optInt("pendingCount", uObj.optInt("pendingUpdatesCount", 0)))
+                        putExtra("isAvailable", uObj.optBoolean("isAvailable", uObj.optBoolean("isUpdateAvailable", false)))
+                        putExtra("titlesJson", uObj.optJSONArray("titles")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "WORKFLOW_LIST_RESPONSE" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_WORKFLOWS).apply {
+                        putExtra("workflowsJson", json.optJSONArray("workflows")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "WORKFLOW_STATUS" -> {
+                mainHandler.post {
+                    val intent = Intent(ACTION_WORKFLOW_STATUS).apply {
+                        putExtra("id", json.optString("id", ""))
+                        putExtra("status", json.optString("status", ""))
+                        putExtra("timestamp", json.optLong("timestamp", System.currentTimeMillis()))
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "WINDOWS_LIST_RESPONSE", "APP_WINDOWS_RESPONSE" -> {
+                val wArr = json.optJSONArray("windows")
+                if (wArr != null) LaptopStateCache.saveRunningWindows(applicationContext, wArr.toString())
+                mainHandler.post {
+                    val intent = Intent(ACTION_WINDOWS_LIST).apply {
+                        putExtra("windowsJson", json.optJSONArray("windows")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "APP_INSTALLED_RESPONSE", "APPS_LIST_RESPONSE" -> {
+                val aArr = json.optJSONArray("apps")
+                if (aArr != null) LaptopStateCache.saveInstalledApps(applicationContext, aArr.toString())
+                mainHandler.post {
+                    val intent = Intent(ACTION_INSTALLED_APPS).apply {
+                        putExtra("appsJson", json.optJSONArray("apps")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
             "HARDWARE_METRICS", "LAPTOP_STATE" -> {
+                LaptopStateCache.saveHardwareMetrics(applicationContext, json.toString())
                 val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
                 val vol = json.optInt("volumeLevel", -1)
                 val bright = json.optInt("brightnessLevel", -1)
@@ -1641,7 +2097,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun showPairingNotification(result: PairingResult.PairingPending) {
         TetherNotificationChannels.createAllChannels(this)
-
         val promptIntent = Intent(this, PairingConfirmationActivity::class.java).apply {
             action = ACTION_SHOW_PAIRING_PROMPT
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -1867,6 +2322,20 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         inputFrameChannel.trySend(data)
     }
 
+    fun sendDirectControlFrame(data: ByteArray) {
+        val transport = activeTransport
+        val isReady = transport != null && transport.isConnected() &&
+                (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED)
+        if (!isReady) return
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                transport?.sendFrame(data)
+            } catch (e: Exception) {
+                Log.w(TAG, "sendDirectControlFrame failed: ${e.message}")
+            }
+        }
+    }
+
     fun getDiscoveredDevices(): List<DiscoveredDevice> = discoveryManager.getDiscoveredDevices()
 
     val activeHostAddress: String?
@@ -1877,6 +2346,11 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         serviceJob.cancelChildren()
 
         try { unregisterReceiver(powerSaveReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(notificationMirrorReceiver) } catch (_: Exception) {}
+        clipboardListener?.let {
+            val cb = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            cb?.removePrimaryClipChangedListener(it)
+        }
         try { connectivityManager.unregisterNetworkCallback(wifiNetworkCallback) } catch (_: Exception) {}
 
         discoveryManager.stopDiscovery()
@@ -1891,5 +2365,402 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         mainHandler.removeCallbacksAndMessages(null)
         networkExecutor.shutdown()
         super.onDestroy()
+    }
+
+    private fun computeSha256(input: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val bytes = digest.digest(input.toByteArray(StandardCharsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun setupClipboardSync() {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        clipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
+            try {
+                val clip = clipboard.primaryClip
+                if (clip != null && clip.itemCount > 0) {
+                    val text = clip.getItemAt(0).text?.toString() ?: ""
+                    if (text.isNotEmpty()) {
+                        val hash = computeSha256(text)
+                        if (hash != lastClipboardHash) {
+                            lastClipboardHash = hash
+                            sendClipboardSyncFrame(text, hash)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error in onPrimaryClipChanged: ${e.message}")
+            }
+        }
+        clipboard.addPrimaryClipChangedListener(clipboardListener)
+    }
+
+    fun sendClipboardSyncFrame(text: String, hash: String = computeSha256(text)) {
+        val json = JSONObject().apply {
+            put("type", "CLIPBOARD_SYNC")
+            put("content", text)
+            put("hash", hash)
+            put("timestamp", System.currentTimeMillis())
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendRemoteCopy() {
+        val json = JSONObject().apply {
+            put("type", "CLIPBOARD_SIMULATE_COPY")
+            put("requestId", UUID.randomUUID().toString())
+            put("timestamp", System.currentTimeMillis())
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendRemotePaste() {
+        val json = JSONObject().apply {
+            put("type", "CLIPBOARD_SIMULATE_PASTE")
+            put("requestId", UUID.randomUUID().toString())
+            put("timestamp", System.currentTimeMillis())
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendNotificationMirror(id: Long, app: String, title: String, body: String, timestamp: Long) {
+        val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
+        if (!prefs.getBoolean("mirror_phone_to_pc", true)) return
+        val json = JSONObject().apply {
+            put("type", "NOTIFICATION_EVENT")
+            put("action", "POSTED")
+            put("id", id)
+            put("app", app)
+            put("title", title)
+            put("body", body)
+            put("timestamp", timestamp)
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendNotificationDismiss(id: Long) {
+        val json = JSONObject().apply {
+            put("type", "NOTIFICATION_DISMISS")
+            put("requestId", UUID.randomUUID().toString())
+            put("id", id)
+            put("timestamp", System.currentTimeMillis())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestAudioSessions() {
+        val json = JSONObject().apply {
+            put("type", "AUDIO_SESSIONS_GET")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestAudioDevices(isInput: Boolean = false) {
+        val json = JSONObject().apply {
+            put("type", "AUDIO_DEVICES_GET")
+            put("requestId", UUID.randomUUID().toString())
+            put("isInput", isInput)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestMicState() {
+        val json = JSONObject().apply {
+            put("type", "MIC_GET_STATE")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendTerminalStart(shellType: String = "powershell", workingDir: String = "") {
+        val json = JSONObject().apply {
+            put("type", "TERMINAL_START")
+            put("requestId", UUID.randomUUID().toString())
+            put("shellType", shellType)
+            put("workingDir", workingDir)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendTerminalInput(sessionId: String, data: String) {
+        val json = JSONObject().apply {
+            put("type", "TERMINAL_INPUT")
+            put("sessionId", sessionId)
+            put("data", data)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendTerminalClose(sessionId: String) {
+        val json = JSONObject().apply {
+            put("type", "TERMINAL_CLOSE")
+            put("sessionId", sessionId)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendMediaControl(action: String, seekSeconds: Long? = null) {
+        val json = JSONObject().apply {
+            put("type", "MEDIA_CONTROL")
+            put("requestId", UUID.randomUUID().toString())
+            put("action", action)
+            if (seekSeconds != null) {
+                put("seekSeconds", seekSeconds)
+            }
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSetAppVolume(pid: Int, volume: Int) {
+        val json = JSONObject().apply {
+            put("type", "SET_APP_VOLUME")
+            put("requestId", UUID.randomUUID().toString())
+            put("pid", pid)
+            put("volume", volume)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSetAppMute(pid: Int, mute: Boolean) {
+        val json = JSONObject().apply {
+            put("type", "SET_APP_MUTE")
+            put("requestId", UUID.randomUUID().toString())
+            put("pid", pid)
+            put("mute", mute)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSetAudioDevice(deviceId: String, isInput: Boolean) {
+        val json = JSONObject().apply {
+            put("type", "SET_AUDIO_DEVICE")
+            put("requestId", UUID.randomUUID().toString())
+            put("deviceId", deviceId)
+            put("isInput", isInput)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSetMicGain(gain: Int) {
+        val json = JSONObject().apply {
+            put("type", "SET_MIC_GAIN")
+            put("requestId", UUID.randomUUID().toString())
+            put("gain", gain)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSetMasterMute(mute: Boolean) {
+        dispatchCommand("volume_mute")
+    }
+
+    fun sendSetMicMute(mute: Boolean) {
+        val json = JSONObject().apply {
+            put("type", "SET_MIC_MUTE")
+            put("requestId", UUID.randomUUID().toString())
+            put("mute", mute)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestAdminTelemetry() {
+        val json = JSONObject().apply {
+            put("type", "GET_ADMIN_TELEMETRY")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestBatteryHealth() {
+        val json = JSONObject().apply {
+            put("type", "GET_BATTERY_HEALTH")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestHardwareSpecs() {
+        val json = JSONObject().apply {
+            put("type", "GET_HARDWARE_SPECS")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestGenerateBatteryReport() {
+        val json = JSONObject().apply {
+            put("type", "GENERATE_BATTERY_REPORT")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestPowerPlans() {
+        val json = JSONObject().apply {
+            put("type", "GET_POWER_PLANS")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSetPowerPlan(guid: String) {
+        val json = JSONObject().apply {
+            put("type", "SET_POWER_PLAN")
+            put("requestId", UUID.randomUUID().toString())
+            put("guid", guid)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestPrinters() {
+        val json = JSONObject().apply {
+            put("type", "GET_PRINTERS")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestUsbDevices() {
+        val json = JSONObject().apply {
+            put("type", "GET_USB_DEVICES")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestWindowsServices(filter: String = "") {
+        val json = JSONObject().apply {
+            put("type", "GET_SERVICES")
+            put("requestId", UUID.randomUUID().toString())
+            put("filter", filter)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendControlService(serviceName: String, action: String) {
+        val json = JSONObject().apply {
+            put("type", "CONTROL_SERVICE")
+            put("requestId", UUID.randomUUID().toString())
+            put("serviceName", serviceName)
+            put("action", action)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestWindowsUpdates() {
+        val json = JSONObject().apply {
+            put("type", "CHECK_UPDATES")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendClipboardGet() {
+        val json = JSONObject().apply {
+            put("type", "CLIPBOARD_GET")
+            put("requestId", java.util.UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestInstalledApps() {
+        val json = JSONObject().apply {
+            put("type", "APP_GET_INSTALLED")
+            put("requestId", java.util.UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendLaunchApp(path: String, args: String = "") {
+        val json = JSONObject().apply {
+            put("type", "APP_LAUNCH")
+            put("requestId", UUID.randomUUID().toString())
+            put("path", path)
+            put("args", args)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendWindowFocus(hwnd: Long) {
+        val json = JSONObject().apply {
+            put("type", "WINDOW_FOCUS")
+            put("requestId", UUID.randomUUID().toString())
+            put("hwnd", hwnd)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendWindowSnap(hwnd: Long, direction: String) {
+        val json = JSONObject().apply {
+            put("type", "WINDOW_SNAP")
+            put("requestId", UUID.randomUUID().toString())
+            put("hwnd", hwnd)
+            put("direction", direction)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendWindowState(hwnd: Long, state: String) {
+        val json = JSONObject().apply {
+            put("type", "WINDOW_STATE")
+            put("requestId", UUID.randomUUID().toString())
+            put("hwnd", hwnd)
+            put("state", state)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendWindowClose(hwnd: Long, forceKill: Boolean = false) {
+        val json = JSONObject().apply {
+            put("type", "WINDOW_CLOSE")
+            put("requestId", UUID.randomUUID().toString())
+            put("hwnd", hwnd)
+            put("force", forceKill)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestRunningWindows() {
+        val json = JSONObject().apply {
+            put("type", "GET_RUNNING_WINDOWS")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestWorkflows() {
+        val json = JSONObject().apply {
+            put("type", "GET_WORKFLOWS")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendSaveWorkflow(workflowJson: JSONObject) {
+        val json = JSONObject().apply {
+            put("type", "SAVE_WORKFLOW")
+            put("requestId", UUID.randomUUID().toString())
+            put("workflow", workflowJson)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendDeleteWorkflow(id: String) {
+        val json = JSONObject().apply {
+            put("type", "DELETE_WORKFLOW")
+            put("requestId", UUID.randomUUID().toString())
+            put("id", id)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun sendTriggerWorkflow(id: String) {
+        val json = JSONObject().apply {
+            put("type", "RUN_WORKFLOW")
+            put("requestId", UUID.randomUUID().toString())
+            put("id", id)
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 }

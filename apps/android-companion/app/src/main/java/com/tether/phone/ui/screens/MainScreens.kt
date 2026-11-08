@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Folder
@@ -1218,7 +1219,7 @@ fun TetherNavigationShell(
                                 }
                             }
                     )
-                    Column(modifier = Modifier.fillMaxSize().padding(32.dp)) {
+                    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
                         Spacer(modifier = Modifier.height(64.dp))
                         Text(
                             text = stringResource(R.string.nav_command_interface),
@@ -1229,6 +1230,14 @@ fun TetherNavigationShell(
 
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
+                            Triple("REMOTE DESKTOP", Icons.Default.DesktopWindows, AppScreen.REMOTE_DESKTOP),
+                            Triple("ADVANCED AUDIO", Icons.Default.VolumeUp, AppScreen.ADVANCED_AUDIO),
+                            Triple("REMOTE TERMINAL", Icons.Default.Terminal, AppScreen.REMOTE_TERMINAL),
+                            Triple("CLIPBOARD SYNC", Icons.Default.ContentPaste, AppScreen.CLIPBOARD),
+                            Triple("NOTIFICATIONS", Icons.Default.Notifications, AppScreen.NOTIFICATIONS),
+                            Triple("WINDOWS ADMIN", Icons.Default.AdminPanelSettings, AppScreen.WINDOWS_ADMIN),
+                            Triple("APP MANAGER", Icons.Default.Apps, AppScreen.APP_MANAGEMENT),
+                            Triple("AUTOMATION", Icons.Default.AutoFixHigh, AppScreen.AUTOMATION),
                             Triple("FILE SHARING", Icons.Default.Folder, AppScreen.FILE_TRANSFER),
                             Triple("REMOTE INPUT", Icons.Default.TouchApp, AppScreen.REMOTE_INPUT),
                             Triple("PERMISSIONS", Icons.Default.CheckCircle, AppScreen.PERMISSIONS),
@@ -1365,6 +1374,30 @@ fun TetherNavigationShell(
                             items = permissionItems,
                             onOpenAppSettings = onOpenAppSettings,
                             onGrantAllMissing = onGrantAllMissingPermissions
+                        )
+                        AppScreen.REMOTE_DESKTOP -> RemoteDesktopScreen(
+                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
+                        )
+                        AppScreen.ADVANCED_AUDIO -> AdvancedAudioScreen(
+                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
+                        )
+                        AppScreen.REMOTE_TERMINAL -> RemoteTerminalScreen(
+                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
+                        )
+                        AppScreen.CLIPBOARD -> ClipboardScreen(
+                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
+                        )
+                        AppScreen.NOTIFICATIONS -> NotificationSyncScreen(
+                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
+                        )
+                        AppScreen.WINDOWS_ADMIN -> WindowsAdminScreen(
+                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
+                        )
+                        AppScreen.APP_MANAGEMENT -> ApplicationManagementScreen(
+                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
+                        )
+                        AppScreen.AUTOMATION -> AutomationScreen(
+                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
                         )
                     }
                 }

@@ -262,7 +262,7 @@ public sealed class PairingManager
             pending.PhoneFingerprint,
             pending.DisplayName,
             pending.PhoneSpkiBase64,
-            new[] { "CLIPBOARD", "FILES", "NOTIFICATIONS", "MEDIA", "TERMINAL", "POWER_ELEVATED", "INPUT" });
+            new[] { "CLIPBOARD", "FILES", "NOTIFICATIONS", "MEDIA", "TERMINAL", "POWER_ELEVATED", "INPUT", "WINDOWS_ADMIN", "APP_MANAGEMENT", "AUTOMATION" });
 
         // 4. Construct mutual server proof
         byte[] winProof = ComputeServerProof(pending.Pin, expectedAuthKey, winSpkiDer, pending.PhoneSpkiDer);

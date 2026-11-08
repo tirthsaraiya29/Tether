@@ -231,21 +231,42 @@ HRESULT CSampleCredential::LoadStoredPasswordHashFromTpm()
 
 HRESULT CSampleCredential::Advise(ICredentialProviderCredentialEvents* pcpce)
 {
-    if (_pCredProvCredentialEvents) _pCredProvCredentialEvents->Release();
-    return pcpce->QueryInterface(IID_PPV_ARGS(&_pCredProvCredentialEvents));
+    try
+    {
+        if (_pCredProvCredentialEvents) _pCredProvCredentialEvents->Release();
+        return pcpce->QueryInterface(IID_PPV_ARGS(&_pCredProvCredentialEvents));
+    }
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleCredential::UnAdvise()
 {
-    if (_pCredProvCredentialEvents) _pCredProvCredentialEvents->Release();
-    _pCredProvCredentialEvents = nullptr;
-    return S_OK;
+    try
+    {
+        if (_pCredProvCredentialEvents) _pCredProvCredentialEvents->Release();
+        _pCredProvCredentialEvents = nullptr;
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleCredential::SetSelected(BOOL* pbAutoLogon)
 {
-    *pbAutoLogon = FALSE;
-    return S_OK;
+    try
+    {
+        *pbAutoLogon = FALSE;
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleCredential::SetDeselected()
@@ -257,58 +278,93 @@ HRESULT CSampleCredential::GetFieldState(DWORD dwFieldID,
     CREDENTIAL_PROVIDER_FIELD_STATE* pcpfs,
     CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE* pcpfis)
 {
-    if (dwFieldID < ARRAYSIZE(_rgFieldStatePairs))
+    try
     {
-        *pcpfs = _rgFieldStatePairs[dwFieldID].cpfs;
-        *pcpfis = _rgFieldStatePairs[dwFieldID].cpfis;
-        return S_OK;
+        if (dwFieldID < ARRAYSIZE(_rgFieldStatePairs))
+        {
+            *pcpfs = _rgFieldStatePairs[dwFieldID].cpfs;
+            *pcpfis = _rgFieldStatePairs[dwFieldID].cpfis;
+            return S_OK;
+        }
+        return E_INVALIDARG;
     }
-    return E_INVALIDARG;
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleCredential::GetStringValue(DWORD dwFieldID, PWSTR* ppwsz)
 {
-    if (dwFieldID < ARRAYSIZE(_rgCredProvFieldDescriptors))
-        return SHStrDupW(_rgFieldStrings[dwFieldID] ? _rgFieldStrings[dwFieldID] : L"", ppwsz);
-    return E_INVALIDARG;
+    try
+    {
+        if (dwFieldID < ARRAYSIZE(_rgCredProvFieldDescriptors))
+            return SHStrDupW(_rgFieldStrings[dwFieldID] ? _rgFieldStrings[dwFieldID] : L"", ppwsz);
+        return E_INVALIDARG;
+    }
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleCredential::GetBitmapValue(DWORD dwFieldID, HBITMAP* phbmp)
 {
-    if (dwFieldID != SFI_TILEIMAGE)
-        return E_INVALIDARG;
+    try
+    {
+        if (dwFieldID != SFI_TILEIMAGE)
+            return E_INVALIDARG;
 
-    HBITMAP hbmp = LoadBitmap(HINST_THISDLL, MAKEINTRESOURCE(IDB_TILE_IMAGE));
-    if (!hbmp)
-        hbmp = CreateFallbackLogoBitmap(128, 128);
+        HBITMAP hbmp = LoadBitmap(HINST_THISDLL, MAKEINTRESOURCE(IDB_TILE_IMAGE));
+        if (!hbmp)
+            hbmp = CreateFallbackLogoBitmap(128, 128);
 
-    if (!hbmp)
-        return HRESULT_FROM_WIN32(GetLastError());
+        if (!hbmp)
+            return HRESULT_FROM_WIN32(GetLastError());
 
-    *phbmp = hbmp;
-    return S_OK;
+        *phbmp = hbmp;
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleCredential::GetSubmitButtonValue(DWORD dwFieldID, DWORD* pdwAdjacentTo)
 {
-    if (dwFieldID == SFI_SUBMIT_BUTTON)
+    try
     {
-        *pdwAdjacentTo = SFI_METHOD_LABEL;
-        return S_OK;
+        if (dwFieldID == SFI_SUBMIT_BUTTON)
+        {
+            *pdwAdjacentTo = SFI_METHOD_LABEL;
+            return S_OK;
+        }
+        return E_INVALIDARG;
     }
-    return E_INVALIDARG;
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleCredential::SetStringValue(DWORD dwFieldID, PCWSTR pwz)
 {
-    if (dwFieldID < ARRAYSIZE(_rgCredProvFieldDescriptors) &&
-        (_rgCredProvFieldDescriptors[dwFieldID].cpft == CPFT_EDIT_TEXT ||
-            _rgCredProvFieldDescriptors[dwFieldID].cpft == CPFT_PASSWORD_TEXT))
+    try
     {
-        CoTaskMemFree(_rgFieldStrings[dwFieldID]);
-        return SHStrDupW(pwz, &_rgFieldStrings[dwFieldID]);
+        if (dwFieldID < ARRAYSIZE(_rgCredProvFieldDescriptors) &&
+            (_rgCredProvFieldDescriptors[dwFieldID].cpft == CPFT_EDIT_TEXT ||
+                _rgCredProvFieldDescriptors[dwFieldID].cpft == CPFT_PASSWORD_TEXT))
+        {
+            CoTaskMemFree(_rgFieldStrings[dwFieldID]);
+            return SHStrDupW(pwz, &_rgFieldStrings[dwFieldID]);
+        }
+        return E_INVALIDARG;
     }
-    return E_INVALIDARG;
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleCredential::GetCheckboxValue(DWORD, BOOL*, PWSTR*) { return E_INVALIDARG; }
@@ -316,31 +372,52 @@ HRESULT CSampleCredential::SetCheckboxValue(DWORD, BOOL) { return E_INVALIDARG; 
 
 HRESULT CSampleCredential::GetComboBoxValueCount(DWORD dwFieldID, DWORD* pcItems, DWORD* pdwSelectedItem)
 {
-    if (dwFieldID == SFI_METHOD_COMBOBOX)
+    try
     {
-        *pcItems = 1;
-        *pdwSelectedItem = 0;
-        return S_OK;
+        if (dwFieldID == SFI_METHOD_COMBOBOX)
+        {
+            *pcItems = 1;
+            *pdwSelectedItem = 0;
+            return S_OK;
+        }
+        return E_INVALIDARG;
     }
-    return E_INVALIDARG;
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleCredential::GetComboBoxValueAt(DWORD dwFieldID, DWORD dwItem, PWSTR* ppwszItem)
 {
-    if (dwFieldID == SFI_METHOD_COMBOBOX && dwItem == 0)
-        return SHStrDupW(L"Unlock via Phone App", ppwszItem);
-    return E_INVALIDARG;
+    try
+    {
+        if (dwFieldID == SFI_METHOD_COMBOBOX && dwItem == 0)
+            return SHStrDupW(L"Unlock via Phone App", ppwszItem);
+        return E_INVALIDARG;
+    }
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD)
 {
-    if (dwFieldID == SFI_METHOD_COMBOBOX)
+    try
     {
-        _dwSelectedMethod = 0;
-        g_dwSelectedMethod.store(0);
-        return S_OK;
+        if (dwFieldID == SFI_METHOD_COMBOBOX)
+        {
+            _dwSelectedMethod = 0;
+            g_dwSelectedMethod.store(0);
+            return S_OK;
+        }
+        return E_INVALIDARG;
     }
-    return E_INVALIDARG;
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleCredential::_PackActualPasswordCredential(
@@ -544,8 +621,10 @@ HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
     PWSTR* ppwszOptionalStatusText,
     CREDENTIAL_PROVIDER_STATUS_ICON* pcpsiOptionalStatusIcon)
 {
-    if (!pcpgsr || !pcpcs || !ppwszOptionalStatusText || !pcpsiOptionalStatusIcon)
-        return E_INVALIDARG;
+    try
+    {
+        if (!pcpgsr || !pcpcs || !ppwszOptionalStatusText || !pcpsiOptionalStatusIcon)
+            return E_INVALIDARG;
 
     *pcpgsr = CPGSR_NO_CREDENTIAL_NOT_FINISHED;
     *ppwszOptionalStatusText = nullptr;
@@ -603,26 +682,38 @@ HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
     SHStrDupW(L"Tether App error: Local authentication credentials missing or corrupted.", ppwszOptionalStatusText);
     *pcpsiOptionalStatusIcon = CPSI_ERROR;
     return S_FALSE;
+    }
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CSampleCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatus,
     PWSTR* ppwszOptionalStatusText,
     CREDENTIAL_PROVIDER_STATUS_ICON* pcpsiOptionalStatusIcon)
 {
-    *ppwszOptionalStatusText = nullptr;
-    *pcpsiOptionalStatusIcon = CPSI_NONE;
+    try
+    {
+        *ppwszOptionalStatusText = nullptr;
+        *pcpsiOptionalStatusIcon = CPSI_NONE;
 
-    if (ntsStatus == STATUS_LOGON_FAILURE)
-    {
-        SHStrDupW(L"Tether login failed.", ppwszOptionalStatusText);
-        *pcpsiOptionalStatusIcon = CPSI_ERROR;
+        if (ntsStatus == STATUS_LOGON_FAILURE)
+        {
+            SHStrDupW(L"Tether login failed.", ppwszOptionalStatusText);
+            *pcpsiOptionalStatusIcon = CPSI_ERROR;
+        }
+        else if (ntsStatus == STATUS_ACCOUNT_RESTRICTION && ntsSubstatus == STATUS_ACCOUNT_DISABLED)
+        {
+            SHStrDupW(L"Your Tether account is disabled. Contact support.", ppwszOptionalStatusText);
+            *pcpsiOptionalStatusIcon = CPSI_WARNING;
+        }
+        return S_OK;
     }
-    else if (ntsStatus == STATUS_ACCOUNT_RESTRICTION && ntsSubstatus == STATUS_ACCOUNT_DISABLED)
+    catch (...)
     {
-        SHStrDupW(L"Your Tether account is disabled. Contact support.", ppwszOptionalStatusText);
-        *pcpsiOptionalStatusIcon = CPSI_WARNING;
+        return E_UNEXPECTED;
     }
-    return S_OK;
 }
 
 HRESULT CSampleCredential::GetUserSid(PWSTR* ppszSid)
@@ -827,8 +918,10 @@ HRESULT CSampleCredential::_VerifyTpmPassword(PCWSTR) { return E_NOTIMPL; }
 
 HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
 {
-    if (dwFieldID != SFI_UNLOCK_PROMPT_BUTTON)
-        return E_INVALIDARG;
+    try
+    {
+        if (dwFieldID != SFI_UNLOCK_PROMPT_BUTTON)
+            return E_INVALIDARG;
 
     // 5s cooldown gate: a press inside the window is ignored, the countdown
     // just restarts the displayed seconds via the still-running timer.
@@ -868,6 +961,11 @@ HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
 
     _BeginUnlockPromptCooldown();
     return S_OK;
+    }
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 void CSampleCredential::_SetStatusText(PCWSTR pszStatus)
@@ -948,10 +1046,17 @@ void CSampleCredential::_OnCooldownTick()
 
 HRESULT CSampleCredential::GetFieldOptions(DWORD dwFieldID, CREDENTIAL_PROVIDER_CREDENTIAL_FIELD_OPTIONS* pcpcfo)
 {
-    *pcpcfo = CPCFO_NONE;
-    if (dwFieldID == SFI_TILEIMAGE)
-        *pcpcfo = CPCFO_ENABLE_TOUCH_KEYBOARD_AUTO_INVOKE;
-    return S_OK;
+    try
+    {
+        *pcpcfo = CPCFO_NONE;
+        if (dwFieldID == SFI_TILEIMAGE)
+            *pcpcfo = CPCFO_ENABLE_TOUCH_KEYBOARD_AUTO_INVOKE;
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 void CALLBACK CSampleCredential::_OnAppEventSignaled(PVOID lpParameter, BOOLEAN)

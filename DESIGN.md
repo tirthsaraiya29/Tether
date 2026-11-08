@@ -120,13 +120,34 @@ The primary background Windows service (`TetherCommService`), running as `NT AUT
 ### 4.2 Interactive Session Helper (`Tether.SessionHelper`)
 Because Session 0 is isolated from user desktop sessions:
 * When an active console user session is detected (`WTSGetActiveConsoleSessionId`), `Tether.CommunicationService` obtains the user token (`WTSQueryUserToken`), duplicates it (`DuplicateTokenEx`), and spawns `Tether.SessionHelper.exe` using `CreateProcessAsUser`.
-* `SessionHelper` listens on named pipe `Tether.InputPipe` to perform:
+* `SessionHelper` operates a bidirectional named pipe (`\\.\pipe\Tether.InputPipe.{sessionId}`) to perform user-session operations:
   * **Synthetic Input Injection**: `InputInjector.cs` calls Win32 `SendInput` for mouse pointer movement, clicks, scrolling, and keyboard keystrokes.
-  * **Core Audio Control**: `AudioController.cs` uses COM `IAudioEndpointVolume` for master volume adjustment.
-  * **Display Brightness**: WMI / DXVA2 monitor brightness controls.
-  * **Lock Detection**: Registers for session notification (`WTSRegisterSessionNotification`) to monitor workstation lock/unlock transitions.
+  * **Screen Capture Engine**: `ScreenCaptureEngine.cs` captures desktop displays and individual HWND windows using GDI `BitBlt` and `PrintWindow` with configurable JPEG quality compression and multi-monitor bounds resolution.
+  * **Advanced Audio Management**: `AdvancedAudioController.cs` implements COM interop for `IAudioSessionManager2`, `IAudioSessionControl2`, and `ISimpleAudioVolume` to adjust per-application audio session levels, switch default audio playback and capture endpoints via `IPolicyConfig`, and configure microphone gain and mute states.
+  * **System Media Transport Controls (SMTC)**: `MediaSessionController.cs` integrates with WinRT `GlobalSystemMediaTransportControlsSessionManager` to extract real-time media title, artist, album, and Base64 thumbnail art, while providing play, pause, skip, and timeline seek controls with fallback to synthetic virtual media keys.
+  * **STA Clipboard Listener**: `ClipboardController.cs` creates a hidden Win32 message-only window on a dedicated STA thread using `AddClipboardFormatListener`, syncing clipboard text bidirectionally with SHA-256 loop suppression and remote copy/paste simulation.
+  * **Notification Forwarding and Toast Display**: `NotificationController.cs` reads Windows toast notifications via WinRT `UserNotificationListener` with remote dismissal support, and displays desktop toast alerts for mirrored Android notifications.
+  * **Interactive Terminal Manager**: `TerminalSessionManager.cs` orchestrates background pseudoterminal sessions for PowerShell, cmd.exe, pwsh.exe, and WSL with UTF-8 redirected I/O streams and 500-line history buffers.
+  * **Application and Window Management**: `ApplicationManager.cs` scans Start Menu shortcuts (`.lnk`), launches applications into the user session, and manages running top-level windows (`EnumWindows`, `SetForegroundWindow`, `SetWindowPos` snap, maximize, minimize, close, and force terminate).
+  * **Lock Detection**: Registers for session notifications (`WTSRegisterSessionNotification`) to monitor workstation lock and unlock transitions.
 
-### 4.3 Native Credential Provider (`TetherCredentialProvider`)
+### 4.3 Windows Administration Subsystem (`WindowsAdminManager.cs`)
+Running in `Tether.CommunicationService` under `NT AUTHORITY\SYSTEM`, the administration subsystem exposes deep OS telemetry and management:
+* **System Hardware Telemetry**: CPU load percentage via Performance Counters, physical RAM allocation, logical drive storage capacity, and network interface throughput.
+* **ACPI Power Schemes**: Active scheme querying and switching across Windows power schemes (`powrprof.dll`).
+* **Battery Wear Diagnostics**: WMI integration with `BatteryStaticData` and `BatteryFullChargedCapacity` to compute wear level percentages and hardware charge cycle counts.
+* **Printer & Spooler Management**: Native enumeration of installed printers, ports, status flags, and queued print jobs via `winspool.drv`.
+* **Connected USB Hardware**: Real-time peripheral inventory via WMI `Win32_PnPEntity`.
+* **Windows Services Control**: Service query and state manipulation (start, stop, restart) via `ServiceController`.
+* **Windows Update Integration**: Update inspection via the native Windows Update Agent COM API (`Microsoft.Update.Session`).
+
+### 4.4 Automation Scheduler Engine (`AutomationEngine.cs`)
+The automation subsystem hosts an in-memory scheduler persisted to `%ProgramData%\Tether\Workflows.json`:
+* **Trigger Mechanisms**: Supports manual invocation, recurring time interval tickers, and scheduled 24-hour wall-clock timestamps.
+* **Execution Condition Gate**: Evaluates workstation conditions before execution, including AC power status, minimum battery thresholds, and target process presence.
+* **Action Pipelines**: Executes ordered sequences of commands (workstation locking, muting, application termination, system power transitions) with comprehensive result reporting.
+
+### 4.5 Native Credential Provider (`TetherCredentialProvider`)
 A native C++ Win32 COM DLL registered in `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}`:
 * Implements `ICredentialProvider` and `ICredentialProviderCredential2`.
 * Enumerates a custom logon tile on the Windows logon/unlock screen.
