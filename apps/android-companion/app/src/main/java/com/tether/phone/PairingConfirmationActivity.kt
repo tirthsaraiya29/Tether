@@ -100,7 +100,10 @@ class PairingConfirmationActivity : ComponentActivity() {
             androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
         )
 
-        requestId = intent.getStringExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID) ?: ""
+        requestId = savedInstanceState?.getString(TetherLanService.EXTRA_PAIRING_REQUEST_ID)
+            ?: intent.getStringExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID)
+            ?: TetherLanService.instance?.pendingRequestId
+            ?: ""
         val peerName = intent.getStringExtra(TetherLanService.EXTRA_PEER_DEVICE_NAME) ?: "Windows PC"
         val peerFingerprint = intent.getStringExtra(TetherLanService.EXTRA_WINDOWS_FINGERPRINT) ?: "NONE"
 
@@ -133,17 +136,26 @@ class PairingConfirmationActivity : ComponentActivity() {
         try { unregisterReceiver(pairingReceiver) } catch (_: Exception) {}
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(TetherLanService.EXTRA_PAIRING_REQUEST_ID, requestId)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        requestId = intent.getStringExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID) ?: requestId
+        val newReqId = intent.getStringExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID)
+        if (!newReqId.isNullOrBlank()) {
+            requestId = newReqId
+        }
     }
 
     private fun confirmPairing(pin: String) {
         errorMessageState.value = ""
+        val effectiveId = requestId.ifBlank { TetherLanService.instance?.pendingRequestId ?: "" }
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_CONFIRM_PAIRING
-            putExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID, requestId)
+            putExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID, effectiveId)
             putExtra(TetherLanService.EXTRA_PAIRING_PIN, pin)
         }
         startForegroundService(intent)
@@ -168,7 +180,7 @@ fun PairingConfirmationContent(
     onReject: () -> Unit,
     onTimeout: () -> Unit,
 ) {
-    var secondsLeft by remember { mutableIntStateOf(60) }
+    var secondsLeft by remember { mutableIntStateOf(120) }
     var userPin by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
@@ -180,7 +192,7 @@ fun PairingConfirmationContent(
     }
 
     val progress by animateFloatAsState(
-        targetValue = secondsLeft / 60f,
+        targetValue = secondsLeft / 120f,
         animationSpec = tween(durationMillis = 1000, easing = LinearEasing),
         label = "Countdown",
     )

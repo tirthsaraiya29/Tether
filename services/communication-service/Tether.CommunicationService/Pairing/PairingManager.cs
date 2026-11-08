@@ -46,7 +46,7 @@ public sealed class PairingManager
         out uint pResponse,
         bool bWait);
     public const int MaxFailedAttempts = 3;
-    private const int ExpirationSeconds = 120;
+    public const int ExpirationSeconds = 120;
 
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
@@ -385,7 +385,7 @@ public sealed class PairingManager
                             0x00000040 /* MB_OK | MB_ICONINFORMATION */,
                             60,
                             out _,
-                            true);
+                            false);
                     }
                 }
                 finally
