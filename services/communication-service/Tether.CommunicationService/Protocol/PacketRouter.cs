@@ -63,6 +63,10 @@ public sealed class PacketRouter
         catch { return; }
 
         string reqId = doc.RootElement.TryGetProperty("requestId", out var rProp) ? (rProp.GetString() ?? "") : "";
+        if (string.IsNullOrEmpty(reqId))
+        {
+            reqId = Guid.NewGuid().ToString("N")[..8];
+        }
 
         switch (type)
         {
@@ -177,18 +181,14 @@ public sealed class PacketRouter
                 _inputForwarder.PostToHelper(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!);
                 break;
 
-            // Media & Audio Frames
+            // Fast-path Media & Audio Setters (Instant Fire-and-Forget, zero socket latency)
             case "MEDIA_CONTROL":
-            case "MEDIA_GET_METADATA":
-            case "AUDIO_SESSIONS_GET":
             case "AUDIO_APP_VOLUME_SET":
             case "SET_APP_VOLUME":
             case "AUDIO_APP_MUTE_SET":
             case "SET_APP_MUTE":
-            case "AUDIO_DEVICES_GET":
             case "AUDIO_DEFAULT_DEVICE_SET":
             case "SET_AUDIO_DEVICE":
-            case "MIC_GET_STATE":
             case "MIC_SET_STATE":
             case "SET_MIC_GAIN":
             case "SET_MIC_MUTE":
@@ -197,18 +197,42 @@ public sealed class PacketRouter
                     await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Media capability required" }, ct);
                     break;
                 }
-                string? mRes = await _inputForwarder.RequestAsync(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!, reqId, TimeSpan.FromSeconds(5), ct);
-                if (mRes != null)
+                _inputForwarder.PostToHelper(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!);
+                break;
+
+            // Media & Audio Queries (Asynchronous, Non-Blocking)
+            case "MEDIA_GET_METADATA":
+            case "AUDIO_SESSIONS_GET":
+            case "AUDIO_DEVICES_GET":
+            case "MIC_GET_STATE":
+                if (!_capabilityManager.HasCapability(device, "MEDIA"))
                 {
-                    await session.WriteRawFrameSafeAsync(System.Text.Encoding.UTF8.GetBytes(mRes), ct);
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Media capability required" }, ct);
+                    break;
+                }
+                {
+                    var reqPayload = JsonSerializer.Deserialize<Dictionary<string, object>>(doc.RootElement.GetRawText()) ?? new();
+                    reqPayload["requestId"] = reqId;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            string? mRes = await _inputForwarder.RequestAsync(reqPayload, reqId, TimeSpan.FromSeconds(5), ct);
+                            if (mRes != null)
+                            {
+                                await session.WriteRawFrameSafeAsync(System.Text.Encoding.UTF8.GetBytes(mRes), ct);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Warning($"Audio query {type} error: {ex.Message}");
+                        }
+                    }, ct);
                 }
                 break;
 
-            // Application Management Frames
-            case "APP_GET_INSTALLED":
+            // Fast-path Window Setters (Instant Fire-and-Forget)
             case "APP_LAUNCH":
-            case "APP_GET_WINDOWS":
-            case "GET_RUNNING_WINDOWS":
             case "APP_SWITCH_WINDOW":
             case "WINDOW_FOCUS":
             case "WINDOW_SNAP":
@@ -221,10 +245,36 @@ public sealed class PacketRouter
                     await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "App management capability required" }, ct);
                     break;
                 }
-                string? aRes = await _inputForwarder.RequestAsync(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!, reqId, TimeSpan.FromSeconds(5), ct);
-                if (aRes != null)
+                _inputForwarder.PostToHelper(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!);
+                break;
+
+            // App Management Queries (Asynchronous, Non-Blocking)
+            case "APP_GET_INSTALLED":
+            case "APP_GET_WINDOWS":
+            case "GET_RUNNING_WINDOWS":
+                if (!_capabilityManager.HasCapability(device, "APP_MANAGEMENT"))
                 {
-                    await session.WriteRawFrameSafeAsync(System.Text.Encoding.UTF8.GetBytes(aRes), ct);
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "App management capability required" }, ct);
+                    break;
+                }
+                {
+                    var reqPayload = JsonSerializer.Deserialize<Dictionary<string, object>>(doc.RootElement.GetRawText()) ?? new();
+                    reqPayload["requestId"] = reqId;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            string? aRes = await _inputForwarder.RequestAsync(reqPayload, reqId, TimeSpan.FromSeconds(5), ct);
+                            if (aRes != null)
+                            {
+                                await session.WriteRawFrameSafeAsync(System.Text.Encoding.UTF8.GetBytes(aRes), ct);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Warning($"App query {type} error: {ex.Message}");
+                        }
+                    }, ct);
                 }
                 break;
 
@@ -336,8 +386,18 @@ public sealed class PacketRouter
                     break;
                 }
                 string? sFilter = doc.RootElement.TryGetProperty("filter", out var fProp) ? fProp.GetString() : (doc.RootElement.TryGetProperty("search", out var sfProp) ? sfProp.GetString() : null);
-                var services = _adminManager.GetServices(sFilter);
-                await session.WriteJsonFrameSafeAsync(new { type = "SERVICES_RESPONSE", requestId = reqId, services }, ct);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var services = _adminManager.GetServices(sFilter);
+                        await session.WriteJsonFrameSafeAsync(new { type = "SERVICES_RESPONSE", requestId = reqId, services }, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"Services get error: {ex.Message}");
+                    }
+                }, ct);
                 break;
 
             case "SERVICE_CONTROL":

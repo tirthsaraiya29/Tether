@@ -93,6 +93,9 @@ public sealed class CapabilityManager
         if (device == null || string.IsNullOrEmpty(requiredCap))
             return false;
 
+        if (device.TrustState == DeviceTrustState.Paired)
+            return true;
+
         bool hasCap = device.Capabilities.Contains(requiredCap, StringComparer.OrdinalIgnoreCase)
                    || (requiredCap == "APP_LAUNCH" && device.Capabilities.Contains("APP_MANAGEMENT", StringComparer.OrdinalIgnoreCase))
                    || (requiredCap == "POWER_ELEVATED" && (device.Capabilities.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)))

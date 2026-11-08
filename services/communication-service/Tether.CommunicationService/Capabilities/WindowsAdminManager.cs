@@ -306,7 +306,7 @@ public sealed class WindowsAdminManager
 
         try
         {
-            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\CentralProcessor ");
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\CentralProcessor\\0");
             info.ProcessorName = key?.GetValue("ProcessorNameString")?.ToString()?.Trim() ?? "Unknown Processor";
         }
         catch
@@ -824,7 +824,9 @@ public sealed class DiskUsageInfo
     public string Name { get; set; } = string.Empty;
     public string VolumeLabel { get; set; } = string.Empty;
     public double TotalGigabytes { get; set; }
+    public double TotalGb => TotalGigabytes;
     public double FreeGigabytes { get; set; }
+    public double FreeGb => FreeGigabytes;
     public string Format { get; set; } = string.Empty;
 }
 

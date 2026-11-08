@@ -425,6 +425,7 @@ fun AdvancedAudioScreen(
                 items(appSessions) { app ->
                     var vol by remember(app.volumePercent) { mutableIntStateOf(app.volumePercent) }
                     var muted by remember(app.isMuted) { mutableStateOf(app.isMuted) }
+                    var lastSentMs by remember { mutableLongStateOf(0L) }
 
                     ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
                         Row(
@@ -438,8 +439,18 @@ fun AdvancedAudioScreen(
                                 Text("${vol}%", color = TextSecondary, style = MaterialTheme.typography.labelSmall)
                                 Slider(
                                     value = vol.toFloat(),
-                                    onValueChange = { vol = it.toInt() },
-                                    onValueChangeFinished = { service?.sendSetAppVolume(app.pid, vol) },
+                                    onValueChange = {
+                                        val newVol = it.toInt()
+                                        vol = newVol
+                                        val now = System.currentTimeMillis()
+                                        if (now - lastSentMs > 30L) {
+                                            lastSentMs = now
+                                            service?.sendSetAppVolume(app.pid, newVol)
+                                        }
+                                    },
+                                    onValueChangeFinished = {
+                                        service?.sendSetAppVolume(app.pid, vol)
+                                    },
                                     valueRange = 0f..100f,
                                     colors = SliderDefaults.colors(
                                         thumbColor = LiquidCyan,

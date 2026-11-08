@@ -184,9 +184,9 @@ fun WindowsAdminScreen(
                                 val p = arr.getJSONObject(i)
                                 list.add(
                                     PowerPlanItem(
-                                        guid = p.optString("guid", ""),
-                                        name = p.optString("name", "Power Plan"),
-                                        isActive = p.optBoolean("isActive", false)
+                                        guid = p.optString("guid", p.optString("Guid", "")),
+                                        name = p.optString("name", p.optString("Name", "Power Plan")),
+                                        isActive = p.optBoolean("isActive", p.optBoolean("IsActive", false))
                                     )
                                 )
                             }
@@ -201,10 +201,10 @@ fun WindowsAdminScreen(
                                 val p = arr.getJSONObject(i)
                                 list.add(
                                     PrinterItem(
-                                        name = p.optString("name", "Printer"),
-                                        port = p.optString("port", ""),
-                                        status = p.optString("status", "Ready"),
-                                        jobsCount = p.optInt("jobsCount", 0)
+                                        name = p.optString("name", p.optString("Name", "Printer")),
+                                        port = p.optString("port", p.optString("portName", p.optString("PortName", ""))),
+                                        status = p.optString("status", p.optString("Status", "Ready")),
+                                        jobsCount = p.optInt("jobsCount", p.optInt("JobsCount", 0))
                                     )
                                 )
                             }
@@ -219,9 +219,9 @@ fun WindowsAdminScreen(
                                 val u = arr.getJSONObject(i)
                                 list.add(
                                     UsbItem(
-                                        id = u.optString("id", ""),
-                                        name = u.optString("name", "USB Device"),
-                                        status = u.optString("status", "OK")
+                                        id = u.optString("id", u.optString("deviceId", u.optString("DeviceId", ""))),
+                                        name = u.optString("name", u.optString("Name", "USB Device")),
+                                        status = u.optString("status", u.optString("Status", "OK"))
                                     )
                                 )
                             }
@@ -234,14 +234,14 @@ fun WindowsAdminScreen(
                             val list = mutableListOf<WindowsServiceItem>()
                             for (i in 0 until arr.length()) {
                                 val s = arr.getJSONObject(i)
-                                val svcName = s.optString("name", s.optString("serviceName", ""))
-                                val dispName = s.optString("displayName", svcName)
+                                val svcName = s.optString("name", s.optString("serviceName", s.optString("ServiceName", s.optString("Name", ""))))
+                                val dispName = s.optString("displayName", s.optString("DisplayName", svcName))
                                 list.add(
                                     WindowsServiceItem(
                                         name = svcName,
                                         displayName = if (dispName.isNotBlank()) dispName else svcName,
-                                        status = s.optString("status", "Stopped"),
-                                        canStop = s.optBoolean("canStop", true)
+                                        status = s.optString("status", s.optString("Status", "Stopped")),
+                                        canStop = s.optBoolean("canStop", s.optBoolean("CanStop", true))
                                     )
                                 )
                             }
@@ -630,6 +630,19 @@ fun HardwareTabContent(
                     if (hardwareSpecs.osDescription.isNotBlank()) {
                         SpecRow("Operating System", hardwareSpecs.osDescription)
                     }
+
+                    val hasAnySpec = hardwareSpecs.processorName.isNotBlank() ||
+                            hardwareSpecs.coreCount > 0 ||
+                            hardwareSpecs.totalMemoryMb > 0 ||
+                            hardwareSpecs.gpuName.isNotBlank() ||
+                            hardwareSpecs.systemManufacturer.isNotBlank() ||
+                            hardwareSpecs.systemModel.isNotBlank() ||
+                            hardwareSpecs.biosVersion.isNotBlank() ||
+                            hardwareSpecs.osDescription.isNotBlank()
+
+                    if (!hasAnySpec) {
+                        Text("Reading system specifications...", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         }
@@ -681,14 +694,17 @@ fun HardwareTabContent(
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Icon(Icons.Default.Assessment, contentDescription = null, tint = LiquidCyan)
                             Spacer(modifier = Modifier.width(10.dp))
-                            Text("Windows Battery Report", color = TextPrimary, fontWeight = FontWeight.Bold)
+                            Text("Windows Battery Report", color = TextPrimary, fontWeight = FontWeight.Bold, maxLines = 1)
                         }
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         if (isGeneratingReport) {
                             CircularProgressIndicator(modifier = Modifier.size(24.dp), color = LiquidCyan, strokeWidth = 2.dp)
@@ -696,9 +712,10 @@ fun HardwareTabContent(
                             Button(
                                 onClick = onGenerateReport,
                                 colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text("Generate Report", color = DeepSpace, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                Text("Generate Report", color = DeepSpace, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1)
                             }
                         }
                     }

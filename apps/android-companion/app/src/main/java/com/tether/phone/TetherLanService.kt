@@ -1598,10 +1598,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     for (i in 0 until dArr.length()) {
                         val d = dArr.getJSONObject(i)
                         devList.add(AudioDeviceItem(
-                            id = d.optString("id", ""),
-                            name = d.optString("name", "Audio Device"),
-                            isDefault = d.optBoolean("isDefault", false),
-                            isInput = d.optBoolean("isInput", false)
+                            id = d.optString("id", d.optString("Id", "")),
+                            name = d.optString("name", d.optString("Name", "Audio Device")),
+                            isDefault = d.optBoolean("isDefault", d.optBoolean("IsDefault", false)),
+                            isInput = d.optBoolean("isInput", d.optBoolean("IsInput", false))
                         ))
                     }
                     LaptopStateCache.saveAudioDevices(applicationContext, devList)
@@ -1621,10 +1621,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     for (i in 0 until sArr.length()) {
                         val s = sArr.getJSONObject(i)
                         sList.add(AppAudioSessionItem(
-                            pid = s.optInt("pid", 0),
-                            processName = s.optString("processName", "Application"),
-                            volumePercent = s.optInt("volumePercent", 50),
-                            isMuted = s.optBoolean("isMuted", false)
+                            pid = s.optInt("pid", s.optInt("Pid", 0)),
+                            processName = s.optString("processName", s.optString("ProcessName", "Application")),
+                            volumePercent = s.optInt("volumePercent", s.optInt("VolumePercent", 50)),
+                            isMuted = s.optBoolean("isMuted", s.optBoolean("IsMuted", false))
                         ))
                     }
                     LaptopStateCache.saveAudioSessions(applicationContext, sList)
@@ -1635,10 +1635,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     for (i in 0 until dArr.length()) {
                         val d = dArr.getJSONObject(i)
                         devList.add(AudioDeviceItem(
-                            id = d.optString("id", ""),
-                            name = d.optString("name", "Audio Device"),
-                            isDefault = d.optBoolean("isDefault", false),
-                            isInput = d.optBoolean("isInput", false)
+                            id = d.optString("id", d.optString("Id", "")),
+                            name = d.optString("name", d.optString("Name", "Audio Device")),
+                            isDefault = d.optBoolean("isDefault", d.optBoolean("IsDefault", false)),
+                            isInput = d.optBoolean("isInput", d.optBoolean("IsInput", false))
                         ))
                     }
                     LaptopStateCache.saveAudioDevices(applicationContext, devList)
@@ -2322,6 +2322,20 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         inputFrameChannel.trySend(data)
     }
 
+    fun sendDirectControlFrame(data: ByteArray) {
+        val transport = activeTransport
+        val isReady = transport != null && transport.isConnected() &&
+                (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED)
+        if (!isReady) return
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                transport?.sendFrame(data)
+            } catch (e: Exception) {
+                Log.w(TAG, "sendDirectControlFrame failed: ${e.message}")
+            }
+        }
+    }
+
     fun getDiscoveredDevices(): List<DiscoveredDevice> = discoveryManager.getDiscoveredDevices()
 
     val activeHostAddress: String?
@@ -2431,34 +2445,42 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             put("id", id)
             put("timestamp", System.currentTimeMillis())
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestAudioSessions() {
-        val json = JSONObject().apply { put("type", "AUDIO_SESSIONS_GET") }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        val json = JSONObject().apply {
+            put("type", "AUDIO_SESSIONS_GET")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestAudioDevices(isInput: Boolean = false) {
         val json = JSONObject().apply {
             put("type", "AUDIO_DEVICES_GET")
+            put("requestId", UUID.randomUUID().toString())
             put("isInput", isInput)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestMicState() {
-        val json = JSONObject().apply { put("type", "MIC_GET_STATE") }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        val json = JSONObject().apply {
+            put("type", "MIC_GET_STATE")
+            put("requestId", UUID.randomUUID().toString())
+        }
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendTerminalStart(shellType: String = "powershell", workingDir: String = "") {
         val json = JSONObject().apply {
             put("type", "TERMINAL_START")
+            put("requestId", UUID.randomUUID().toString())
             put("shellType", shellType)
             put("workingDir", workingDir)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendTerminalInput(sessionId: String, data: String) {
@@ -2467,7 +2489,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             put("sessionId", sessionId)
             put("data", data)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendTerminalClose(sessionId: String) {
@@ -2475,53 +2497,58 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             put("type", "TERMINAL_CLOSE")
             put("sessionId", sessionId)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendMediaControl(action: String, seekSeconds: Long? = null) {
         val json = JSONObject().apply {
             put("type", "MEDIA_CONTROL")
+            put("requestId", UUID.randomUUID().toString())
             put("action", action)
             if (seekSeconds != null) {
                 put("seekSeconds", seekSeconds)
             }
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendSetAppVolume(pid: Int, volume: Int) {
         val json = JSONObject().apply {
             put("type", "SET_APP_VOLUME")
+            put("requestId", UUID.randomUUID().toString())
             put("pid", pid)
             put("volume", volume)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendSetAppMute(pid: Int, mute: Boolean) {
         val json = JSONObject().apply {
             put("type", "SET_APP_MUTE")
+            put("requestId", UUID.randomUUID().toString())
             put("pid", pid)
             put("mute", mute)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendSetAudioDevice(deviceId: String, isInput: Boolean) {
         val json = JSONObject().apply {
             put("type", "SET_AUDIO_DEVICE")
+            put("requestId", UUID.randomUUID().toString())
             put("deviceId", deviceId)
             put("isInput", isInput)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendSetMicGain(gain: Int) {
         val json = JSONObject().apply {
             put("type", "SET_MIC_GAIN")
+            put("requestId", UUID.randomUUID().toString())
             put("gain", gain)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendSetMasterMute(mute: Boolean) {
@@ -2531,90 +2558,102 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     fun sendSetMicMute(mute: Boolean) {
         val json = JSONObject().apply {
             put("type", "SET_MIC_MUTE")
+            put("requestId", UUID.randomUUID().toString())
             put("mute", mute)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestAdminTelemetry() {
         val json = JSONObject().apply {
             put("type", "GET_ADMIN_TELEMETRY")
+            put("requestId", UUID.randomUUID().toString())
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestBatteryHealth() {
         val json = JSONObject().apply {
             put("type", "GET_BATTERY_HEALTH")
+            put("requestId", UUID.randomUUID().toString())
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestHardwareSpecs() {
         val json = JSONObject().apply {
             put("type", "GET_HARDWARE_SPECS")
+            put("requestId", UUID.randomUUID().toString())
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestGenerateBatteryReport() {
         val json = JSONObject().apply {
             put("type", "GENERATE_BATTERY_REPORT")
+            put("requestId", UUID.randomUUID().toString())
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestPowerPlans() {
         val json = JSONObject().apply {
             put("type", "GET_POWER_PLANS")
+            put("requestId", UUID.randomUUID().toString())
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendSetPowerPlan(guid: String) {
         val json = JSONObject().apply {
             put("type", "SET_POWER_PLAN")
+            put("requestId", UUID.randomUUID().toString())
             put("guid", guid)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestPrinters() {
         val json = JSONObject().apply {
             put("type", "GET_PRINTERS")
+            put("requestId", UUID.randomUUID().toString())
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestUsbDevices() {
         val json = JSONObject().apply {
             put("type", "GET_USB_DEVICES")
+            put("requestId", UUID.randomUUID().toString())
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestWindowsServices(filter: String = "") {
         val json = JSONObject().apply {
             put("type", "GET_SERVICES")
+            put("requestId", UUID.randomUUID().toString())
             put("filter", filter)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendControlService(serviceName: String, action: String) {
         val json = JSONObject().apply {
             put("type", "CONTROL_SERVICE")
+            put("requestId", UUID.randomUUID().toString())
             put("serviceName", serviceName)
             put("action", action)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestWindowsUpdates() {
         val json = JSONObject().apply {
             put("type", "CHECK_UPDATES")
+            put("requestId", UUID.randomUUID().toString())
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendClipboardGet() {
@@ -2622,7 +2661,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             put("type", "CLIPBOARD_GET")
             put("requestId", java.util.UUID.randomUUID().toString())
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestInstalledApps() {
@@ -2630,88 +2669,98 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             put("type", "APP_GET_INSTALLED")
             put("requestId", java.util.UUID.randomUUID().toString())
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendLaunchApp(path: String, args: String = "") {
         val json = JSONObject().apply {
             put("type", "APP_LAUNCH")
+            put("requestId", UUID.randomUUID().toString())
             put("path", path)
             put("args", args)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendWindowFocus(hwnd: Long) {
         val json = JSONObject().apply {
             put("type", "WINDOW_FOCUS")
+            put("requestId", UUID.randomUUID().toString())
             put("hwnd", hwnd)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendWindowSnap(hwnd: Long, direction: String) {
         val json = JSONObject().apply {
             put("type", "WINDOW_SNAP")
+            put("requestId", UUID.randomUUID().toString())
             put("hwnd", hwnd)
             put("direction", direction)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendWindowState(hwnd: Long, state: String) {
         val json = JSONObject().apply {
             put("type", "WINDOW_STATE")
+            put("requestId", UUID.randomUUID().toString())
             put("hwnd", hwnd)
             put("state", state)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendWindowClose(hwnd: Long, forceKill: Boolean = false) {
         val json = JSONObject().apply {
             put("type", "WINDOW_CLOSE")
+            put("requestId", UUID.randomUUID().toString())
             put("hwnd", hwnd)
             put("force", forceKill)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestRunningWindows() {
         val json = JSONObject().apply {
             put("type", "GET_RUNNING_WINDOWS")
+            put("requestId", UUID.randomUUID().toString())
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun requestWorkflows() {
         val json = JSONObject().apply {
             put("type", "GET_WORKFLOWS")
+            put("requestId", UUID.randomUUID().toString())
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendSaveWorkflow(workflowJson: JSONObject) {
         val json = JSONObject().apply {
             put("type", "SAVE_WORKFLOW")
+            put("requestId", UUID.randomUUID().toString())
             put("workflow", workflowJson)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendDeleteWorkflow(id: String) {
         val json = JSONObject().apply {
             put("type", "DELETE_WORKFLOW")
+            put("requestId", UUID.randomUUID().toString())
             put("id", id)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendTriggerWorkflow(id: String) {
         val json = JSONObject().apply {
             put("type", "RUN_WORKFLOW")
+            put("requestId", UUID.randomUUID().toString())
             put("id", id)
         }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 }
