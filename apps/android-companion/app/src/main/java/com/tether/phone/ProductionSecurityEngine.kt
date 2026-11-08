@@ -63,12 +63,12 @@ class ProductionSecurityEngine {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 builder.setUserAuthenticationParameters(
-                    300,
-                    KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
+                    0,
+                    KeyProperties.AUTH_BIOMETRIC_STRONG
                 )
             } else {
                 @Suppress("DEPRECATION")
-                builder.setUserAuthenticationValidityDurationSeconds(300)
+                builder.setUserAuthenticationValidityDurationSeconds(-1)
             }
 
             val parameterSpec = builder.build()
