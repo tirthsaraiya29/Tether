@@ -4,6 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +19,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -28,6 +33,42 @@ import com.tether.phone.ui.components.ProfessionalGlassSurface
 import com.tether.phone.ui.theme.*
 import kotlinx.coroutines.launch
 import org.json.JSONArray
+
+@Composable
+fun AppThumbnailIcon(
+    iconB64: String?,
+    fallbackIcon: ImageVector,
+    modifier: Modifier = Modifier
+) {
+    val bitmap = remember(iconB64) {
+        if (!iconB64.isNullOrBlank()) {
+            try {
+                val bytes = android.util.Base64.decode(iconB64, android.util.Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            } catch (_: Exception) {
+                null
+            }
+        } else null
+    }
+
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            modifier = modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(8.dp)),
+            contentScale = ContentScale.Fit
+        )
+    } else {
+        Icon(
+            fallbackIcon,
+            contentDescription = null,
+            tint = LiquidCyan,
+            modifier = modifier.size(36.dp)
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,33 +83,16 @@ fun ApplicationManagementScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Running Windows", "Installed Apps")
 
-    var runningWindows by remember { mutableStateOf<List<DesktopWindow>>(emptyList()) }
-    var installedApps by remember { mutableStateOf<List<InstalledAppItem>>(emptyList()) }
+    // Immediately initialize from persistent cache to eliminate loading latency
+    var runningWindows by remember { mutableStateOf(LaptopStateCache.getWindows(context)) }
+    var installedApps by remember { mutableStateOf(LaptopStateCache.getInstalledApps(context)) }
     var appFilter by remember { mutableStateOf("") }
     var token by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        service?.requestRunningWindows()
-        service?.requestInstalledApps()
-        if (service != null && hostIp != null) {
-            try {
-                token = service.requestFileTransferToken()
-                isLoading = true
-                if (token != null) {
-                    val w = FileTransferClient.fetchDesktopWindows(hostIp, token!!, context)
-                    if (w.isNotEmpty()) runningWindows = w
-                    val a = FileTransferClient.fetchInstalledApps(hostIp, token!!, context)
-                    if (a.isNotEmpty()) installedApps = a
-                }
-            } catch (_: Exception) {
-            } finally {
-                isLoading = false
-            }
-        }
-    }
-
     DisposableEffect(context) {
+        service?.currentActiveScreen = "AppManagement"
+
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 when (intent?.action) {
@@ -79,18 +103,27 @@ fun ApplicationManagementScreen(
                             val list = mutableListOf<DesktopWindow>()
                             for (i in 0 until arr.length()) {
                                 val obj = arr.getJSONObject(i)
+                                val hwnd = obj.optLong("hwnd", obj.optLong("id", obj.optLong("Id", 0L)))
+                                val title = obj.optString("title", obj.optString("Title", ""))
+                                val procName = obj.optString("processName", obj.optString("ProcessName", obj.optString("appName", "")))
+                                val pid = obj.optInt("processId", obj.optInt("ProcessId", obj.optInt("pid", obj.optInt("Pid", 0))))
+                                val w = obj.optInt("width", obj.optInt("Width", 0))
+                                val h = obj.optInt("height", obj.optInt("Height", 0))
+                                val iconB64 = obj.optString("iconB64", obj.optString("IconB64", "")).ifEmpty { null }
                                 list.add(
                                     DesktopWindow(
-                                        hwnd = obj.optLong("hwnd", obj.optLong("id", 0L)),
-                                        title = obj.optString("title", ""),
-                                        processName = obj.optString("processName", ""),
-                                        processId = obj.optInt("processId", obj.optInt("pid", 0)),
-                                        width = obj.optInt("width", 0),
-                                        height = obj.optInt("height", 0)
+                                        hwnd = hwnd,
+                                        title = title,
+                                        processName = procName,
+                                        processId = pid,
+                                        width = w,
+                                        height = h,
+                                        iconB64 = iconB64
                                     )
                                 )
                             }
                             runningWindows = list
+                            LaptopStateCache.saveWindows(context, list)
                         } catch (_: Exception) {}
                     }
                     TetherLanService.ACTION_INSTALLED_APPS -> {
@@ -100,14 +133,19 @@ fun ApplicationManagementScreen(
                             val list = mutableListOf<InstalledAppItem>()
                             for (i in 0 until arr.length()) {
                                 val obj = arr.getJSONObject(i)
+                                val appName = obj.optString("name", obj.optString("Name", ""))
+                                val appPath = obj.optString("path", obj.optString("Path", obj.optString("shortcutPath", "")))
+                                val iconB64 = obj.optString("iconB64", obj.optString("IconB64", "")).ifEmpty { null }
                                 list.add(
                                     InstalledAppItem(
-                                        name = obj.optString("name", ""),
-                                        path = obj.optString("path", obj.optString("shortcutPath", ""))
+                                        name = appName,
+                                        path = appPath,
+                                        iconB64 = iconB64
                                     )
                                 )
                             }
                             installedApps = list
+                            LaptopStateCache.saveInstalledApps(context, list)
                         } catch (_: Exception) {}
                     }
                 }
@@ -120,8 +158,37 @@ fun ApplicationManagementScreen(
         }
         ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
 
+        // Request instant fresh snapshot over fast binary IPC
+        service?.requestRunningWindows()
+        service?.requestInstalledApps()
+
         onDispose {
+            service?.currentActiveScreen = null
             try { context.unregisterReceiver(receiver) } catch (_: Exception) {}
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (service != null && hostIp != null) {
+            try {
+                token = service.requestFileTransferToken()
+                if (token != null && (runningWindows.isEmpty() || installedApps.isEmpty())) {
+                    isLoading = true
+                    val w = FileTransferClient.fetchDesktopWindows(hostIp, token!!, context)
+                    if (w.isNotEmpty()) {
+                        runningWindows = w
+                        LaptopStateCache.saveWindows(context, w)
+                    }
+                    val a = FileTransferClient.fetchInstalledApps(hostIp, token!!, context)
+                    if (a.isNotEmpty()) {
+                        installedApps = a
+                        LaptopStateCache.saveInstalledApps(context, a)
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                isLoading = false
+            }
         }
     }
 
@@ -139,14 +206,24 @@ fun ApplicationManagementScreen(
                     },
                     actions = {
                         IconButton(onClick = {
+                            service?.requestRunningWindows()
+                            service?.requestInstalledApps()
                             coroutineScope.launch {
                                 if (hostIp != null && token != null) {
                                     isLoading = true
                                     try {
                                         if (selectedTab == 0) {
-                                            runningWindows = FileTransferClient.fetchDesktopWindows(hostIp, token!!, context)
+                                            val w = FileTransferClient.fetchDesktopWindows(hostIp, token!!, context)
+                                            if (w.isNotEmpty()) {
+                                                runningWindows = w
+                                                LaptopStateCache.saveWindows(context, w)
+                                            }
                                         } else {
-                                            installedApps = FileTransferClient.fetchInstalledApps(hostIp, token!!, context)
+                                            val a = FileTransferClient.fetchInstalledApps(hostIp, token!!, context)
+                                            if (a.isNotEmpty()) {
+                                                installedApps = a
+                                                LaptopStateCache.saveInstalledApps(context, a)
+                                            }
                                         }
                                     } catch (_: Exception) {}
                                     isLoading = false
@@ -187,7 +264,7 @@ fun ApplicationManagementScreen(
                     }
                 }
 
-                if (isLoading) {
+                if (isLoading && runningWindows.isEmpty() && installedApps.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = LiquidCyan)
                     }
@@ -229,19 +306,28 @@ fun ApplicationManagementScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                win.title,
-                                                color = TextPrimary,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                "${win.processName} • PID: ${win.processId}",
-                                                color = TextMuted,
-                                                style = MaterialTheme.typography.bodySmall
-                                            )
+                                        Row(
+                                            modifier = Modifier.weight(1f),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            AppThumbnailIcon(iconB64 = win.iconB64, fallbackIcon = Icons.Default.Window)
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                val displayTitle = if (win.title.isNotBlank()) win.title else if (win.processName.isNotBlank()) win.processName else "Application Window"
+                                                val displayProc = if (win.processName.isNotBlank()) win.processName else "Process"
+                                                Text(
+                                                    displayTitle,
+                                                    color = TextPrimary,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    "$displayProc • PID: ${win.processId}",
+                                                    color = TextMuted,
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
                                         }
 
                                         IconButton(
@@ -256,7 +342,7 @@ fun ApplicationManagementScreen(
 
                                     Spacer(modifier = Modifier.height(10.dp))
 
-                                    // Window Control Buttons
+                                    // Window Control Action Buttons
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -353,10 +439,10 @@ fun ApplicationManagementScreen(
                                     modifier = Modifier.padding(16.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.Apps, contentDescription = null, tint = LiquidCyan)
+                                    AppThumbnailIcon(iconB64 = app.iconB64, fallbackIcon = Icons.Default.Apps)
                                     Spacer(modifier = Modifier.width(14.dp))
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(app.name, color = TextPrimary, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                        Text(app.name.ifBlank { "Application" }, color = TextPrimary, fontWeight = FontWeight.SemiBold, maxLines = 1)
                                         Text(app.path, color = TextMuted, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                                     }
                                     Button(

@@ -648,14 +648,22 @@ object FileTransferClient {
             val result = mutableListOf<DesktopWindow>()
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
+                val hwnd = obj.optLong("hwnd", obj.optLong("id", obj.optLong("Id", 0L)))
+                val title = obj.optString("title", obj.optString("Title", ""))
+                val processName = obj.optString("processName", obj.optString("ProcessName", obj.optString("appName", "")))
+                val processId = obj.optInt("processId", obj.optInt("ProcessId", obj.optInt("pid", obj.optInt("Pid", 0))))
+                val width = obj.optInt("width", obj.optInt("Width", 0))
+                val height = obj.optInt("height", obj.optInt("Height", 0))
+                val iconB64 = obj.optString("iconB64", obj.optString("IconB64", "")).ifEmpty { null }
                 result.add(
                     DesktopWindow(
-                        hwnd = obj.optLong("hwnd", obj.optLong("id", 0L)),
-                        title = obj.optString("title", ""),
-                        processName = obj.optString("processName", ""),
-                        processId = obj.optInt("processId", obj.optInt("pid", 0)),
-                        width = obj.optInt("width", 0),
-                        height = obj.optInt("height", 0)
+                        hwnd = hwnd,
+                        title = title,
+                        processName = processName,
+                        processId = processId,
+                        width = width,
+                        height = height,
+                        iconB64 = iconB64
                     )
                 )
             }
@@ -694,10 +702,13 @@ object FileTransferClient {
                 val appPath = obj.optString("path", "").ifEmpty {
                     obj.optString("shortcutPath", obj.optString("ShortcutPath", ""))
                 }
+                val appName = obj.optString("name", obj.optString("Name", ""))
+                val iconB64 = obj.optString("iconB64", obj.optString("IconB64", "")).ifEmpty { null }
                 result.add(
                     InstalledAppItem(
-                        name = obj.optString("name", ""),
-                        path = appPath
+                        name = appName,
+                        path = appPath,
+                        iconB64 = iconB64
                     )
                 )
             }

@@ -124,6 +124,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         const val ACTION_WORKFLOW_STATUS = "com.tether.phone.ACTION_WORKFLOW_STATUS"
         const val ACTION_WINDOWS_LIST = "com.tether.phone.ACTION_WINDOWS_LIST"
         const val ACTION_INSTALLED_APPS = "com.tether.phone.ACTION_INSTALLED_APPS"
+        const val ACTION_BATTERY_REPORT = "com.tether.phone.ACTION_BATTERY_REPORT"
+        const val ACTION_HARDWARE_SPECS = "com.tether.phone.ACTION_HARDWARE_SPECS"
 
         private const val CHANNEL_ID = "tether_lan_channel"
         private const val NOTIFICATION_ID = 1
@@ -368,19 +370,104 @@ class TetherLanService : Service(), TetherDiscoveryListener {
      * pump was previously launched only from the interactive pairing flow, so
      * pinned-key reconnects (the normal path) silently dropped every input.
      */
+    @Volatile
+    var isHeavyTaskActive: Boolean = false
+
+    @Volatile
+    var currentActiveScreen: String? = null
+
     @Synchronized
     private fun startInputPump() {
         if (inputPumpJob?.isActive == true) return
         inputPumpJob = serviceScope.launch(Dispatchers.IO) {
-            for (frame in inputFrameChannel) {
+            for (firstFrame in inputFrameChannel) {
                 try {
                     val transport = activeTransport
                     if (transport != null && transport.isConnected()) {
-                        transport.sendFrame(frame)
+                        var frameToSend = firstFrame
+                        // High-speed move coalescing: aggregate micro mouse deltas if queued under backpressure
+                        if (frameToSend.size == 6 && frameToSend[0] == 0x05.toByte() && frameToSend[1] == 0x01.toByte()) {
+                            var dx = (frameToSend[2].toInt() shl 8) or (frameToSend[3].toInt() and 0xFF)
+                            var dy = (frameToSend[4].toInt() shl 8) or (frameToSend[5].toInt() and 0xFF)
+                            if (dx > 32767) dx -= 65536
+                            if (dy > 32767) dy -= 65536
+
+                            while (true) {
+                                val next = inputFrameChannel.tryReceive().getOrNull() ?: break
+                                if (next.size == 6 && next[0] == 0x05.toByte() && next[1] == 0x01.toByte()) {
+                                    var ndx = (next[2].toInt() shl 8) or (next[3].toInt() and 0xFF)
+                                    var ndy = (next[4].toInt() shl 8) or (next[5].toInt() and 0xFF)
+                                    if (ndx > 32767) ndx -= 65536
+                                    if (ndy > 32767) ndy -= 65536
+                                    dx = (dx + ndx).coerceIn(-32000, 32000)
+                                    dy = (dy + ndy).coerceIn(-32000, 32000)
+                                } else {
+                                    val b = ByteArray(6)
+                                    b[0] = 0x05
+                                    b[1] = 0x01
+                                    b[2] = ((dx shr 8) and 0xFF).toByte()
+                                    b[3] = (dx and 0xFF).toByte()
+                                    b[4] = ((dy shr 8) and 0xFF).toByte()
+                                    b[5] = (dy and 0xFF).toByte()
+                                    transport.sendFrame(b)
+                                    frameToSend = next
+                                    break
+                                }
+                            }
+
+                            if (frameToSend === firstFrame) {
+                                val b = ByteArray(6)
+                                b[0] = 0x05
+                                b[1] = 0x01
+                                b[2] = ((dx shr 8) and 0xFF).toByte()
+                                b[3] = (dx and 0xFF).toByte()
+                                b[4] = ((dy shr 8) and 0xFF).toByte()
+                                b[5] = (dy and 0xFF).toByte()
+                                frameToSend = b
+                            }
+                        }
+                        transport.sendFrame(frameToSend)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Sequential input transmission error: ${e.message}")
                 }
+            }
+        }
+    }
+
+    fun triggerFullSyncIfNeeded() {
+        if (isHeavyTaskActive) {
+            Log.i(TAG, "Heavy task active. Skipping background full sync.")
+            return
+        }
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                if (isHeavyTaskActive) return@launch
+                dispatchCommand("laptop_state_get")
+                delay(120)
+                if (isHeavyTaskActive) return@launch
+                dispatchCommand("volume_get")
+                dispatchCommand("brightness_get")
+                delay(120)
+                if (isHeavyTaskActive) return@launch
+                requestAudioSessions()
+                requestAudioDevices()
+                delay(120)
+                if (isHeavyTaskActive) return@launch
+                requestAdminTelemetry()
+                requestHardwareSpecs()
+                requestBatteryHealth()
+                delay(120)
+                if (isHeavyTaskActive) return@launch
+                requestPowerPlans()
+                requestRunningWindows()
+                requestInstalledApps()
+                delay(150)
+                if (isHeavyTaskActive) return@launch
+                requestWindowsServices()
+                requestWindowsUpdates()
+            } catch (e: Exception) {
+                Log.w(TAG, "Background sync error: ${e.message}")
             }
         }
     }
@@ -868,8 +955,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                                 currentState = TransportState.READY
                                 dispatchCommand("volume_get")
                                 dispatchCommand("brightness_get")
+                                triggerFullSyncIfNeeded()
                             },
-                            200,
+                            150,
                         )
 
                         listenSocketLoop(transport)
@@ -1503,7 +1591,58 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     sendBroadcast(intent)
                 }
             }
+            "AUDIO_DEVICES_RESPONSE" -> {
+                val dArr = json.optJSONArray("devices")
+                if (dArr != null) {
+                    val devList = mutableListOf<AudioDeviceItem>()
+                    for (i in 0 until dArr.length()) {
+                        val d = dArr.getJSONObject(i)
+                        devList.add(AudioDeviceItem(
+                            id = d.optString("id", ""),
+                            name = d.optString("name", "Audio Device"),
+                            isDefault = d.optBoolean("isDefault", false),
+                            isInput = d.optBoolean("isInput", false)
+                        ))
+                    }
+                    LaptopStateCache.saveAudioDevices(applicationContext, devList)
+                }
+                mainHandler.post {
+                    val intent = Intent(ACTION_AUDIO_SESSIONS_UPDATE).apply {
+                        putExtra("devicesJson", json.optJSONArray("devices")?.toString() ?: "[]")
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
             "AUDIO_SESSIONS_UPDATE", "AUDIO_SESSIONS_RESPONSE" -> {
+                val sArr = json.optJSONArray("sessions")
+                if (sArr != null) {
+                    val sList = mutableListOf<AppAudioSessionItem>()
+                    for (i in 0 until sArr.length()) {
+                        val s = sArr.getJSONObject(i)
+                        sList.add(AppAudioSessionItem(
+                            pid = s.optInt("pid", 0),
+                            processName = s.optString("processName", "Application"),
+                            volumePercent = s.optInt("volumePercent", 50),
+                            isMuted = s.optBoolean("isMuted", false)
+                        ))
+                    }
+                    LaptopStateCache.saveAudioSessions(applicationContext, sList)
+                }
+                val dArr = json.optJSONArray("devices")
+                if (dArr != null) {
+                    val devList = mutableListOf<AudioDeviceItem>()
+                    for (i in 0 until dArr.length()) {
+                        val d = dArr.getJSONObject(i)
+                        devList.add(AudioDeviceItem(
+                            id = d.optString("id", ""),
+                            name = d.optString("name", "Audio Device"),
+                            isDefault = d.optBoolean("isDefault", false),
+                            isInput = d.optBoolean("isInput", false)
+                        ))
+                    }
+                    LaptopStateCache.saveAudioDevices(applicationContext, devList)
+                }
                 mainHandler.post {
                     val intent = Intent(ACTION_AUDIO_SESSIONS_UPDATE).apply {
                         putExtra("sessionsJson", json.optJSONArray("sessions")?.toString() ?: "[]")
@@ -1516,8 +1655,56 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     sendBroadcast(intent)
                 }
             }
+            "HARDWARE_SPECS_RESPONSE" -> {
+                val sObj = json.optJSONObject("specs") ?: json
+                val specs = HardwareSpecs(
+                    processorName = sObj.optString("processorName", ""),
+                    coreCount = sObj.optInt("coreCount", 0),
+                    totalMemoryMb = sObj.optLong("totalMemoryMb", 0L),
+                    gpuName = sObj.optString("gpuName", ""),
+                    gpuVramMb = sObj.optLong("gpuVramMb", 0L),
+                    systemManufacturer = sObj.optString("systemManufacturer", ""),
+                    systemModel = sObj.optString("systemModel", ""),
+                    biosVersion = sObj.optString("biosVersion", ""),
+                    osDescription = sObj.optString("osDescription", ""),
+                    uptimeSeconds = sObj.optLong("uptimeSeconds", 0L)
+                )
+                LaptopStateCache.saveHardwareSpecs(applicationContext, specs)
+                mainHandler.post {
+                    val intent = Intent(ACTION_HARDWARE_SPECS).apply {
+                        putExtra("specsJson", sObj.toString())
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
+            "BATTERY_REPORT_RESPONSE" -> {
+                val rObj = json.optJSONObject("batteryReport") ?: json
+                val report = BatteryReportDetails(
+                    success = rObj.optBoolean("success", false),
+                    batteryName = rObj.optString("batteryName", ""),
+                    manufacturer = rObj.optString("manufacturer", ""),
+                    serialNumber = rObj.optString("serialNumber", ""),
+                    chemistry = rObj.optString("chemistry", ""),
+                    designCapacityMwh = rObj.optDouble("designCapacityMwh", 0.0),
+                    fullChargeCapacityMwh = rObj.optDouble("fullChargeCapacityMwh", 0.0),
+                    cycleCount = rObj.optInt("cycleCount", 0),
+                    healthPercent = rObj.optInt("healthPercent", 100),
+                    reportTimestamp = rObj.optString("reportTimestamp", ""),
+                    errorMessage = rObj.optString("errorMessage", "")
+                )
+                LaptopStateCache.saveBatteryReport(applicationContext, report)
+                mainHandler.post {
+                    val intent = Intent(ACTION_BATTERY_REPORT).apply {
+                        putExtra("reportJson", rObj.toString())
+                        setPackage(packageName)
+                    }
+                    sendBroadcast(intent)
+                }
+            }
             "ADMIN_TELEMETRY_RESPONSE" -> {
                 val tObj = json.optJSONObject("telemetry") ?: json
+                LaptopStateCache.saveAdminTelemetry(applicationContext, json.toString())
                 mainHandler.post {
                     val intent = Intent(ACTION_ADMIN_TELEMETRY).apply {
                         putExtra("rawJson", json.toString())
@@ -1534,6 +1721,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
             "BATTERY_HEALTH_RESPONSE" -> {
                 val bObj = json.optJSONObject("batteryHealth") ?: json
+                LaptopStateCache.saveBatteryHealth(applicationContext, bObj.toString())
                 mainHandler.post {
                     val intent = Intent(ACTION_BATTERY_HEALTH).apply {
                         putExtra("designCapacityMwh", bObj.optDouble("designCapacityMwh", bObj.optDouble("designedCapacityMwh", 0.0)))
@@ -1547,6 +1735,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
             "POWER_PLANS_RESPONSE" -> {
                 val pArr = json.optJSONArray("powerPlans") ?: json.optJSONArray("plans")
+                if (pArr != null) LaptopStateCache.savePowerPlans(applicationContext, pArr.toString())
                 mainHandler.post {
                     val intent = Intent(ACTION_POWER_PLANS).apply {
                         putExtra("plansJson", pArr?.toString() ?: "[]")
@@ -1575,6 +1764,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             }
             "SERVICES_RESPONSE" -> {
+                val sArr = json.optJSONArray("services")
+                if (sArr != null) LaptopStateCache.saveServices(applicationContext, sArr.toString())
                 mainHandler.post {
                     val intent = Intent(ACTION_SERVICES).apply {
                         putExtra("servicesJson", json.optJSONArray("services")?.toString() ?: "[]")
@@ -1585,6 +1776,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
             "UPDATES_RESPONSE" -> {
                 val uObj = json.optJSONObject("updates") ?: json
+                LaptopStateCache.saveUpdates(applicationContext, uObj.toString())
                 mainHandler.post {
                     val intent = Intent(ACTION_UPDATES).apply {
                         putExtra("pendingCount", uObj.optInt("pendingCount", uObj.optInt("pendingUpdatesCount", 0)))
@@ -1616,6 +1808,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             }
             "WINDOWS_LIST_RESPONSE", "APP_WINDOWS_RESPONSE" -> {
+                val wArr = json.optJSONArray("windows")
+                if (wArr != null) LaptopStateCache.saveRunningWindows(applicationContext, wArr.toString())
                 mainHandler.post {
                     val intent = Intent(ACTION_WINDOWS_LIST).apply {
                         putExtra("windowsJson", json.optJSONArray("windows")?.toString() ?: "[]")
@@ -1625,6 +1819,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             }
             "APP_INSTALLED_RESPONSE", "APPS_LIST_RESPONSE" -> {
+                val aArr = json.optJSONArray("apps")
+                if (aArr != null) LaptopStateCache.saveInstalledApps(applicationContext, aArr.toString())
                 mainHandler.post {
                     val intent = Intent(ACTION_INSTALLED_APPS).apply {
                         putExtra("appsJson", json.optJSONArray("apps")?.toString() ?: "[]")
@@ -1634,6 +1830,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             }
             "HARDWARE_METRICS", "LAPTOP_STATE" -> {
+                LaptopStateCache.saveHardwareMetrics(applicationContext, json.toString())
                 val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
                 val vol = json.optInt("volumeLevel", -1)
                 val bright = json.optInt("brightnessLevel", -1)
@@ -2327,6 +2524,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
+    fun sendSetMasterMute(mute: Boolean) {
+        dispatchCommand("volume_mute")
+    }
+
     fun sendSetMicMute(mute: Boolean) {
         val json = JSONObject().apply {
             put("type", "SET_MIC_MUTE")
@@ -2345,6 +2546,20 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     fun requestBatteryHealth() {
         val json = JSONObject().apply {
             put("type", "GET_BATTERY_HEALTH")
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestHardwareSpecs() {
+        val json = JSONObject().apply {
+            put("type", "GET_HARDWARE_SPECS")
+        }
+        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun requestGenerateBatteryReport() {
+        val json = JSONObject().apply {
+            put("type", "GENERATE_BATTERY_REPORT")
         }
         sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }

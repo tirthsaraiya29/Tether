@@ -240,6 +240,17 @@ public sealed class PacketRouter
                 await session.WriteJsonFrameSafeAsync(new { type = "ADMIN_TELEMETRY_RESPONSE", requestId = reqId, telemetry }, ct);
                 break;
 
+            case "HARDWARE_SPECS_GET":
+            case "GET_HARDWARE_SPECS":
+                if (!_capabilityManager.HasCapability(device, "WINDOWS_ADMIN"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Windows admin capability required" }, ct);
+                    break;
+                }
+                var specs = _adminManager.GetHardwareSpecs();
+                await session.WriteJsonFrameSafeAsync(new { type = "HARDWARE_SPECS_RESPONSE", requestId = reqId, specs }, ct);
+                break;
+
             case "BATTERY_HEALTH_GET":
             case "GET_BATTERY_HEALTH":
                 if (!_capabilityManager.HasCapability(device, "WINDOWS_ADMIN"))
@@ -249,6 +260,27 @@ public sealed class PacketRouter
                 }
                 var bHealth = _adminManager.GetBatteryHealth();
                 await session.WriteJsonFrameSafeAsync(new { type = "BATTERY_HEALTH_RESPONSE", requestId = reqId, batteryHealth = bHealth }, ct);
+                break;
+
+            case "BATTERY_REPORT_GENERATE":
+            case "GENERATE_BATTERY_REPORT":
+                if (!_capabilityManager.HasCapability(device, "WINDOWS_ADMIN"))
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Windows admin capability required" }, ct);
+                    break;
+                }
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var bReport = _adminManager.GenerateBatteryReport();
+                        await session.WriteJsonFrameSafeAsync(new { type = "BATTERY_REPORT_RESPONSE", requestId = reqId, batteryReport = bReport }, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"Battery report generation error: {ex.Message}");
+                    }
+                }, ct);
                 break;
 
             case "POWER_PLANS_GET":
@@ -328,8 +360,18 @@ public sealed class PacketRouter
                     await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Windows admin capability required" }, ct);
                     break;
                 }
-                var updates = _adminManager.CheckWindowsUpdates();
-                await session.WriteJsonFrameSafeAsync(new { type = "UPDATES_RESPONSE", requestId = reqId, updates }, ct);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var updates = _adminManager.CheckWindowsUpdates();
+                        await session.WriteJsonFrameSafeAsync(new { type = "UPDATES_RESPONSE", requestId = reqId, updates }, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"Windows update check error: {ex.Message}");
+                    }
+                }, ct);
                 break;
 
             // Automation Frames

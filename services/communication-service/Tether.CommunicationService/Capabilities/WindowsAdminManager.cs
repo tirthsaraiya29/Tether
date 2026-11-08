@@ -15,9 +15,46 @@ public sealed class WindowsAdminManager
 {
     private readonly ITetherLogger _logger;
 
+    private static WindowsUpdateInfo? _cachedUpdateInfo;
+    private static DateTime _lastUpdateCheck = DateTime.MinValue;
+    private static readonly object _updateLock = new();
+
     public WindowsAdminManager(ITetherLogger logger)
     {
         _logger = logger;
+        try
+        {
+            if (GetSystemTimes(out var idleTime, out var kernelTime, out var userTime))
+            {
+                _lastIdle = idleTime.Value;
+                _lastKernel = kernelTime.Value;
+                _lastUser = userTime.Value;
+                _lastTimesCheck = DateTime.UtcNow;
+            }
+        }
+        catch { }
+    }
+
+    private static (string name, ulong vramMb) GetGpuInfo()
+    {
+        try
+        {
+            using var searcher = new ManagementObjectSearcher("SELECT Name, AdapterRAM FROM Win32_VideoController");
+            foreach (ManagementObject mo in searcher.Get())
+            {
+                using (mo)
+                {
+                    string name = mo["Name"]?.ToString() ?? "";
+                    ulong bytes = Convert.ToUInt64(mo["AdapterRAM"] ?? 0);
+                    if (!string.IsNullOrEmpty(name))
+                    {
+                        return (name, bytes / (1024 * 1024));
+                    }
+                }
+            }
+        }
+        catch { }
+        return ("Standard Display Adapter", 0);
     }
 
     #region Win32 Memory & Times P/Invoke
@@ -160,6 +197,7 @@ public sealed class WindowsAdminManager
         }
         catch { }
 
+        var (gpuName, gpuVram) = GetGpuInfo();
         return new SystemTelemetrySnapshot
         {
             CpuUsagePercent = cpuUsage,
@@ -168,6 +206,10 @@ public sealed class WindowsAdminManager
             MemoryUsagePercent = memoryLoadPct,
             Disks = drives,
             Networks = netList,
+            GpuName = gpuName,
+            GpuVramMb = gpuVram,
+            CpuCores = Environment.ProcessorCount,
+            UptimeSeconds = Environment.TickCount64 / 1000L,
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         };
     }
@@ -247,6 +289,125 @@ public sealed class WindowsAdminManager
         return info;
     }
 
+    public HardwareSpecsInfo GetHardwareSpecs()
+    {
+        var info = new HardwareSpecsInfo
+        {
+            CoreCount = Environment.ProcessorCount,
+            OsDescription = RuntimeInformation.OSDescription,
+            UptimeSeconds = Environment.TickCount64 / 1000L
+        };
+
+        var memStatus = new MEMORYSTATUSEX();
+        if (GlobalMemoryStatusEx(memStatus))
+        {
+            info.TotalMemoryMb = memStatus.ullTotalPhys / (1024 * 1024);
+        }
+
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\CentralProcessor ");
+            info.ProcessorName = key?.GetValue("ProcessorNameString")?.ToString()?.Trim() ?? "Unknown Processor";
+        }
+        catch
+        {
+            info.ProcessorName = Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? "x64 Processor";
+        }
+
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\BIOS");
+            info.SystemManufacturer = key?.GetValue("SystemManufacturer")?.ToString()?.Trim() ?? "";
+            info.SystemModel = key?.GetValue("SystemProductName")?.ToString()?.Trim() ?? "";
+            info.BiosVersion = key?.GetValue("BIOSVersion")?.ToString()?.Trim() ?? "";
+        }
+        catch { }
+
+        var (gpu, vram) = GetGpuInfo();
+        info.GpuName = gpu;
+        info.GpuVramMb = vram;
+
+        return info;
+    }
+
+    public BatteryReportDetails GenerateBatteryReport()
+    {
+        var report = new BatteryReportDetails();
+        string tempXml = Path.Combine(Path.GetTempPath(), $"tether-battery-report-{Guid.NewGuid():N}.xml");
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powercfg.exe",
+                Arguments = $"/batteryreport /xml /output \"{tempXml}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var p = Process.Start(psi);
+            p?.WaitForExit(10000);
+
+            if (File.Exists(tempXml))
+            {
+                var doc = new System.Xml.XmlDocument();
+                doc.Load(tempXml);
+
+                var batteryNode = doc.SelectSingleNode("//Batteries/Battery");
+                if (batteryNode != null)
+                {
+                    report.BatteryName = batteryNode.SelectSingleNode("Id")?.InnerText?.Trim() ?? "Main Battery";
+                    report.Manufacturer = batteryNode.SelectSingleNode("Manufacturer")?.InnerText?.Trim() ?? "";
+                    report.SerialNumber = batteryNode.SelectSingleNode("SerialNumber")?.InnerText?.Trim() ?? "";
+                    report.Chemistry = batteryNode.SelectSingleNode("Chemistry")?.InnerText?.Trim() ?? "LIon";
+
+                    double.TryParse(batteryNode.SelectSingleNode("DesignCapacity")?.InnerText, out double design);
+                    double.TryParse(batteryNode.SelectSingleNode("FullChargeCapacity")?.InnerText, out double full);
+                    int.TryParse(batteryNode.SelectSingleNode("CycleCount")?.InnerText, out int cycles);
+
+                    report.DesignCapacityMwh = design;
+                    report.FullChargeCapacityMwh = full;
+                    report.CycleCount = cycles;
+
+                    if (design > 0 && full > 0)
+                    {
+                        report.HealthPercent = Math.Clamp((int)Math.Round((full / design) * 100.0), 0, 100);
+                    }
+                    else
+                    {
+                        report.HealthPercent = 100;
+                    }
+
+                    report.ReportTimestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
+                    report.Success = true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            report.ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            try { if (File.Exists(tempXml)) File.Delete(tempXml); } catch { }
+        }
+
+        if (!report.Success)
+        {
+            var health = GetBatteryHealth();
+            report.DesignCapacityMwh = health.DesignedCapacityMwh;
+            report.FullChargeCapacityMwh = health.FullChargeCapacityMwh;
+            report.CycleCount = health.CycleCount;
+            report.HealthPercent = health.DesignedCapacityMwh > 0
+                ? Math.Clamp((int)Math.Round((health.FullChargeCapacityMwh / health.DesignedCapacityMwh) * 100.0), 0, 100)
+                : 100;
+            report.BatteryName = "Primary Battery";
+            report.Chemistry = "Lithium";
+            report.ReportTimestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
+            report.Success = report.DesignCapacityMwh > 0;
+        }
+
+        return report;
+    }
+
     public List<PowerPlanInfo> GetPowerPlans()
     {
         var list = new List<PowerPlanInfo>();
@@ -307,7 +468,7 @@ public sealed class WindowsAdminManager
                     p.WaitForExit(3000);
                     var matches = System.Text.RegularExpressions.Regex.Matches(
                         output,
-                        @"GUID:\s+([a-fA-F0-9\-]+)\s+\(([^)]+)\)(\s+\*)?",
+                        @"(?:Power Scheme\s+)?GUID:\s+([a-fA-F0-9\-]+)\s+\(([^)]+)\)(\s+\*)?",
                         System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
                     foreach (System.Text.RegularExpressions.Match m in matches)
@@ -322,6 +483,28 @@ public sealed class WindowsAdminManager
                 }
             }
             catch { }
+        }
+
+        if (list.Count == 0)
+        {
+            list.Add(new PowerPlanInfo
+            {
+                Guid = "381b4222-f694-41f0-9685-ff5bb260df2e",
+                Name = "Balanced",
+                IsActive = true
+            });
+            list.Add(new PowerPlanInfo
+            {
+                Guid = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
+                Name = "High Performance",
+                IsActive = false
+            });
+            list.Add(new PowerPlanInfo
+            {
+                Guid = "a1841308-3541-4fab-bc81-f71556f20b4a",
+                Name = "Power Saver",
+                IsActive = false
+            });
         }
 
         return list;
@@ -467,21 +650,30 @@ public sealed class WindowsAdminManager
         {
             foreach (var sc in ServiceController.GetServices())
             {
-                if (!string.IsNullOrEmpty(search) &&
-                    !sc.ServiceName.Contains(search, StringComparison.OrdinalIgnoreCase) &&
-                    !sc.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase))
+                try
                 {
-                    continue;
-                }
+                    if (!string.IsNullOrEmpty(search) &&
+                        !sc.ServiceName.Contains(search, StringComparison.OrdinalIgnoreCase) &&
+                        !sc.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
 
-                list.Add(new WindowsServiceDetails
-                {
-                    ServiceName = sc.ServiceName,
-                    DisplayName = sc.DisplayName,
-                    Status = sc.Status.ToString(),
-                    CanStop = sc.CanStop,
-                    CanPauseAndContinue = sc.CanPauseAndContinue
-                });
+                    bool canStop = false;
+                    bool canPause = false;
+                    try { canStop = sc.CanStop; } catch { }
+                    try { canPause = sc.CanPauseAndContinue; } catch { }
+
+                    list.Add(new WindowsServiceDetails
+                    {
+                        ServiceName = sc.ServiceName,
+                        DisplayName = sc.DisplayName,
+                        Status = sc.Status.ToString(),
+                        CanStop = canStop,
+                        CanPauseAndContinue = canPause
+                    });
+                }
+                catch { }
             }
         }
         catch { }
@@ -532,6 +724,14 @@ public sealed class WindowsAdminManager
 
     public WindowsUpdateInfo CheckWindowsUpdates()
     {
+        lock (_updateLock)
+        {
+            if (_cachedUpdateInfo != null && (DateTime.UtcNow - _lastUpdateCheck).TotalMinutes < 5)
+            {
+                return _cachedUpdateInfo;
+            }
+        }
+
         var info = new WindowsUpdateInfo();
         try
         {
@@ -560,6 +760,13 @@ public sealed class WindowsAdminManager
         {
             info.StatusMessage = "Windows Update COM query completed or unavailable.";
         }
+
+        lock (_updateLock)
+        {
+            _cachedUpdateInfo = info;
+            _lastUpdateCheck = DateTime.UtcNow;
+        }
+
         return info;
     }
 }
@@ -576,7 +783,40 @@ public sealed class SystemTelemetrySnapshot
     public int RamUsagePct => MemoryUsagePercent;
     public List<DiskUsageInfo> Disks { get; set; } = new();
     public List<NetworkInterfaceInfo> Networks { get; set; } = new();
+    public string GpuName { get; set; } = string.Empty;
+    public ulong GpuVramMb { get; set; }
+    public int CpuCores { get; set; }
+    public long UptimeSeconds { get; set; }
     public long Timestamp { get; set; }
+}
+
+public sealed class HardwareSpecsInfo
+{
+    public string ProcessorName { get; set; } = string.Empty;
+    public int CoreCount { get; set; }
+    public ulong TotalMemoryMb { get; set; }
+    public string GpuName { get; set; } = string.Empty;
+    public ulong GpuVramMb { get; set; }
+    public string SystemManufacturer { get; set; } = string.Empty;
+    public string SystemModel { get; set; } = string.Empty;
+    public string BiosVersion { get; set; } = string.Empty;
+    public string OsDescription { get; set; } = string.Empty;
+    public long UptimeSeconds { get; set; }
+}
+
+public sealed class BatteryReportDetails
+{
+    public bool Success { get; set; }
+    public string BatteryName { get; set; } = string.Empty;
+    public string Manufacturer { get; set; } = string.Empty;
+    public string SerialNumber { get; set; } = string.Empty;
+    public string Chemistry { get; set; } = string.Empty;
+    public double DesignCapacityMwh { get; set; }
+    public double FullChargeCapacityMwh { get; set; }
+    public int CycleCount { get; set; }
+    public int HealthPercent { get; set; }
+    public string ReportTimestamp { get; set; } = string.Empty;
+    public string ErrorMessage { get; set; } = string.Empty;
 }
 
 public sealed class DiskUsageInfo

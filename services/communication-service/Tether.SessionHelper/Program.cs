@@ -295,11 +295,16 @@ internal static class Program
     {
         var writeLock = new SemaphoreSlim(1, 1);
 
+        var jsonSerializerOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
         async Task SendJsonFrameAsync(object payload)
         {
             try
             {
-                byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
+                byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(payload, jsonSerializerOptions);
                 await writeLock.WaitAsync(ct);
                 try
                 {
@@ -445,7 +450,8 @@ internal static class Program
 
                         case "AUDIO_SESSIONS_GET":
                             var sessions = AdvancedAudioController.GetAppAudioSessions();
-                            await SendJsonFrameAsync(new { type = "AUDIO_SESSIONS_RESPONSE", requestId = reqId, sessions });
+                            var devList = AdvancedAudioController.GetAudioDevices(true);
+                            await SendJsonFrameAsync(new { type = "AUDIO_SESSIONS_RESPONSE", requestId = reqId, sessions, devices = devList });
                             break;
 
                         case "AUDIO_APP_VOLUME_SET":
