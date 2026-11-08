@@ -108,12 +108,12 @@ fun RemoteDesktopScreen(
 
         withContext(Dispatchers.IO) {
             try {
-                val client = FileTransferClient.getPinnedClient(context)
+                val pinnedKey = FileTransferClient.resolvePinnedKey(context, null)
+                val client = FileTransferClient.getPinnedClient(context, pinnedKey, hostIp)
                 val url = "https://$hostIp:37124/api/desktop/stream?fps=$targetFps&quality=$targetQuality"
                 val requestBuilder = Request.Builder().url(url)
 
                 val timestampMs = System.currentTimeMillis().toString()
-                val pinnedKey = FileTransferClient.resolvePinnedKey(context, null)
                 if (pinnedKey != null) {
                     val winSpkiBase64 = android.util.Base64.encodeToString(pinnedKey, android.util.Base64.NO_WRAP)
                     val proofData = "$token:$timestampMs:$winSpkiBase64".toByteArray(Charsets.UTF_8)

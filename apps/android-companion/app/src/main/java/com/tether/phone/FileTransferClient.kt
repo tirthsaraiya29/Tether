@@ -164,9 +164,10 @@ object FileTransferClient {
         return typeUpper.contains("EC") || typeUpper.contains("ECDSA")
     }
 
-    fun getPinnedClient(context: Context?, customPinnedKey: ByteArray? = null): OkHttpClient {
+    fun getPinnedClient(context: Context?, customPinnedKey: ByteArray? = null, host: String? = null): OkHttpClient {
         val pinnedKey = resolvePinnedKey(context, customPinnedKey)
-        val cacheKey = pinnedKey?.contentHashCode() ?: 0
+        val hostPart = host?.trim() ?: ""
+        val cacheKey = (pinnedKey?.contentHashCode() ?: 0) * 31 + hostPart.hashCode()
 
         return clientCache.getOrPut(cacheKey) {
             val trustManager = TetherPinnedTrustManager(context, customPinnedKey)
@@ -225,9 +226,23 @@ object FileTransferClient {
                 }
             }
 
+            val pinnerBuilder = CertificatePinner.Builder()
+            if (pinnedKey != null && pinnedKey.isNotEmpty()) {
+                val sha256 = MessageDigest.getInstance("SHA-256").digest(pinnedKey)
+                val pinBase64 = android.util.Base64.encodeToString(sha256, android.util.Base64.NO_WRAP)
+                val pin = "sha256/$pinBase64"
+                if (hostPart.isNotEmpty()) {
+                    pinnerBuilder.add(hostPart, pin)
+                }
+                pinnerBuilder.add("localhost", pin)
+                pinnerBuilder.add("127.0.0.1", pin)
+                pinnerBuilder.add("*.local", pin)
+            }
+
             OkHttpClient.Builder()
                 .sslSocketFactory(sslContext.socketFactory, trustManager)
                 .hostnameVerifier(hostnameVerifier)
+                .certificatePinner(pinnerBuilder.build())
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(60, TimeUnit.SECONDS)
                 .writeTimeout(60, TimeUnit.SECONDS)
@@ -258,7 +273,7 @@ object FileTransferClient {
         context: Context? = null,
         customPinnedKey: ByteArray? = null
     ): List<FileNode> = withContext(Dispatchers.IO) {
-        val client = getPinnedClient(context, customPinnedKey)
+        val client = getPinnedClient(context, customPinnedKey, hostIp)
 
         val urlBuilder = HttpUrl.Builder()
             .scheme("https")
@@ -306,7 +321,7 @@ object FileTransferClient {
         token: String,
         customPinnedKey: ByteArray? = null
     ) = withContext(Dispatchers.IO) {
-        val client = getPinnedClient(context, customPinnedKey)
+        val client = getPinnedClient(context, customPinnedKey, hostIp)
 
         val url = HttpUrl.Builder()
             .scheme("https")
@@ -358,7 +373,7 @@ object FileTransferClient {
         token: String,
         customPinnedKey: ByteArray? = null
     ) = withContext(Dispatchers.IO) {
-        val client = getPinnedClient(context, customPinnedKey)
+        val client = getPinnedClient(context, customPinnedKey, hostIp)
 
         val url = HttpUrl.Builder()
             .scheme("https")
@@ -425,7 +440,7 @@ object FileTransferClient {
         context: Context? = null,
         customPinnedKey: ByteArray? = null
     ): List<FileNode> = withContext(Dispatchers.IO) {
-        val client = getPinnedClient(context, customPinnedKey)
+        val client = getPinnedClient(context, customPinnedKey, hostIp)
         val urlBuilder = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
@@ -474,7 +489,7 @@ object FileTransferClient {
         context: Context? = null,
         customPinnedKey: ByteArray? = null
     ): Boolean = withContext(Dispatchers.IO) {
-        val client = getPinnedClient(context, customPinnedKey)
+        val client = getPinnedClient(context, customPinnedKey, hostIp)
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
@@ -506,7 +521,7 @@ object FileTransferClient {
         context: Context? = null,
         customPinnedKey: ByteArray? = null
     ): Boolean = withContext(Dispatchers.IO) {
-        val client = getPinnedClient(context, customPinnedKey)
+        val client = getPinnedClient(context, customPinnedKey, hostIp)
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
@@ -538,7 +553,7 @@ object FileTransferClient {
         context: Context? = null,
         customPinnedKey: ByteArray? = null
     ): Boolean = withContext(Dispatchers.IO) {
-        val client = getPinnedClient(context, customPinnedKey)
+        val client = getPinnedClient(context, customPinnedKey, hostIp)
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
@@ -570,7 +585,7 @@ object FileTransferClient {
         context: Context? = null,
         customPinnedKey: ByteArray? = null
     ): Boolean = withContext(Dispatchers.IO) {
-        val client = getPinnedClient(context, customPinnedKey)
+        val client = getPinnedClient(context, customPinnedKey, hostIp)
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
@@ -600,7 +615,7 @@ object FileTransferClient {
         context: Context? = null,
         customPinnedKey: ByteArray? = null
     ): Boolean = withContext(Dispatchers.IO) {
-        val client = getPinnedClient(context, customPinnedKey)
+        val client = getPinnedClient(context, customPinnedKey, hostIp)
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
@@ -626,7 +641,7 @@ object FileTransferClient {
         context: Context? = null,
         customPinnedKey: ByteArray? = null
     ): List<DesktopWindow> = withContext(Dispatchers.IO) {
-        val client = getPinnedClient(context, customPinnedKey)
+        val client = getPinnedClient(context, customPinnedKey, hostIp)
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
@@ -677,7 +692,7 @@ object FileTransferClient {
         context: Context? = null,
         customPinnedKey: ByteArray? = null
     ): List<InstalledAppItem> = withContext(Dispatchers.IO) {
-        val client = getPinnedClient(context, customPinnedKey)
+        val client = getPinnedClient(context, customPinnedKey, hostIp)
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
@@ -724,7 +739,7 @@ object FileTransferClient {
         context: Context? = null,
         customPinnedKey: ByteArray? = null
     ): ByteArray? = withContext(Dispatchers.IO) {
-        val client = getPinnedClient(context, customPinnedKey)
+        val client = getPinnedClient(context, customPinnedKey, hostIp)
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
