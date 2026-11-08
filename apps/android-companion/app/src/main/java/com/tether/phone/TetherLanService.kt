@@ -345,7 +345,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private var connectedHostPort: Int = TetherDiscoveryManager.DEFAULT_PORT
 
     @Volatile
-    private var pendingRequestId: String? = null
+    var pendingRequestId: String? = null
+        private set
 
     @Volatile
     private var pendingWinEcPubKey: ByteArray? = null

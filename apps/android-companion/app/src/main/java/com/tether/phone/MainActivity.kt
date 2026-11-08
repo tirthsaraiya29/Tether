@@ -1236,8 +1236,10 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun confirmPairing(pin: String) {
+        val reqId = TetherLanService.instance?.pendingRequestId ?: ""
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_CONFIRM_PAIRING
+            putExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID, reqId)
             putExtra(TetherLanService.EXTRA_PAIRING_PIN, pin)
         }
         try {

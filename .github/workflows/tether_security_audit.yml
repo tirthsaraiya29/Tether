@@ -231,7 +231,7 @@ jobs:
 
           python .github/scripts/submit_advisories.py --preflight
 
-      - name: Validate Ollama Cloud API key
+      - name: Validate Ollama Cloud API key and credits
         id: ollama_preflight
         shell: bash
         run: |
@@ -268,6 +268,38 @@ jobs:
 
           print("Ollama Cloud API authentication succeeded.")
           PY
+
+          # Validate usage credit balance before spending compute
+          BALANCE_RESPONSE="$RUNNER_TEMP/ollama-balance.json"
+          BALANCE_CODE="$(
+            curl --silent \
+              --output "$BALANCE_RESPONSE" \
+              --write-out "%{http_code}" \
+              --connect-timeout 15 \
+              --max-time 30 \
+              -H "Authorization: Bearer $OLLAMA_API_KEY" \
+              -H "Accept: application/json" \
+              https://ollama.com/api/balance || true
+          )"
+
+          if [[ "$BALANCE_CODE" == "200" ]]; then
+            python - "$BALANCE_RESPONSE" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as f:
+              data = json.load(f)
+
+          included = data.get("included", {}).get("balance_usd", 0)
+          purchased = data.get("purchased", {}).get("balance_usd", 0)
+          total = (included or 0) + (purchased or 0)
+          print(f"Ollama Cloud credit balance: ${total:.2f} (included: ${included or 0:.2f}, purchased: ${purchased or 0:.2f})")
+
+          if total <= 0:
+              print("::error::Ollama Cloud usage credit balance is $0.00. Model inference will fail. Please add usage credits or subscribe at https://ollama.com/plans")
+              sys.exit(1)
+          PY
+          fi
 
       - name: Verify private report repository write access
         id: report_write_preflight
@@ -563,6 +595,9 @@ jobs:
           fi
 
           if [[ -s "$STDERR_LOG" ]]; then
+            echo "::group::OpenCode Diagnostics"
+            sed "s/${OLLAMA_API_KEY}/[REDACTED]/g" "$STDERR_LOG"
+            echo "::endgroup::"
             {
               echo ""
               echo "## OpenCode Diagnostics"
@@ -575,6 +610,9 @@ jobs:
 
           if [[ "$STATUS" -ne 0 ]]; then
             echo "::error::OpenCode/Nemotron audit failed with exit code $STATUS."
+            if [[ -s "$STDERR_LOG" ]]; then
+              echo "::error::OpenCode stderr summary: $(grep -i 'error' "$STDERR_LOG" | head -n 3 | sed "s/${OLLAMA_API_KEY}/[REDACTED]/g")"
+            fi
             exit "$STATUS"
           fi
 
