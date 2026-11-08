@@ -45,9 +45,15 @@ public static class FrameCodec
         await stream.FlushAsync(ct);
     }
 
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
+
     public static Task WriteJsonFrameAsync<T>(Stream stream, T payload, CancellationToken ct)
     {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions);
         return WriteFrameAsync(stream, bytes, ct);
     }
 

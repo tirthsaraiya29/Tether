@@ -133,8 +133,8 @@ object LaptopStateCache {
                     dList.add(DiskUsageItem(
                         name = d.optString("name", "C:"),
                         volumeLabel = d.optString("volumeLabel", ""),
-                        totalGb = d.optDouble("totalGb", 0.0),
-                        freeGb = d.optDouble("freeGb", 0.0),
+                        totalGb = d.optDouble("totalGb", d.optDouble("totalGigabytes", d.optDouble("TotalGigabytes", 0.0))),
+                        freeGb = d.optDouble("freeGb", d.optDouble("freeGigabytes", d.optDouble("FreeGigabytes", 0.0))),
                         format = d.optString("format", "NTFS")
                     ))
                 }
@@ -518,8 +518,8 @@ object LaptopStateCache {
                     dList.add(DiskUsageItem(
                         name = d.optString("name", "C:"),
                         volumeLabel = d.optString("volumeLabel", ""),
-                        totalGb = d.optDouble("totalGb", 0.0),
-                        freeGb = d.optDouble("freeGb", 0.0),
+                        totalGb = d.optDouble("totalGb", d.optDouble("totalGigabytes", d.optDouble("TotalGigabytes", 0.0))),
+                        freeGb = d.optDouble("freeGb", d.optDouble("freeGigabytes", d.optDouble("FreeGigabytes", 0.0))),
                         format = d.optString("format", "NTFS")
                     ))
                 }
@@ -559,10 +559,10 @@ object LaptopStateCache {
             val j = JSONObject(rawJson)
             val b = j.optJSONObject("batteryHealth") ?: j
             saveBatteryHealth(context, BatteryHealthState(
-                designCapacityMwh = b.optDouble("designCapacityMwh", b.optDouble("designedCapacityMwh", 0.0)),
-                fullChargeCapacityMwh = b.optDouble("fullChargeCapacityMwh", 0.0),
-                wearLevelPct = b.optInt("wearLevelPct", b.optInt("wearLevelPercent", 0)),
-                cycleCount = b.optInt("cycleCount", 0)
+                designCapacityMwh = b.optDouble("designCapacityMwh", b.optDouble("designedCapacityMwh", b.optDouble("DesignCapacityMwh", b.optDouble("DesignedCapacityMwh", 0.0)))),
+                fullChargeCapacityMwh = b.optDouble("fullChargeCapacityMwh", b.optDouble("FullChargeCapacityMwh", 0.0)),
+                wearLevelPct = b.optInt("wearLevelPct", b.optInt("wearLevelPercent", b.optInt("WearLevelPct", b.optInt("WearLevelPercent", 0)))),
+                cycleCount = b.optInt("cycleCount", b.optInt("CycleCount", 0))
             ))
         } catch (_: Exception) {}
     }
@@ -574,9 +574,9 @@ object LaptopStateCache {
             for (i in 0 until arr.length()) {
                 val p = arr.getJSONObject(i)
                 list.add(PowerPlanItem(
-                    guid = p.optString("guid", ""),
-                    name = p.optString("name", "Power Plan"),
-                    isActive = p.optBoolean("isActive", false)
+                    guid = p.optString("guid", p.optString("Guid", "")),
+                    name = p.optString("name", p.optString("Name", "Power Plan")),
+                    isActive = p.optBoolean("isActive", p.optBoolean("IsActive", false))
                 ))
             }
             savePowerPlans(context, list)
@@ -589,13 +589,13 @@ object LaptopStateCache {
             val list = mutableListOf<WindowsServiceItem>()
             for (i in 0 until arr.length()) {
                 val s = arr.getJSONObject(i)
-                val svcName = s.optString("name", s.optString("serviceName", ""))
-                val dispName = s.optString("displayName", svcName)
+                val svcName = s.optString("name", s.optString("serviceName", s.optString("ServiceName", s.optString("Name", ""))))
+                val dispName = s.optString("displayName", s.optString("DisplayName", svcName))
                 list.add(WindowsServiceItem(
                     name = svcName,
                     displayName = if (dispName.isNotBlank()) dispName else svcName,
-                    status = s.optString("status", "Stopped"),
-                    canStop = s.optBoolean("canStop", true)
+                    status = s.optString("status", s.optString("Status", "Stopped")),
+                    canStop = s.optBoolean("canStop", s.optBoolean("CanStop", true))
                 ))
             }
             saveServices(context, list)
