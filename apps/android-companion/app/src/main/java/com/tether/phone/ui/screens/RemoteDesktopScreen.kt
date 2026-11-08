@@ -42,8 +42,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.CertificatePinner
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.BufferedInputStream
+import java.security.MessageDigest
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
@@ -109,7 +112,21 @@ fun RemoteDesktopScreen(
         withContext(Dispatchers.IO) {
             try {
                 val pinnedKey = FileTransferClient.resolvePinnedKey(context, null)
+                val pinnerBuilder = CertificatePinner.Builder()
+                if (pinnedKey != null && pinnedKey.isNotEmpty()) {
+                    val sha256 = MessageDigest.getInstance("SHA-256").digest(pinnedKey)
+                    val pinBase64 = android.util.Base64.encodeToString(sha256, android.util.Base64.NO_WRAP)
+                    pinnerBuilder.add(hostIp, "sha256/$pinBase64")
+                } else {
+                    pinnerBuilder.add(hostIp, "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+                }
+                val certificatePinner = pinnerBuilder.build()
+
                 val client = FileTransferClient.getPinnedClient(context, pinnedKey, hostIp)
+                    .newBuilder()
+                    .certificatePinner(certificatePinner)
+                    .build()
+
                 val url = "https://$hostIp:37124/api/desktop/stream?fps=$targetFps&quality=$targetQuality"
                 val requestBuilder = Request.Builder().url(url)
 
