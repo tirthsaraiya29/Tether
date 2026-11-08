@@ -138,6 +138,12 @@ internal static class AdvancedAudioController
         pid = 14
     };
 
+    private static readonly PROPERTYKEY PKEY_Device_DeviceDesc = new()
+    {
+        fmtid = new Guid("A45C254E-DF1C-4EFD-8020-67D146A850E0"),
+        pid = 2
+    };
+
     public static List<AppAudioSession> GetAppAudioSessions()
     {
         var result = new List<AppAudioSession>();
@@ -294,7 +300,11 @@ internal static class AdvancedAudioController
         {
             int flow = isRender ? 0 : 1;
             int hr = enumerator.EnumAudioEndpoints(flow, 1 /* DEVICE_STATE_ACTIVE */, out IMMDeviceCollection col);
-            if (hr != 0 || col is null) return list;
+            if (hr != 0 || col is null)
+            {
+                hr = enumerator.EnumAudioEndpoints(flow, 0xF /* DEVICE_STATEMASK_ALL */, out col);
+                if (hr != 0 || col is null) return list;
+            }
 
             try
             {
@@ -306,6 +316,13 @@ internal static class AdvancedAudioController
                 }
 
                 col.GetCount(out int count);
+                if (count == 0)
+                {
+                    Marshal.ReleaseComObject(col);
+                    if (enumerator.EnumAudioEndpoints(flow, 0xF /* DEVICE_STATEMASK_ALL */, out col) != 0 || col is null)
+                        return list;
+                    col.GetCount(out count);
+                }
                 for (int i = 0; i < count; i++)
                 {
                     if (col.Item(i, out IMMDevice dev) != 0 || dev is null) continue;
@@ -321,6 +338,14 @@ internal static class AdvancedAudioController
                                 if (store.GetValue(ref key, out PROPVARIANT pv) == 0 && pv.pwszVal != IntPtr.Zero)
                                 {
                                     name = Marshal.PtrToStringUni(pv.pwszVal) ?? id;
+                                }
+                                else
+                                {
+                                    var descKey = PKEY_Device_DeviceDesc;
+                                    if (store.GetValue(ref descKey, out PROPVARIANT descPv) == 0 && descPv.pwszVal != IntPtr.Zero)
+                                    {
+                                        name = Marshal.PtrToStringUni(descPv.pwszVal) ?? id;
+                                    }
                                 }
                             }
                             finally { Marshal.ReleaseComObject(store); }
