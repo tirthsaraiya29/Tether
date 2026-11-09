@@ -43,6 +43,7 @@ public sealed class SessionHelperDaemon : IHostedService, IDisposable
         {
             try { await Task.WhenAny(_loop, Task.Delay(2000, cancellationToken)); } catch { }
         }
+        TerminateHelperProcesses();
         _logger.Info("SessionHelperDaemon: stopped.");
     }
 
@@ -143,5 +144,34 @@ public sealed class SessionHelperDaemon : IHostedService, IDisposable
     {
         try { _cts.Cancel(); } catch { }
         try { _cts.Dispose(); } catch { }
+        TerminateHelperProcesses();
+    }
+
+    private void TerminateHelperProcesses()
+    {
+        try
+        {
+            var procs = Process.GetProcessesByName(HelperProcessName);
+            foreach (var p in procs)
+            {
+                try
+                {
+                    if (!p.HasExited)
+                    {
+                        _logger.Info($"SessionHelperDaemon: terminating helper PID {p.Id} on service stop.");
+                        p.Kill();
+                    }
+                }
+                catch { }
+                finally
+                {
+                    try { p.Dispose(); } catch { }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"SessionHelperDaemon: error stopping helper processes: {ex.Message}");
+        }
     }
 }

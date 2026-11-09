@@ -250,6 +250,8 @@ internal static class Program
 
         int currentSessionId = System.Diagnostics.Process.GetCurrentProcess().SessionId;
         string perSessionPipeName = $"{InputPipeName}.{currentSessionId}";
+        bool hasConnectedOnce = false;
+        int failedReconnects = 0;
 
         while (!cts.IsCancellationRequested)
         {
@@ -270,6 +272,9 @@ internal static class Program
                     continue;
                 }
 
+                hasConnectedOnce = true;
+                failedReconnects = 0;
+
                 await RunSessionBridgeLoopAsync(pipe, injector, cts.Token);
                 injector.ReleaseAllHeld();
             }
@@ -279,6 +284,27 @@ internal static class Program
             }
             catch
             {
+            }
+
+            if (hasConnectedOnce)
+            {
+                failedReconnects++;
+                try
+                {
+                    var commServices = System.Diagnostics.Process.GetProcessesByName("Tether.CommunicationService");
+                    bool serviceAlive = false;
+                    foreach (var s in commServices)
+                    { 
+                        try { if (!s.HasExited && s.SessionId == 0) { serviceAlive = true; break; } }
+                        catch { }
+                        finally { s.Dispose(); }
+                    }
+                    if (!serviceAlive || failedReconnects >= 5)
+                    {
+                        break;
+                    }
+                }
+                catch { }
             }
 
             try { await Task.Delay(1000, cts.Token); }
@@ -326,7 +352,7 @@ internal static class Program
             {
                 _ = SendJsonFrameAsync(new { type = "CLIPBOARD_SYNC", text, source = "PC" });
             });
-            System.Windows.Forms.Application.Run(clipboardController);
+            System.Windows.Forms.Application.Run();
         });
         clipThread.SetApartmentState(ApartmentState.STA);
         clipThread.IsBackground = true;

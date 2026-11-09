@@ -533,7 +533,15 @@ public static class HardwareExecutor
     {
         if (!WTSQueryUserToken(activeSession, out IntPtr userToken))
         {
-            logger.Warning($"HardwareExecutor: WTSQueryUserToken failed err={Marshal.GetLastWin32Error()}.");
+            int err = Marshal.GetLastWin32Error();
+            if (err == 1008)
+            {
+                logger.Debug($"HardwareExecutor: WTSQueryUserToken session {activeSession} has no token (workstation locked/logon screen).");
+            }
+            else
+            {
+                logger.Warning($"HardwareExecutor: WTSQueryUserToken failed err={err}.");
+            }
             return -1;
         }
 
@@ -634,7 +642,6 @@ public static class HardwareExecutor
                     logger.Warning($"HardwareExecutor: Untrusted owner '{owner?.Value}' on existing event '{eventName}'. Signal aborted.");
                     return false;
                 }
-                evt.SetAccessControl(sec);
             }
             bool setOk = evt.Set();
             logger.Info($"HardwareExecutor: {(createdNew ? "Created & " : "")}Signaled unlock event '{eventName}', setOk={setOk}");

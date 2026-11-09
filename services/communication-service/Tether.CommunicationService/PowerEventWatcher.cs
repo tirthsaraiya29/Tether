@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Management;
 using Microsoft.Win32;
@@ -152,11 +152,23 @@ public sealed class PowerEventWatcher : IDisposable
     {
         try
         {
-            var kind = e.NewEvent.Properties["EventType"]?.Value;
+            object? kind = null;
+            foreach (var prop in e.NewEvent.Properties)
+            {
+                if (string.Equals(prop.Name, "Type", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(prop.Name, "EventType", StringComparison.OrdinalIgnoreCase))
+                {
+                    kind = prop.Value;
+                    break;
+                }
+            }
             var type = kind switch
             {
+                (ushort)0 or (uint)0 or 0 => TetherPowerEventType.Logoff,
                 (ushort)1 or (uint)1 or 1 => TetherPowerEventType.Shutdown,
                 (ushort)2 or (uint)2 or 2 => TetherPowerEventType.Restart,
+                (ushort)4 or (uint)4 or 4 => TetherPowerEventType.Logoff,
+                (ushort)8 or (uint)8 or 8 => TetherPowerEventType.Shutdown,
                 _ => TetherPowerEventType.Shutdown,
             };
             Record(type, "WMI.Win32_ComputerShutdownEvent");
@@ -171,7 +183,15 @@ public sealed class PowerEventWatcher : IDisposable
     {
         try
         {
-            var evType = e.NewEvent.Properties["EventType"]?.Value;
+            object? evType = null;
+            foreach (var prop in e.NewEvent.Properties)
+            {
+                if (string.Equals(prop.Name, "EventType", StringComparison.OrdinalIgnoreCase))
+                {
+                    evType = prop.Value;
+                    break;
+                }
+            }
             var type = evType switch
             {
                 (ushort)4 or (uint)4 or 4 => TetherPowerEventType.Sleep,
