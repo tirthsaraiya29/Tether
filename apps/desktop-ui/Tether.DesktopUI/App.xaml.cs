@@ -1,7 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -112,16 +114,46 @@ namespace Tether.DesktopUI
             catch { }
         }
 
+        public static PipeSecurity CreateInstancePipeSecurity()
+        {
+            var pipeSecurity = new PipeSecurity();
+            pipeSecurity.AddAccessRule(new PipeAccessRule(
+                new SecurityIdentifier(WellKnownSidType.NetworkSid, null),
+                PipeAccessRights.ReadWrite,
+                AccessControlType.Deny));
+
+            var currentUser = WindowsIdentity.GetCurrent().User;
+            if (currentUser != null)
+            {
+                pipeSecurity.AddAccessRule(new PipeAccessRule(
+                    currentUser,
+                    PipeAccessRights.ReadWrite,
+                    AccessControlType.Allow));
+            }
+
+            return pipeSecurity;
+        }
+
         private void StartInstancePipeServer()
         {
             _pipeCts = new CancellationTokenSource();
+            var pipeSecurity = CreateInstancePipeSecurity();
+
             Task.Run(async () =>
             {
                 while (!_pipeCts.Token.IsCancellationRequested)
                 {
                     try
                     {
-                        using var server = new NamedPipeServerStream(InstancePipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                        using var server = NamedPipeServerStreamAcl.Create(
+                            InstancePipeName,
+                            PipeDirection.In,
+                            1,
+                            PipeTransmissionMode.Byte,
+                            PipeOptions.Asynchronous,
+                            0,
+                            0,
+                            pipeSecurity);
                         await server.WaitForConnectionAsync(_pipeCts.Token);
 
                         using var ms = new MemoryStream();

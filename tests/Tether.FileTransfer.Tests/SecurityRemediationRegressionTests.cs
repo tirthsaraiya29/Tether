@@ -1,9 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Pipes;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
 using System.Text;
+using Tether.CommunicationService.Capabilities;
+using Tether.DesktopUI;
 using Tether.SessionHelper;
 using Tether.Shared.Security;
 using Tether.Updater;
@@ -127,7 +132,106 @@ public class SecurityRemediationRegressionTests
     public void Updater_LockdownStagingAcl_FailsClosedOnNonExistentOrReparsePointDirectory()
     {
         // Non-existent directory must return false
-        Assert.False(Tether.Updater.Program.LockdownStagingAcl(@"C:\NonExistent_Tether_Staging_" + Guid.NewGuid().ToString("N"), null));
+        Assert.False(Tether.Updater.Program.LockdownStagingAcl(@"C:\NonExistent_Tether_Staging_" + Guid.NewGuid().ToString("N"), string.Empty));
+    }
+
+    #endregion
+
+    #region System Hardening & Warning Elimination (Milestone 5)
+
+    [Fact]
+    public void DesktopUI_CreateInstancePipeSecurity_RestrictsToCurrentUserAndDeniesNetwork()
+    {
+        var pipeSecurity = App.CreateInstancePipeSecurity();
+        Assert.NotNull(pipeSecurity);
+
+        var rules = pipeSecurity.GetAccessRules(true, true, typeof(SecurityIdentifier));
+        Assert.NotEmpty(rules);
+
+        bool hasNetworkDeny = false;
+        bool hasCurrentUserAllow = false;
+        var currentUserSid = WindowsIdentity.GetCurrent().User;
+
+        foreach (PipeAccessRule rule in rules)
+        {
+            if (rule.IdentityReference is SecurityIdentifier sid)
+            {
+                if (sid.IsWellKnown(WellKnownSidType.NetworkSid) &&
+                    rule.AccessControlType == AccessControlType.Deny)
+                {
+                    hasNetworkDeny = true;
+                }
+
+                if (currentUserSid != null &&
+                    sid == currentUserSid &&
+                    rule.AccessControlType == AccessControlType.Allow)
+                {
+                    hasCurrentUserAllow = true;
+                }
+            }
+        }
+
+        Assert.True(hasNetworkDeny, "PipeSecurity must explicitly deny NetworkSid.");
+        Assert.True(hasCurrentUserAllow, "PipeSecurity must allow current user SID.");
+    }
+
+    [Fact]
+    public void MultiMonitor_CoordinateMapping_CoversVirtualScreenWithNegativeBounds()
+    {
+        // Simulating a multi-monitor virtual screen where monitor 2 is to the left:
+        // Left: -1920, Top: 0, Width: 3840, Height: 1080
+        var virtualBounds = new System.Drawing.Rectangle(-1920, 0, 3840, 1080);
+        ushort minNorm = 0;
+        ushort maxNorm = 65535;
+        ushort midNorm = 32767;
+
+        int targetMinX = virtualBounds.Left + (int)((long)minNorm * virtualBounds.Width / 65535);
+        int targetMinY = virtualBounds.Top + (int)((long)minNorm * virtualBounds.Height / 65535);
+
+        int targetMaxX = virtualBounds.Left + (int)((long)maxNorm * virtualBounds.Width / 65535);
+        int targetMaxY = virtualBounds.Top + (int)((long)maxNorm * virtualBounds.Height / 65535);
+
+        int targetMidX = virtualBounds.Left + (int)((long)midNorm * virtualBounds.Width / 65535);
+
+        // Min maps to the far left of the virtual desktop (-1920)
+        Assert.Equal(-1920, targetMinX);
+        Assert.Equal(0, targetMinY);
+
+        // Max maps to right boundary of the virtual desktop (-1920 + 3840 = 1920)
+        Assert.Equal(1920, targetMaxX);
+        Assert.Equal(1080, targetMaxY);
+
+        // Mid maps close to the primary monitor origin (0)
+        Assert.InRange(targetMidX, -1, 1);
+    }
+
+    [Fact]
+    public void DesktopUI_InstancePipe_CreateWithAcl_Succeeds()
+    {
+        string pipeName = $"TetherDesktopUIInstancePipe_Test_{Guid.NewGuid():N}";
+        var pipeSecurity = App.CreateInstancePipeSecurity();
+
+        using var server = NamedPipeServerStreamAcl.Create(
+            pipeName,
+            PipeDirection.In,
+            1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous,
+            0,
+            0,
+            pipeSecurity);
+
+        Assert.NotNull(server);
+    }
+
+    [Fact]
+    public void HardwareExecutor_LaunchInUserSession_FailsClosedWhenUnprivileged()
+    {
+        var logger = new MockLogger();
+        // In an unprivileged test context (without Session 0 SYSTEM credentials),
+        // LaunchInUserSession must fail closed (return false) without invoking ShellExecute.
+        bool result = HardwareExecutor.ExecuteCommand("launch_calc", logger);
+        Assert.False(result);
     }
 
     #endregion

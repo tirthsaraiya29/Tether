@@ -30,6 +30,9 @@ namespace Tether.DesktopUI.Updates
         [JsonPropertyName("publishedAt")]
         public string PublishedAt { get; set; } = string.Empty;
 
+        [JsonPropertyName("payloadSha256")]
+        public string PayloadSha256 { get; set; } = string.Empty;
+
         [JsonPropertyName("files")]
         public List<ManifestFileEntry> Files { get; set; } = new();
     }
@@ -44,9 +47,11 @@ namespace Tether.DesktopUI.Updates
         public string? ZipDownloadUrl { get; set; }
         public string? InstallerDownloadUrl { get; set; }
         public string? ManifestDownloadUrl { get; set; }
+        public string? SignatureDownloadUrl { get; set; }
         public int ChangedFilesCount { get; set; }
         public long TotalDownloadBytes { get; set; }
         public List<ManifestFileEntry> ChangedFiles { get; set; } = new();
+        public string? PayloadSha256 { get; set; }
     }
 
     public class GitHubAsset

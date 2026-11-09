@@ -779,7 +779,8 @@ public static class HardwareExecutor
                             else
                             {
                                 int err = Marshal.GetLastWin32Error();
-                                logger.Warning($"HardwareExecutor: CreateProcessAsUser failed with error code {err}. Falling back to ShellExecute.");
+                                logger.Warning($"HardwareExecutor: CreateProcessAsUser failed with error code {err}. Failing closed to preserve Session 0 isolation.");
+                                return false;
                             }
                         }
                         finally
@@ -799,16 +800,8 @@ public static class HardwareExecutor
             }
         }
 
-        try
-        {
-            Process.Start(new ProcessStartInfo(commandLine) { UseShellExecute = true });
-            return true;
-        }
-        catch (Exception ex)
-        {
-            logger.Error($"HardwareExecutor: Fallback launch failed for '{commandLine}': {ex.Message}");
-            return false;
-        }
+        logger.Warning($"HardwareExecutor: Unable to launch '{commandLine}' in user session {activeSession}. Failing closed.");
+        return false;
     }
 
     private static void SendKeyPress(byte vkCode, int times)

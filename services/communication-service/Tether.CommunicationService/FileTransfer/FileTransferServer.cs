@@ -93,31 +93,54 @@ public class FileTransferServer : IHostedService
         uint cchFilePath,
         uint dwFlags);
 
-    [DllImport("kernel32.dll", EntryPoint = "MoveFileExW", SetLastError = true, CharSet = CharSet.Unicode)]
-    private static extern bool MoveFileEx(string lpExistingFileName, string lpNewFileName, uint dwFlags);
-    private const uint MOVEFILE_REPLACE_EXISTING = 0x00000001;
-    private const uint MOVEFILE_COPY_ALLOWED = 0x00000002;
-    private const uint MOVEFILE_WRITE_THROUGH = 0x00000008;
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetFileInformationByHandle(
+        SafeFileHandle hFile,
+        int FileInformationClass,
+        IntPtr lpFileInformation,
+        uint dwBufferSize);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetFileInformationByHandle(
+        SafeFileHandle hFile,
+        out BY_HANDLE_FILE_INFORMATION lpFileInformation);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BY_HANDLE_FILE_INFORMATION
+    {
+        public uint dwFileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME ftCreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME ftLastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME ftLastWriteTime;
+        public uint dwVolumeSerialNumber;
+        public uint nFileSizeHigh;
+        public uint nFileSizeLow;
+        public uint nNumberOfLinks;
+        public uint nFileIndexHigh;
+        public uint nFileIndexLow;
+    }
+
+    private const int FileRenameInfo = 3;
+    private const uint GENERIC_READ = 0x80000000;
+    private const uint GENERIC_WRITE = 0x40000000;
+    private const uint DELETE = 0x00010000;
+    private const uint SYNCHRONIZE = 0x00100000;
     private const uint FILE_SHARE_READ = 0x00000001;
     private const uint FILE_SHARE_WRITE = 0x00000002;
     private const uint FILE_SHARE_DELETE = 0x00000004;
+    private const uint FILE_SHARE_NONE = 0x00000000;
+    private const uint CREATE_NEW = 1;
     private const uint OPEN_EXISTING = 3;
+    private const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
+    private const uint FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400;
     private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
     private const uint FILE_NAME_NORMALIZED = 0x0;
 
-    private static string? GetFinalResolvedPath(string path)
+    private static string? GetFinalResolvedPath(SafeFileHandle handle)
     {
-        using var handle = CreateFile(
-            path,
-            0,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            IntPtr.Zero,
-            OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS,
-            IntPtr.Zero);
-
-        if (handle.IsInvalid)
+        if (handle.IsInvalid || handle.IsClosed)
         {
             return null;
         }
@@ -139,6 +162,60 @@ public class FileTransferServer : IHostedService
             return resolved[4..];
         }
         return resolved;
+    }
+
+    private static string? GetFinalResolvedPath(string path)
+    {
+        using var handle = CreateFile(
+            path,
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            IntPtr.Zero,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            IntPtr.Zero);
+
+        if (handle.IsInvalid)
+        {
+            return null;
+        }
+
+        return GetFinalResolvedPath(handle);
+    }
+
+    public static bool PromoteFileHandle(SafeFileHandle handle, string destinationFullPath)
+    {
+        if (handle.IsInvalid || handle.IsClosed)
+        {
+            return false;
+        }
+
+        int nameByteLen = destinationFullPath.Length * sizeof(char);
+        int bufferSize = 20 + nameByteLen + sizeof(char);
+        IntPtr buffer = Marshal.AllocHGlobal(bufferSize);
+        try
+        {
+            for (int i = 0; i < bufferSize; i++)
+            {
+                Marshal.WriteByte(buffer, i, 0);
+            }
+
+            // ReplaceIfExists = TRUE (1)
+            Marshal.WriteByte(buffer, 0, 1);
+            // RootDirectory = IntPtr.Zero (offsets 8..15 already zero)
+            // FileNameLength in bytes
+            Marshal.WriteInt32(buffer, 16, nameByteLen);
+            // FileName Unicode characters starting at offset 20
+            IntPtr destNamePtr = IntPtr.Add(buffer, 20);
+            char[] chars = destinationFullPath.ToCharArray();
+            Marshal.Copy(chars, 0, destNamePtr, chars.Length);
+
+            return SetFileInformationByHandle(handle, FileRenameInfo, buffer, (uint)bufferSize);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
     }
     #endregion
 
@@ -198,7 +275,10 @@ public class FileTransferServer : IHostedService
 
         if (normalizedPath.Contains("System Volume Information", StringComparison.OrdinalIgnoreCase) ||
             normalizedPath.Contains("$Recycle.Bin", StringComparison.OrdinalIgnoreCase) ||
-            normalizedPath.Contains("$RECYCLE.BIN", StringComparison.OrdinalIgnoreCase))
+            normalizedPath.Contains("$RECYCLE.BIN", StringComparison.OrdinalIgnoreCase) ||
+            normalizedPath.Contains("TetherUpdate", StringComparison.OrdinalIgnoreCase) ||
+            normalizedPath.Contains("TetherE2E_Staging", StringComparison.OrdinalIgnoreCase) ||
+            normalizedPath.Contains("Tether_Staging", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -345,15 +425,31 @@ public class FileTransferServer : IHostedService
                 return false;
             }
 
+            // Block dot-dot path traversal sequences and DOS device reserved names in segments
+            var segments = inputPath.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var seg in segments)
+            {
+                if (seg == "..")
+                {
+                    return false;
+                }
+
+                string segBase = Path.GetFileNameWithoutExtension(seg);
+                if (ReservedDeviceNames.Contains(seg) || ReservedDeviceNames.Contains(segBase))
+                {
+                    return false;
+                }
+            }
+
             var normalized = Path.GetFullPath(inputPath);
-            if (!Path.IsPathRooted(normalized))
+            if (!Path.IsPathRooted(normalized) || normalized.StartsWith(@"\\"))
             {
                 return false;
             }
 
-            // Block DOS device reserved names
+            // Block DOS device reserved names on normalized name
             string fileName = Path.GetFileNameWithoutExtension(normalized);
-            if (ReservedDeviceNames.Contains(fileName))
+            if (ReservedDeviceNames.Contains(fileName) || ReservedDeviceNames.Contains(Path.GetFileName(normalized)))
             {
                 return false;
             }
@@ -649,8 +745,44 @@ public class FileTransferServer : IHostedService
                     return Results.BadRequest("Temporary upload path is invalid or restricted");
                 }
 
-                using (var sha512 = IncrementalHash.CreateHash(HashAlgorithmName.SHA512))
-                using (var tempStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
+                // Destination pre-validation before creating temp file
+                if (!TryGetValidPath(fullPath, out _, isUpload: true))
+                {
+                    return Results.BadRequest("Destination path failed validation");
+                }
+
+                if (HasReparsePointInHierarchy(fullPath))
+                {
+                    return Results.BadRequest("Destination hierarchy contains reparse points");
+                }
+
+                if (File.Exists(fullPath))
+                {
+                    var destAttrs = File.GetAttributes(fullPath);
+                    if ((destAttrs & (FileAttributes.ReparsePoint | FileAttributes.ReadOnly | FileAttributes.System | FileAttributes.Hidden)) != 0)
+                    {
+                        return Results.BadRequest("Cannot overwrite protected or reparse destination file");
+                    }
+                }
+
+                var handle = CreateFile(
+                    tempPath,
+                    GENERIC_READ | GENERIC_WRITE | DELETE | SYNCHRONIZE,
+                    FILE_SHARE_NONE,
+                    IntPtr.Zero,
+                    CREATE_NEW,
+                    FILE_ATTRIBUTE_NORMAL,
+                    IntPtr.Zero);
+
+                if (handle.IsInvalid)
+                {
+                    int err = Marshal.GetLastWin32Error();
+                    _logger.Error($"Failed to create temporary file {tempPath}: Win32 error {err}");
+                    return Results.Problem("Failed to create temporary upload file");
+                }
+
+                using (handle)
+                using (var tempStream = new FileStream(handle, FileAccess.ReadWrite, 81920, false))
                 {
                     var buffer = new byte[81920];
                     int bytesRead;
@@ -661,48 +793,84 @@ public class FileTransferServer : IHostedService
                         totalBytesRead += bytesRead;
                         if (totalBytesRead > MaxUploadSizeBytes)
                         {
+                            tempStream.Dispose();
                             try { File.Delete(tempPath); } catch { }
                             return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
                         }
 
                         await tempStream.WriteAsync(buffer, 0, bytesRead, context.RequestAborted);
-                        sha512.AppendData(buffer, 0, bytesRead);
                     }
 
-                    byte[] actualHash = sha512.GetHashAndReset();
+                    await tempStream.FlushAsync(context.RequestAborted);
+
+                    // Verify content hash directly from open locked handle
+                    tempStream.Seek(0, SeekOrigin.Begin);
+                    using var sha512 = SHA512.Create();
+                    byte[] actualHash = sha512.ComputeHash(tempStream);
                     string actualHashHex = Convert.ToHexString(actualHash).ToLowerInvariant();
 
                     if (!string.Equals(expectedHashHex, actualHashHex, StringComparison.OrdinalIgnoreCase))
                     {
                         _logger.Warning($"SHA-512 check failed for upload to {fullPath}. Expected: {expectedHashHex}, Actual: {actualHashHex}");
+                        tempStream.Dispose();
                         try { File.Delete(tempPath); } catch { }
                         return Results.BadRequest("Integrity check failed: SHA-512 mismatch");
                     }
-                }
 
-                if (!TryGetValidPath(fullPath, out _, isUpload: true))
-                {
-                    try { File.Delete(tempPath); } catch { }
-                    return Results.BadRequest("Destination path failed revalidation");
-                }
-
-                if (File.Exists(fullPath))
-                {
-                    var destAttrs = File.GetAttributes(fullPath);
-                    if ((destAttrs & (FileAttributes.ReparsePoint | FileAttributes.ReadOnly | FileAttributes.System)) != 0)
+                    // Reparse-point and symlink checks on the open file handle
+                    if (!GetFileInformationByHandle(handle, out var handleInfo) ||
+                        (handleInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
                     {
+                        tempStream.Dispose();
                         try { File.Delete(tempPath); } catch { }
-                        return Results.BadRequest("Cannot overwrite protected or reparse destination file");
+                        return Results.BadRequest("Temporary file became a reparse point");
+                    }
+
+                    string? resolvedTemp = GetFinalResolvedPath(handle);
+                    if (resolvedTemp == null || !string.Equals(resolvedTemp, Path.GetFullPath(tempPath), StringComparison.OrdinalIgnoreCase))
+                    {
+                        tempStream.Dispose();
+                        try { File.Delete(tempPath); } catch { }
+                        return Results.BadRequest("Temporary file resolved path mismatch or symlink detected");
+                    }
+
+                    // Target destination checks immediately prior to promotion while handle remains locked
+                    if (!TryGetValidPath(fullPath, out _, isUpload: true))
+                    {
+                        tempStream.Dispose();
+                        try { File.Delete(tempPath); } catch { }
+                        return Results.BadRequest("Destination path failed revalidation");
+                    }
+
+                    if (HasReparsePointInHierarchy(fullPath))
+                    {
+                        tempStream.Dispose();
+                        try { File.Delete(tempPath); } catch { }
+                        return Results.BadRequest("Destination hierarchy contains reparse points");
+                    }
+
+                    if (File.Exists(fullPath))
+                    {
+                        var destAttrs = File.GetAttributes(fullPath);
+                        if ((destAttrs & (FileAttributes.ReparsePoint | FileAttributes.ReadOnly | FileAttributes.System | FileAttributes.Hidden)) != 0)
+                        {
+                            tempStream.Dispose();
+                            try { File.Delete(tempPath); } catch { }
+                            return Results.BadRequest("Cannot overwrite protected or reparse destination file");
+                        }
+                    }
+
+                    // Atomically promote the open handle to destination (strictly fail closed, zero copy fallback)
+                    if (!PromoteFileHandle(handle, fullPath))
+                    {
+                        int err = Marshal.GetLastWin32Error();
+                        _logger.Error($"Atomic promotion of {tempPath} to {fullPath} failed: Win32 error {err}");
+                        tempStream.Dispose();
+                        try { File.Delete(tempPath); } catch { }
+                        return Results.Problem($"Atomic file promotion failed (Win32 error {err})");
                     }
                 }
 
-                if ((File.GetAttributes(tempPath) & FileAttributes.ReparsePoint) != 0)
-                {
-                    try { File.Delete(tempPath); } catch { }
-                    return Results.BadRequest("Temporary file became a reparse point");
-                }
-
-                File.Move(tempPath, fullPath, overwrite: true);
                 return Results.Ok();
             }
             catch (OperationCanceledException)
@@ -1246,6 +1414,12 @@ public class FileTransferServer : IHostedService
                         return Results.BadRequest("Destination path failed revalidation");
                     }
 
+                    if (HasReparsePointInHierarchy(fullPath))
+                    {
+                        try { File.Delete(partPath); } catch { }
+                        return Results.BadRequest("Destination hierarchy contains reparse points");
+                    }
+
                     if (File.Exists(fullPath))
                     {
                         var targetFi = new FileInfo(fullPath);
@@ -1256,19 +1430,38 @@ public class FileTransferServer : IHostedService
                         }
                     }
 
-                    // Hold exclusive locked file handle during verification to defeat TOCTOU modification/substitution
-                    using (var fsVerify = new FileStream(partPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                    // Hold exclusive locked file handle with DELETE access from verification through atomic promotion to defeat TOCTOU
+                    var handle = CreateFile(
+                        partPath,
+                        GENERIC_READ | GENERIC_WRITE | DELETE | SYNCHRONIZE,
+                        FILE_SHARE_NONE,
+                        IntPtr.Zero,
+                        OPEN_EXISTING,
+                        FILE_ATTRIBUTE_NORMAL,
+                        IntPtr.Zero);
+
+                    if (handle.IsInvalid)
                     {
-                        var partAttrs = File.GetAttributes(partPath);
-                        if ((partAttrs & FileAttributes.ReparsePoint) != 0)
+                        int err = Marshal.GetLastWin32Error();
+                        _logger.Error($"Failed to lock part file {partPath} for promotion: Win32 error {err}");
+                        try { File.Delete(partPath); } catch { }
+                        return Results.Problem("Failed to lock part file for promotion");
+                    }
+
+                    using (handle)
+                    using (var fsVerify = new FileStream(handle, FileAccess.ReadWrite, 81920, false))
+                    {
+                        // Reparse-point check directly on the open file handle
+                        if (!GetFileInformationByHandle(handle, out var partInfo) ||
+                            (partInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
                         {
                             fsVerify.Dispose();
                             try { File.Delete(partPath); } catch { }
                             return Results.BadRequest("Part file became a reparse point");
                         }
 
-                        // Verify resolved final path matches expected part path
-                        string? resolvedPart = GetFinalResolvedPath(partPath);
+                        // Verify resolved physical path matches expected part path
+                        string? resolvedPart = GetFinalResolvedPath(handle);
                         if (resolvedPart == null || !string.Equals(resolvedPart, Path.GetFullPath(partPath), StringComparison.OrdinalIgnoreCase))
                         {
                             fsVerify.Dispose();
@@ -1276,6 +1469,8 @@ public class FileTransferServer : IHostedService
                             return Results.BadRequest("Part file resolved path mismatch or symlink detected");
                         }
 
+                        // Compute SHA-512 directly from open locked handle
+                        fsVerify.Seek(0, SeekOrigin.Begin);
                         using var sha512 = SHA512.Create();
                         byte[] hashBytes = sha512.ComputeHash(fsVerify);
                         string computed = Convert.ToHexString(hashBytes).ToLowerInvariant();
@@ -1285,21 +1480,42 @@ public class FileTransferServer : IHostedService
                             try { File.Delete(partPath); } catch { }
                             return Results.BadRequest("Checksum mismatch for completed upload");
                         }
-                    }
 
-                    // Double-check reparse point attributes immediately prior to atomic move
-                    if ((File.GetAttributes(partPath) & FileAttributes.ReparsePoint) != 0)
-                    {
-                        try { File.Delete(partPath); } catch { }
-                        return Results.BadRequest("Part file became a reparse point");
-                    }
+                        // Target destination checks immediately prior to promotion while handle remains locked
+                        if (!TryGetValidPath(fullPath, out _, isUpload: true))
+                        {
+                            fsVerify.Dispose();
+                            try { File.Delete(partPath); } catch { }
+                            return Results.BadRequest("Destination path failed revalidation");
+                        }
 
-                    // Perform atomic move via MoveFileEx with replace, copy allowed, and write-through flags
-                    if (!MoveFileEx(partPath, fullPath, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH))
-                    {
-                        int err = Marshal.GetLastWin32Error();
-                        // Fallback to standard atomic File.Move if MoveFileEx failed across non-standard filesystems
-                        File.Move(partPath, fullPath, overwrite: true);
+                        if (HasReparsePointInHierarchy(fullPath))
+                        {
+                            fsVerify.Dispose();
+                            try { File.Delete(partPath); } catch { }
+                            return Results.BadRequest("Destination hierarchy contains reparse points");
+                        }
+
+                        if (File.Exists(fullPath))
+                        {
+                            var targetFi = new FileInfo(fullPath);
+                            if ((targetFi.Attributes & (FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.ReparsePoint | FileAttributes.System)) != 0)
+                            {
+                                fsVerify.Dispose();
+                                try { File.Delete(partPath); } catch { }
+                                return Results.BadRequest("Destination file is read-only, hidden, or reparse point");
+                            }
+                        }
+
+                        // Atomically promote the open handle to destination (strictly fail closed, zero copy fallback)
+                        if (!PromoteFileHandle(handle, fullPath))
+                        {
+                            int err = Marshal.GetLastWin32Error();
+                            _logger.Error($"Atomic promotion of {partPath} to {fullPath} failed: Win32 error {err}");
+                            fsVerify.Dispose();
+                            try { File.Delete(partPath); } catch { }
+                            return Results.Problem($"Atomic file promotion failed (Win32 error {err})");
+                        }
                     }
 
                     return Results.Ok(new { completed = true, totalSize = fi.Length });

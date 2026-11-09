@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
 
 namespace Tether.Shared.Security;
@@ -160,19 +162,13 @@ public static class AuthenticodeVerifier
                 return false;
             }
 
-            // Verify publisher identity against pinned attributes
-            string subject = cert2.Subject;
-            bool subjectMatch = subject.Contains("Tether", StringComparison.OrdinalIgnoreCase) ||
-                               subject.Contains("Tether Project", StringComparison.OrdinalIgnoreCase);
-
-            if (!subjectMatch)
-            {
-                return false;
-            }
+            // Verify publisher identity against pinned attributes (strict fail-closed, no loose substring matching)
+            bool hasPinnedIdentifier = !string.IsNullOrEmpty(pinnedThumbprint) || !string.IsNullOrEmpty(pinnedPublicKey);
 
             if (!string.IsNullOrEmpty(pinnedThumbprint))
             {
-                if (!string.Equals(cert2.Thumbprint, pinnedThumbprint.Replace(":", "").Replace(" ", ""), StringComparison.OrdinalIgnoreCase))
+                string cleanPinned = pinnedThumbprint.Replace(":", "").Replace(" ", "");
+                if (!string.Equals(cert2.Thumbprint, cleanPinned, StringComparison.OrdinalIgnoreCase))
                 {
                     return false;
                 }
@@ -185,6 +181,13 @@ public static class AuthenticodeVerifier
                 {
                     return false;
                 }
+            }
+
+            // Strict Subject / Distinguished Name validation against pinned publisher identity
+            bool subjectMatches = MatchesExpectedPublisher(cert2);
+            if (!hasPinnedIdentifier && !subjectMatches)
+            {
+                return false;
             }
 
             // Full X509Chain validation
@@ -215,9 +218,83 @@ public static class AuthenticodeVerifier
     }
 
     /// <summary>
-    /// Verifies the detached ECDSA or RSA signature of update-manifest.json.
+    /// Strictly verifies that the certificate Subject matches the expected Tether publisher identity.
+    /// Replaces loose substring checks with exact Distinguished Name / RDN validation.
+    /// Fails closed if the subject does not match ExpectedPublisherSubject or expected components.
     /// </summary>
-    public static bool VerifyManifestSignature(byte[] manifestBytes, byte[] signatureBytes, ECDsa publisherKey)
+    public static bool MatchesExpectedPublisher(X509Certificate2 cert)
+    {
+        if (cert == null) return false;
+
+        string subject = cert.Subject;
+        if (string.IsNullOrWhiteSpace(subject)) return false;
+
+        if (string.Equals(subject.Trim(), ExpectedPublisherSubject, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Parse Distinguished Name RDN components
+        var rdns = ParseDistinguishedName(subject);
+
+        // Common Name (CN) must strictly equal "Tether Project"
+        if (!rdns.TryGetValue("CN", out string? cn) ||
+            !string.Equals(cn, ExpectedPublisherOrganization, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Organization (O) if present must strictly equal "Tether"
+        if (rdns.TryGetValue("O", out string? org) &&
+            !string.Equals(org, "Tether", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Country (C) if present must strictly equal "US"
+        if (rdns.TryGetValue("C", out string? country) &&
+            !string.Equals(country, "US", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static Dictionary<string, string> ParseDistinguishedName(string dn)
+    {
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(dn)) return dict;
+
+        var parts = dn.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            int eqIdx = part.IndexOf('=');
+            if (eqIdx > 0 && eqIdx < part.Length - 1)
+            {
+                string key = part.Substring(0, eqIdx).Trim();
+                string val = part.Substring(eqIdx + 1).Trim().Trim('"', '\'');
+                dict[key] = val;
+            }
+        }
+        return dict;
+    }
+
+    /// <summary>
+    /// Creates an ECDsa instance initialized with the pinned manifest public key.
+    /// </summary>
+    public static ECDsa CreatePinnedManifestPublicKey(string? spkiBase64 = null)
+    {
+        var ecdsa = ECDsa.Create();
+        ecdsa.ImportSubjectPublicKeyInfo(Convert.FromBase64String(spkiBase64 ?? PinnedManifestPublicKey), out _);
+        return ecdsa;
+    }
+
+    /// <summary>
+    /// Verifies the detached ECDSA signature of update-manifest.json raw bytes against the pinned manifest public key.
+    /// Fails closed if manifest bytes or signature bytes are missing, corrupted, or signature verification fails.
+    /// </summary>
+    public static bool VerifyManifestSignature(byte[] manifestBytes, byte[] signatureBytes, string? pinnedPublicKeySpki = null)
     {
         if (manifestBytes == null || manifestBytes.Length == 0 || signatureBytes == null || signatureBytes.Length == 0)
         {
@@ -226,7 +303,60 @@ public static class AuthenticodeVerifier
 
         try
         {
-            return publisherKey.VerifyData(manifestBytes, signatureBytes, HashAlgorithmName.SHA256);
+            using var ecdsa = CreatePinnedManifestPublicKey(pinnedPublicKeySpki);
+            return VerifyManifestSignature(manifestBytes, signatureBytes, ecdsa);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Verifies the detached ECDSA signature of update-manifest.json against a provided ECDsa public key.
+    /// Supports raw DER/IEEE-P1363 signatures as well as Base64/Hex-encoded detached signature payloads.
+    /// </summary>
+    public static bool VerifyManifestSignature(byte[] manifestBytes, byte[] signatureBytes, ECDsa publisherKey)
+    {
+        if (manifestBytes == null || manifestBytes.Length == 0 || signatureBytes == null || signatureBytes.Length == 0 || publisherKey == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            // 1. Direct signature verification (raw binary signature)
+            if (publisherKey.VerifyData(manifestBytes, signatureBytes, HashAlgorithmName.SHA256))
+            {
+                return true;
+            }
+
+            // 2. Base64/Hex string decoding if signature was stored as text
+            string sigText = Encoding.UTF8.GetString(signatureBytes).Trim();
+            if (!string.IsNullOrEmpty(sigText))
+            {
+                try
+                {
+                    byte[] decoded = Convert.FromBase64String(sigText);
+                    if (decoded.Length > 0 && publisherKey.VerifyData(manifestBytes, decoded, HashAlgorithmName.SHA256))
+                    {
+                        return true;
+                    }
+                }
+                catch (FormatException) { }
+
+                try
+                {
+                    byte[] hexDecoded = Convert.FromHexString(sigText);
+                    if (hexDecoded.Length > 0 && publisherKey.VerifyData(manifestBytes, hexDecoded, HashAlgorithmName.SHA256))
+                    {
+                        return true;
+                    }
+                }
+                catch (FormatException) { }
+            }
+
+            return false;
         }
         catch
         {

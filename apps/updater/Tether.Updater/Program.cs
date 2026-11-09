@@ -38,6 +38,9 @@ namespace Tether.Updater
         [JsonPropertyName("publishedAt")]
         public string PublishedAt { get; set; } = string.Empty;
 
+        [JsonPropertyName("payloadSha256")]
+        public string PayloadSha256 { get; set; } = string.Empty;
+
         [JsonPropertyName("files")]
         public List<ManifestFileEntry> Files { get; set; } = new();
     }
@@ -55,6 +58,7 @@ namespace Tether.Updater
             string stagingDir = string.Empty;
             string targetDir = string.Empty;
             string manifestPath = string.Empty;
+            string signaturePath = string.Empty;
             bool restartUi = false;
 
             for (int i = 0; i < args.Length; i++)
@@ -62,7 +66,13 @@ namespace Tether.Updater
                 if (args[i] == "--staging" && i + 1 < args.Length) stagingDir = args[++i];
                 else if (args[i] == "--target" && i + 1 < args.Length) targetDir = args[++i];
                 else if (args[i] == "--manifest" && i + 1 < args.Length) manifestPath = args[++i];
+                else if (args[i] == "--signature" && i + 1 < args.Length) signaturePath = args[++i];
                 else if (args[i] == "--restart-ui") restartUi = true;
+            }
+
+            if (string.IsNullOrEmpty(signaturePath) && !string.IsNullOrEmpty(manifestPath))
+            {
+                signaturePath = manifestPath + ".sig";
             }
 
             if (string.IsNullOrEmpty(targetDir))
@@ -79,7 +89,7 @@ namespace Tether.Updater
             TraceLog($"Starting Tether Smart Differential Updater...");
             TraceLog($"Target: {targetDir}");
             TraceLog($"Staging: {stagingDir}");
-            if (!LockdownStagingAcl(stagingDir, manifestPath))
+            if (!LockdownStagingAcl(stagingDir, manifestPath, signaturePath))
             {
                 TraceLog("SECURITY ERROR: Failed to enforce strict staging ACL lockdown or reparse point detected. Aborting update (fail-closed).");
                 return 12;
@@ -88,26 +98,84 @@ namespace Tether.Updater
             // 1. Wait for Tether.DesktopUI to terminate
             WaitForProcessesToExit("Tether.DesktopUI", 10000);
 
-            // 2. Read manifest
-            UpdateManifest? manifest = null;
-            if (File.Exists(manifestPath))
+            // 2. Read and verify raw manifest bytes and signature BEFORE deserializing
+            if (string.IsNullOrEmpty(manifestPath) || !File.Exists(manifestPath))
             {
-                try
-                {
-                    string json = File.ReadAllText(manifestPath);
-                    manifest = JsonSerializer.Deserialize<UpdateManifest>(json);
-                }
-                catch (Exception ex)
-                {
-                    TraceLog($"Failed to parse manifest: {ex.Message}");
-                }
+                TraceLog("SECURITY ERROR: Update manifest file not found. Aborting update (fail-closed).");
+                return 14;
             }
 
-            // 3. Validate manifest strictly (fail-closed)
+            if (string.IsNullOrEmpty(signaturePath) || !File.Exists(signaturePath))
+            {
+                TraceLog("SECURITY ERROR: Detached manifest signature file (.sig) not found. Aborting update (fail-closed).");
+                return 14;
+            }
+
+            byte[] manifestBytes;
+            byte[] signatureBytes;
+            try
+            {
+                manifestBytes = File.ReadAllBytes(manifestPath);
+                signatureBytes = File.ReadAllBytes(signaturePath);
+            }
+            catch (Exception ex)
+            {
+                TraceLog($"SECURITY ERROR: Failed to read manifest or signature files: {ex.Message}. Aborting (fail-closed).");
+                return 14;
+            }
+
+            // Cryptographic detached signature check on raw bytes against pinned public key BEFORE deserialization
+            bool isSignatureValid = Tether.Shared.Security.AuthenticodeVerifier.VerifyManifestSignature(
+                manifestBytes,
+                signatureBytes);
+
+            if (!isSignatureValid)
+            {
+                TraceLog("SECURITY ERROR: Cryptographic signature verification failed for update manifest against pinned publisher key! Aborting update (fail-closed).");
+                return 14;
+            }
+
+            TraceLog("Update manifest signature verified successfully against pinned publisher key.");
+
+            // 3. Deserialize authenticated manifest
+            UpdateManifest? manifest = null;
+            try
+            {
+                manifest = JsonSerializer.Deserialize<UpdateManifest>(manifestBytes);
+            }
+            catch (Exception ex)
+            {
+                TraceLog($"SECURITY ERROR: Failed to parse authenticated manifest: {ex.Message}. Aborting (fail-closed).");
+                return 2;
+            }
+
+            // Validate manifest strictly (fail-closed)
             if (manifest == null || manifest.Files == null || manifest.Files.Count == 0)
             {
                 TraceLog("SECURITY ERROR: Update manifest is missing, invalid, or empty. Aborting update (fail-closed).");
                 return 2;
+            }
+
+            // Pre-verify staged payload archive if declared (F2.3)
+            if (!string.IsNullOrWhiteSpace(manifest.PayloadSha256))
+            {
+                string? parentDir = Path.GetDirectoryName(stagingDir);
+                string stagedZip = File.Exists(Path.Combine(stagingDir, "update_payload.zip"))
+                    ? Path.Combine(stagingDir, "update_payload.zip")
+                    : (parentDir != null && File.Exists(Path.Combine(parentDir, "update_payload.zip"))
+                        ? Path.Combine(parentDir, "update_payload.zip")
+                        : string.Empty);
+
+                if (!string.IsNullOrEmpty(stagedZip) && File.Exists(stagedZip))
+                {
+                    string actualZipHash = ComputeSha256(stagedZip);
+                    if (!string.Equals(actualZipHash, manifest.PayloadSha256, StringComparison.OrdinalIgnoreCase))
+                    {
+                        TraceLog($"SECURITY ERROR: Staged payload archive SHA-256 hash mismatch (expected {manifest.PayloadSha256}, actual {actualZipHash}). Aborting update (fail-closed).");
+                        return 8;
+                    }
+                    TraceLog("Staged payload archive SHA-256 hash verified successfully against authenticated manifest.");
+                }
             }
 
             var filesToUpdate = new List<Tuple<string, string, bool, string>>(); // <source, dest, isService, sha256>
@@ -330,6 +398,14 @@ namespace Tether.Updater
                 string uiExe = Path.Combine(targetDir, "Tether.DesktopUI.exe");
                 if (File.Exists(uiExe))
                 {
+                    bool isDev = string.Equals(Environment.GetEnvironmentVariable("TETHER_DEV"), "1", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(Environment.GetEnvironmentVariable("TETHER_DEBUG"), "1", StringComparison.OrdinalIgnoreCase);
+
+                    if (!Tether.Shared.Security.AuthenticodeVerifier.VerifyFileAuthenticode(uiExe) && !isDev)
+                    {
+                        TraceLog($"WARNING: Tether.DesktopUI.exe failed Authenticode verification: {uiExe}");
+                    }
+
                     TraceLog($"Relaunching Desktop UI: {uiExe}");
                     Process.Start(new ProcessStartInfo
                     {
@@ -351,7 +427,7 @@ namespace Tether.Updater
             return 0;
         }
 
-        public static bool LockdownStagingAcl(string stagingDir, string manifestPath)
+        public static bool LockdownStagingAcl(string stagingDir, string manifestPath, string? signaturePath = null)
         {
             try
             {
@@ -372,6 +448,10 @@ namespace Tether.Updater
                 var systemSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
                 var adminSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
 
+                var currentIdentity = System.Security.Principal.WindowsIdentity.GetCurrent();
+                var principal = new System.Security.Principal.WindowsPrincipal(currentIdentity);
+                bool isElevatedAdmin = principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+
                 var ds = stagingDi.GetAccessControl();
                 ds.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
                 foreach (System.Security.AccessControl.FileSystemAccessRule r in ds.GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier)))
@@ -380,15 +460,19 @@ namespace Tether.Updater
                 }
                 ds.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(systemSid, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
                 ds.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(adminSid, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
+                if (!isElevatedAdmin && currentIdentity.User != null)
+                {
+                    ds.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(currentIdentity.User, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
+                }
                 stagingDi.SetAccessControl(ds);
 
-                if (!string.IsNullOrEmpty(manifestPath) && File.Exists(manifestPath))
+                void SecureFileAcl(string filePath, string fileDescription)
                 {
-                    var fi = new FileInfo(manifestPath);
+                    if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return;
+                    var fi = new FileInfo(filePath);
                     if ((fi.Attributes & FileAttributes.ReparsePoint) != 0)
                     {
-                        TraceLog("Staging ACL error: manifest file is a reparse point.");
-                        return false;
+                        throw new InvalidOperationException($"Staging ACL error: {fileDescription} is a reparse point.");
                     }
                     var fs = fi.GetAccessControl();
                     fs.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
@@ -398,7 +482,17 @@ namespace Tether.Updater
                     }
                     fs.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(systemSid, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
                     fs.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(adminSid, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+                    if (!isElevatedAdmin && currentIdentity.User != null)
+                    {
+                        fs.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(currentIdentity.User, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+                    }
                     fi.SetAccessControl(fs);
+                }
+
+                SecureFileAcl(manifestPath, "manifest file");
+                if (!string.IsNullOrEmpty(signaturePath))
+                {
+                    SecureFileAcl(signaturePath, "signature file");
                 }
                 return true;
             }

@@ -107,3 +107,6 @@ keystore.properties
 # Security audit and remediation notes
 AUDIT_FIXES.md
 SECURITY_FIXES.md
+
+# Teamwork subagent workspace state
+.agents/

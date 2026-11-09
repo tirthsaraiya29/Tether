@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
+using Tether.Shared.Security;
 
 namespace Tether.DesktopUI.Updates
 {
@@ -152,12 +153,28 @@ namespace Tether.DesktopUI.Updates
                     {
                         result.ManifestDownloadUrl = asset.BrowserDownloadUrl;
                     }
+                    else if (asset.Name.Equals("update-manifest.json.sig", StringComparison.OrdinalIgnoreCase) ||
+                             asset.Name.Equals("update-manifest.sig", StringComparison.OrdinalIgnoreCase))
+                    {
+                        result.SignatureDownloadUrl = asset.BrowserDownloadUrl;
+                    }
                 }
 
-                // If manifest is available, compute differential files
+                // If manifest is available, enforce raw detached signature verification before deserialization
                 if (!string.IsNullOrEmpty(result.ManifestDownloadUrl))
                 {
-                    await ComputeDifferentialFilesAsync(result);
+                    bool manifestOk = await ValidateAndComputeDifferentialFilesAsync(result);
+                    if (!manifestOk)
+                    {
+                        Debug.WriteLine("[UpdateWatcherService] SECURITY ALERT: Manifest signature verification failed or signature missing. Rejecting update (fail-closed).");
+                        return null;
+                    }
+                }
+                else
+                {
+                    // Fail-closed: Updates require an authenticated manifest
+                    Debug.WriteLine("[UpdateWatcherService] SECURITY ALERT: Release does not include an update manifest. Rejecting update (fail-closed).");
+                    return null;
                 }
 
                 // Alert subscribers on UI thread
@@ -173,15 +190,62 @@ namespace Tether.DesktopUI.Updates
         }
 
         /// <summary>
-        /// Compares local installed files against the remote manifest to calculate strictly changed files.
+        /// Validates the remote update manifest signature against PinnedManifestPublicKey BEFORE deserializing,
+        /// then computes differential files to overwrite. Fails closed if signature is missing, forged, or invalid.
         /// </summary>
-        private async Task ComputeDifferentialFilesAsync(UpdateCheckResult result)
+        private async Task<bool> ValidateAndComputeDifferentialFilesAsync(UpdateCheckResult result)
         {
             try
             {
-                string manifestJson = await _httpClient.GetStringAsync(result.ManifestDownloadUrl);
-                var manifest = JsonSerializer.Deserialize<UpdateManifest>(manifestJson);
-                if (manifest == null || manifest.Files == null) return;
+                if (string.IsNullOrEmpty(result.ManifestDownloadUrl))
+                {
+                    return false;
+                }
+
+                // 1. Download raw manifest bytes
+                byte[] manifestBytes = await _httpClient.GetByteArrayAsync(result.ManifestDownloadUrl);
+                if (manifestBytes == null || manifestBytes.Length == 0)
+                {
+                    Debug.WriteLine("[UpdateWatcherService] Empty manifest bytes downloaded.");
+                    return false;
+                }
+
+                // 2. Download detached signature bytes
+                string sigUrl = result.SignatureDownloadUrl ?? (result.ManifestDownloadUrl + ".sig");
+                byte[]? signatureBytes = null;
+                try
+                {
+                    signatureBytes = await _httpClient.GetByteArrayAsync(sigUrl);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[UpdateWatcherService] Failed to fetch manifest signature from {sigUrl}: {ex.Message}");
+                    return false;
+                }
+
+                if (signatureBytes == null || signatureBytes.Length == 0)
+                {
+                    Debug.WriteLine("[UpdateWatcherService] Detached manifest signature is missing or empty.");
+                    return false;
+                }
+
+                // 3. Cryptographic detached signature check on raw bytes BEFORE deserializing or trusting any fields
+                bool isSignatureValid = AuthenticodeVerifier.VerifyManifestSignature(manifestBytes, signatureBytes);
+                if (!isSignatureValid)
+                {
+                    Debug.WriteLine("[UpdateWatcherService] SECURITY ERROR: Manifest signature verification against PinnedManifestPublicKey failed!");
+                    return false;
+                }
+
+                // 4. Manifest verified authentic: now safe to deserialize
+                var manifest = JsonSerializer.Deserialize<UpdateManifest>(manifestBytes);
+                if (manifest == null || manifest.Files == null || manifest.Files.Count == 0)
+                {
+                    Debug.WriteLine("[UpdateWatcherService] Manifest JSON deserialization produced null or empty files.");
+                    return false;
+                }
+
+                result.PayloadSha256 = manifest.PayloadSha256;
 
                 string installDir = AppDomain.CurrentDomain.BaseDirectory;
                 string sysDir = Environment.GetFolderPath(Environment.SpecialFolder.System);
@@ -227,10 +291,12 @@ namespace Tether.DesktopUI.Updates
                 result.ChangedFiles = changedFiles;
                 result.ChangedFilesCount = changedFiles.Count;
                 result.TotalDownloadBytes = totalBytes;
+                return true;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[UpdateWatcherService] Differential calculation error: {ex.Message}");
+                return false;
             }
         }
 
