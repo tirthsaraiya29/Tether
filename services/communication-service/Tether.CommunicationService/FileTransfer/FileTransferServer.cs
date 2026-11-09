@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
 using System;
 using System.Collections.Concurrent;
@@ -238,11 +239,6 @@ public class FileTransferServer : IHostedService
             string usersDir = !string.IsNullOrEmpty(sysDrive) ? Path.Combine(sysDrive, "Users") : @"C:\Users";
             string usersPrefix = usersDir.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
 
-            if (!normalizedPath.StartsWith(usersPrefix, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
             string publicDir = Path.Combine(usersDir, "Public") + Path.DirectorySeparatorChar;
             if (normalizedPath.StartsWith(publicDir, StringComparison.OrdinalIgnoreCase) ||
                 normalizedPath.Equals(Path.Combine(usersDir, "Public"), StringComparison.OrdinalIgnoreCase))
@@ -266,18 +262,49 @@ public class FileTransferServer : IHostedService
                 }
             }
 
-            string currentProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (!string.IsNullOrEmpty(currentProfile))
+            try
             {
-                string currentPrefix = currentProfile.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-                if (normalizedPath.StartsWith(currentPrefix, StringComparison.OrdinalIgnoreCase) ||
-                    normalizedPath.Equals(currentProfile, StringComparison.OrdinalIgnoreCase))
+                using var profileListKey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList");
+                if (profileListKey != null)
                 {
-                    return false;
+                    var profilesDirVal = profileListKey.GetValue("ProfilesDirectory") as string;
+                    if (!string.IsNullOrEmpty(profilesDirVal))
+                    {
+                        profilesDirVal = Environment.ExpandEnvironmentVariables(profilesDirVal).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                        if (normalizedPath.StartsWith(profilesDirVal, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+
+                    foreach (var subKeyName in profileListKey.GetSubKeyNames())
+                    {
+                        using var subKey = profileListKey.OpenSubKey(subKeyName);
+                        if (subKey?.GetValue("ProfileImagePath") is string rawPath && !string.IsNullOrWhiteSpace(rawPath))
+                        {
+                            string profilePath = Environment.ExpandEnvironmentVariables(rawPath);
+                            if (string.Equals(profilePath, activeProfile, StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue;
+                            }
+                            string profPrefix = profilePath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                            if (normalizedPath.StartsWith(profPrefix, StringComparison.OrdinalIgnoreCase) ||
+                                normalizedPath.Equals(profilePath, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return true;
+                            }
+                        }
+                    }
                 }
             }
+            catch { }
 
-            return true;
+            if (normalizedPath.StartsWith(usersPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
         }
         catch
         {
@@ -1207,11 +1234,25 @@ public class FileTransferServer : IHostedService
                         return Results.BadRequest("Hash required for upload completion");
                     }
 
-                    string computed = ComputeSha512Hex(partPath);
-                    if (!string.Equals(computed, hash.Trim(), StringComparison.OrdinalIgnoreCase))
+                    using (var fsVerify = new FileStream(partPath, FileMode.Open, FileAccess.Read, FileShare.None))
                     {
-                        try { File.Delete(partPath); } catch { }
-                        return Results.BadRequest("Checksum mismatch for completed upload");
+                        var partAttrs = File.GetAttributes(partPath);
+                        if ((partAttrs & FileAttributes.ReparsePoint) != 0)
+                        {
+                            fsVerify.Dispose();
+                            try { File.Delete(partPath); } catch { }
+                            return Results.BadRequest("Part file became a reparse point");
+                        }
+
+                        using var sha512 = SHA512.Create();
+                        byte[] hashBytes = sha512.ComputeHash(fsVerify);
+                        string computed = Convert.ToHexString(hashBytes).ToLowerInvariant();
+                        if (!string.Equals(computed, hash.Trim(), StringComparison.OrdinalIgnoreCase))
+                        {
+                            fsVerify.Dispose();
+                            try { File.Delete(partPath); } catch { }
+                            return Results.BadRequest("Checksum mismatch for completed upload");
+                        }
                     }
 
                     if (!TryGetValidPath(fullPath, out _, isUpload: true))

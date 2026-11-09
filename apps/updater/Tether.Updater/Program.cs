@@ -79,6 +79,7 @@ namespace Tether.Updater
             TraceLog($"Starting Tether Smart Differential Updater...");
             TraceLog($"Target: {targetDir}");
             TraceLog($"Staging: {stagingDir}");
+            LockdownStagingAcl(stagingDir, manifestPath);
 
             // 1. Wait for Tether.DesktopUI to terminate
             WaitForProcessesToExit("Tether.DesktopUI", 10000);
@@ -105,7 +106,7 @@ namespace Tether.Updater
                 return 2;
             }
 
-            var filesToUpdate = new List<Tuple<string, string, bool>>(); // <source, dest, isService>
+            var filesToUpdate = new List<Tuple<string, string, bool, string>>(); // <source, dest, isService, sha256>
             bool serviceRestartNeeded = false;
             string sysDir = Environment.GetFolderPath(Environment.SpecialFolder.System);
             string stagingPrefix = Path.GetFullPath(stagingDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
@@ -168,7 +169,11 @@ namespace Tether.Updater
                 string destFile;
                 if (entry.IsCredProv)
                 {
-                    // Restrict Credential Provider updates strictly to TetherCredentialProvider.dll
+                    if (!string.Equals(entry.Path, "TetherCredentialProvider.dll", StringComparison.OrdinalIgnoreCase))
+                    {
+                        TraceLog($"SECURITY ERROR: Credential Provider entry '{entry.Path}' is invalid. Aborting.");
+                        return 11;
+                    }
                     destFile = Path.Combine(sysDir, "TetherCredentialProvider.dll");
                 }
                 else
@@ -206,7 +211,7 @@ namespace Tether.Updater
                 if (changed)
                 {
                     TraceLog($"[MODIFIED & VERIFIED] {entry.Path}");
-                    filesToUpdate.Add(Tuple.Create(sourceFile, destFile, entry.IsService));
+                    filesToUpdate.Add(Tuple.Create(sourceFile, destFile, entry.IsService, entry.Sha256));
                     if (entry.IsService)
                     {
                         serviceRestartNeeded = true;
@@ -232,6 +237,7 @@ namespace Tether.Updater
             {
                 string src = item.Item1;
                 string dst = item.Item2;
+                string expectedSha256 = item.Item4;
 
                 try
                 {
@@ -247,8 +253,8 @@ namespace Tether.Updater
                     {
                         try
                         {
-                            File.Copy(src, dst, overwrite: true);
-                            written = true;
+                            written = CopyFileVerified(src, dst, expectedSha256);
+                            if (!written) break;
                             break;
                         }
                         catch (IOException)
@@ -262,8 +268,8 @@ namespace Tether.Updater
                                     File.Move(dst, oldBackup);
                                     MoveFileEx(oldBackup, null, MOVEFILE_DELAY_UNTIL_REBOOT);
                                 }
-                                File.Copy(src, dst, overwrite: true);
-                                written = true;
+                            written = CopyFileVerified(src, dst, expectedSha256);
+                            if (!written) break;
                                 break;
                             }
                             catch
@@ -336,6 +342,71 @@ namespace Tether.Updater
             return 0;
         }
 
+        private static void LockdownStagingAcl(string stagingDir, string manifestPath)
+        {
+            try
+            {
+                var systemSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
+                var adminSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
+
+                if (Directory.Exists(stagingDir))
+                {
+                    var di = new DirectoryInfo(stagingDir);
+                    var ds = di.GetAccessControl();
+                    ds.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                    foreach (System.Security.AccessControl.FileSystemAccessRule r in ds.GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier)))
+                    {
+                        ds.RemoveAccessRule(r);
+                    }
+                    ds.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(systemSid, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
+                    ds.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(adminSid, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
+                    di.SetAccessControl(ds);
+                }
+
+                if (!string.IsNullOrEmpty(manifestPath) && File.Exists(manifestPath))
+                {
+                    var fi = new FileInfo(manifestPath);
+                    var fs = fi.GetAccessControl();
+                    fs.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                    foreach (System.Security.AccessControl.FileSystemAccessRule r in fs.GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier)))
+                    {
+                        fs.RemoveAccessRule(r);
+                    }
+                    fs.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(systemSid, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+                    fs.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(adminSid, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+                    fi.SetAccessControl(fs);
+                }
+            }
+            catch (Exception ex)
+            {
+                TraceLog($"Warning: could not enforce staging ACL: {ex.Message}");
+            }
+        }
+
+        private static bool CopyFileVerified(string src, string dst, string expectedHash)
+        {
+            try
+            {
+                using var srcStream = new FileStream(src, FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var sha = SHA256.Create();
+                byte[] hashBytes = sha.ComputeHash(srcStream);
+                string actualHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
+                if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    TraceLog($"SECURITY ERROR: Point-of-use hash mismatch for {src} (expected {expectedHash}, actual {actualHash})");
+                    return false;
+                }
+                srcStream.Position = 0;
+                using var dstStream = new FileStream(dst, FileMode.Create, FileAccess.Write, FileShare.None);
+                srcStream.CopyTo(dstStream);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                TraceLog($"Error copying verified file from {src} to {dst}: {ex.Message}");
+                return false;
+            }
+        }
         private static bool StopServiceSafely(string serviceName, int timeoutMs)
         {
             try

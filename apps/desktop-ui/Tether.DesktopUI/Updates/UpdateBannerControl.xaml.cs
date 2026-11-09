@@ -155,6 +155,7 @@ namespace Tether.DesktopUI.Updates
             else
             {
                 // Full installer fallback: run silent Inno Setup installer
+                VerifyInstallerAuthenticode(payloadZip);
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = payloadZip,
@@ -188,6 +189,27 @@ namespace Tether.DesktopUI.Updates
             Process.Start(startInfo);
             RequestShutdownForUpdate?.Invoke();
             Application.Current.Shutdown();
+        }
+#pragma warning disable SYSLIB0057
+        private static void VerifyInstallerAuthenticode(string installerPath)
+        {
+            try
+            {
+                using var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(
+                    System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(installerPath));
+                if (!cert.Verify())
+                {
+                    if (!cert.Subject.Contains("Tether", StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException("Installer certificate publisher does not match Tether.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Installer signature verification failed: {ex.Message}", ex);
+            }
+#pragma warning restore SYSLIB0057
         }
     }
 }

@@ -6,6 +6,7 @@ using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Channels;
@@ -46,6 +47,17 @@ public sealed class InputForwarder : IHostedService, IDisposable
     private static extern bool GetNamedPipeClientProcessId(IntPtr Pipe, out uint ClientProcessId);
 
     private const int TokenUserClass = 1;
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint processAccess, bool bInheritHandle, uint processId);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool QueryFullProcessImageName(IntPtr hProcess, int dwFlags, StringBuilder lpExeName, ref uint lpdwSize);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
+
+    private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    private const uint TOKEN_QUERY = 0x0008;
 
     private readonly ITetherLogger _logger;
     private readonly Channel<byte[]> _queue;
@@ -146,7 +158,7 @@ public sealed class InputForwarder : IHostedService, IDisposable
         }
     }
 
-    private bool IsAuthorizedHelperClient(NamedPipeServerStream pipe, uint activeSessionId, out uint clientPid)
+    private bool IsAuthorizedHelperClient(NamedPipeServerStream pipe, uint activeSessionId, SecurityIdentifier? expectedUserSid, out uint clientPid)
     {
         clientPid = 0;
         try
@@ -161,42 +173,92 @@ public sealed class InputForwarder : IHostedService, IDisposable
                 return false;
             }
 
-            using var proc = Process.GetProcessById((int)clientPid);
-            if (proc.HasExited)
+            IntPtr hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, clientPid);
+            if (hProc == IntPtr.Zero)
             {
+                _logger.Warning($"InputForwarder: Could not open pipe client PID {clientPid} (error {Marshal.GetLastWin32Error()}).");
                 return false;
             }
 
-            // Must match active console session
-            if ((uint)proc.SessionId != activeSessionId)
+            try
             {
-                _logger.Warning($"InputForwarder: Rejected pipe client PID {clientPid} in session {proc.SessionId} (expected active session {activeSessionId}).");
-                return false;
-            }
-
-            // Must be Tether.SessionHelper
-            string? procName = proc.ProcessName;
-            if (!string.Equals(procName, "Tether.SessionHelper", StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.Warning($"InputForwarder: Rejected unauthorized pipe client PID {clientPid} with process name '{procName}'.");
-                return false;
-            }
-
-            // Verify executable name
-            string? exePath = null;
-            try { exePath = proc.MainModule?.FileName; } catch { }
-
-            if (!string.IsNullOrEmpty(exePath))
-            {
-                string fileName = Path.GetFileName(exePath);
-                if (!string.Equals(fileName, "Tether.SessionHelper.exe", StringComparison.OrdinalIgnoreCase))
+                using var proc = Process.GetProcessById((int)clientPid);
+                if (proc.HasExited || (uint)proc.SessionId != activeSessionId)
                 {
-                    _logger.Warning($"InputForwarder: Pipe client PID {clientPid} has unexpected executable name '{fileName}'.");
+                    _logger.Warning($"InputForwarder: Rejected pipe client PID {clientPid} in session {proc.SessionId} (expected active session {activeSessionId}).");
                     return false;
                 }
-            }
 
-            return true;
+                var sb = new StringBuilder(1024);
+                uint size = (uint)sb.Capacity;
+                if (!QueryFullProcessImageName(hProc, 0, sb, ref size) || size == 0)
+                {
+                    _logger.Warning($"InputForwarder: QueryFullProcessImageName failed for PID {clientPid} (error {Marshal.GetLastWin32Error()}).");
+                    return false;
+                }
+
+                string clientExePath = Path.GetFullPath(sb.ToString());
+                string expectedExePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "Tether.SessionHelper.exe"));
+
+                if (!string.Equals(clientExePath, expectedExePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.Warning($"InputForwarder: Rejected client PID {clientPid} from untrusted path '{clientExePath}' (expected '{expectedExePath}').");
+                    return false;
+                }
+
+                if (OpenProcessToken(hProc, TOKEN_QUERY, out IntPtr hToken))
+                {
+                    try
+                    {
+                        GetTokenInformation(hToken, TokenUserClass, IntPtr.Zero, 0, out uint dwLen);
+                        if (dwLen > 0)
+                        {
+                            IntPtr pTokenUser = Marshal.AllocHGlobal((int)dwLen);
+                            try
+                            {
+                                if (GetTokenInformation(hToken, TokenUserClass, pTokenUser, dwLen, out _))
+                                {
+                                    IntPtr pSid = Marshal.ReadIntPtr(pTokenUser);
+                                    var clientSid = new SecurityIdentifier(pSid);
+
+                                    bool isSystem = clientSid.IsWellKnown(WellKnownSidType.LocalSystemSid);
+                                    bool isExpectedUser = expectedUserSid != null && clientSid == expectedUserSid;
+
+                                    if (!isSystem && !isExpectedUser)
+                                    {
+                                        _logger.Warning($"InputForwarder: Rejected pipe client PID {clientPid} with unauthorized SID '{clientSid.Value}' (expected '{expectedUserSid?.Value}').");
+                                        return false;
+                                    }
+                                }
+                                else
+                                {
+                                    _logger.Warning($"InputForwarder: GetTokenInformation failed for PID {clientPid}.");
+                                    return false;
+                                }
+                            }
+                            finally
+                            {
+                                Marshal.FreeHGlobal(pTokenUser);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        CloseHandle(hToken);
+                    }
+                }
+                else
+                {
+                    _logger.Warning($"InputForwarder: OpenProcessToken failed for PID {clientPid}.");
+                    return false;
+                }
+
+                return true;
+            }
+            finally
+            {
+                CloseHandle(hProc);
+            }
         }
         catch (Exception ex)
         {
@@ -204,7 +266,6 @@ public sealed class InputForwarder : IHostedService, IDisposable
             return false;
         }
     }
-
     private async Task AcceptLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -280,7 +341,7 @@ public sealed class InputForwarder : IHostedService, IDisposable
                     continue;
                 }
 
-                if (!IsAuthorizedHelperClient(pipe, activeSessionId, out uint clientPid))
+                if (!IsAuthorizedHelperClient(pipe, activeSessionId, userSid, out uint clientPid))
                 {
                     _logger.Warning($"InputForwarder: Terminating unauthorized connection from PID {clientPid} on pipe '{pipeName}'.");
                     try { pipe.Disconnect(); } catch { }

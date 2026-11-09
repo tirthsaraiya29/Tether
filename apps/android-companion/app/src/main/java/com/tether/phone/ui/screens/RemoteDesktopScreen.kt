@@ -112,26 +112,16 @@ fun RemoteDesktopScreen(
         withContext(Dispatchers.IO) {
             try {
                 val pinnedKey = FileTransferClient.resolvePinnedKey(context, null)
-                val pinnerBuilder = CertificatePinner.Builder()
-                if (pinnedKey != null && pinnedKey.isNotEmpty()) {
-                    val sha256 = MessageDigest.getInstance("SHA-256").digest(pinnedKey)
-                    val pinBase64 = android.util.Base64.encodeToString(sha256, android.util.Base64.NO_WRAP)
-                    pinnerBuilder.add(hostIp, "sha256/$pinBase64")
-                } else {
-                    pinnerBuilder.add(hostIp, "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-                }
-                val certificatePinner = pinnerBuilder.build()
-
-                val client = FileTransferClient.getPinnedClient(context, pinnedKey, hostIp)
-                    .newBuilder()
-                    .certificatePinner(certificatePinner)
+                val baseClient = FileTransferClient.getPinnedClient(context, pinnedKey, hostIp)
+                val client = baseClient.newBuilder()
+                    .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
                     .build()
 
                 val url = "https://$hostIp:37124/api/desktop/stream?fps=$targetFps&quality=$targetQuality"
                 val requestBuilder = Request.Builder().url(url)
 
                 val timestampMs = System.currentTimeMillis().toString()
-                if (pinnedKey != null) {
+                if (pinnedKey != null && pinnedKey.isNotEmpty()) {
                     val winSpkiBase64 = android.util.Base64.encodeToString(pinnedKey, android.util.Base64.NO_WRAP)
                     val proofData = "$token:$timestampMs:$winSpkiBase64".toByteArray(Charsets.UTF_8)
                     val sig = ProductionSecurityEngine().signWithIdentityKey(proofData)
@@ -141,6 +131,8 @@ fun RemoteDesktopScreen(
                         .header("X-Tether-Client-Proof", proofBase64)
                         .header("X-Tether-Client-Timestamp", timestampMs)
                         .header("X-Tether-Client-WinSpki", winSpkiBase64)
+                } else {
+                    requestBuilder.header("Authorization", "Bearer $token")
                 }
 
                 client.newCall(requestBuilder.build()).execute().use { response ->
@@ -152,29 +144,39 @@ fun RemoteDesktopScreen(
                     val bis = BufferedInputStream(rawStream, 65536)
 
                     val headerBuf = ByteArrayOutputStream(256)
-                    val frameBuffer = ByteArrayOutputStream(65536)
 
                     fun readLine(): String {
                         headerBuf.reset()
-                        var prev = -1
                         while (isActive && isStreaming) {
                             val c = bis.read()
-                            if (c == -1) break
-                            if (prev == '\r'.code && c == '\n'.code) {
+                            if (c == -1) return ""
+                            if (c == '\n'.code) {
                                 val bytes = headerBuf.toByteArray()
-                                return if (bytes.size > 1) String(bytes, 0, bytes.size - 1, Charsets.US_ASCII) else ""
+                                var len = bytes.size
+                                if (len > 0 && bytes[len - 1] == '\r'.code.toByte()) {
+                                    len--
+                                }
+                                return String(bytes, 0, len, Charsets.US_ASCII)
                             }
                             headerBuf.write(c)
-                            prev = c
                         }
                         return ""
                     }
 
                     while (isActive && isStreaming) {
                         var contentLength = -1
+                        var inHeaderSection = false
                         while (isActive && isStreaming) {
-                            val line = readLine()
-                            if (line.isEmpty()) break
+                            val line = readLine().trim()
+                            if (line.isEmpty()) {
+                                if (inHeaderSection) break
+                                continue
+                            }
+                            if (line.startsWith("--")) {
+                                inHeaderSection = true
+                                continue
+                            }
+                            inHeaderSection = true
                             if (line.startsWith("Content-Length:", ignoreCase = true)) {
                                 contentLength = line.substringAfter(":").trim().toIntOrNull() ?: -1
                             }
@@ -194,30 +196,6 @@ fun RemoteDesktopScreen(
                                 if (bmp != null) {
                                     currentFrame = bmp
                                 }
-                            }
-                        } else {
-                            val buf = ByteArray(8192)
-                            val r = bis.read(buf)
-                            if (r == -1) break
-                            frameBuffer.write(buf, 0, r)
-                            val b = frameBuffer.toByteArray()
-                            var s = -1
-                            var e = -1
-                            for (i in 0 until b.size - 1) {
-                                if (b[i] == 0xFF.toByte() && b[i + 1] == 0xD8.toByte()) s = i
-                                if (s != -1 && b[i] == 0xFF.toByte() && b[i + 1] == 0xD9.toByte()) {
-                                    e = i + 2
-                                    break
-                                }
-                            }
-                            if (s != -1 && e != -1 && e > s) {
-                                val jpg = b.copyOfRange(s, e)
-                                val bmp = BitmapFactory.decodeByteArray(jpg, 0, jpg.size)
-                                if (bmp != null) currentFrame = bmp
-                                frameBuffer.reset()
-                                if (e < b.size) frameBuffer.write(b, e, b.size - e)
-                            } else if (frameBuffer.size() > 2_000_000) {
-                                frameBuffer.reset()
                             }
                         }
                     }
