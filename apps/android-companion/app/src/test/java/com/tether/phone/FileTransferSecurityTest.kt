@@ -153,4 +153,29 @@ class FileTransferSecurityTest {
         val client = FileTransferClient.getPinnedClient(context = null, customPinnedKey = customKey)
         assertNotNull("OkHttpClient instance must be created", client)
     }
+
+    @Test
+    fun testPinnedTrustManager_CheckServerTrustedWithHostExtensionSucceeds() {
+        val pinnedKey = validWindowsKeyPair.public.encoded
+        val trustManager = TetherPinnedTrustManager(context = null, overridePinnedKey = pinnedKey)
+
+        val result = trustManager.checkServerTrusted(arrayOf(validCert), "RSA", "192.168.29.114")
+        assertEquals(1, result.size)
+        assertEquals(validCert, result[0])
+    }
+
+    @Test
+    fun testPinnedTrustManager_CheckServerTrustedWithHostExtensionFailsOnMismatch() {
+        val pinnedKey = validWindowsKeyPair.public.encoded
+        val trustManager = TetherPinnedTrustManager(context = null, overridePinnedKey = pinnedKey)
+
+        var thrown = false
+        try {
+            trustManager.checkServerTrusted(arrayOf(attackerCert), "RSA", "192.168.29.114")
+        } catch (e: CertificateException) {
+            thrown = true
+            assertTrue(e.message?.contains("pinning failed") == true)
+        }
+        assertTrue("Extension method must enforce public key pinning", thrown)
+    }
 }

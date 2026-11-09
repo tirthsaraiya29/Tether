@@ -42,6 +42,19 @@ class TetherPinnedTrustManager(
     private val overridePinnedKey: ByteArray? = null
 ) : X509ExtendedTrustManager() {
 
+    @Volatile
+    private var lastVerifiedCert: X509Certificate? = null
+
+    init {
+        try {
+            val service = TetherLanService.instance
+            val peerCert = service?.getActivePeerCertificate()
+            if (peerCert != null) {
+                lastVerifiedCert = peerCert
+            }
+        } catch (_: Exception) { }
+    }
+
     override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
         // Client cert validation is handled at middleware level via proof headers
     }
@@ -66,7 +79,19 @@ class TetherPinnedTrustManager(
         verifyPinning(chain)
     }
 
-    override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+    override fun getAcceptedIssuers(): Array<X509Certificate> {
+        val cert = lastVerifiedCert
+        return if (cert != null) arrayOf(cert) else arrayOf()
+    }
+
+    /**
+     * Platform-extension method invoked via reflection by Android's [android.net.http.X509TrustManagerExtensions]
+     * during OkHttp CertificateChainCleaner execution.
+     */
+    fun checkServerTrusted(chain: Array<X509Certificate>, authType: String?, host: String?): List<X509Certificate> {
+        verifyPinning(chain)
+        return chain.toList()
+    }
 
     fun verifyPinning(chain: Array<out X509Certificate>?) {
         if (chain.isNullOrEmpty()) {
@@ -85,6 +110,8 @@ class TetherPinnedTrustManager(
         if (!MessageDigest.isEqual(pinnedBytes, presentedKeyBytes)) {
             throw CertificateException("Certificate pinning failed: presented server public key does not match pinned identity.")
         }
+
+        lastVerifiedCert = leaf
     }
 }
 
