@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using Tether.CommunicationService.Capabilities;
@@ -273,5 +274,68 @@ public class AuditRun10SecurityTests
         // 3rd request -> must be rejected (throttled)
         var res3 = pairingManager.CreatePairingResponse("win1", "WinHost", identity.GetPublicKeySpkiBase64(), "ALL", phoneSpki, "AttackerPhone", initBytes);
         Assert.Equal(HandshakeStatus.PairingDenied, res3.response.Status);
+    }
+
+    [Fact]
+    public void PairingFlow_FullCryptoProofVerification_Succeeds()
+    {
+        var logger = new MockLogger();
+        var eventBus = new TestEventBus();
+        using var identity = new WindowsIdentity(logger);
+        var trustStore = new TrustStore(logger);
+        var devManager = new DeviceManager(logger, trustStore);
+        var pairingManager = new PairingManager(eventBus, logger, identity, devManager);
+
+        using var phoneEcdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        byte[] phonePubKeyBytes = phoneEcdsa.ExportSubjectPublicKeyInfo();
+        string phonePubKeyBase64 = Convert.ToBase64String(phonePubKeyBytes);
+        byte[] initBytes = System.Text.Encoding.UTF8.GetBytes("{\"type\":\"HANDSHAKE_INIT\"}");
+
+        var (pending, response, responseBytes) = pairingManager.CreatePairingResponse(
+            "win-dev-1",
+            "WinHost",
+            identity.GetPublicKeySpkiBase64(),
+            "ALL",
+            phonePubKeyBase64,
+            "Pixel 9",
+            initBytes);
+
+        Assert.Equal(HandshakeStatus.PairingPending, response.Status);
+
+        byte[] transcriptHash;
+        using (var sha = SHA512.Create())
+        {
+            var combined = new byte[initBytes.Length + responseBytes.Length];
+            Buffer.BlockCopy(initBytes, 0, combined, 0, initBytes.Length);
+            Buffer.BlockCopy(responseBytes, 0, combined, initBytes.Length, responseBytes.Length);
+            transcriptHash = sha.ComputeHash(combined);
+        }
+
+        byte[] authKey;
+        using (var mac = new HMACSHA256(System.Text.Encoding.UTF8.GetBytes(pending.Pin.Trim())))
+        {
+            using var ms = new MemoryStream();
+            ms.Write(System.Text.Encoding.UTF8.GetBytes("TETHER-PAIRING-v2"));
+            ms.Write(transcriptHash);
+            ms.Write(System.Text.Encoding.UTF8.GetBytes(pending.RequestId));
+            ms.Write(Convert.FromBase64String(identity.GetPublicKeySpkiBase64()));
+            ms.Write(phonePubKeyBytes);
+            authKey = mac.ComputeHash(ms.ToArray());
+        }
+
+        byte[] signature = phoneEcdsa.SignData(authKey, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+
+        var proofBuf = new byte[4 + authKey.Length + 4 + signature.Length];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(proofBuf.AsSpan(0, 4), authKey.Length);
+        Buffer.BlockCopy(authKey, 0, proofBuf, 4, authKey.Length);
+        int sigOff = 4 + authKey.Length;
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(proofBuf.AsSpan(sigOff, 4), signature.Length);
+        Buffer.BlockCopy(signature, 0, proofBuf, sigOff + 4, signature.Length);
+
+        string proofBase64 = Convert.ToBase64String(proofBuf);
+
+        bool verified = pairingManager.TryVerifyPhoneProof(pending.RequestId, proofBase64, out string winProofBase64, out var pendingPairing);
+        Assert.True(verified, "Pairing proof verification failed!");
+        Assert.False(string.IsNullOrEmpty(winProofBase64));
     }
 }

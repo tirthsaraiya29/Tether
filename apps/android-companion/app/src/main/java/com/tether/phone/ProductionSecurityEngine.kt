@@ -44,6 +44,26 @@ class ProductionSecurityEngine {
 
     @Synchronized
     private fun ensureIdentityKeyPairExists() {
+        if (keyStore.containsAlias(EC_IDENTITY_ALIAS)) {
+            try {
+                val privateKey = keyStore.getKey(EC_IDENTITY_ALIAS, null) as? PrivateKey
+                if (privateKey != null) {
+                    val testSig = Signature.getInstance("SHA256withECDSA")
+                    testSig.initSign(privateKey)
+                    testSig.update(byteArrayOf(1, 2, 3))
+                    testSig.sign()
+                } else {
+                    keyStore.deleteEntry(EC_IDENTITY_ALIAS)
+                    cachedPublicKeyBytes = null
+                }
+            } catch (_: Exception) {
+                try {
+                    keyStore.deleteEntry(EC_IDENTITY_ALIAS)
+                    cachedPublicKeyBytes = null
+                } catch (_: Exception) {}
+            }
+        }
+
         if (!keyStore.containsAlias(EC_IDENTITY_ALIAS)) {
             Log.i(TAG, "Generating new hardware-backed EC identity key pair in AndroidKeyStore...")
             val kpg = KeyPairGenerator.getInstance(
@@ -58,23 +78,12 @@ class ProductionSecurityEngine {
                 .setCertificateSubject(X500Principal("CN=TetherAndroidDevice, O=Tether, OU=Mobile"))
                 .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
                 .setKeySize(256)
-                .setUserAuthenticationRequired(true)
-                .setInvalidatedByBiometricEnrollment(true)
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                builder.setUserAuthenticationParameters(
-                    0,
-                    KeyProperties.AUTH_BIOMETRIC_STRONG
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                builder.setUserAuthenticationValidityDurationSeconds(-1)
-            }
 
             val parameterSpec = builder.build()
 
             kpg.initialize(parameterSpec)
             kpg.generateKeyPair()
+            cachedPublicKeyBytes = null
             Log.i(TAG, "EC identity key pair successfully created.")
         }
     }

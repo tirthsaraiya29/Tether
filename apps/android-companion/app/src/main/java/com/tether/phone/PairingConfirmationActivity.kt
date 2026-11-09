@@ -277,9 +277,8 @@ fun PairingConfirmationContent(
                     OutlinedTextField(
                         value = userPin,
                         onValueChange = { input ->
-                            if ((input.length <= 6) && input.all { it.isDigit() }) {
-                                userPin = input
-                            }
+                            val digitsOnly = input.filter { it.isDigit() }.take(6)
+                            userPin = digitsOnly
                         },
                         modifier = Modifier.fillMaxWidth(),
                         textStyle = TextStyle(
