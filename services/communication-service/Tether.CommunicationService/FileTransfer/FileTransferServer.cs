@@ -93,6 +93,12 @@ public class FileTransferServer : IHostedService
         uint cchFilePath,
         uint dwFlags);
 
+    [DllImport("kernel32.dll", EntryPoint = "MoveFileExW", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool MoveFileEx(string lpExistingFileName, string lpNewFileName, uint dwFlags);
+    private const uint MOVEFILE_REPLACE_EXISTING = 0x00000001;
+    private const uint MOVEFILE_COPY_ALLOWED = 0x00000002;
+    private const uint MOVEFILE_WRITE_THROUGH = 0x00000008;
+
     private const uint FILE_SHARE_READ = 0x00000001;
     private const uint FILE_SHARE_WRITE = 0x00000002;
     private const uint FILE_SHARE_DELETE = 0x00000004;
@@ -1234,27 +1240,6 @@ public class FileTransferServer : IHostedService
                         return Results.BadRequest("Hash required for upload completion");
                     }
 
-                    using (var fsVerify = new FileStream(partPath, FileMode.Open, FileAccess.Read, FileShare.None))
-                    {
-                        var partAttrs = File.GetAttributes(partPath);
-                        if ((partAttrs & FileAttributes.ReparsePoint) != 0)
-                        {
-                            fsVerify.Dispose();
-                            try { File.Delete(partPath); } catch { }
-                            return Results.BadRequest("Part file became a reparse point");
-                        }
-
-                        using var sha512 = SHA512.Create();
-                        byte[] hashBytes = sha512.ComputeHash(fsVerify);
-                        string computed = Convert.ToHexString(hashBytes).ToLowerInvariant();
-                        if (!string.Equals(computed, hash.Trim(), StringComparison.OrdinalIgnoreCase))
-                        {
-                            fsVerify.Dispose();
-                            try { File.Delete(partPath); } catch { }
-                            return Results.BadRequest("Checksum mismatch for completed upload");
-                        }
-                    }
-
                     if (!TryGetValidPath(fullPath, out _, isUpload: true))
                     {
                         try { File.Delete(partPath); } catch { }
@@ -1271,13 +1256,52 @@ public class FileTransferServer : IHostedService
                         }
                     }
 
+                    // Hold exclusive locked file handle during verification to defeat TOCTOU modification/substitution
+                    using (var fsVerify = new FileStream(partPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                    {
+                        var partAttrs = File.GetAttributes(partPath);
+                        if ((partAttrs & FileAttributes.ReparsePoint) != 0)
+                        {
+                            fsVerify.Dispose();
+                            try { File.Delete(partPath); } catch { }
+                            return Results.BadRequest("Part file became a reparse point");
+                        }
+
+                        // Verify resolved final path matches expected part path
+                        string? resolvedPart = GetFinalResolvedPath(partPath);
+                        if (resolvedPart == null || !string.Equals(resolvedPart, Path.GetFullPath(partPath), StringComparison.OrdinalIgnoreCase))
+                        {
+                            fsVerify.Dispose();
+                            try { File.Delete(partPath); } catch { }
+                            return Results.BadRequest("Part file resolved path mismatch or symlink detected");
+                        }
+
+                        using var sha512 = SHA512.Create();
+                        byte[] hashBytes = sha512.ComputeHash(fsVerify);
+                        string computed = Convert.ToHexString(hashBytes).ToLowerInvariant();
+                        if (!string.Equals(computed, hash.Trim(), StringComparison.OrdinalIgnoreCase))
+                        {
+                            fsVerify.Dispose();
+                            try { File.Delete(partPath); } catch { }
+                            return Results.BadRequest("Checksum mismatch for completed upload");
+                        }
+                    }
+
+                    // Double-check reparse point attributes immediately prior to atomic move
                     if ((File.GetAttributes(partPath) & FileAttributes.ReparsePoint) != 0)
                     {
                         try { File.Delete(partPath); } catch { }
                         return Results.BadRequest("Part file became a reparse point");
                     }
 
-                    File.Move(partPath, fullPath, overwrite: true);
+                    // Perform atomic move via MoveFileEx with replace, copy allowed, and write-through flags
+                    if (!MoveFileEx(partPath, fullPath, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH))
+                    {
+                        int err = Marshal.GetLastWin32Error();
+                        // Fallback to standard atomic File.Move if MoveFileEx failed across non-standard filesystems
+                        File.Move(partPath, fullPath, overwrite: true);
+                    }
+
                     return Results.Ok(new { completed = true, totalSize = fi.Length });
                 }
 

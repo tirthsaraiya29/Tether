@@ -190,26 +190,12 @@ namespace Tether.DesktopUI.Updates
             RequestShutdownForUpdate?.Invoke();
             Application.Current.Shutdown();
         }
-#pragma warning disable SYSLIB0057
         private static void VerifyInstallerAuthenticode(string installerPath)
         {
-            try
+            if (!Tether.Shared.Security.AuthenticodeVerifier.VerifyFileAuthenticode(installerPath))
             {
-                using var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(
-                    System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(installerPath));
-                if (!cert.Verify())
-                {
-                    if (!cert.Subject.Contains("Tether", StringComparison.OrdinalIgnoreCase))
-                    {
-                        throw new InvalidOperationException("Installer certificate publisher does not match Tether.");
-                    }
-                }
+                throw new InvalidOperationException("Installer signature verification failed: file is unsigned, tampered, or not signed by trusted Tether publisher.");
             }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException($"Installer signature verification failed: {ex.Message}", ex);
-            }
-#pragma warning restore SYSLIB0057
         }
     }
 }

@@ -90,6 +90,21 @@ internal sealed class ScreenCaptureEngine
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr hObject);
 
+    [DllImport("gdi32.dll")]
+    private static extern int GetObject(IntPtr hgdiobj, int cbBuffer, out BITMAP lpvObject);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAP
+    {
+        public int bmType;
+        public int bmWidth;
+        public int bmHeight;
+        public int bmWidthBytes;
+        public short bmPlanes;
+        public short bmBitsPixel;
+        public IntPtr bmBits;
+    }
+
     private const int SRCCOPY = 0x00CC0020;
     private const int HALFTONE = 4;
     private const uint PW_RENDERFULLCONTENT = 0x00000002;
@@ -111,7 +126,13 @@ internal sealed class ScreenCaptureEngine
     {
         try
         {
-            var bounds = Screen.PrimaryScreen?.Bounds ?? new Rectangle(0, 0, 1920, 1080);
+            // Capture virtual desktop screen spanning multi-monitors and negative coordinate offsets
+            Rectangle bounds = SystemInformation.VirtualScreen;
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+            {
+                bounds = Screen.PrimaryScreen?.Bounds ?? new Rectangle(0, 0, 1920, 1080);
+            }
+
             float ratio = Math.Min(1f, Math.Min((float)maxWidth / Math.Max(1, bounds.Width), (float)maxHeight / Math.Max(1, bounds.Height)));
             int targetW = Math.Max(1, (int)(bounds.Width * ratio));
             int targetH = Math.Max(1, (int)(bounds.Height * ratio));
@@ -125,7 +146,7 @@ internal sealed class ScreenCaptureEngine
                 try
                 {
                     SetStretchBltMode(destHdc, HALFTONE);
-                    StretchBlt(destHdc, 0, 0, targetW, targetH, srcHdc, bounds.X, bounds.Y, bounds.Width, bounds.Height, SRCCOPY);
+                    StretchBlt(destHdc, 0, 0, targetW, targetH, srcHdc, bounds.Left, bounds.Top, bounds.Width, bounds.Height, SRCCOPY);
                     var ci = new CURSORINFO { cbSize = Marshal.SizeOf<CURSORINFO>() };
                     if (GetCursorInfo(out ci) && (ci.flags & CURSOR_SHOWING) != 0)
                     {
@@ -133,12 +154,21 @@ internal sealed class ScreenCaptureEngine
                         {
                             try
                             {
-                                int cursorX = ci.ptScreenPos.x - bounds.X - ii.xHotspot;
-                                int cursorY = ci.ptScreenPos.y - bounds.Y - ii.yHotspot;
+                                int rawCursorW = 32;
+                                int rawCursorH = 32;
+                                IntPtr hBitmapForDim = ii.hbmColor != IntPtr.Zero ? ii.hbmColor : ii.hbmMask;
+                                if (hBitmapForDim != IntPtr.Zero && GetObject(hBitmapForDim, Marshal.SizeOf<BITMAP>(), out BITMAP bm) > 0)
+                                {
+                                    rawCursorW = bm.bmWidth;
+                                    rawCursorH = ii.hbmColor != IntPtr.Zero ? bm.bmHeight : (bm.bmHeight / 2);
+                                }
+
+                                int cursorX = ci.ptScreenPos.x - bounds.Left - ii.xHotspot;
+                                int cursorY = ci.ptScreenPos.y - bounds.Top - ii.yHotspot;
                                 int scaledX = (int)(cursorX * ratio);
                                 int scaledY = (int)(cursorY * ratio);
-                                int cursorW = Math.Max(16, (int)(32 * ratio));
-                                int cursorH = Math.Max(16, (int)(32 * ratio));
+                                int cursorW = Math.Max(1, (int)(rawCursorW * ratio));
+                                int cursorH = Math.Max(1, (int)(rawCursorH * ratio));
                                 DrawIconEx(destHdc, scaledX, scaledY, ci.hCursor, cursorW, cursorH, 0, IntPtr.Zero, DI_NORMAL);
                             }
                             finally

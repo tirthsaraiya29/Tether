@@ -7,6 +7,8 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 
@@ -115,6 +117,9 @@ internal sealed class TerminalSessionManager
     private static extern IntPtr GetSidSubAuthorityCount(IntPtr pSid);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -183,6 +188,7 @@ internal sealed class TerminalSessionManager
     private const uint MAXIMUM_ALLOWED = 0x02000000;
     private const int TokenElevationType = 18;
     private const int TokenLinkedToken = 19;
+    private const int TokenUser = 1;
     private const int TokenElevation = 20;
     private const int TokenIntegrityLevel = 25;
     private const int SECURITY_MANDATORY_MEDIUM_RID = 0x00002000;
@@ -195,7 +201,39 @@ internal sealed class TerminalSessionManager
         IntPtr pInfo = IntPtr.Zero;
         try
         {
-            // 1. Verify elevation is strictly FALSE
+            // 1. Verify User SID: Must NOT be SYSTEM (S-1-5-18), LocalService (S-1-5-19), or NetworkService (S-1-5-20)
+            GetTokenInformation(hToken, TokenUser, IntPtr.Zero, 0, out uint userLenNeeded);
+            if (userLenNeeded > 0)
+            {
+                pInfo = Marshal.AllocHGlobal((int)userLenNeeded);
+                if (GetTokenInformation(hToken, TokenUser, pInfo, userLenNeeded, out _))
+                {
+                    IntPtr pUserSid = Marshal.ReadIntPtr(pInfo); // TOKEN_USER.User.Sid
+                    if (pUserSid != IntPtr.Zero)
+                    {
+                        var sid = new SecurityIdentifier(pUserSid);
+                        string sidStr = sid.Value;
+                        if (sidStr.Equals("S-1-5-18", StringComparison.OrdinalIgnoreCase) ||
+                            sidStr.Equals("S-1-5-19", StringComparison.OrdinalIgnoreCase) ||
+                            sidStr.Equals("S-1-5-20", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return false; // Prohibit service/SYSTEM accounts
+                        }
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+                Marshal.FreeHGlobal(pInfo);
+                pInfo = IntPtr.Zero;
+            }
+            else
+            {
+                return false;
+            }
+
+            // 2. Verify elevation is strictly FALSE
             pInfo = Marshal.AllocHGlobal(sizeof(int));
             if (GetTokenInformation(hToken, TokenElevation, pInfo, sizeof(int), out _))
             {
@@ -209,7 +247,7 @@ internal sealed class TerminalSessionManager
             Marshal.FreeHGlobal(pInfo);
             pInfo = IntPtr.Zero;
 
-            // 2. Verify integrity level is <= Medium (RID <= 0x2000)
+            // 3. Verify integrity level is <= Medium (RID <= 0x2000)
             GetTokenInformation(hToken, TokenIntegrityLevel, IntPtr.Zero, 0, out uint lenNeeded);
             if (lenNeeded == 0) return false;
 
@@ -394,6 +432,7 @@ internal sealed class TerminalSessionManager
         IntPtr hChildStdoutWrite = IntPtr.Zero;
         IntPtr hParentStderrRead = IntPtr.Zero;
         IntPtr hChildStderrWrite = IntPtr.Zero;
+        PROCESS_INFORMATION pi = default;
 
         try
         {
@@ -404,9 +443,15 @@ internal sealed class TerminalSessionManager
                 lpSecurityDescriptor = IntPtr.Zero
             };
 
-            if (!CreatePipe(out hChildStdinRead, out hParentStdinWrite, ref sa, 0) ||
-                !CreatePipe(out hParentStdoutRead, out hChildStdoutWrite, ref sa, 0) ||
-                !CreatePipe(out hParentStderrRead, out hChildStderrWrite, ref sa, 0))
+            if (!CreatePipe(out hChildStdinRead, out hParentStdinWrite, ref sa, 0))
+            {
+                return false;
+            }
+            if (!CreatePipe(out hParentStdoutRead, out hChildStdoutWrite, ref sa, 0))
+            {
+                return false;
+            }
+            if (!CreatePipe(out hParentStderrRead, out hChildStderrWrite, ref sa, 0))
             {
                 return false;
             }
@@ -435,12 +480,14 @@ internal sealed class TerminalSessionManager
                 IntPtr.Zero,
                 workingDir,
                 ref si,
-                out PROCESS_INFORMATION pi))
+                out pi))
             {
                 return false;
             }
 
             CloseHandle(pi.hThread);
+            pi.hThread = IntPtr.Zero;
+
             CloseHandle(hChildStdinRead);
             CloseHandle(hChildStdoutWrite);
             CloseHandle(hChildStderrWrite);
@@ -450,6 +497,7 @@ internal sealed class TerminalSessionManager
 
             proc = Process.GetProcessById(pi.dwProcessId);
             CloseHandle(pi.hProcess);
+            pi.hProcess = IntPtr.Zero;
 
             var safeIn = new SafeFileHandle(hParentStdinWrite, true);
             hParentStdinWrite = IntPtr.Zero;
@@ -469,16 +517,31 @@ internal sealed class TerminalSessionManager
         }
         catch
         {
+            if (pi.hProcess != IntPtr.Zero)
+            {
+                try { TerminateProcess(pi.hProcess, 1); } catch { }
+                CloseHandle(pi.hProcess);
+                pi.hProcess = IntPtr.Zero;
+            }
+            if (pi.hThread != IntPtr.Zero)
+            {
+                CloseHandle(pi.hThread);
+                pi.hThread = IntPtr.Zero;
+            }
+            if (proc != null && !proc.HasExited)
+            {
+                try { proc.Kill(); } catch { }
+            }
+            return false;
+        }
+        finally
+        {
             if (hChildStdinRead != IntPtr.Zero) CloseHandle(hChildStdinRead);
             if (hParentStdinWrite != IntPtr.Zero) CloseHandle(hParentStdinWrite);
             if (hParentStdoutRead != IntPtr.Zero) CloseHandle(hParentStdoutRead);
             if (hChildStdoutWrite != IntPtr.Zero) CloseHandle(hChildStdoutWrite);
             if (hParentStderrRead != IntPtr.Zero) CloseHandle(hParentStderrRead);
             if (hChildStderrWrite != IntPtr.Zero) CloseHandle(hChildStderrWrite);
-            return false;
-        }
-        finally
-        {
             if (hLimitedToken != IntPtr.Zero) CloseHandle(hLimitedToken);
         }
     }
@@ -487,9 +550,14 @@ internal sealed class TerminalSessionManager
 
     public TerminalSessionInfo StartSession(string shellType, string? initialDir = null, string? customId = null, string? ownerDeviceId = null)
     {
+        if (string.IsNullOrWhiteSpace(ownerDeviceId))
+        {
+            throw new ArgumentException("Terminal session owner device ID is mandatory.", nameof(ownerDeviceId));
+        }
+
         lock (_sessionLock)
         {
-            string effectiveOwner = !string.IsNullOrWhiteSpace(ownerDeviceId) ? ownerDeviceId : "unknown";
+            string effectiveOwner = ownerDeviceId.Trim();
 
             // Evict exited processes
             foreach (var kvp in _sessions)
@@ -532,7 +600,9 @@ internal sealed class TerminalSessionManager
             }
             else
             {
-                id = Guid.NewGuid().ToString("N")[..8];
+                byte[] randomBytes = new byte[16];
+                RandomNumberGenerator.Fill(randomBytes);
+                id = Convert.ToHexString(randomBytes).ToLowerInvariant();
             }
 
             string workingDir = !string.IsNullOrEmpty(initialDir) && Directory.Exists(initialDir)
@@ -577,6 +647,7 @@ internal sealed class TerminalSessionManager
 
     public bool SendInput(string sessionId, string input, string? ownerDeviceId = null)
     {
+        if (string.IsNullOrWhiteSpace(ownerDeviceId)) return false;
         TerminalSession? session = null;
         if (!string.IsNullOrEmpty(sessionId) && _sessions.TryGetValue(sessionId, out var s))
         {
@@ -588,8 +659,7 @@ internal sealed class TerminalSessionManager
             return false;
         }
 
-        if (!string.IsNullOrEmpty(ownerDeviceId) &&
-            !string.Equals(session.OwnerDeviceId, ownerDeviceId, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(session.OwnerDeviceId, ownerDeviceId.Trim(), StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -619,10 +689,10 @@ internal sealed class TerminalSessionManager
 
     public List<string> GetHistory(string sessionId, string? ownerDeviceId = null)
     {
+        if (string.IsNullOrWhiteSpace(ownerDeviceId)) return new List<string>();
         if (_sessions.TryGetValue(sessionId, out var session))
         {
-            if (!string.IsNullOrEmpty(ownerDeviceId) &&
-                !string.Equals(session.OwnerDeviceId, ownerDeviceId, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(session.OwnerDeviceId, ownerDeviceId.Trim(), StringComparison.OrdinalIgnoreCase))
             {
                 return new List<string>();
             }
@@ -637,10 +707,10 @@ internal sealed class TerminalSessionManager
 
     public bool CloseSession(string sessionId, string? ownerDeviceId = null)
     {
+        if (string.IsNullOrWhiteSpace(ownerDeviceId)) return false;
         if (_sessions.TryGetValue(sessionId, out var existing))
         {
-            if (!string.IsNullOrEmpty(ownerDeviceId) &&
-                !string.Equals(existing.OwnerDeviceId, ownerDeviceId, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(existing.OwnerDeviceId, ownerDeviceId.Trim(), StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -656,11 +726,12 @@ internal sealed class TerminalSessionManager
 
     public List<TerminalSessionInfo> ListSessions(string? ownerDeviceId = null)
     {
+        if (string.IsNullOrWhiteSpace(ownerDeviceId)) return new List<TerminalSessionInfo>();
         var list = new List<TerminalSessionInfo>();
+        string trimmedOwner = ownerDeviceId.Trim();
         foreach (var s in _sessions.Values)
         {
-            if (!string.IsNullOrEmpty(ownerDeviceId) &&
-                !string.Equals(s.OwnerDeviceId, ownerDeviceId, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(s.OwnerDeviceId, trimmedOwner, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }

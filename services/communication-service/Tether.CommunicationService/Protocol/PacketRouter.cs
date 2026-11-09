@@ -55,18 +55,29 @@ public sealed class PacketRouter
                 if (type == "TERMINAL_OUTPUT")
                 {
                     string targetDeviceId = doc.RootElement.TryGetProperty("deviceId", out var dProp) ? (dProp.GetString() ?? "") : "";
-                    if (!string.IsNullOrEmpty(targetDeviceId))
+                    if (!string.IsNullOrWhiteSpace(targetDeviceId))
                     {
                         _sessionManager.SendRawFrameToDevice(targetDeviceId, rawJson);
-                        return;
                     }
+                    else
+                    {
+                        Console.WriteLine("[Security Alert] TERMINAL_OUTPUT frame dropped: missing target deviceId. Refusing to broadcast.");
+                    }
+                    return;
                 }
 
                 _sessionManager.BroadcastRawFrame(rawJson);
             }
-            catch
+            catch (Exception ex)
             {
-                _sessionManager.BroadcastRawFrame(rawJson);
+                if (rawJson != null && (rawJson.Contains("TERMINAL_OUTPUT", StringComparison.OrdinalIgnoreCase) ||
+                                       rawJson.Contains("terminalId", StringComparison.OrdinalIgnoreCase)))
+                {
+                    Console.WriteLine($"[Security Alert] Rejected unparseable terminal frame: {ex.Message}");
+                    return;
+                }
+
+                Console.WriteLine($"[PacketRouter] Error processing helper event: {ex.Message}");
             }
         };
     }
