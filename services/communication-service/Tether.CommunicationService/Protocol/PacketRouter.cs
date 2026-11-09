@@ -607,6 +607,7 @@ public sealed class PacketRouter
         }
 
         bool executed = HardwareExecutor.ExecuteCommand(cmd.Command, _logger, out int currentVol);
+        int currentBri = -1;
 
         _eventBus.Publish(new TetherEvent
         {
@@ -620,9 +621,6 @@ public sealed class PacketRouter
             })
         });
 
-        if (currentVol < 0) currentVol = HardwareExecutor.GetSystemVolumeLevel(_logger);
-        int currentBri = HardwareExecutor.GetSystemBrightnessLevelInUserSession(_logger);
-
         if (cmdLower.StartsWith("volume_") || cmdLower.StartsWith("set_volume:") || cmdLower.StartsWith("vol_") ||
             cmdLower.StartsWith("brightness_") || cmdLower.StartsWith("set_brightness:") || cmdLower.StartsWith("bright_") ||
             cmd.Command.Equals("volume_get", StringComparison.OrdinalIgnoreCase) ||
@@ -632,6 +630,9 @@ public sealed class PacketRouter
             cmd.Command.Equals("bright_get", StringComparison.OrdinalIgnoreCase) ||
             cmd.Command.Equals("get_brightness", StringComparison.OrdinalIgnoreCase))
         {
+            if (currentVol < 0) currentVol = HardwareExecutor.GetSystemVolumeLevel(_logger);
+            currentBri = HardwareExecutor.GetSystemBrightnessLevelInUserSession(_logger);
+
             var snap = LaptopStateCollector.GetLaptopSnapshot(_logger);
             await session.WriteJsonFrameSafeAsync(new
             {

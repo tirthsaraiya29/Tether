@@ -313,10 +313,6 @@ public sealed class Worker : BackgroundService
                     _appUnlockedEvent.Dispose();
                     _appUnlockedEvent = null;
                 }
-                else
-                {
-                    _appUnlockedEvent.SetAccessControl(sec);
-                }
             }
         }
         catch (Exception ex)
@@ -347,7 +343,6 @@ public sealed class Worker : BackgroundService
                     _unlockPromptEvent = null;
                     return;
                 }
-                _unlockPromptEvent.SetAccessControl(sec);
             }
         }
         catch (Exception ex)

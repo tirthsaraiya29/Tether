@@ -7,8 +7,10 @@ using System.Windows.Forms;
 
 namespace Tether.SessionHelper;
 
-internal sealed class ClipboardController : Form
+internal sealed class ClipboardController : NativeWindow, IDisposable
 {
+    private static readonly IntPtr HWND_MESSAGE = new IntPtr(-3);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool AddClipboardFormatListener(IntPtr hwnd);
 
@@ -26,26 +28,37 @@ internal sealed class ClipboardController : Form
 
     private readonly Action<string> _onClipboardChanged;
     private string _lastSentHash = string.Empty;
+    private bool _disposed;
 
     public ClipboardController(Action<string> onClipboardChanged)
     {
         _onClipboardChanged = onClipboardChanged;
-        FormBorderStyle = FormBorderStyle.None;
-        ShowInTaskbar = false;
-        WindowState = FormWindowState.Minimized;
-        Opacity = 0;
-    }
-
-    protected override void OnHandleCreated(EventArgs e)
-    {
-        base.OnHandleCreated(e);
+        var cp = new CreateParams
+        {
+            Parent = HWND_MESSAGE
+        };
+        CreateHandle(cp);
         AddClipboardFormatListener(Handle);
     }
 
-    protected override void OnHandleDestroyed(EventArgs e)
+    public void Dispose()
     {
-        RemoveClipboardFormatListener(Handle);
-        base.OnHandleDestroyed(e);
+        if (_disposed) return;
+        _disposed = true;
+        try
+        {
+            if (Handle != IntPtr.Zero)
+            {
+                RemoveClipboardFormatListener(Handle);
+                DestroyHandle();
+            }
+        }
+        catch { }
+        try
+        {
+            Application.ExitThread();
+        }
+        catch { }
     }
 
     protected override void WndProc(ref Message m)
