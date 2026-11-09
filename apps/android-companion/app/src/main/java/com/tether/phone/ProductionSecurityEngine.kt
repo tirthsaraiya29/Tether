@@ -71,20 +71,32 @@ class ProductionSecurityEngine {
                 ANDROID_KEYSTORE,
             )
 
-            val builder = KeyGenParameterSpec.Builder(
-                EC_IDENTITY_ALIAS,
-                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
-            )
-                .setCertificateSubject(X500Principal("CN=TetherAndroidDevice, O=Tether, OU=Mobile"))
-                .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
-                .setKeySize(256)
+            fun createSpec(useStrongBox: Boolean): KeyGenParameterSpec {
+                val builder = KeyGenParameterSpec.Builder(
+                    EC_IDENTITY_ALIAS,
+                    KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
+                )
+                    .setCertificateSubject(X500Principal("CN=TetherAndroidDevice, O=Tether, OU=Mobile"))
+                    .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
+                    .setKeySize(256)
 
-            val parameterSpec = builder.build()
+                if (useStrongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    builder.setIsStrongBoxBacked(true)
+                }
+                return builder.build()
+            }
 
-            kpg.initialize(parameterSpec)
-            kpg.generateKeyPair()
+            try {
+                kpg.initialize(createSpec(useStrongBox = true))
+                kpg.generateKeyPair()
+                Log.i(TAG, "EC identity key pair successfully created in hardware enclave (StrongBox preference).")
+            } catch (e: Exception) {
+                Log.w(TAG, "StrongBox unavailable for identity key (${e.message}); using standard AndroidKeyStore TEE...")
+                kpg.initialize(createSpec(useStrongBox = false))
+                kpg.generateKeyPair()
+                Log.i(TAG, "EC identity key pair successfully created in AndroidKeyStore.")
+            }
             cachedPublicKeyBytes = null
-            Log.i(TAG, "EC identity key pair successfully created.")
         }
     }
 
@@ -96,18 +108,32 @@ class ProductionSecurityEngine {
                 KeyProperties.KEY_ALGORITHM_AES,
                 ANDROID_KEYSTORE,
             )
-            val parameterSpec = KeyGenParameterSpec.Builder(
-                STORAGE_KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setRandomizedEncryptionRequired(true)
-                .setKeySize(256)
-                .build()
 
-            keyGenerator.init(parameterSpec)
-            keyGenerator.generateKey()
+            fun createStorageSpec(useStrongBox: Boolean): KeyGenParameterSpec {
+                val builder = KeyGenParameterSpec.Builder(
+                    STORAGE_KEY_ALIAS,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                )
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setRandomizedEncryptionRequired(true)
+                    .setKeySize(256)
+
+                if (useStrongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    builder.setIsStrongBoxBacked(true)
+                }
+                return builder.build()
+            }
+
+            try {
+                keyGenerator.init(createStorageSpec(useStrongBox = true))
+                keyGenerator.generateKey()
+                Log.i(TAG, "AES-256 storage key successfully created with StrongBox preference.")
+            } catch (e: Exception) {
+                Log.w(TAG, "StrongBox unavailable for storage key (${e.message}); using standard AndroidKeyStore TEE...")
+                keyGenerator.init(createStorageSpec(useStrongBox = false))
+                keyGenerator.generateKey()
+            }
         }
     }
 

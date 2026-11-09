@@ -167,19 +167,13 @@ namespace Tether.DesktopUI.Updates
                 return;
             }
 
-            // Find Tether.Updater.exe in local app directory or extract from payload
+            // Verify Tether.Updater.exe in local app directory. Do not execute unverified staged binaries with elevation.
             string appDir = AppDomain.CurrentDomain.BaseDirectory;
             string updaterExe = Path.Combine(appDir, "Tether.Updater.exe");
             if (!File.Exists(updaterExe))
             {
-                updaterExe = Path.Combine(stagingDir, "Tether.Updater.exe");
-            }
-
-            if (!File.Exists(updaterExe))
-            {
-                // Fallback to direct executable if standalone updater isn't packaged yet
-                updaterExe = Path.Combine(tempDir, "Tether.Updater.exe");
-                // Will be handled by the updater component
+                TxtUpdateBtnLabel.Text = "Updater missing";
+                throw new FileNotFoundException("Tether.Updater.exe not found in application directory. Unverified binaries will not be elevated from temp directories.");
             }
 
             // Launch updater with elevation

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
@@ -39,6 +41,9 @@ public sealed class InputForwarder : IHostedService, IDisposable
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetNamedPipeClientProcessId(IntPtr Pipe, out uint ClientProcessId);
 
     private const int TokenUserClass = 1;
 
@@ -141,6 +146,65 @@ public sealed class InputForwarder : IHostedService, IDisposable
         }
     }
 
+    private bool IsAuthorizedHelperClient(NamedPipeServerStream pipe, uint activeSessionId, out uint clientPid)
+    {
+        clientPid = 0;
+        try
+        {
+            if (!GetNamedPipeClientProcessId(pipe.SafePipeHandle.DangerousGetHandle(), out clientPid) || clientPid == 0)
+            {
+                return false;
+            }
+
+            if (clientPid == (uint)Environment.ProcessId)
+            {
+                return false;
+            }
+
+            using var proc = Process.GetProcessById((int)clientPid);
+            if (proc.HasExited)
+            {
+                return false;
+            }
+
+            // Must match active console session
+            if ((uint)proc.SessionId != activeSessionId)
+            {
+                _logger.Warning($"InputForwarder: Rejected pipe client PID {clientPid} in session {proc.SessionId} (expected active session {activeSessionId}).");
+                return false;
+            }
+
+            // Must be Tether.SessionHelper
+            string? procName = proc.ProcessName;
+            if (!string.Equals(procName, "Tether.SessionHelper", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.Warning($"InputForwarder: Rejected unauthorized pipe client PID {clientPid} with process name '{procName}'.");
+                return false;
+            }
+
+            // Verify executable name
+            string? exePath = null;
+            try { exePath = proc.MainModule?.FileName; } catch { }
+
+            if (!string.IsNullOrEmpty(exePath))
+            {
+                string fileName = Path.GetFileName(exePath);
+                if (!string.Equals(fileName, "Tether.SessionHelper.exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.Warning($"InputForwarder: Pipe client PID {clientPid} has unexpected executable name '{fileName}'.");
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"InputForwarder: Failed to validate pipe client identity: {ex.Message}");
+            return false;
+        }
+    }
+
     private async Task AcceptLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -212,6 +276,14 @@ public sealed class InputForwarder : IHostedService, IDisposable
 
                 if (!pipe.IsConnected)
                 {
+                    try { pipe.Dispose(); } catch { }
+                    continue;
+                }
+
+                if (!IsAuthorizedHelperClient(pipe, activeSessionId, out uint clientPid))
+                {
+                    _logger.Warning($"InputForwarder: Terminating unauthorized connection from PID {clientPid} on pipe '{pipeName}'.");
+                    try { pipe.Disconnect(); } catch { }
                     try { pipe.Dispose(); } catch { }
                     continue;
                 }

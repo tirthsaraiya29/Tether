@@ -86,7 +86,7 @@ Tether employs a dual-channel network architecture for control and high-throughp
 * **Discovery Channels**:
   * **mDNS**: Advertises service type `_tether._tcp.` over UDP Port `5353`.
   * **UDP Broadcast**: Port `37124` for instant peer discovery on local subnets.
-* **File Transfer Channel**: TCP Port `37124`. Driven by Kestrel HTTPS server with `FileTransferAuthMiddleware`, `TokenStore` short-lived token authorization, 4GB size limits, Win32 handle resolution to prevent symlink escape, and public key certificate pinning (`TetherPinnedTrustManager`).
+* **File Transfer Channel**: TCP Port `37124`. Driven by Kestrel HTTPS server with `FileTransferAuthMiddleware`, `TokenStore` short-lived token authorization, active console user profile path confinement (preventing cross-user confused deputy access), strict 4GB size limits, Win32 handle resolution to prevent symlink and reparse-point escape, resumable chunk upload validation, and public key certificate pinning (`TetherPinnedTrustManager`). Loopback `LOCAL_UI` tokens are restricted strictly to remote proxy and desktop preview endpoints.
 
 ### Frame Structure & Packet Codec
 Network payloads are framed using length-prefixed encoding (`FrameCodec.cs`):
@@ -127,7 +127,7 @@ Because Session 0 is isolated from user desktop sessions:
   * **System Media Transport Controls (SMTC)**: `MediaSessionController.cs` integrates with WinRT `GlobalSystemMediaTransportControlsSessionManager` to extract real-time media title, artist, album, and Base64 thumbnail art, while providing play, pause, skip, and timeline seek controls with fallback to synthetic virtual media keys.
   * **STA Clipboard Listener**: `ClipboardController.cs` creates a hidden Win32 message-only window on a dedicated STA thread using `AddClipboardFormatListener`, syncing clipboard text bidirectionally with SHA-256 loop suppression and remote copy/paste simulation.
   * **Notification Forwarding and Toast Display**: `NotificationController.cs` reads Windows toast notifications via WinRT `UserNotificationListener` with remote dismissal support, and displays desktop toast alerts for mirrored Android notifications.
-  * **Interactive Terminal Manager**: `TerminalSessionManager.cs` orchestrates background pseudoterminal sessions for PowerShell, cmd.exe, pwsh.exe, and WSL with UTF-8 redirected I/O streams and 500-line history buffers.
+  * **Interactive Terminal Manager**: `TerminalSessionManager.cs` orchestrates background pseudoterminal sessions for PowerShell, cmd.exe, pwsh.exe, and WSL with UTF-8 redirected I/O streams and 500-line history buffers. Sessions are launched under limited user tokens (medium integrity) to decouple remote shell execution from elevated helper privileges, with locked session capacity and strict session ID routing.
   * **Application and Window Management**: `ApplicationManager.cs` scans Start Menu shortcuts (`.lnk`), launches applications into the user session, and manages running top-level windows (`EnumWindows`, `SetForegroundWindow`, `SetWindowPos` snap, maximize, minimize, close, and force terminate).
   * **Lock Detection**: Registers for session notifications (`WTSRegisterSessionNotification`) to monitor workstation lock and unlock transitions.
 
@@ -151,7 +151,7 @@ The automation subsystem hosts an in-memory scheduler persisted to `%ProgramData
 A native C++ Win32 COM DLL registered in `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}`:
 * Implements `ICredentialProvider` and `ICredentialProviderCredential2`.
 * Enumerates a custom logon tile on the Windows logon/unlock screen.
-* Listens on named pipe signal events (`_hAppEvent`, `_hScreenEvent`).
+* Listens on secure global synchronization events (`Global\TetherPhoneAppUnlocked`, `Global\TetherUnlockPromptRequested`), verifying LocalSystem and Builtin Administrators object ownership and enforcing strict SDDL DACLs to prevent pre-creation spoofing.
 * When an authenticated unlock command is received from the paired Android device, the provider decrypts the DPAPI-protected user credentials, populates `KERB_INTERACTIVE_UNLOCK_LOGON` structures, and serializes the credential to Winlogon for seamless desktop unlock.
 
 ---

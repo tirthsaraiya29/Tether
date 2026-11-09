@@ -303,7 +303,20 @@ public sealed class Worker : BackgroundService
             // ManualReset: the CP can't safely Set+Reset from the secure desktop
             // (lost-signal race), so we consume the signal here.
             _unlockPromptEvent = EventWaitHandleAcl.Create(
-                false, EventResetMode.ManualReset, @"Global\TetherUnlockPromptRequested", out _, sec);
+                false, EventResetMode.ManualReset, @"Global\TetherUnlockPromptRequested", out bool createdNewPrompt, sec);
+            if (!createdNewPrompt)
+            {
+                var ac = _unlockPromptEvent.GetAccessControl();
+                var owner = ac.GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
+                if (owner == null || (!owner.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid) && !owner.IsWellKnown(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid)))
+                {
+                    _tetherLogger.Warning($"UnlockPromptRelay: Untrusted owner '{owner?.Value}' on request event. Relay aborted.");
+                    _unlockPromptEvent.Dispose();
+                    _unlockPromptEvent = null;
+                    return;
+                }
+                _unlockPromptEvent.SetAccessControl(sec);
+            }
         }
         catch (Exception ex)
         {

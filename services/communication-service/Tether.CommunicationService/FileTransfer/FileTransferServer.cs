@@ -230,6 +230,61 @@ public class FileTransferServer : IHostedService
         return false;
     }
 
+    private static bool IsCrossUserProfileAccess(string normalizedPath)
+    {
+        try
+        {
+            string? sysDrive = Environment.GetEnvironmentVariable("SystemDrive");
+            string usersDir = !string.IsNullOrEmpty(sysDrive) ? Path.Combine(sysDrive, "Users") : @"C:\Users";
+            string usersPrefix = usersDir.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+            if (!normalizedPath.StartsWith(usersPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            string publicDir = Path.Combine(usersDir, "Public") + Path.DirectorySeparatorChar;
+            if (normalizedPath.StartsWith(publicDir, StringComparison.OrdinalIgnoreCase) ||
+                normalizedPath.Equals(Path.Combine(usersDir, "Public"), StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            string? activeProfile = Tether.CommunicationService.Capabilities.LaptopStateCollector.GetActiveConsoleUserProfilePath();
+            if (string.IsNullOrEmpty(activeProfile))
+            {
+                activeProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            }
+
+            if (!string.IsNullOrEmpty(activeProfile))
+            {
+                string activePrefix = activeProfile.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                if (normalizedPath.StartsWith(activePrefix, StringComparison.OrdinalIgnoreCase) ||
+                    normalizedPath.Equals(activeProfile, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            string currentProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrEmpty(currentProfile))
+            {
+                string currentPrefix = currentProfile.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                if (normalizedPath.StartsWith(currentPrefix, StringComparison.OrdinalIgnoreCase) ||
+                    normalizedPath.Equals(currentProfile, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static bool TryGetValidPath(string? inputPath, out string fullPath, bool isUpload = false)
     {
         fullPath = string.Empty;
@@ -271,7 +326,7 @@ public class FileTransferServer : IHostedService
             }
 
             // Block lexical root traversal into system-protected paths
-            if (IsPathInBlockedPrefix(normalized))
+            if (IsPathInBlockedPrefix(normalized) || IsCrossUserProfileAccess(normalized))
             {
                 return false;
             }
@@ -286,7 +341,7 @@ public class FileTransferServer : IHostedService
             if (File.Exists(normalized) || Directory.Exists(normalized))
             {
                 string? physicalPath = GetFinalResolvedPath(normalized);
-                if (physicalPath == null || IsPathInBlockedPrefix(physicalPath))
+                if (physicalPath == null || IsPathInBlockedPrefix(physicalPath) || IsCrossUserProfileAccess(physicalPath))
                 {
                     return false;
                 }
@@ -308,7 +363,7 @@ public class FileTransferServer : IHostedService
                     }
 
                     string? physicalParent = GetFinalResolvedPath(parentDir);
-                    if (physicalParent == null || IsPathInBlockedPrefix(physicalParent))
+                    if (physicalParent == null || IsPathInBlockedPrefix(physicalParent) || IsCrossUserProfileAccess(physicalParent))
                     {
                         return false;
                     }
@@ -556,6 +611,10 @@ public class FileTransferServer : IHostedService
                 }
 
                 tempPath = fullPath + $".tether_tmp_{Guid.NewGuid():N}";
+                if (!TryGetValidPath(tempPath, out _, isUpload: true))
+                {
+                    return Results.BadRequest("Temporary upload path is invalid or restricted");
+                }
 
                 using (var sha512 = IncrementalHash.CreateHash(HashAlgorithmName.SHA512))
                 using (var tempStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
@@ -586,6 +645,28 @@ public class FileTransferServer : IHostedService
                         try { File.Delete(tempPath); } catch { }
                         return Results.BadRequest("Integrity check failed: SHA-512 mismatch");
                     }
+                }
+
+                if (!TryGetValidPath(fullPath, out _, isUpload: true))
+                {
+                    try { File.Delete(tempPath); } catch { }
+                    return Results.BadRequest("Destination path failed revalidation");
+                }
+
+                if (File.Exists(fullPath))
+                {
+                    var destAttrs = File.GetAttributes(fullPath);
+                    if ((destAttrs & (FileAttributes.ReparsePoint | FileAttributes.ReadOnly | FileAttributes.System)) != 0)
+                    {
+                        try { File.Delete(tempPath); } catch { }
+                        return Results.BadRequest("Cannot overwrite protected or reparse destination file");
+                    }
+                }
+
+                if ((File.GetAttributes(tempPath) & FileAttributes.ReparsePoint) != 0)
+                {
+                    try { File.Delete(tempPath); } catch { }
+                    return Results.BadRequest("Temporary file became a reparse point");
                 }
 
                 File.Move(tempPath, fullPath, overwrite: true);
@@ -1079,8 +1160,23 @@ public class FileTransferServer : IHostedService
                 }
 
                 string partPath = fullPath + ".tether_part";
+                if (!TryGetValidPath(partPath, out _, isUpload: true))
+                {
+                    return Results.BadRequest("Part path is invalid or restricted");
+                }
+
                 var dir = Path.GetDirectoryName(fullPath);
                 if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+                if (File.Exists(partPath))
+                {
+                    var partAttrs = File.GetAttributes(partPath);
+                    if ((partAttrs & FileAttributes.ReparsePoint) != 0)
+                    {
+                        try { File.Delete(partPath); } catch { }
+                        return Results.BadRequest("Part file cannot be a reparse point");
+                    }
+                }
 
                 using (var fs = new FileStream(partPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None))
                 {
@@ -1118,14 +1214,26 @@ public class FileTransferServer : IHostedService
                         return Results.BadRequest("Checksum mismatch for completed upload");
                     }
 
+                    if (!TryGetValidPath(fullPath, out _, isUpload: true))
+                    {
+                        try { File.Delete(partPath); } catch { }
+                        return Results.BadRequest("Destination path failed revalidation");
+                    }
+
                     if (File.Exists(fullPath))
                     {
                         var targetFi = new FileInfo(fullPath);
-                        if ((targetFi.Attributes & (FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.ReparsePoint)) != 0)
+                        if ((targetFi.Attributes & (FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.ReparsePoint | FileAttributes.System)) != 0)
                         {
                             try { File.Delete(partPath); } catch { }
                             return Results.BadRequest("Destination file is read-only, hidden, or reparse point");
                         }
+                    }
+
+                    if ((File.GetAttributes(partPath) & FileAttributes.ReparsePoint) != 0)
+                    {
+                        try { File.Delete(partPath); } catch { }
+                        return Results.BadRequest("Part file became a reparse point");
                     }
 
                     File.Move(partPath, fullPath, overwrite: true);

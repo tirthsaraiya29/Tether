@@ -98,91 +98,123 @@ namespace Tether.Updater
                 }
             }
 
-            // 3. Scan and determine strictly modified files
+            // 3. Validate manifest strictly (fail-closed)
+            if (manifest == null || manifest.Files == null || manifest.Files.Count == 0)
+            {
+                TraceLog("SECURITY ERROR: Update manifest is missing, invalid, or empty. Aborting update (fail-closed).");
+                return 2;
+            }
+
             var filesToUpdate = new List<Tuple<string, string, bool>>(); // <source, dest, isService>
             bool serviceRestartNeeded = false;
             string sysDir = Environment.GetFolderPath(Environment.SpecialFolder.System);
+            string stagingPrefix = Path.GetFullPath(stagingDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            string targetPrefix = Path.GetFullPath(targetDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
 
-            if (manifest != null && manifest.Files.Count > 0)
+            TraceLog($"Evaluating {manifest.Files.Count} files from manifest with strict hash and containment validation...");
+
+            // First pass: Validate ALL staged files before any modifications or service actions
+            foreach (var entry in manifest.Files)
             {
-                TraceLog($"Evaluating {manifest.Files.Count} files from manifest...");
-                foreach (var entry in manifest.Files)
+                if (string.IsNullOrWhiteSpace(entry.Path) || string.IsNullOrWhiteSpace(entry.Sha256) || entry.Size < 0)
                 {
-                    string sourceFile = Path.Combine(stagingDir, entry.Path);
-                    if (!File.Exists(sourceFile)) continue;
+                    TraceLog($"SECURITY ERROR: Manifest contains invalid file entry '{entry.Path}'. Aborting.");
+                    return 3;
+                }
 
-                    string destFile = entry.IsCredProv 
-                        ? Path.Combine(sysDir, Path.GetFileName(entry.Path)) 
-                        : Path.Combine(targetDir, entry.Path);
+                // Block traversal, alternate data streams, rooted paths
+                if (entry.Path.Contains("..") || entry.Path.Contains(':') || Path.IsPathRooted(entry.Path))
+                {
+                    TraceLog($"SECURITY ERROR: Path traversal or invalid characters detected in entry '{entry.Path}'. Aborting.");
+                    return 4;
+                }
 
-                    bool changed = false;
-                    if (!File.Exists(destFile))
-                    {
-                        changed = true;
-                    }
-                    else
-                    {
-                        var destInfo = new FileInfo(destFile);
-                        if (destInfo.Length != entry.Size)
-                        {
-                            changed = true;
-                        }
-                        else
-                        {
-                            string localHash = ComputeSha256(destFile);
-                            if (!string.Equals(localHash, entry.Sha256, StringComparison.OrdinalIgnoreCase))
-                            {
-                                changed = true;
-                            }
-                        }
-                    }
+                string sourceFile = Path.GetFullPath(Path.Combine(stagingDir, entry.Path));
+                if (!sourceFile.StartsWith(stagingPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    TraceLog($"SECURITY ERROR: Source file '{entry.Path}' escapes staging directory. Aborting.");
+                    return 5;
+                }
 
-                    if (changed)
+                if (!File.Exists(sourceFile))
+                {
+                    TraceLog($"SECURITY ERROR: Declared update file missing from staging: '{entry.Path}'. Aborting.");
+                    return 6;
+                }
+
+                if ((File.GetAttributes(sourceFile) & FileAttributes.ReparsePoint) != 0)
+                {
+                    TraceLog($"SECURITY ERROR: Staged file '{entry.Path}' is a reparse point. Aborting.");
+                    return 7;
+                }
+
+                // Mandatory size verification against manifest
+                var sInfo = new FileInfo(sourceFile);
+                if (sInfo.Length != entry.Size)
+                {
+                    TraceLog($"SECURITY ERROR: Staged file '{entry.Path}' size mismatch (expected {entry.Size}, actual {sInfo.Length}). Aborting.");
+                    return 8;
+                }
+
+                // Mandatory cryptographic hash verification against manifest
+                string sourceHash = ComputeSha256(sourceFile);
+                if (!string.Equals(sourceHash, entry.Sha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    TraceLog($"SECURITY ERROR: Staged file '{entry.Path}' hash mismatch (expected {entry.Sha256}, actual {sourceHash}). Aborting.");
+                    return 9;
+                }
+
+                // Destination resolution and strict containment check
+                string destFile;
+                if (entry.IsCredProv)
+                {
+                    // Restrict Credential Provider updates strictly to TetherCredentialProvider.dll
+                    destFile = Path.Combine(sysDir, "TetherCredentialProvider.dll");
+                }
+                else
+                {
+                    destFile = Path.GetFullPath(Path.Combine(targetDir, entry.Path));
+                    if (!destFile.StartsWith(targetPrefix, StringComparison.OrdinalIgnoreCase))
                     {
-                        TraceLog($"[MODIFIED] {entry.Path}");
-                        filesToUpdate.Add(Tuple.Create(sourceFile, destFile, entry.IsService));
-                        if (entry.IsService)
-                        {
-                            serviceRestartNeeded = true;
-                        }
-                    }
-                    else
-                    {
-                        TraceLog($"[UNCHANGED - SKIPPED] {entry.Path}");
+                        TraceLog($"SECURITY ERROR: Destination file '{destFile}' escapes target application directory. Aborting.");
+                        return 10;
                     }
                 }
-            }
-            else
-            {
-                // Fallback: compare all files present in staging directory
-                TraceLog("No manifest found. Comparing all staging files via SHA-256...");
-                var stagedFiles = Directory.GetFiles(stagingDir, "*.*", SearchOption.AllDirectories);
-                foreach (var sFile in stagedFiles)
-                {
-                    string relPath = Path.GetRelativePath(stagingDir, sFile);
-                    string dFile = Path.Combine(targetDir, relPath);
 
-                    bool changed = false;
-                    if (!File.Exists(dFile))
+                bool changed = false;
+                if (!File.Exists(destFile))
+                {
+                    changed = true;
+                }
+                else
+                {
+                    var destInfo = new FileInfo(destFile);
+                    if (destInfo.Length != entry.Size)
                     {
                         changed = true;
                     }
                     else
                     {
-                        string sHash = ComputeSha256(sFile);
-                        string dHash = ComputeSha256(dFile);
-                        if (!string.Equals(sHash, dHash, StringComparison.OrdinalIgnoreCase))
+                        string localHash = ComputeSha256(destFile);
+                        if (!string.Equals(localHash, entry.Sha256, StringComparison.OrdinalIgnoreCase))
                         {
                             changed = true;
                         }
                     }
+                }
 
-                    if (changed)
+                if (changed)
+                {
+                    TraceLog($"[MODIFIED & VERIFIED] {entry.Path}");
+                    filesToUpdate.Add(Tuple.Create(sourceFile, destFile, entry.IsService));
+                    if (entry.IsService)
                     {
-                        bool isSvc = relPath.Contains("CommunicationService") || relPath.Contains("Tether.Shared");
-                        filesToUpdate.Add(Tuple.Create(sFile, dFile, isSvc));
-                        if (isSvc) serviceRestartNeeded = true;
+                        serviceRestartNeeded = true;
                     }
+                }
+                else
+                {
+                    TraceLog($"[UNCHANGED - SKIPPED] {entry.Path}");
                 }
             }
 
