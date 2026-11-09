@@ -144,12 +144,16 @@ fun RemoteDesktopScreen(
                     val bis = BufferedInputStream(rawStream, 65536)
 
                     val headerBuf = ByteArrayOutputStream(256)
+                    val maxHeaderBytes = 8192
 
-                    fun readLine(): String {
+                    fun readLine(): String? {
                         headerBuf.reset()
                         while (isActive && isStreaming) {
                             val c = bis.read()
-                            if (c == -1) return ""
+                            if (c == -1) {
+                                if (headerBuf.size() == 0) return null
+                                break
+                            }
                             if (c == '\n'.code) {
                                 val bytes = headerBuf.toByteArray()
                                 var len = bytes.size
@@ -159,15 +163,24 @@ fun RemoteDesktopScreen(
                                 return String(bytes, 0, len, Charsets.US_ASCII)
                             }
                             headerBuf.write(c)
+                            if (headerBuf.size() > maxHeaderBytes) {
+                                throw java.io.IOException("Stream header exceeded maximum allowed size (8KB)")
+                            }
                         }
-                        return ""
+                        return if (headerBuf.size() > 0) String(headerBuf.toByteArray(), Charsets.US_ASCII) else null
                     }
 
                     while (isActive && isStreaming) {
                         var contentLength = -1
                         var inHeaderSection = false
+                        var eofDetected = false
                         while (isActive && isStreaming) {
-                            val line = readLine().trim()
+                            val rawLine = readLine()
+                            if (rawLine == null) {
+                                eofDetected = true
+                                break
+                            }
+                            val line = rawLine.trim()
                             if (line.isEmpty()) {
                                 if (inHeaderSection) break
                                 continue
@@ -182,7 +195,12 @@ fun RemoteDesktopScreen(
                             }
                         }
 
-                        if (contentLength > 0 && contentLength < 10_000_000) {
+                        if (eofDetected) {
+                            streamError = "Stream closed by server"
+                            break
+                        }
+
+                        if (contentLength > 0 && contentLength <= 10_485_760) {
                             val imgBytes = ByteArray(contentLength)
                             var readTotal = 0
                             while (readTotal < contentLength && isActive && isStreaming) {
@@ -196,7 +214,12 @@ fun RemoteDesktopScreen(
                                 if (bmp != null) {
                                     currentFrame = bmp
                                 }
+                            } else {
+                                streamError = "Stream connection truncated"
+                                break
                             }
+                        } else if (contentLength > 10_485_760) {
+                            throw java.io.IOException("Stream frame exceeded maximum allowed size (10MB)")
                         }
                     }
                 }

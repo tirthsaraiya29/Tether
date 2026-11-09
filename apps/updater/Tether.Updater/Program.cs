@@ -42,7 +42,7 @@ namespace Tether.Updater
         public List<ManifestFileEntry> Files { get; set; } = new();
     }
 
-    internal class Program
+    public class Program
     {
         private const string ServiceName = "TetherCommService";
 
@@ -79,7 +79,11 @@ namespace Tether.Updater
             TraceLog($"Starting Tether Smart Differential Updater...");
             TraceLog($"Target: {targetDir}");
             TraceLog($"Staging: {stagingDir}");
-            LockdownStagingAcl(stagingDir, manifestPath);
+            if (!LockdownStagingAcl(stagingDir, manifestPath))
+            {
+                TraceLog("SECURITY ERROR: Failed to enforce strict staging ACL lockdown or reparse point detected. Aborting update (fail-closed).");
+                return 12;
+            }
 
             // 1. Wait for Tether.DesktopUI to terminate
             WaitForProcessesToExit("Tether.DesktopUI", 10000);
@@ -173,6 +177,11 @@ namespace Tether.Updater
                     {
                         TraceLog($"SECURITY ERROR: Credential Provider entry '{entry.Path}' is invalid. Aborting.");
                         return 11;
+                    }
+                    if (!Tether.Shared.Security.AuthenticodeVerifier.VerifyFileAuthenticode(sourceFile))
+                    {
+                        TraceLog($"SECURITY ERROR: Staged Credential Provider source '{sourceFile}' failed Authenticode/publisher verification. Aborting.");
+                        return 13;
                     }
                     destFile = Path.Combine(sysDir, "TetherCredentialProvider.dll");
                 }
@@ -342,30 +351,45 @@ namespace Tether.Updater
             return 0;
         }
 
-        private static void LockdownStagingAcl(string stagingDir, string manifestPath)
+        public static bool LockdownStagingAcl(string stagingDir, string manifestPath)
         {
             try
             {
+                if (string.IsNullOrWhiteSpace(stagingDir) || !Directory.Exists(stagingDir))
+                {
+                    TraceLog("Staging ACL error: staging directory does not exist.");
+                    return false;
+                }
+
+                // Reject reparse points on staging directory
+                var stagingDi = new DirectoryInfo(stagingDir);
+                if ((stagingDi.Attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    TraceLog("Staging ACL error: staging directory is a reparse point.");
+                    return false;
+                }
+
                 var systemSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
                 var adminSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
 
-                if (Directory.Exists(stagingDir))
+                var ds = stagingDi.GetAccessControl();
+                ds.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                foreach (System.Security.AccessControl.FileSystemAccessRule r in ds.GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier)))
                 {
-                    var di = new DirectoryInfo(stagingDir);
-                    var ds = di.GetAccessControl();
-                    ds.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-                    foreach (System.Security.AccessControl.FileSystemAccessRule r in ds.GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier)))
-                    {
-                        ds.RemoveAccessRule(r);
-                    }
-                    ds.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(systemSid, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
-                    ds.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(adminSid, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
-                    di.SetAccessControl(ds);
+                    ds.RemoveAccessRule(r);
                 }
+                ds.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(systemSid, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
+                ds.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(adminSid, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit, System.Security.AccessControl.PropagationFlags.None, System.Security.AccessControl.AccessControlType.Allow));
+                stagingDi.SetAccessControl(ds);
 
                 if (!string.IsNullOrEmpty(manifestPath) && File.Exists(manifestPath))
                 {
                     var fi = new FileInfo(manifestPath);
+                    if ((fi.Attributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        TraceLog("Staging ACL error: manifest file is a reparse point.");
+                        return false;
+                    }
                     var fs = fi.GetAccessControl();
                     fs.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
                     foreach (System.Security.AccessControl.FileSystemAccessRule r in fs.GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier)))
@@ -376,10 +400,12 @@ namespace Tether.Updater
                     fs.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(adminSid, System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
                     fi.SetAccessControl(fs);
                 }
+                return true;
             }
             catch (Exception ex)
             {
-                TraceLog($"Warning: could not enforce staging ACL: {ex.Message}");
+                TraceLog($"SECURITY ERROR: could not enforce staging ACL: {ex.Message}");
+                return false;
             }
         }
 

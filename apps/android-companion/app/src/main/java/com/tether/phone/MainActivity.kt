@@ -267,6 +267,13 @@ class MainActivity : FragmentActivity() {
                         lastCommandSuccess.value = success
                         lastCommandReason.value = reason
                         isCommandConfirmed.value = true
+                        if (confirmedCmd.equals("unlock", ignoreCase = true)) {
+                            if (success) {
+                                isAppLocked.value = false
+                            } else {
+                                Toast.makeText(this@MainActivity, "Unlock failed: $reason", Toast.LENGTH_SHORT).show()
+                            }
+                        }
 
                         dismissalJob?.cancel()
                         dismissalJob = lifecycleScope.launch {
@@ -442,7 +449,7 @@ class MainActivity : FragmentActivity() {
                                     ) { success ->
                                         if (success) {
                                             runOnUiThread {
-                                                isAppLocked.value = false
+                                                // Trigger remote unlock; app unlock is finalized upon verified CONFIRM_COMMAND response
                                                 triggerLanAction("unlock")
                                             }
                                         } else {

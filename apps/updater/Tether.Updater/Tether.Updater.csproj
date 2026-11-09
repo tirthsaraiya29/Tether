@@ -12,4 +12,8 @@
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\shared\Tether.Shared\Tether.Shared.csproj" />
+  </ItemGroup>
+
 </Project>

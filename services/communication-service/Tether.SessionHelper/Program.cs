@@ -557,15 +557,28 @@ internal static class Program
 
                         case "TERMINAL_START":
                             string? termDevId = doc.RootElement.TryGetProperty("deviceId", out var didProp) ? didProp.GetString() : null;
+                            if (string.IsNullOrWhiteSpace(termDevId))
+                            {
+                                await SendJsonFrameAsync(new { type = "TERMINAL_START_RESPONSE", requestId = reqId, success = false, reason = "Missing authenticated deviceId" });
+                                break;
+                            }
                             string shell = doc.RootElement.TryGetProperty("shell", out var shProp) ? (shProp.GetString() ?? "powershell") : (doc.RootElement.TryGetProperty("shellType", out var stProp) ? (stProp.GetString() ?? "powershell") : "powershell");
                             string? initialDir = doc.RootElement.TryGetProperty("initialDir", out var idProp) ? idProp.GetString() : (doc.RootElement.TryGetProperty("workingDir", out var wdProp) ? wdProp.GetString() : null);
                             string? termId = doc.RootElement.TryGetProperty("terminalId", out var tidProp) ? tidProp.GetString() : (doc.RootElement.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetString() : null);
-                            var tInfo = terminalMgr.StartSession(shell, initialDir, termId, termDevId);
-                            await SendJsonFrameAsync(new { type = "TERMINAL_START_RESPONSE", requestId = reqId, terminal = tInfo, sessionId = tInfo.Id, deviceId = termDevId });
+                            try
+                            {
+                                var tInfo = terminalMgr.StartSession(shell, initialDir, termId, termDevId);
+                                await SendJsonFrameAsync(new { type = "TERMINAL_START_RESPONSE", requestId = reqId, terminal = tInfo, sessionId = tInfo.Id, deviceId = termDevId, success = true });
+                            }
+                            catch (Exception ex)
+                            {
+                                await SendJsonFrameAsync(new { type = "TERMINAL_START_RESPONSE", requestId = reqId, success = false, reason = ex.Message, deviceId = termDevId });
+                            }
                             break;
 
                         case "TERMINAL_INPUT":
                             string? inDevId = doc.RootElement.TryGetProperty("deviceId", out var inDidProp) ? inDidProp.GetString() : null;
+                            if (string.IsNullOrWhiteSpace(inDevId)) break;
                             string targetTermId = doc.RootElement.TryGetProperty("terminalId", out var ttidProp) ? (ttidProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("sessionId", out var tsidProp) ? (tsidProp.GetString() ?? "") : "");
                             string termInput = doc.RootElement.GetProperty("data").GetString() ?? "";
                             terminalMgr.SendInput(targetTermId, termInput, inDevId);
@@ -573,12 +586,18 @@ internal static class Program
 
                         case "TERMINAL_CLOSE":
                             string? closeDevId = doc.RootElement.TryGetProperty("deviceId", out var cDidProp) ? cDidProp.GetString() : null;
+                            if (string.IsNullOrWhiteSpace(closeDevId)) break;
                             string closeTermId = doc.RootElement.TryGetProperty("terminalId", out var ctidProp) ? (ctidProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("sessionId", out var csidProp) ? (csidProp.GetString() ?? "") : "");
                             terminalMgr.CloseSession(closeTermId, closeDevId);
                             break;
 
                         case "TERMINAL_LIST":
                             string? listDevId = doc.RootElement.TryGetProperty("deviceId", out var lDidProp) ? lDidProp.GetString() : null;
+                            if (string.IsNullOrWhiteSpace(listDevId))
+                            {
+                                await SendJsonFrameAsync(new { type = "TERMINAL_LIST_RESPONSE", requestId = reqId, sessions = Array.Empty<TerminalSessionInfo>() });
+                                break;
+                            }
                             var termList = terminalMgr.ListSessions(listDevId);
                             await SendJsonFrameAsync(new { type = "TERMINAL_LIST_RESPONSE", requestId = reqId, sessions = termList, deviceId = listDevId });
                             break;
