@@ -442,6 +442,7 @@ class MainActivity : FragmentActivity() {
                                     ) { success ->
                                         if (success) {
                                             runOnUiThread {
+                                                isAppLocked.value = false
                                                 triggerLanAction("unlock")
                                             }
                                         } else {

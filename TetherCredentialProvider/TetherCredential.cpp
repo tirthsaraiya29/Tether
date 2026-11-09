@@ -937,8 +937,21 @@ HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
 
     // Ask the service to relay an unlock prompt to the phone. Use OpenEvent
     // first so we never clobber the service-owned DACL with ours.
-    HANDLE hEvt = OpenEventW(EVENT_MODIFY_STATE, FALSE, c_wszUnlockPromptEventName);
-    if (!hEvt)
+    HANDLE hEvt = OpenEventW(EVENT_MODIFY_STATE | READ_CONTROL, FALSE, c_wszUnlockPromptEventName);
+    if (hEvt)
+    {
+        PSID pOwner = nullptr;
+        PSECURITY_DESCRIPTOR pSecDesc = nullptr;
+        DWORD dwRes = GetSecurityInfo(hEvt, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, &pOwner, nullptr, nullptr, nullptr, &pSecDesc);
+        if (dwRes != ERROR_SUCCESS || !pOwner || (!IsWellKnownSid(pOwner, WinLocalSystemSid) && !IsWellKnownSid(pOwner, WinBuiltinAdministratorsSid)))
+        {
+            WriteDebugLog(L"CommandLinkClicked: untrusted owner on prompt event (%u). Discarding.", dwRes);
+            CloseHandle(hEvt);
+            hEvt = nullptr;
+        }
+        if (pSecDesc) LocalFree(pSecDesc);
+    }
+    else
     {
         PSECURITY_DESCRIPTOR pSD = nullptr;
         if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
@@ -946,6 +959,20 @@ HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
         {
             SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), pSD, FALSE };
             hEvt = CreateEventW(&sa, TRUE, FALSE, c_wszUnlockPromptEventName);
+            DWORD dwErr = GetLastError();
+            if (hEvt && dwErr == ERROR_ALREADY_EXISTS)
+            {
+                PSID pOwner = nullptr;
+                PSECURITY_DESCRIPTOR pSecDesc = nullptr;
+                DWORD dwRes = GetSecurityInfo(hEvt, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, &pOwner, nullptr, nullptr, nullptr, &pSecDesc);
+                if (dwRes != ERROR_SUCCESS || !pOwner || (!IsWellKnownSid(pOwner, WinLocalSystemSid) && !IsWellKnownSid(pOwner, WinBuiltinAdministratorsSid)))
+                {
+                    WriteDebugLog(L"CommandLinkClicked: untrusted owner on existing prompt event. Discarding.");
+                    CloseHandle(hEvt);
+                    hEvt = nullptr;
+                }
+                if (pSecDesc) LocalFree(pSecDesc);
+            }
             LocalFree(pSD);
         }
     }
@@ -1073,6 +1100,10 @@ void CALLBACK CSampleCredential::_OnAppEventSignaled(PVOID lpParameter, BOOLEAN)
     g_fAutoLogonReady.store(true);
 
     if (pThis->_hAppEvent) ResetEvent(pThis->_hAppEvent);
+    if (pThis->_pProvider)
+    {
+        pThis->_pProvider->SignalCredentialsChanged();
+    }
     if (pThis->_hWndMessage)
     {
         PostMessageW(pThis->_hWndMessage, WM_SIGNAL_CREDENTIALS_CHANGED, 0, reinterpret_cast<LPARAM>(pThis));
@@ -1122,8 +1153,16 @@ void CSampleCredential::_StartBackgroundIPCListeners()
                     if (IsWellKnownSid(pOwner, WinLocalSystemSid) || IsWellKnownSid(pOwner, WinBuiltinAdministratorsSid))
                     {
                         // Verified trusted owner (SYSTEM or Builtin Administrators); enforce secure DACL
-                        SetKernelObjectSecurity(_hAppEvent, DACL_SECURITY_INFORMATION, pSD);
-                        WriteDebugLog(L"Opened existing global event with verified owner and secure attributes: TetherPhoneAppUnlocked");
+                        if (!SetKernelObjectSecurity(_hAppEvent, DACL_SECURITY_INFORMATION, pSD))
+                        {
+                            WriteDebugLog(L"SECURITY WARNING: SetKernelObjectSecurity failed (%u) on TetherPhoneAppUnlocked. Discarding.", GetLastError());
+                            CloseHandle(_hAppEvent);
+                            _hAppEvent = nullptr;
+                        }
+                        else
+                        {
+                            WriteDebugLog(L"Opened existing global event with verified owner and secure attributes: TetherPhoneAppUnlocked");
+                        }
                     }
                     else
                     {

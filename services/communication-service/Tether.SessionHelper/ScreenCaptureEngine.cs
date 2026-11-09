@@ -49,6 +49,46 @@ internal sealed class ScreenCaptureEngine
 
     [DllImport("gdi32.dll")]
     private static extern int SetStretchBltMode(IntPtr hdc, int nStretchMode);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CURSORINFO
+    {
+        public int cbSize;
+        public int flags;
+        public IntPtr hCursor;
+        public POINT ptScreenPos;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ICONINFO
+    {
+        public bool fIcon;
+        public int xHotspot;
+        public int yHotspot;
+        public IntPtr hbmMask;
+        public IntPtr hbmColor;
+    }
+
+    private const int CURSOR_SHOWING = 0x00000001;
+    private const uint DI_NORMAL = 0x0003;
+
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorInfo(out CURSORINFO pci);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetIconInfo(IntPtr hIcon, out ICONINFO piconinfo);
+
+    [DllImport("user32.dll")]
+    private static extern bool DrawIconEx(IntPtr hdc, int xLeft, int yTop, IntPtr hIcon, int cxWidth, int cyWidth, uint istepIfAniCur, IntPtr hbrFlickerFreeDraw, uint diFlags);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(IntPtr hObject);
 
     private const int SRCCOPY = 0x00CC0020;
     private const int HALFTONE = 4;
@@ -86,6 +126,28 @@ internal sealed class ScreenCaptureEngine
                 {
                     SetStretchBltMode(destHdc, HALFTONE);
                     StretchBlt(destHdc, 0, 0, targetW, targetH, srcHdc, bounds.X, bounds.Y, bounds.Width, bounds.Height, SRCCOPY);
+                    var ci = new CURSORINFO { cbSize = Marshal.SizeOf<CURSORINFO>() };
+                    if (GetCursorInfo(out ci) && (ci.flags & CURSOR_SHOWING) != 0)
+                    {
+                        if (GetIconInfo(ci.hCursor, out ICONINFO ii))
+                        {
+                            try
+                            {
+                                int cursorX = ci.ptScreenPos.x - bounds.X - ii.xHotspot;
+                                int cursorY = ci.ptScreenPos.y - bounds.Y - ii.yHotspot;
+                                int scaledX = (int)(cursorX * ratio);
+                                int scaledY = (int)(cursorY * ratio);
+                                int cursorW = Math.Max(16, (int)(32 * ratio));
+                                int cursorH = Math.Max(16, (int)(32 * ratio));
+                                DrawIconEx(destHdc, scaledX, scaledY, ci.hCursor, cursorW, cursorH, 0, IntPtr.Zero, DI_NORMAL);
+                            }
+                            finally
+                            {
+                                if (ii.hbmMask != IntPtr.Zero) DeleteObject(ii.hbmMask);
+                                if (ii.hbmColor != IntPtr.Zero) DeleteObject(ii.hbmColor);
+                            }
+                        }
+                    }
                 }
                 finally
                 {

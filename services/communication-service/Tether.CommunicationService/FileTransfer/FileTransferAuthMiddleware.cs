@@ -75,8 +75,8 @@ public class FileTransferAuthMiddleware
             if (_tokenStore.ValidateToken(token, "LOCAL_UI"))
             {
                 var path = context.Request.Path.Value ?? "";
-                if (path.StartsWith("/api/fs/", StringComparison.OrdinalIgnoreCase) &&
-                    !path.StartsWith("/api/fs/remote/", StringComparison.OrdinalIgnoreCase))
+                string normalizedReqPath = "/" + path.Trim('/').ToLowerInvariant();
+                if (normalizedReqPath.StartsWith("/api/fs") && !normalizedReqPath.StartsWith("/api/fs/remote"))
                 {
                     _logger?.Warning($"FileTransferAuthMiddleware: Rejected privileged direct filesystem access via LOCAL_UI token from {remoteIp} for {path}");
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
