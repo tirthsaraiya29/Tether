@@ -2116,6 +2116,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         return transport.getPeerCertificate()?.publicKey?.encoded
     }
 
+    fun getActivePeerCertificate(): java.security.cert.X509Certificate? {
+        val transport = activeTransport ?: return null
+        if (!transport.isConnected()) return null
+        return transport.getPeerCertificate()
+    }
+
     fun dispatchCommand(actionCommand: String) {
         serviceScope.launch {
             try {
