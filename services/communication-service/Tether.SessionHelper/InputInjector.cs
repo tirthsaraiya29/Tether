@@ -263,7 +263,11 @@ internal sealed class InputInjector : IDisposable
 
     private void HandleAbsoluteMove(ushort normX, ushort normY)
     {
-        var bounds = System.Windows.Forms.Screen.PrimaryScreen?.Bounds ?? new System.Drawing.Rectangle(0, 0, 1920, 1080);
+        var bounds = System.Windows.Forms.SystemInformation.VirtualScreen;
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            bounds = System.Windows.Forms.Screen.PrimaryScreen?.Bounds ?? new System.Drawing.Rectangle(0, 0, 1920, 1080);
+        }
         int targetX = bounds.Left + (int)((long)normX * bounds.Width / 65535);
         int targetY = bounds.Top + (int)((long)normY * bounds.Height / 65535);
         var input = new INPUT

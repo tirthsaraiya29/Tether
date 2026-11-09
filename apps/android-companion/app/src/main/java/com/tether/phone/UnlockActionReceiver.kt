@@ -31,26 +31,13 @@ class UnlockActionReceiver : BroadcastReceiver() {
                 // Instantly dismiss notification UI to provide snappy feedback
                 UnlockPromptNotifier.cancelUnlockPrompt(context)
 
-                // Use goAsync() to keep the receiver process alive while dispatching
-                // the network payload over TLS 1.3 asynchronously.
-                val pendingResult = goAsync()
-                receiverScope.launch {
-                    try {
-                        val service = TetherLanService.instance
-                        if (service != null) {
-                            withTimeoutOrNull(5000.milliseconds) {
-                                service.sendCommand("unlock")
-                            }
-                            Log.i(TAG, "Unlock command dispatched over active TLS session.")
-                        } else {
-                            Log.w(TAG, "TetherLanService instance is null; cannot send unlock command.")
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed sending unlock command from notification action: ${e.message}", e)
-                    } finally {
-                        pendingResult.finish()
-                    }
+                // Require local biometric authentication challenge before dispatching unlock
+                val activityIntent = Intent(context, PowerEventActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    putExtra(PowerEventActivity.EXTRA_POWER_EVENT_TYPE, "UNLOCK")
+                    putExtra(PowerEventActivity.EXTRA_POWER_EVENT_TIMESTAMP, System.currentTimeMillis())
                 }
+                context.startActivity(activityIntent)
             }
             ACTION_DISMISS -> {
                 UnlockPromptNotifier.cancelUnlockPrompt(context)

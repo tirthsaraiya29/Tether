@@ -444,21 +444,42 @@ internal sealed class TerminalSessionManager
             };
 
             if (!CreatePipe(out hChildStdinRead, out hParentStdinWrite, ref sa, 0))
-            {
+            {
+                int err = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"TerminalSessionManager: Failed to create stdin pipe (Win32 Error: {err}).");
                 return false;
             }
             if (!CreatePipe(out hParentStdoutRead, out hChildStdoutWrite, ref sa, 0))
-            {
+            {
+                int err = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"TerminalSessionManager: Failed to create stdout pipe (Win32 Error: {err}).");
                 return false;
             }
             if (!CreatePipe(out hParentStderrRead, out hChildStderrWrite, ref sa, 0))
-            {
+            {
+                int err = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"TerminalSessionManager: Failed to create stderr pipe (Win32 Error: {err}).");
                 return false;
             }
 
-            SetHandleInformation(hParentStdinWrite, HANDLE_FLAG_INHERIT, 0);
-            SetHandleInformation(hParentStdoutRead, HANDLE_FLAG_INHERIT, 0);
-            SetHandleInformation(hParentStderrRead, HANDLE_FLAG_INHERIT, 0);
+            if (!SetHandleInformation(hParentStdinWrite, HANDLE_FLAG_INHERIT, 0))
+            {
+                int err = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"TerminalSessionManager: Failed to configure StdinWrite handle inheritance (Win32 Error: {err}).");
+                return false;
+            }
+            if (!SetHandleInformation(hParentStdoutRead, HANDLE_FLAG_INHERIT, 0))
+            {
+                int err = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"TerminalSessionManager: Failed to configure StdoutRead handle inheritance (Win32 Error: {err}).");
+                return false;
+            }
+            if (!SetHandleInformation(hParentStderrRead, HANDLE_FLAG_INHERIT, 0))
+            {
+                int err = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"TerminalSessionManager: Failed to configure StderrRead handle inheritance (Win32 Error: {err}).");
+                return false;
+            }
 
             var si = new STARTUPINFO
             {
@@ -481,7 +502,9 @@ internal sealed class TerminalSessionManager
                 workingDir,
                 ref si,
                 out pi))
-            {
+            {
+                int err = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"TerminalSessionManager: CreateProcessWithTokenW failed with Win32 Error: {err}.");
                 return false;
             }
 
@@ -499,24 +522,54 @@ internal sealed class TerminalSessionManager
             CloseHandle(pi.hProcess);
             pi.hProcess = IntPtr.Zero;
 
-            var safeIn = new SafeFileHandle(hParentStdinWrite, true);
-            hParentStdinWrite = IntPtr.Zero;
-            var safeOut = new SafeFileHandle(hParentStdoutRead, true);
-            hParentStdoutRead = IntPtr.Zero;
-            var safeErr = new SafeFileHandle(hParentStderrRead, true);
-            hParentStderrRead = IntPtr.Zero;
+            SafeFileHandle? safeIn = null;
+            SafeFileHandle? safeOut = null;
+            SafeFileHandle? safeErr = null;
+            FileStream? stdinStream = null;
+            FileStream? stdoutStream = null;
+            FileStream? stderrStream = null;
+            StreamWriter? stdinWriter = null;
+            StreamReader? stdoutReader = null;
+            StreamReader? stderrReader = null;
+
+            try
+            {
+                safeIn = new SafeFileHandle(hParentStdinWrite, true);
+                hParentStdinWrite = IntPtr.Zero;
+                safeOut = new SafeFileHandle(hParentStdoutRead, true);
+                hParentStdoutRead = IntPtr.Zero;
+                safeErr = new SafeFileHandle(hParentStderrRead, true);
+                hParentStderrRead = IntPtr.Zero;
 
-            var stdinStream = new FileStream(safeIn, FileAccess.Write, 4096, false);
-            var stdoutStream = new FileStream(safeOut, FileAccess.Read, 4096, false);
-            var stderrStream = new FileStream(safeErr, FileAccess.Read, 4096, false);
+                stdinStream = new FileStream(safeIn, FileAccess.Write, 4096, false);
+                stdoutStream = new FileStream(safeOut, FileAccess.Read, 4096, false);
+                stderrStream = new FileStream(safeErr, FileAccess.Read, 4096, false);
 
-            stdin = new StreamWriter(stdinStream, new UTF8Encoding(false)) { AutoFlush = true };
-            stdout = new StreamReader(stdoutStream, Encoding.UTF8);
-            stderr = new StreamReader(stderrStream, Encoding.UTF8);
-            return true;
+                stdinWriter = new StreamWriter(stdinStream, new UTF8Encoding(false)) { AutoFlush = true };
+                stdoutReader = new StreamReader(stdoutStream, Encoding.UTF8);
+                stderrReader = new StreamReader(stderrStream, Encoding.UTF8);
+                stdin = stdinWriter;
+                stdout = stdoutReader;
+                stderr = stderrReader;
+                return true;
+            }
+            catch
+            {
+                stdinWriter?.Dispose();
+                stdoutReader?.Dispose();
+                stderrReader?.Dispose();
+                stdinStream?.Dispose();
+                stdoutStream?.Dispose();
+                stderrStream?.Dispose();
+                safeIn?.Dispose();
+                safeOut?.Dispose();
+                safeErr?.Dispose();
+                throw;
+            }
         }
-        catch
-        {
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"TerminalSessionManager: Process spawn failed: {ex.Message}");
             if (pi.hProcess != IntPtr.Zero)
             {
                 try { TerminateProcess(pi.hProcess, 1); } catch { }
@@ -528,9 +581,11 @@ internal sealed class TerminalSessionManager
                 CloseHandle(pi.hThread);
                 pi.hThread = IntPtr.Zero;
             }
-            if (proc != null && !proc.HasExited)
+            if (proc != null)
             {
-                try { proc.Kill(); } catch { }
+                try { if (!proc.HasExited) proc.Kill(true); } catch { }
+                try { proc.Dispose(); } catch { }
+                proc = null!;
             }
             return false;
         }
@@ -647,7 +702,7 @@ internal sealed class TerminalSessionManager
 
     public bool SendInput(string sessionId, string input, string? ownerDeviceId = null)
     {
-        if (string.IsNullOrWhiteSpace(ownerDeviceId)) return false;
+        if (string.IsNullOrWhiteSpace(ownerDeviceId) || string.IsNullOrEmpty(sessionId) || input == null) return false;
         TerminalSession? session = null;
         if (!string.IsNullOrEmpty(sessionId) && _sessions.TryGetValue(sessionId, out var s))
         {
@@ -689,7 +744,7 @@ internal sealed class TerminalSessionManager
 
     public List<string> GetHistory(string sessionId, string? ownerDeviceId = null)
     {
-        if (string.IsNullOrWhiteSpace(ownerDeviceId)) return new List<string>();
+        if (string.IsNullOrWhiteSpace(ownerDeviceId) || string.IsNullOrEmpty(sessionId)) return new List<string>();
         if (_sessions.TryGetValue(sessionId, out var session))
         {
             if (!string.Equals(session.OwnerDeviceId, ownerDeviceId.Trim(), StringComparison.OrdinalIgnoreCase))
@@ -707,7 +762,7 @@ internal sealed class TerminalSessionManager
 
     public bool CloseSession(string sessionId, string? ownerDeviceId = null)
     {
-        if (string.IsNullOrWhiteSpace(ownerDeviceId)) return false;
+        if (string.IsNullOrWhiteSpace(ownerDeviceId) || string.IsNullOrEmpty(sessionId)) return false;
         if (_sessions.TryGetValue(sessionId, out var existing))
         {
             if (!string.Equals(existing.OwnerDeviceId, ownerDeviceId.Trim(), StringComparison.OrdinalIgnoreCase))
@@ -753,7 +808,9 @@ internal sealed class TerminalSessionManager
         var buffer = new char[4096];
         try
         {
-            while (true)
+            using (reader)
+            {
+                while (true)
             {
                 int read = await reader.ReadAsync(buffer, 0, buffer.Length);
                 if (read <= 0) break;
@@ -772,7 +829,8 @@ internal sealed class TerminalSessionManager
                     }
                 }
 
-                _onOutputReceived(sessionId, text, session.CurrentDirectory, session.OwnerDeviceId);
+                _onOutputReceived(sessionId, text, session.CurrentDirectory, session.OwnerDeviceId);
+            }
             }
         }
         catch { }

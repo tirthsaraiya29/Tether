@@ -648,7 +648,8 @@ public sealed class PacketRouter
 
         await session.WriteJsonFrameSafeAsync(new
         {
-            type = "CONFIRM_COMMAND",
+            type = "CONFIRM_COMMAND",
+            requestId = cmd.RequestId,
             confirmedCommand = cmd.Command,
             success = executed,
             reason = executed ? "OK" : "Hardware execution failed",

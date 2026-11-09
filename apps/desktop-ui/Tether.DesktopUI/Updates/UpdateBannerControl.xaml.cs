@@ -3,9 +3,12 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using Tether.Shared.Security;
 
 namespace Tether.DesktopUI.Updates
 {
@@ -120,11 +123,38 @@ namespace Tether.DesktopUI.Updates
             using var client = new HttpClient();
             client.DefaultRequestHeaders.UserAgent.ParseAdd("Tether-Desktop-Updater/1.0");
 
-            string manifestPath = Path.Combine(tempDir, "update-manifest.json");
-            if (!string.IsNullOrEmpty(update.ManifestDownloadUrl))
+            if (string.IsNullOrEmpty(update.ManifestDownloadUrl))
             {
-                byte[] manifestBytes = await client.GetByteArrayAsync(update.ManifestDownloadUrl);
-                await File.WriteAllBytesAsync(manifestPath, manifestBytes);
+                throw new InvalidOperationException("Update manifest URL is missing. Updates cannot proceed without an authenticated manifest.");
+            }
+
+            string manifestPath = Path.Combine(tempDir, "update-manifest.json");
+            string signaturePath = Path.Combine(tempDir, "update-manifest.json.sig");
+
+            TxtUpdateBtnLabel.Text = "Verifying manifest...";
+            byte[] manifestBytes = await client.GetByteArrayAsync(update.ManifestDownloadUrl);
+            string sigUrl = update.SignatureDownloadUrl ?? (update.ManifestDownloadUrl + ".sig");
+            byte[] signatureBytes = await client.GetByteArrayAsync(sigUrl);
+
+            if (manifestBytes == null || manifestBytes.Length == 0 || signatureBytes == null || signatureBytes.Length == 0)
+            {
+                throw new InvalidOperationException("Update manifest or detached signature is missing or empty. Aborting update (fail-closed).");
+            }
+
+            // 1. Enforce detached cryptographic signature verification on raw bytes against pinned key BEFORE deserialization
+            if (!AuthenticodeVerifier.VerifyManifestSignature(manifestBytes, signatureBytes))
+            {
+                throw new InvalidOperationException("Cryptographic signature verification failed: update-manifest.json signature is invalid or forged. Aborting update (fail-closed).");
+            }
+
+            await File.WriteAllBytesAsync(manifestPath, manifestBytes);
+            await File.WriteAllBytesAsync(signaturePath, signatureBytes);
+
+            // 2. Deserialize authenticated manifest
+            var manifest = JsonSerializer.Deserialize<UpdateManifest>(manifestBytes);
+            if (manifest == null || manifest.Files == null)
+            {
+                throw new InvalidOperationException("Authenticated update manifest is malformed or empty.");
             }
 
             // Prefer zip payload for differential file extraction
@@ -143,6 +173,17 @@ namespace Tether.DesktopUI.Updates
                 await s.CopyToAsync(fs);
             }
 
+            // 3. Staged Payload Hash Pre-Verification (F2.3)
+            if (!string.IsNullOrWhiteSpace(manifest.PayloadSha256))
+            {
+                TxtUpdateBtnLabel.Text = "Verifying payload...";
+                string actualPayloadHash = ComputeSha256(payloadZip);
+                if (!string.Equals(actualPayloadHash, manifest.PayloadSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"Payload SHA-256 hash verification failed! Expected {manifest.PayloadSha256}, actual {actualPayloadHash}. Aborting update.");
+                }
+            }
+
             // If it's a zip archive, extract files into staging directory
             string stagingDir = Path.Combine(tempDir, "staged");
             Directory.CreateDirectory(stagingDir);
@@ -151,6 +192,38 @@ namespace Tether.DesktopUI.Updates
             {
                 TxtUpdateBtnLabel.Text = "Extracting...";
                 ZipFile.ExtractToDirectory(payloadZip, stagingDir, overwriteFiles: true);
+
+                // Pre-verify extracted files against authenticated manifest before elevation
+                string stagingPrefix = Path.GetFullPath(stagingDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                foreach (var entry in manifest.Files)
+                {
+                    if (entry.Path.Contains("..") || entry.Path.Contains(':') || Path.IsPathRooted(entry.Path))
+                    {
+                        throw new InvalidOperationException($"Path traversal attempt in manifest entry '{entry.Path}'.");
+                    }
+                    string stagedFile = Path.GetFullPath(Path.Combine(stagingDir, entry.Path));
+                    if (!stagedFile.StartsWith(stagingPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException($"Staged file '{entry.Path}' escapes staging directory.");
+                    }
+                    if (!File.Exists(stagedFile))
+                    {
+                        throw new InvalidOperationException($"Declared update file missing from extracted payload: '{entry.Path}'.");
+                    }
+                    if ((File.GetAttributes(stagedFile) & FileAttributes.ReparsePoint) != 0)
+                    {
+                        throw new InvalidOperationException($"Staged file '{entry.Path}' is a reparse point.");
+                    }
+                    string stagedHash = ComputeSha256(stagedFile);
+                    if (!string.Equals(stagedHash, entry.Sha256, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException($"Staged file '{entry.Path}' hash mismatch: expected {entry.Sha256}, actual {stagedHash}.");
+                    }
+                    if (entry.IsCredProv && !AuthenticodeVerifier.VerifyFileAuthenticode(stagedFile))
+                    {
+                        throw new InvalidOperationException($"Staged Credential Provider '{stagedFile}' failed Authenticode pinned publisher verification.");
+                    }
+                }
             }
             else
             {
@@ -177,11 +250,21 @@ namespace Tether.DesktopUI.Updates
                 throw new FileNotFoundException("Tether.Updater.exe not found in application directory. Unverified binaries will not be elevated from temp directories.");
             }
 
-            // Launch updater with elevation
+            // Verify Authenticode of Tether.Updater.exe before elevation (fails closed in production)
+            if (!UpdateEnvironment.IsDebugOrDevEnvironment())
+            {
+                if (!AuthenticodeVerifier.VerifyFileAuthenticode(updaterExe))
+                {
+                    TxtUpdateBtnLabel.Text = "Updater verification failed";
+                    throw new InvalidOperationException("Tether.Updater.exe failed Authenticode pinned publisher verification. Unverified binaries will not be elevated.");
+                }
+            }
+
+            // Launch updater with elevation including detached signature argument
             var startInfo = new ProcessStartInfo
             {
                 FileName = updaterExe,
-                Arguments = $"--staging \"{stagingDir}\" --target \"{appDir}\" --manifest \"{manifestPath}\" --restart-ui",
+                Arguments = $"--staging \"{stagingDir}\" --target \"{appDir}\" --manifest \"{manifestPath}\" --signature \"{signaturePath}\" --restart-ui",
                 UseShellExecute = true,
                 Verb = "runas"
             };
@@ -190,12 +273,21 @@ namespace Tether.DesktopUI.Updates
             RequestShutdownForUpdate?.Invoke();
             Application.Current.Shutdown();
         }
+
         private static void VerifyInstallerAuthenticode(string installerPath)
         {
-            if (!Tether.Shared.Security.AuthenticodeVerifier.VerifyFileAuthenticode(installerPath))
+            if (!AuthenticodeVerifier.VerifyFileAuthenticode(installerPath))
             {
                 throw new InvalidOperationException("Installer signature verification failed: file is unsigned, tampered, or not signed by trusted Tether publisher.");
             }
+        }
+
+        private static string ComputeSha256(string filePath)
+        {
+            using var sha = SHA256.Create();
+            using var fs = File.OpenRead(filePath);
+            byte[] hash = sha.ComputeHash(fs);
+            return Convert.ToHexString(hash).ToLowerInvariant();
         }
     }
 }

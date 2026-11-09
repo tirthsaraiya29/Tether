@@ -230,6 +230,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun onHostConnected() {
         while (inputFrameChannel.tryReceive().isSuccess) { /* flush stale frames before reconnect */ }
+        pendingUnlockRequests.clear()
         lastPowerCommand = null
         lastPowerCommandAtMs = 0L
         rebootTimeoutJob?.cancel()
@@ -248,6 +249,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun onHostDisconnected() {
         while (inputFrameChannel.tryReceive().isSuccess) { /* flush stale frames on link loss */ }
+        pendingUnlockRequests.clear()
         if ((currentPowerState != LaptopPowerState.POWERED_OFF) && (currentPowerState != LaptopPowerState.RESTARTING)) {
             currentPowerState = when (lastPowerCommand) {
                 "shutdown" -> LaptopPowerState.POWERED_OFF
@@ -503,6 +505,24 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private val processedRequestIds = ConcurrentHashMap<String, Long>()
     private val pendingTokenRequests = ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<String>>()
 
+    data class PendingUnlockRequest(
+        val requestId: String,
+        val createdAtMs: Long,
+        val peerAddress: String?,
+        val transport: TetherTransport?
+    )
+    val pendingUnlockRequests = ConcurrentHashMap<String, PendingUnlockRequest>()
+
+    fun cleanExpiredUnlockRequests() {
+        val cutoff = System.currentTimeMillis() - 30_000L
+        val iterator = pendingUnlockRequests.entries.iterator()
+        while (iterator.hasNext()) {
+            if (iterator.next().value.createdAtMs < cutoff) {
+                iterator.remove()
+            }
+        }
+    }
+
     private val powerSaveReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -674,6 +694,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 while (iterator.hasNext()) {
                     if (iterator.next().value < cutoff) iterator.remove()
                 }
+                cleanExpiredUnlockRequests()
             }
         }
     }
@@ -1309,6 +1330,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val errorReason = json.optString("reason", "")
                 val vol = json.optInt("volumeLevel", -1)
                 val bright = json.optInt("brightnessLevel", -1)
+                val responseReqId = json.optString("requestId", "")
                 if ((vol >= 0) && (vol <= 100)) {
                     currentVolumeLevel = vol
                 }
@@ -1317,12 +1339,48 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
                 val safeConfirmed = sanitizeLog(confirmedCmd)
                 val safeReason = sanitizeLog(errorReason)
-                Log.i(TAG, "Command response from Windows host: $safeConfirmed (success=$success, reason=$safeReason, vol=$currentVolumeLevel, bright=$currentBrightnessLevel)")
-                if (safeConfirmed.equals("unlock", ignoreCase = true) && success) {
-                    currentPowerState = LaptopPowerState.CONNECTED_UNLOCKED
-                    getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit { putBoolean("is_unlock_prompt_dismissed", false) }
-                    updateUnlockNotificationState()
+                val safeReqId = sanitizeLog(responseReqId)
+                Log.i(TAG, "Command response from Windows host: $safeConfirmed (reqId=$safeReqId, success=$success, reason=$safeReason, vol=$currentVolumeLevel, bright=$currentBrightnessLevel)")
+
+                if (safeConfirmed.equals("unlock", ignoreCase = true)) {
+                    val isAuthenticatedTransport = (currentState == TransportState.READY || currentState == TransportState.AUTHENTICATED) && (activeTransport?.isConnected() == true)
+                    if (!isAuthenticatedTransport) {
+                        Log.w(TAG, "Rejected unlock confirmation: transport not in authenticated state ($currentState)")
+                        return
+                    }
+
+                    val pending = if (responseReqId.isNotBlank()) pendingUnlockRequests.remove(responseReqId) else null
+                    if (pending == null) {
+                        Log.w(TAG, "Rejected unsolicited, duplicate, or mismatched unlock confirmation (reqId=$safeReqId)")
+                        return
+                    }
+
+                    val now = System.currentTimeMillis()
+                    if (now - pending.createdAtMs > 30_000L) {
+                        Log.w(TAG, "Rejected stale unlock confirmation (reqId=$safeReqId, ageMs=${now - pending.createdAtMs})")
+                        return
+                    }
+
+                    if (pending.peerAddress != null && connectedHostAddress != null && pending.peerAddress != connectedHostAddress) {
+                        Log.w(TAG, "Rejected unlock confirmation from mismatched peer (expected=${pending.peerAddress}, actual=$connectedHostAddress)")
+                        return
+                    }
+
+                    if (pending.transport != null && pending.transport !== transport) {
+                        Log.w(TAG, "Rejected unlock confirmation from mismatched transport session (reqId=$safeReqId)")
+                        return
+                    }
+
+                    if (success) {
+                        currentPowerState = LaptopPowerState.CONNECTED_UNLOCKED
+                        getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit { putBoolean("is_unlock_prompt_dismissed", false) }
+                        updateUnlockNotificationState()
+                        Log.i(TAG, "Cryptographically verified and correlated unlock confirmed by host for reqId=$safeReqId")
+                    } else {
+                        Log.w(TAG, "Host reported unlock failure for reqId=$safeReqId: $safeReason")
+                    }
                 }
+
                 mainHandler.post {
                     val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
                         putExtra("confirmed_command", confirmedCmd)
@@ -1330,6 +1388,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         putExtra("reason", errorReason)
                         putExtra("volume_level", currentVolumeLevel)
                         putExtra("brightness_level", currentBrightnessLevel)
+                        putExtra("requestId", responseReqId)
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
@@ -1999,16 +2058,25 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
             val normCmd = normalizeCommand(command)
             val reqId = UUID.randomUUID().toString()
+            val transport = activeTransport
+                ?: return@withContext Result.failure(IllegalStateException("Active transport is null"))
+            if (!transport.isConnected()) {
+                return@withContext Result.failure(IllegalStateException("Transport socket is disconnected"))
+            }
+            if (normCmd.equals("unlock", ignoreCase = true)) {
+                cleanExpiredUnlockRequests()
+                pendingUnlockRequests[reqId] = PendingUnlockRequest(
+                    requestId = reqId,
+                    createdAtMs = System.currentTimeMillis(),
+                    peerAddress = connectedHostAddress,
+                    transport = transport
+                )
+            }
             val cmdJson = JSONObject().apply {
                 put("type", "COMMAND_EXECUTE")
                 put("requestId", reqId)
                 put("command", normCmd)
                 put("timestamp", System.currentTimeMillis())
-            }
-            val transport = activeTransport
-                ?: return@withContext Result.failure(IllegalStateException("Active transport is null"))
-            if (!transport.isConnected()) {
-                return@withContext Result.failure(IllegalStateException("Transport socket is disconnected"))
             }
             transport.sendFrame(cmdJson.toString().toByteArray(StandardCharsets.UTF_8))
             Log.i(TAG, "Dispatched command frame over TLS 1.3: $normCmd (reqId=$reqId)")
@@ -2073,6 +2141,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
                 val transport = activeTransport
                 if ((transport != null) && transport.isConnected()) {
+                    if (normCmd.equals("unlock", ignoreCase = true)) {
+                        cleanExpiredUnlockRequests()
+                        pendingUnlockRequests[reqId] = PendingUnlockRequest(
+                            requestId = reqId,
+                            createdAtMs = System.currentTimeMillis(),
+                            peerAddress = connectedHostAddress,
+                            transport = transport
+                        )
+                    }
                     transport.sendFrame(cmdJson.toString().toByteArray(StandardCharsets.UTF_8))
                     Log.i(TAG, "Dispatched command frame over TLS 1.3: ${sanitizeLog(normCmd)} (reqId=$reqId)")
                 }

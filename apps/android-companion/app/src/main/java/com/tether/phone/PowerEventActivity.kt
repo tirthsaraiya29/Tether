@@ -149,7 +149,7 @@ class PowerEventActivity : FragmentActivity() {
                     val serviceIntent = Intent(this@PowerEventActivity, TetherLanService::class.java).apply {
                         action = "unlock"
                     }
-                    startService(serviceIntent)
+                    ContextCompat.startForegroundService(this@PowerEventActivity, serviceIntent)
                     val nm = NotificationManagerCompat.from(this@PowerEventActivity)
                     nm.cancel(PowerEventActionReceiver.POWER_EVENT_NOTIFICATION_ID)
                     nm.cancel(UnlockPromptNotifier.UNLOCK_NOTIFICATION_ID)
@@ -171,7 +171,12 @@ class PowerEventActivity : FragmentActivity() {
         val promptBuilder = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Unlock PC")
             .setSubtitle("Confirm biometric authentication to unlock your PC")
-            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+        if (cryptoObject != null) {
+            promptBuilder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            promptBuilder.setNegativeButtonText(getString(R.string.btn_abort))
+        } else {
+            promptBuilder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+        }
 
         try {
             val promptInfo = promptBuilder.build()

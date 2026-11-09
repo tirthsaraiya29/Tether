@@ -268,9 +268,7 @@ class MainActivity : FragmentActivity() {
                         lastCommandReason.value = reason
                         isCommandConfirmed.value = true
                         if (confirmedCmd.equals("unlock", ignoreCase = true)) {
-                            if (success) {
-                                isAppLocked.value = false
-                            } else {
+                            if (!success) {
                                 Toast.makeText(this@MainActivity, "Unlock failed: $reason", Toast.LENGTH_SHORT).show()
                             }
                         }
@@ -449,8 +447,9 @@ class MainActivity : FragmentActivity() {
                                     ) { success ->
                                         if (success) {
                                             runOnUiThread {
+                                                lastBiometricAuthTime = System.currentTimeMillis()
                                                 // Trigger remote unlock; app unlock is finalized upon verified CONFIRM_COMMAND response
-                                                triggerLanAction("unlock")
+                                                triggerLanAction("unlock", isAuthorizedBiometric = true)
                                             }
                                         } else {
                                             runOnUiThread {
@@ -629,10 +628,10 @@ class MainActivity : FragmentActivity() {
         super.onStart()
         if (isEnvironmentRestricted.value) return
 
-        if (!isAppLocked.value && checkPermissions()) {
+        if (checkPermissions()) {
             startLanService()
             syncLanState()
-        } else if (!isAppLocked.value) {
+        } else {
             requestPermissions()
             return
         }
@@ -658,7 +657,7 @@ class MainActivity : FragmentActivity() {
         updatePermissionStates()
         updateViewModel.checkForUpdate(BuildConfig.VERSION_NAME, this)
         if (isEnvironmentRestricted.value || isPanicActive.value) return
-        if (!isAppLocked.value && checkPermissions()) {
+        if (checkPermissions()) {
             startLanService()
             syncLanState()
         }
@@ -692,10 +691,14 @@ class MainActivity : FragmentActivity() {
             if (success) {
                 runOnUiThread {
                     lastBiometricAuthTime = System.currentTimeMillis()
-                    isAppLocked.value = false
                     getSharedPreferences(preferenceName, MODE_PRIVATE).edit(commit = true) {
                         putBoolean("has_unlocked_app_once", true)
                         putLong(appLockBackgroundTimestampKey, 0L)
+                    }
+
+                    isAppLocked.value = false
+                    if (isConnected.value && laptopTelemetry.value.powerState == LaptopPowerState.CONNECTED_LOCKED) {
+                        triggerLanAction("unlock", isAuthorizedBiometric = true)
                     }
 
                     lifecycleScope.launch(Dispatchers.IO) {
@@ -906,8 +909,17 @@ class MainActivity : FragmentActivity() {
             .show()
     }
 
-    private fun triggerLanAction(action: String) {
-        if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
+    private fun triggerLanAction(action: String, isAuthorizedBiometric: Boolean = false) {
+        val isUnlock = action.equals("unlock", ignoreCase = true)
+        if (isEnvironmentRestricted.value || !checkPermissions()) return
+        if (isUnlock && !isAuthorizedBiometric) {
+            Log.w("TetherActivity", "Unlock action rejected: biometric authorization required.")
+            return
+        }
+        if (isAppLocked.value && !(isUnlock && isAuthorizedBiometric)) {
+            Log.w("TetherActivity", "Action '$action' blocked by app lock guard.")
+            return
+        }
 
         Log.d("TetherActivity", "Triggering LAN action: $action")
         dismissalJob?.cancel()
@@ -1007,9 +1019,7 @@ class MainActivity : FragmentActivity() {
         updatePermissionStates()
         if (requestCode == requestPermissionsCode) {
             if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                if (!isAppLocked.value) {
-                    startLanService()
-                }
+                startLanService()
             } else {
                 uiStatusText.value = getString(R.string.status_permissions_required)
                 uiStatusColor.value = AlertRed
@@ -1295,7 +1305,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun syncLanState() {
-        if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
+        if (isEnvironmentRestricted.value || !checkPermissions()) return
         val serviceIntent = Intent(this, TetherLanService::class.java).apply {
             action = "ACTION_GET_STATUS"
         }
