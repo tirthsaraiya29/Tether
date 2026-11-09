@@ -82,7 +82,7 @@ class TetherQuicTransportImpl(
         val rawSocket = Socket()
         rawSocket.tcpNoDelay = true
         rawSocket.connect(InetSocketAddress(host, port), timeoutMs)
-        rawSocket.soTimeout = 15000
+        rawSocket.soTimeout = 120000
 
         val sslSock = factory.createSocket(rawSocket, host, port, true) as SSLSocket
         sslSock.tcpNoDelay = true

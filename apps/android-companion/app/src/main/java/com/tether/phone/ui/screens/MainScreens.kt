@@ -1024,9 +1024,8 @@ fun PairingScreen(
                                 OutlinedTextField(
                                     value = pinInput,
                                     onValueChange = { input ->
-                                        if ((input.length <= 6) && input.all { it.isDigit() }) {
-                                            pinInput = input
-                                        }
+                                        val digitsOnly = input.filter { it.isDigit() }.take(6)
+                                        pinInput = digitsOnly
                                     },
                                     modifier = Modifier.fillMaxWidth(),
                                     textStyle = androidx.compose.ui.text.TextStyle(
