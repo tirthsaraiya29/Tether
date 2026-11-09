@@ -103,3 +103,7 @@ build.bat
 keystore.properties
 *.secret
 .aider*
+
+# Security audit and remediation notes
+AUDIT_FIXES.md
+SECURITY_FIXES.md

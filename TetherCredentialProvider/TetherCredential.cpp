@@ -7,6 +7,8 @@
 #include <bcrypt.h>
 #include <winreg.h>
 #include <sddl.h>
+#include <aclapi.h>
+#pragma comment(lib, "advapi32.lib")
 #include <vector>
 #include <cstring>
 #include <cstdarg>
@@ -1107,13 +1109,39 @@ void CSampleCredential::_StartBackgroundIPCListeners()
         SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), pSD, FALSE };
         _hAppEvent = CreateEventW(&sa, TRUE, FALSE, L"Global\\TetherPhoneAppUnlocked");
         DWORD dwErr = GetLastError();
-        LocalFree(pSD);
 
         if (_hAppEvent != nullptr)
         {
             if (dwErr == ERROR_ALREADY_EXISTS)
             {
-                WriteDebugLog(L"Opened existing global event with secure attributes: TetherPhoneAppUnlocked");
+                PSID pOwner = nullptr;
+                PSECURITY_DESCRIPTOR pSecDesc = nullptr;
+                DWORD dwRes = GetSecurityInfo(_hAppEvent, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, &pOwner, nullptr, nullptr, nullptr, &pSecDesc);
+                if (dwRes == ERROR_SUCCESS && pOwner != nullptr)
+                {
+                    if (IsWellKnownSid(pOwner, WinLocalSystemSid) || IsWellKnownSid(pOwner, WinBuiltinAdministratorsSid))
+                    {
+                        // Verified trusted owner (SYSTEM or Builtin Administrators); enforce secure DACL
+                        SetKernelObjectSecurity(_hAppEvent, DACL_SECURITY_INFORMATION, pSD);
+                        WriteDebugLog(L"Opened existing global event with verified owner and secure attributes: TetherPhoneAppUnlocked");
+                    }
+                    else
+                    {
+                        WriteDebugLog(L"SECURITY WARNING: Existing TetherPhoneAppUnlocked event has untrusted owner! Discarding.");
+                        CloseHandle(_hAppEvent);
+                        _hAppEvent = nullptr;
+                    }
+                }
+                else
+                {
+                    WriteDebugLog(L"SECURITY WARNING: Failed to query owner for existing TetherPhoneAppUnlocked event (dwRes=%u). Discarding.", dwRes);
+                    CloseHandle(_hAppEvent);
+                    _hAppEvent = nullptr;
+                }
+                if (pSecDesc != nullptr)
+                {
+                    LocalFree(pSecDesc);
+                }
             }
             else
             {
@@ -1124,15 +1152,11 @@ void CSampleCredential::_StartBackgroundIPCListeners()
         {
             WriteDebugLog(L"CreateEventW failed (%u)", dwErr);
         }
+        LocalFree(pSD);
     }
     else
     {
         WriteDebugLog(L"ConvertStringSecurityDescriptorToSecurityDescriptorW failed (%u)", GetLastError());
-    }
-
-    if (_hAppEvent == nullptr)
-    {
-        _hAppEvent = OpenEventW(EVENT_MODIFY_STATE | SYNCHRONIZE, FALSE, L"Global\\TetherPhoneAppUnlocked");
     }
 
     if (_hAppEvent)

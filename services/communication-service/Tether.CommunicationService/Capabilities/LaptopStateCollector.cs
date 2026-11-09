@@ -58,7 +58,7 @@ public static class LaptopStateCollector
 
     private const int TokenUserClass = 1;
 
-    private static string? GetActiveConsoleUserProfilePath()
+    public static string? GetActiveConsoleUserProfilePath()
     {
         uint activeSessionId = WTSGetActiveConsoleSessionId();
         if (activeSessionId == 0xFFFFFFFF) return null;

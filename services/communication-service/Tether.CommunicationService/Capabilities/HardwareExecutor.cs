@@ -1,3 +1,4 @@
+using System.Security.Principal;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -624,24 +625,25 @@ public static class HardwareExecutor
             var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
             sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
             using var evt = EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, eventName, out bool createdNew, sec);
+            if (!createdNew)
+            {
+                var accessControl = evt.GetAccessControl();
+                var owner = accessControl.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+                if (owner == null || (!owner.IsWellKnown(WellKnownSidType.LocalSystemSid) && !owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid)))
+                {
+                    logger.Warning($"HardwareExecutor: Untrusted owner '{owner?.Value}' on existing event '{eventName}'. Signal aborted.");
+                    return false;
+                }
+                evt.SetAccessControl(sec);
+            }
             bool setOk = evt.Set();
             logger.Info($"HardwareExecutor: {(createdNew ? "Created & " : "")}Signaled unlock event '{eventName}', setOk={setOk}");
             return setOk;
         }
-        catch (Exception createEx)
+        catch (Exception ex)
         {
-            try
-            {
-                using var evt = EventWaitHandle.OpenExisting(eventName);
-                bool setOk = evt.Set();
-                logger.Info($"HardwareExecutor: Opened existing & signaled unlock event '{eventName}', setOk={setOk}");
-                return setOk;
-            }
-            catch (Exception ex)
-            {
-                logger.Error($"HardwareExecutor: Failed to signal unlock event '{eventName}': {createEx.Message} / {ex.Message}");
-                return false;
-            }
+            logger.Error($"HardwareExecutor: Failed to create or signal unlock event '{eventName}': {ex.Message}");
+            return false;
         }
     }
 

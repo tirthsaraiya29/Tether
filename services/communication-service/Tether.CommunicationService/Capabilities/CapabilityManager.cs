@@ -72,7 +72,7 @@ public sealed class CapabilityManager
             "lock_now" or "panic"
                 or "reset_pending" or "laptop_state_get" or "get_laptop_state" or "laptop_state" => "MEDIA",
 
-"volume_up" or "volume_down" or "vol_up" or "vol_down"
+            "volume_up" or "volume_down" or "vol_up" or "vol_down"
                 or "volume_mute" or "mute" or "brightness_up" or "brightness_down"
                 or "bright_up" or "bright_down" => "MEDIA",
 
@@ -83,7 +83,6 @@ public sealed class CapabilityManager
 
             "ping" or "pong" or "PING" or "PONG" => "MEDIA",
 
-
             _ => null
         };
     }
@@ -93,16 +92,34 @@ public sealed class CapabilityManager
         if (device == null || string.IsNullOrEmpty(requiredCap))
             return false;
 
-        if (device.TrustState == DeviceTrustState.Paired)
+        var caps = (device.Capabilities == null || device.Capabilities.Count == 0)
+            ? (device.TrustState == DeviceTrustState.Paired ? DefaultCapabilities.ToList() : new List<string>())
+            : device.Capabilities;
+
+        if (caps.Contains("*"))
             return true;
 
-        bool hasCap = device.Capabilities.Contains(requiredCap, StringComparer.OrdinalIgnoreCase)
-                   || (requiredCap == "APP_LAUNCH" && device.Capabilities.Contains("APP_MANAGEMENT", StringComparer.OrdinalIgnoreCase))
-                   || (requiredCap == "POWER_ELEVATED" && (device.Capabilities.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)))
-                   || (requiredCap is "WINDOWS_ADMIN" or "APP_MANAGEMENT" or "AUTOMATION" or "TERMINAL" && (device.Capabilities.Contains("POWER_ELEVATED", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("TERMINAL", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains(requiredCap, StringComparer.OrdinalIgnoreCase)))
-                   || (device.TrustState == DeviceTrustState.Paired && (device.Capabilities.Count == 0 || device.Capabilities.Contains("*") || device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase) || device.Capabilities.Contains("WINDOWS_ADMIN", StringComparer.OrdinalIgnoreCase)));
+        if (caps.Contains(requiredCap, StringComparer.OrdinalIgnoreCase))
+            return true;
 
-        return hasCap;
+        if (requiredCap.Equals("APP_LAUNCH", StringComparison.OrdinalIgnoreCase) &&
+            caps.Contains("APP_MANAGEMENT", StringComparer.OrdinalIgnoreCase))
+            return true;
+
+        if (requiredCap.Equals("POWER_ELEVATED", StringComparison.OrdinalIgnoreCase) &&
+            (caps.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase) ||
+             caps.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)))
+            return true;
+
+        if ((requiredCap.Equals("WINDOWS_ADMIN", StringComparison.OrdinalIgnoreCase) ||
+             requiredCap.Equals("APP_MANAGEMENT", StringComparison.OrdinalIgnoreCase) ||
+             requiredCap.Equals("AUTOMATION", StringComparison.OrdinalIgnoreCase) ||
+             requiredCap.Equals("TERMINAL", StringComparison.OrdinalIgnoreCase)) &&
+            (caps.Contains("POWER_ELEVATED", StringComparer.OrdinalIgnoreCase) ||
+             caps.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)))
+            return true;
+
+        return false;
     }
 
     public bool CanDeviceExecuteCommand(TetherDevice device, string command)
