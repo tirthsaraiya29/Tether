@@ -91,6 +91,29 @@ internal static class AudioController
         finally { Marshal.ReleaseComObject(vol); }
     }
 
+    public static bool GetMute()
+    {
+        var vol = OpenEndpoint();
+        try
+        {
+            vol.GetMute(out bool muted);
+            return muted;
+        }
+        finally { Marshal.ReleaseComObject(vol); }
+    }
+
+    public static bool SetMute(bool mute)
+    {
+        var vol = OpenEndpoint();
+        try
+        {
+            Guid empty = Guid.Empty;
+            vol.SetMute(mute, ref empty);
+            return mute;
+        }
+        finally { Marshal.ReleaseComObject(vol); }
+    }
+
     public static bool ToggleMute()
     {
         var vol = OpenEndpoint();

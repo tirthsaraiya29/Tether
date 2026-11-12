@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -13,6 +13,28 @@ namespace Tether.SessionHelper;
 
 internal sealed class ScreenCaptureEngine
 {
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLong", SetLastError = true)]
+    private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
+
+    private static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex)
+    {
+        return IntPtr.Size == 8 ? GetWindowLongPtr64(hWnd, nIndex) : new IntPtr(GetWindowLong32(hWnd, nIndex));
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
+
+    private const int GWL_STYLE = -16;
+    private const int GWL_EXSTYLE = -20;
+    private const long WS_VISIBLE = 0x10000000L;
+    private const long WS_CHILD = 0x40000000L;
+    private const long WS_EX_TOOLWINDOW = 0x00000080L;
+    private const long WS_EX_NOREDIRECTIONBITMAP = 0x00200000L;
+    private const int DWMWA_CLOAKED = 14;
+
     [DllImport("user32.dll")]
     private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
@@ -236,10 +258,22 @@ internal sealed class ScreenCaptureEngine
             {
                 if (!IsWindowVisible(hWnd)) return true;
 
+                // Filter out non-toplevel or child windows
+                long style = GetWindowLongPtr(hWnd, GWL_STYLE).ToInt64();
+                if ((style & WS_CHILD) != 0) return true;
+
+                // Filter out tool windows or overlay helper windows (e.g., ASUS ScreenXpert, NUSA Nudge, floating bars)
+                long exStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE).ToInt64();
+                if ((exStyle & WS_EX_TOOLWINDOW) != 0) return true;
+
+                // Filter out windows cloaked by DWM (virtual desktop switches, hidden modern UWP apps)
+                int hr = DwmGetWindowAttribute(hWnd, DWMWA_CLOAKED, out int cloaked, sizeof(int));
+                if (hr == 0 && cloaked != 0) return true;
+
                 var sb = new StringBuilder(256);
                 GetWindowText(hWnd, sb, 256);
                 string title = sb.ToString().Trim();
-                if (string.IsNullOrEmpty(title) || title == "Program Manager") return true;
+                if (string.IsNullOrEmpty(title) || title == "Program Manager" || title == "Windows Input Experience") return true;
 
                 GetWindowRect(hWnd, out var r);
                 if (r.Width < 50 || r.Height < 50) return true;
@@ -252,6 +286,10 @@ internal sealed class ScreenCaptureEngine
                     procName = proc.ProcessName;
                 }
                 catch { }
+
+                // Exclude system shell background processes and known overlay tools
+                string lowerProc = procName.ToLowerInvariant();
+                if (lowerProc is "shellexperiencehost" or "searchhost" or "startmenuexperiencehost" or "lockapp" or "screenxpert" or "nusanudge") return true;
 
                 string? winIconB64 = ApplicationManager.GetWindowIconBase64(hWnd, (int)pid);
                 list.Add(new WindowInfo

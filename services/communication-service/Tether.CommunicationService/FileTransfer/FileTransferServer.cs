@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
@@ -986,7 +986,7 @@ public class FileTransferServer : IHostedService
         });
 
         // Remote Desktop Streaming Endpoint (MJPEG)
-        _app.MapGet("/api/desktop/stream", async (HttpContext context, int? fps, int? quality) =>
+        _app.MapGet("/api/desktop/stream", async (HttpContext context, int? fps, int? quality, long? windowId) =>
         {
             context.Response.Headers["Content-Type"] = "multipart/x-mixed-replace; boundary=--frame";
             context.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
@@ -994,8 +994,9 @@ public class FileTransferServer : IHostedService
 
             int targetFps = Math.Clamp(fps ?? 15, 1, 30);
             int targetQual = Math.Clamp(quality ?? 50, 10, 90);
+            long targetHwnd = windowId ?? 0L;
 
-            _inputForwarder.PostToHelper(new { type = "START_SCREEN_STREAM", fps = targetFps, quality = targetQual });
+            _inputForwarder.PostToHelper(new { type = "START_SCREEN_STREAM", fps = targetFps, quality = targetQual, hwnd = targetHwnd });
 
             var stream = context.Response.Body;
             var frameChannel = System.Threading.Channels.Channel.CreateBounded<byte[]>(

@@ -129,9 +129,9 @@ Commands are authorized against granted capabilities prior to execution:
 
 | Capability Scope | Granted Actions / Commands | Risk Level |
 | :--- | :--- | :--- |
-| `MEDIA` | Volume adjustment, brightness, playback control | Low |
+| `MEDIA` | Volume adjustment, brightness, playback control, app mixer | Low |
 | `CLIPBOARD` | Read / write clipboard contents | Low |
-| `FILES` | Direct file transfers, file browsing (Discarded / Excluded) | Medium |
+| `FILES` | Direct HTTPS file transfer & Share-to-PC intent receiver | Medium |
 | `NOTIFICATIONS` | Notification mirror & dismissal | Medium |
 | `TERMINAL` | Interactive CMD, PowerShell, WSL access | High |
 | `POWER_ELEVATED` | Shutdown, Reboot, Sleep, System Halt | High / Critical |

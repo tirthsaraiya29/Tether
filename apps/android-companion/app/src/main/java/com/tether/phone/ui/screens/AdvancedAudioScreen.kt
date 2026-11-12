@@ -338,49 +338,84 @@ fun AdvancedAudioScreen(
 
                 // Master & Mic Quick Controls
                 item {
-                    ProfessionalGlassSurface(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Master Volume Mute Toggle
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = {
-                                    isMasterMuted = !isMasterMuted
-                                    service?.sendSetMasterMute(isMasterMuted)
-                                }) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Master Audio Card
+                        ProfessionalGlassSurface(modifier = Modifier.weight(1f)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        isMasterMuted = !isMasterMuted
+                                        service?.sendSetMasterMute(isMasterMuted)
+                                    }
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (isMasterMuted) AlertRed.copy(alpha = 0.15f) else LiquidCyan.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Icon(
                                         if (isMasterMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                                         contentDescription = "Master Mute",
-                                        tint = if (isMasterMuted) AlertRed else LiquidCyan
+                                        tint = if (isMasterMuted) AlertRed else LiquidCyan,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
                                 Column {
-                                    Text("Master Audio", color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                                    Text(if (isMasterMuted) "MUTED" else "UNMUTED", color = if (isMasterMuted) AlertRed else IntegrityGreen, style = MaterialTheme.typography.labelSmall)
+                                    Text("Master Audio", color = TextPrimary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        if (isMasterMuted) "MUTED" else "UNMUTED",
+                                        color = if (isMasterMuted) AlertRed else IntegrityGreen,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
+                        }
 
-                            // Microphone Mute Toggle
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = {
-                                    isMicMuted = !isMicMuted
-                                    service?.sendSetMicMute(isMicMuted)
-                                }) {
+                        // Microphone Card
+                        ProfessionalGlassSurface(modifier = Modifier.weight(1f)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        isMicMuted = !isMicMuted
+                                        service?.sendSetMicMute(isMicMuted)
+                                    }
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (isMicMuted) AlertRed.copy(alpha = 0.15f) else IntegrityGreen.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Icon(
                                         if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
                                         contentDescription = "Microphone Mute",
-                                        tint = if (isMicMuted) AlertRed else IntegrityGreen
+                                        tint = if (isMicMuted) AlertRed else IntegrityGreen,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
                                 Column {
-                                    Text("Microphone", color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                                    Text(if (isMicMuted) "MUTED" else "ACTIVE", color = if (isMicMuted) AlertRed else IntegrityGreen, style = MaterialTheme.typography.labelSmall)
+                                    Text("Microphone", color = TextPrimary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        if (isMicMuted) "MUTED" else "ACTIVE",
+                                        color = if (isMicMuted) AlertRed else IntegrityGreen,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }

@@ -280,6 +280,7 @@ fun RemoteInputScreen(
                                 if (!isConnected) return@pointerInput
 
                                 awaitPointerEventScope {
+                                    val screenEntryTime = System.currentTimeMillis()
                                     var touchStartTime = 0L
                                     var totalDragDistance = 0f
                                     var maxPointers = 0
@@ -343,8 +344,9 @@ fun RemoteInputScreen(
                                             inputEngine.resetAccumulators()
                                             val now = System.currentTimeMillis()
                                             val duration = now - touchStartTime
+                                            val isGracePeriod = (now - screenEntryTime) < 350L
 
-                                            if (!isDragging && totalDragDistance <= touchSlopPx && duration < 350L) {
+                                            if (!isGracePeriod && !isDragging && totalDragDistance <= touchSlopPx && duration in 30L..350L) {
                                                 if (maxPointers == 2) {
                                                     // Two-finger tap -> Right Click
                                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)

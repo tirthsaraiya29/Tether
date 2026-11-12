@@ -106,7 +106,7 @@ fun RemoteDesktopScreen(
     }
 
     // High-performance MJPEG Streaming coroutine
-    LaunchedEffect(hostIp, token, isStreaming, targetFps, targetQuality) {
+    LaunchedEffect(hostIp, token, isStreaming, targetFps, targetQuality, selectedWindow) {
         if (!isStreaming || hostIp == null || token == null) return@LaunchedEffect
 
         withContext(Dispatchers.IO) {
@@ -117,7 +117,8 @@ fun RemoteDesktopScreen(
                     .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
                     .build()
 
-                val url = "https://$hostIp:37124/api/desktop/stream?fps=$targetFps&quality=$targetQuality"
+                val winParam = if (selectedWindow != null && selectedWindow!!.hwnd != 0L) "&windowId=${selectedWindow!!.hwnd}" else ""
+                val url = "https://$hostIp:37124/api/desktop/stream?fps=$targetFps&quality=$targetQuality$winParam"
                 val requestBuilder = Request.Builder().url(url)
 
                 val timestampMs = System.currentTimeMillis().toString()
