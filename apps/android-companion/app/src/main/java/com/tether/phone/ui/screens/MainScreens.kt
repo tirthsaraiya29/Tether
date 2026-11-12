@@ -1251,14 +1251,7 @@ fun TetherNavigationShell(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(DeepSpace.copy(alpha = 0.85f))
-                            .graphicsLayer {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    renderEffect = RenderEffect
-                                        .createBlurEffect(40f, 40f, Shader.TileMode.CLAMP)
-                                        .asComposeRenderEffect()
-                                }
-                            }
+                            .background(DeepSpace.copy(alpha = 0.94f))
                     )
                     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
                         Spacer(modifier = Modifier.height(64.dp))

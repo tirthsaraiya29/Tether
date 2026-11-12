@@ -101,52 +101,10 @@ fun ProfessionalGlassSurface(
     blur: Float = 32f,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "GlassRefraction")
-    val tiltX by infiniteTransition.animateFloat(
-        initialValue = -1.2f,
-        targetValue = 1.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(8000, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "TiltX",
-    )
-    val tiltY by infiniteTransition.animateFloat(
-        initialValue = -1.2f,
-        targetValue = 1.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(6500, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "TiltY",
-    )
-
     Box(
         modifier = modifier
-            .graphicsLayer {
-                rotationX = tiltX * 1.5f
-                rotationY = tiltY * 1.5f
-                cameraDistance = 12f * density
-            }
             .clip(RoundedCornerShape(28.dp))
-            .drawBehind {
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        0.0f to Color.Black.copy(alpha = 0.4f),
-                        1.0f to Color.Transparent,
-                        center = Offset(
-                            (size.width / 2) + (tiltX * 5.dp.toPx()),
-                            (size.height / 2) + (tiltY * 5.dp.toPx()),
-                        ),
-                        radius = size.width.coerceAtLeast(size.height),
-                    ),
-                    radius = size.width.coerceAtLeast(size.height),
-                    center = Offset(
-                        (size.width / 2) + (tiltX * 5.dp.toPx()),
-                        (size.height / 2) + (tiltY * 5.dp.toPx()),
-                    ),
-                )
-            }
+            .background(DeepSpace.copy(alpha = 0.72f))
             .border(
                 width = 0.5.dp,
                 brush = Brush.linearGradient(
@@ -172,13 +130,6 @@ fun ProfessionalGlassSurface(
                         ),
                     ),
                 )
-                .graphicsLayer {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        renderEffect = RenderEffect
-                            .createBlurEffect(blur, blur, Shader.TileMode.CLAMP)
-                            .asComposeRenderEffect()
-                    }
-                }
                 .drawBehind {
                     val strokeWidth = 1.2.dp.toPx()
                     val highlightPath = Path().apply {
@@ -195,35 +146,12 @@ fun ProfessionalGlassSurface(
                     drawPath(
                         path = highlightPath,
                         brush = Brush.linearGradient(
-                            colors = listOf(Color.White.copy(alpha = 0.5f), Color.Transparent),
-                            start = Offset(tiltX * 30f, tiltY * 30f),
+                            colors = listOf(Color.White.copy(alpha = 0.45f), Color.Transparent),
+                            start = Offset.Zero,
                             end = Offset(size.width * 0.4f, size.height * 0.4f),
                         ),
                         style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
                     )
-
-                    drawArc(
-                        color = Color.White.copy(alpha = 0.08f),
-                        startAngle = 0f,
-                        sweepAngle = 360f,
-                        useCenter = false,
-                        topLeft = Offset(8.dp.toPx(), 8.dp.toPx()),
-                        size = size.copy(width = size.width - 16.dp.toPx(), height = size.height - 16.dp.toPx()),
-                        style = Stroke(width = 0.5.dp.toPx()),
-                    )
-
-                    val noiseStep = 3f
-                    for (x in 0 until size.width.toInt() step (noiseStep.toInt() * 4)) {
-                        for (y in 0 until size.height.toInt() step (noiseStep.toInt() * 4)) {
-                            if (((x + y) % 17) == 0) {
-                                drawCircle(
-                                    color = Color.White.copy(alpha = 0.015f),
-                                    radius = 0.4f,
-                                    center = Offset(x.toFloat(), y.toFloat()),
-                                )
-                            }
-                        }
-                    }
                 },
         )
         Column(
@@ -975,14 +903,7 @@ fun FuturisticLockOverlay(onAuthorizeRequested: () -> Unit) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(DeepSpace.copy(alpha = 0.95f))
-                .graphicsLayer {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        renderEffect = RenderEffect
-                            .createBlurEffect(100f, 100f, Shader.TileMode.CLAMP)
-                            .asComposeRenderEffect()
-                    }
-                },
+                .background(DeepSpace.copy(alpha = 0.92f)),
         )
 
         AnimatedVisibility(

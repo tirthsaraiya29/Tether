@@ -209,6 +209,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private var rebootTimeoutJob: Job? = null
     private var shutdownTimeoutJob: Job? = null
+    private var connectJob: Job? = null
+    private var readyTransitionJob: Job? = null
+    private val connectLock = Any()
+    private val wallpaperWriteMutex = kotlinx.coroutines.sync.Mutex()
+    @Volatile private var lastNotifiedLockSessionId: String? = null
+    @Volatile private var lastNotifiedLockAtMs: Long = 0L
+    @Volatile private var pendingUnlockUntilMs: Long = 0L
 
     @Volatile var connectedPeerName: String = "Windows PC"
 
@@ -238,16 +245,18 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         startInputPump()
 
-        currentPowerState = LaptopPowerState.CONNECTED_LOCKED
+        currentPowerState = LaptopPowerState.UNKNOWN
         getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
             remove("last_power_command")
             remove("last_power_command_at_ms")
-            putString("laptop_power_state", LaptopPowerState.CONNECTED_LOCKED.name)
+            putString("laptop_power_state", LaptopPowerState.UNKNOWN.name)
         }
         updateUnlockNotificationState()
     }
 
     private fun onHostDisconnected() {
+        readyTransitionJob?.cancel()
+        readyTransitionJob = null
         while (inputFrameChannel.tryReceive().isSuccess) { /* flush stale frames on link loss */ }
         pendingUnlockRequests.clear()
         if ((currentPowerState != LaptopPowerState.POWERED_OFF) && (currentPowerState != LaptopPowerState.RESTARTING)) {
@@ -269,6 +278,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun saveWallpaperBase64(base64Str: String) {
         serviceScope.launch(Dispatchers.IO) {
+            wallpaperWriteMutex.lock()
             try {
                 val cleanB64 = base64Str.trim().replace("\r", "").replace("\n", "")
                 if (cleanB64.isEmpty()) return@launch
@@ -289,6 +299,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 notifyStateToInterface()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to save decoded wallpaper: ${e.message}")
+            } finally {
+                wallpaperWriteMutex.unlock()
             }
         }
     }
@@ -738,7 +750,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
             "ACTION_GET_STATUS" -> {
                 notifyStateToInterface()
-                if (trustState != TrustState.PAIRING_REQUESTED && currentState != TransportState.PAIRING_REQUIRED && ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED) || (currentState == TransportState.DISCOVERING))) {
+                if (trustState != TrustState.PAIRING_REQUESTED && currentState != TransportState.PAIRING_REQUIRED && ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED))) {
                     resetReconnectBackoff()
                     startDiscovery()
                 }
@@ -924,21 +936,24 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     fun connectToHost(hostAddress: String, port: Int = TetherDiscoveryManager.DEFAULT_PORT) {
-        if ((currentState == TransportState.AUTHENTICATING) || (currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) return
-        if ((currentState == TransportState.PAIRING_REQUIRED || trustState == TrustState.PAIRING_REQUESTED) && (activeTransport?.isConnected() == true)) {
-            Log.d(TAG, "Pairing is currently pending on active transport. Skipping connectToHost.")
-            return
-        }
-        if ((currentState == TransportState.CONNECTING) && (connectedHostAddress == hostAddress) && (connectedHostPort == port)) {
-            Log.d(TAG, "Already connecting to ${sanitizeLog(hostAddress)}:$port. Skipping duplicate.")
-            return
-        }
+        synchronized(connectLock) {
+            if ((currentState == TransportState.AUTHENTICATING) || (currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) return
+            if ((currentState == TransportState.PAIRING_REQUIRED || trustState == TrustState.PAIRING_REQUESTED) && (activeTransport?.isConnected() == true)) {
+                Log.d(TAG, "Pairing is currently pending on active transport. Skipping connectToHost.")
+                return
+            }
+            if ((currentState == TransportState.CONNECTING || currentState == TransportState.TLS_HANDSHAKE) &&
+                (connectedHostAddress == hostAddress) && (connectedHostPort == port) && (connectJob?.isActive == true)) {
+                Log.d(TAG, "Already connecting to ${sanitizeLog(hostAddress)}:$port. Skipping duplicate.")
+                return
+            }
 
-        currentState = TransportState.CONNECTING
-        connectedHostAddress = hostAddress
-        connectedHostPort = port
+            currentState = TransportState.CONNECTING
+            connectedHostAddress = hostAddress
+            connectedHostPort = port
 
-        serviceScope.launch {
+            connectJob?.cancel()
+            connectJob = serviceScope.launch {
             try {
                 activeTransport?.disconnect("Replaced by new connection")
             } catch (_: Exception) {}
@@ -972,15 +987,20 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         try { discoveryManager.stopDiscovery() } catch (_: Exception) {}
                         capabilityManager.negotiateCapabilities(result.peerCapabilities.ifBlank { "" })
 
-                        mainHandler.postDelayed(
-                            {
+                        readyTransitionJob?.cancel()
+                        readyTransitionJob = serviceScope.launch {
+                            delay(150)
+                            if (isActive && activeTransport?.generationId == transport.generationId && transport.isConnected()) {
                                 currentState = TransportState.READY
                                 dispatchCommand("volume_get")
                                 dispatchCommand("brightness_get")
+                                if (pendingUnlockUntilMs > System.currentTimeMillis()) {
+                                    pendingUnlockUntilMs = 0L
+                                    dispatchCommand("unlock")
+                                }
                                 triggerFullSyncIfNeeded()
-                            },
-                            150,
-                        )
+                            }
+                        }
 
                         listenSocketLoop(transport)
                     }
@@ -1038,12 +1058,17 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         scheduleReconnectWithBackoff("Handshake error: ${result.message}")
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                Log.d(TAG, "Connection attempt to ${sanitizeLog(hostAddress)}:$port cancelled.")
             } catch (e: Exception) {
                 Log.e(TAG, "Connection failed to ${sanitizeLog(hostAddress)}:$port: ${e.message}", e)
-                currentState = TransportState.FAILED
-                disconnectActiveSession("Connection error: ${e.message}")
-                scheduleReconnectWithBackoff("Connection exception: ${e.message}")
+                if (activeTransport == null || !activeTransport!!.isConnected()) {
+                    currentState = TransportState.FAILED
+                    disconnectActiveSession("Connection error: ${e.message}")
+                    scheduleReconnectWithBackoff("Connection exception: ${e.message}")
+                }
             }
+        }
         }
     }
 
@@ -1094,13 +1119,14 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     try { discoveryManager.stopDiscovery() } catch (_: Exception) {}
                     capabilityManager.negotiateCapabilities(result.peerCapabilities.ifBlank { "" })
 
-                    mainHandler.postDelayed(
-                        {
+                    readyTransitionJob?.cancel()
+                    readyTransitionJob = serviceScope.launch {
+                        delay(200)
+                        if (isActive && activeTransport?.generationId == transport.generationId && transport.isConnected()) {
                             currentState = TransportState.READY
                             dispatchCommand("volume_get")
-                        },
-                        200,
-                    )
+                        }
+                    }
 
                     listenSocketLoop(transport)
                 }
@@ -1309,6 +1335,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     "UNLOCK", "UNLOCKED", "WTS_SESSION_UNLOCK", "CONSOLE_CONNECT" -> {
                         dismissedLockSessionId = null
                         activeLockSessionId = null
+                        lastNotifiedLockSessionId = null
                         prefs.edit { remove("is_unlock_prompt_dismissed") }
                         currentPowerState = LaptopPowerState.CONNECTED_UNLOCKED
                         val nm = androidx.core.app.NotificationManagerCompat.from(this)
@@ -1955,6 +1982,17 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             Log.i(TAG, "Unlock prompt for $safeEventType at $timestamp is dismissed for lock session $lockSessionId; skipping notification.")
             return
         }
+        val nowMs = System.currentTimeMillis()
+        if (!force) {
+            val sameSession = (lockSessionId != null && lockSessionId == lastNotifiedLockSessionId)
+            val recentNoSession = (lockSessionId == null && (nowMs - lastNotifiedLockAtMs) < 3000L)
+            if (sameSession || recentNoSession) {
+                Log.d(TAG, "Deduplicating duplicate lock notification (session=$lockSessionId)")
+                return
+            }
+        }
+        lastNotifiedLockSessionId = lockSessionId
+        lastNotifiedLockAtMs = nowMs
         val upperType = eventType.uppercase()
         val allowedTypes = setOf(
             "LOCK", "SLEEP", "HIBERNATE", "LOCKED", "WORKSTATION_LOCK",
@@ -2128,6 +2166,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val normCmd = normalizeCommand(actionCommand)
 
                 if ((currentState != TransportState.READY) && (currentState != TransportState.AUTHENTICATED)) {
+                    if (normCmd.equals("unlock", ignoreCase = true) &&
+                        (currentState == TransportState.CONNECTING || currentState == TransportState.TLS_HANDSHAKE || currentState == TransportState.AUTHENTICATING || currentState == TransportState.DISCOVERING || currentState == TransportState.HOST_FOUND)) {
+                        pendingUnlockUntilMs = System.currentTimeMillis() + 8000L
+                        Log.i(TAG, "Transport connecting ($currentState); queued pending unlock for up to 8s.")
+                        return@launch
+                    }
                     Log.w(TAG, "Transport not ready ($currentState). Command '$normCmd' discarded.")
                     return@launch
                 }

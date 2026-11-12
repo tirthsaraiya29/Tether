@@ -102,15 +102,14 @@ CSampleCredential::~CSampleCredential()
 
     if (_hWaitApp)
     {
-        UnregisterWait(_hWaitApp);
+        UnregisterWaitEx(_hWaitApp, INVALID_HANDLE_VALUE);
         _hWaitApp = nullptr;
     }
     if (_hWaitScreen)
     {
-        UnregisterWait(_hWaitScreen);
+        UnregisterWaitEx(_hWaitScreen, INVALID_HANDLE_VALUE);
         _hWaitScreen = nullptr;
     }
-    Sleep(100);
 
     if (_hAppEvent) CloseHandle(_hAppEvent);
     if (_hScreenEvent) CloseHandle(_hScreenEvent);
@@ -1100,13 +1099,13 @@ void CALLBACK CSampleCredential::_OnAppEventSignaled(PVOID lpParameter, BOOLEAN)
     g_fAutoLogonReady.store(true);
 
     if (pThis->_hAppEvent) ResetEvent(pThis->_hAppEvent);
-    if (pThis->_pProvider)
-    {
-        pThis->_pProvider->SignalCredentialsChanged();
-    }
     if (pThis->_hWndMessage)
     {
         PostMessageW(pThis->_hWndMessage, WM_SIGNAL_CREDENTIALS_CHANGED, 0, reinterpret_cast<LPARAM>(pThis));
+    }
+    else if (pThis->_pProvider)
+    {
+        pThis->_pProvider->SignalCredentialsChanged();
     }
 }
 
@@ -1126,9 +1125,6 @@ void CALLBACK CSampleCredential::_OnScreenEventSignaled(PVOID lpParameter, BOOLE
 
 void CSampleCredential::_StartBackgroundIPCListeners()
 {
-    if (g_fAutoLogonReady.load() || g_fPhoneAppTriggered.load())
-        return;
-
     PSECURITY_DESCRIPTOR pSD = nullptr;
     // D:P(A;;GA;;;SY)(A;;GA;;;BA) -> Protected DACL, Grant Generic All to SYSTEM and Builtin Admins only
     if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
@@ -1284,6 +1280,5 @@ void CSampleCredential::_DestroyMessageWindow()
     {
         DestroyWindow(_hWndMessage);
         _hWndMessage = nullptr;
-        UnregisterClassW(L"TetherMessagePool", HINST_THISDLL);
     }
 }

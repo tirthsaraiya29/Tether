@@ -26,17 +26,21 @@ CSampleProvider::CSampleProvider() :
     _upAdviseContext(0),
     _dwUpToDateCredentialsCount(0) // Fixed initialization
 {
+    InitializeCriticalSection(&_csEvents);
     DllAddRef();
 }
 
 CSampleProvider::~CSampleProvider()
 {
     _ReleaseEnumeratedCredentials();
+    EnterCriticalSection(&_csEvents);
     if (_pCredProviderEvents != nullptr)
     {
         _pCredProviderEvents->Release();
         _pCredProviderEvents = nullptr;
     }
+    LeaveCriticalSection(&_csEvents);
+    DeleteCriticalSection(&_csEvents);
     if (_pCredProviderUserArray != nullptr)
     {
         _pCredProviderUserArray->Release();
@@ -59,6 +63,8 @@ HRESULT CSampleProvider::SetUsageScenario(
         case CPUS_UNLOCK_WORKSTATION: // Supports locked workstation transitions natively
         case CPUS_CREDUI:
             _cpus = cpus;
+            g_fPhoneAppTriggered.store(false);
+            g_fAutoLogonReady.store(false);
             hr = S_OK;
             break;
 
@@ -214,6 +220,7 @@ HRESULT CSampleProvider::Advise(_In_ ICredentialProviderEvents* pcpe, _In_ UINT_
 {
     try
     {
+        EnterCriticalSection(&_csEvents);
         if (_pCredProviderEvents != nullptr)
         {
             _pCredProviderEvents->Release();
@@ -227,6 +234,7 @@ HRESULT CSampleProvider::Advise(_In_ ICredentialProviderEvents* pcpe, _In_ UINT_
         {
             _pCredProviderEvents->AddRef();
         }
+        LeaveCriticalSection(&_csEvents);
 
         return S_OK;
     }
@@ -240,12 +248,14 @@ HRESULT CSampleProvider::UnAdvise()
 {
     try
     {
+        EnterCriticalSection(&_csEvents);
         if (_pCredProviderEvents != nullptr)
         {
             _pCredProviderEvents->Release();
             _pCredProviderEvents = nullptr;
         }
         _upAdviseContext = 0;
+        LeaveCriticalSection(&_csEvents);
         return S_OK;
     }
     catch (...)
@@ -270,9 +280,23 @@ HRESULT CSampleProvider::SetSerialization(_In_ const CREDENTIAL_PROVIDER_CREDENT
 // Fixed: Unified body signature returning HRESULT matching the header file declaration
 HRESULT CSampleProvider::SignalCredentialsChanged()
 {
+    ICredentialProviderEvents* pEvents = nullptr;
+    UINT_PTR upContext = 0;
+
+    EnterCriticalSection(&_csEvents);
     if (_pCredProviderEvents != nullptr)
     {
-        return _pCredProviderEvents->CredentialsChanged(_upAdviseContext);
+        pEvents = _pCredProviderEvents;
+        pEvents->AddRef();
+        upContext = _upAdviseContext;
+    }
+    LeaveCriticalSection(&_csEvents);
+
+    if (pEvents != nullptr)
+    {
+        HRESULT hr = pEvents->CredentialsChanged(upContext);
+        pEvents->Release();
+        return hr;
     }
     return S_FALSE;
 }

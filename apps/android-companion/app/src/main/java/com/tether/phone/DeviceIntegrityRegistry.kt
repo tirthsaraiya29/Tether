@@ -68,10 +68,6 @@ class DeviceIntegrityRegistry(private val context: Context) {
         if (usbDebuggingDisabled) score += 10
         if (secureLockscreenEnabled) score += 10
 
-        if (BuildConfig.DEBUG && score < 85) {
-            score = 100
-        }
-
         val tier = when (score) {
             in 85..110 -> TrustTier.TRUSTED
             in 60..84 -> TrustTier.ELEVATED_RISK
@@ -168,10 +164,6 @@ class DeviceIntegrityRegistry(private val context: Context) {
         if (appIntegrityValid) finalScore += 10
         if (secureLockscreenEnabled) finalScore += 10
 
-        if (BuildConfig.DEBUG && finalScore < 85) {
-            finalScore = 100
-        }
-
         val assignedTier = when (finalScore) {
             in 85..110 -> TrustTier.TRUSTED
             in 60..84 -> TrustTier.ELEVATED_RISK
@@ -229,10 +221,6 @@ class DeviceIntegrityRegistry(private val context: Context) {
         val km = context.getSystemService(KeyguardManager::class.java)
         val secureLockscreenEnabled = km?.isDeviceSecure ?: false
         if (secureLockscreenEnabled) finalScore += 10
-
-        if (BuildConfig.DEBUG && finalScore < 85) {
-            finalScore = 100
-        }
 
         val assignedTier = when (finalScore) {
             in 85..110 -> TrustTier.TRUSTED
@@ -302,11 +290,9 @@ class DeviceIntegrityRegistry(private val context: Context) {
                 String.format("%02X", it)
             }
 
-            if (BuildConfig.DEBUG) return true
-
             computedHash == targetCertificatePin
         } catch (_: Exception) {
-            BuildConfig.DEBUG
+            false
         }
     }
 }

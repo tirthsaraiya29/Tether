@@ -139,7 +139,7 @@ public sealed class DeviceManager
         }
     }
 
-    public void MarkDisconnected(string fingerprint, TetherSession session)
+    public bool MarkDisconnected(string fingerprint, TetherSession session)
     {
         if (_devicesByFingerprint.TryGetValue(fingerprint, out var device))
         {
@@ -149,8 +149,10 @@ public sealed class DeviceManager
                 device.CurrentSession = null;
                 device.LastSeenUtc = DateTime.UtcNow;
                 _logger.Info($"DeviceManager: Device {fingerprint} ({device.DisplayName}) is now DISCONNECTED.");
+                return true;
             }
         }
+        return false;
     }
 
     public bool RemoveDevice(string fingerprint)

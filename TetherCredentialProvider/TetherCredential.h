@@ -97,7 +97,7 @@ private:
     bool _IsEncryptedPasswordBlobPresent();
 
 private:
-    long                                    _cRef;
+    std::atomic<long>                       _cRef;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO      _cpus;
     CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR    _rgCredProvFieldDescriptors[SFI_NUM_FIELDS];
     FIELD_STATE_PAIR                        _rgFieldStatePairs[SFI_NUM_FIELDS];

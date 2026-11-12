@@ -407,7 +407,6 @@ class MainActivity : FragmentActivity() {
                         } else if (isEnvironmentRestricted.value) {
                             CompromisedEnvironmentOverlay(score = currentIntegrityScore.intValue)
                         } else if (isAppLocked.value) {
-                            Box(Modifier.fillMaxSize()) { DeepSpaceCanvasVisualizer() }
                             FuturisticLockOverlay {
                                 authenticateForAppUnlock()
                             }
@@ -630,7 +629,6 @@ class MainActivity : FragmentActivity() {
 
         if (checkPermissions()) {
             startLanService()
-            syncLanState()
         } else {
             requestPermissions()
             return
@@ -659,7 +657,6 @@ class MainActivity : FragmentActivity() {
         if (isEnvironmentRestricted.value || isPanicActive.value) return
         if (checkPermissions()) {
             startLanService()
-            syncLanState()
         }
     }
 
@@ -691,7 +688,7 @@ class MainActivity : FragmentActivity() {
             if (success) {
                 runOnUiThread {
                     lastBiometricAuthTime = System.currentTimeMillis()
-                    getSharedPreferences(preferenceName, MODE_PRIVATE).edit(commit = true) {
+                    getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
                         putBoolean("has_unlocked_app_once", true)
                         putLong(appLockBackgroundTimestampKey, 0L)
                     }
@@ -715,7 +712,6 @@ class MainActivity : FragmentActivity() {
                                 } else {
                                     requestPermissions()
                                 }
-                                syncLanState()
                                 handleVoiceIntent(intent)
                                 
                                 // Background evaluation of slow integrity checks
@@ -1232,7 +1228,7 @@ class MainActivity : FragmentActivity() {
 
     private fun startLanService() {
         if (isPanicActive.value || isEnvironmentRestricted.value) return
-        getSharedPreferences(preferenceName, MODE_PRIVATE).edit(commit = true) {
+        getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
             putBoolean("has_unlocked_app_once", true)
         }
         val lanIntent = Intent(this, TetherLanService::class.java).apply {

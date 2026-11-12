@@ -243,10 +243,17 @@ public static class HardwareExecutor
             switch (cmd)
             {
                 case "unlock":
+                    if (!IsWorkstationLockedInActiveSession())
+                    {
+                        ResetUnlockEvent(@"Global\TetherPhoneAppUnlocked", logger);
+                        logger.Info("HardwareExecutor: Workstation is already unlocked; cleared any stale unlock signal.");
+                        return true;
+                    }
                     return SignalUnlockEvent(@"Global\TetherPhoneAppUnlocked", logger);
 
                 case "lock":
                 case "lock_now":
+                    ResetUnlockEvent(@"Global\TetherPhoneAppUnlocked", logger);
                     bool locked = LockWorkStation();
                     if (!locked)
                     {
@@ -624,6 +631,60 @@ public static class HardwareExecutor
             }
         }
         finally { CloseHandle(userToken); }
+    }
+
+    private static bool IsWorkstationLockedInActiveSession()
+    {
+        try
+        {
+            uint activeSession = WTSGetActiveConsoleSessionId();
+            if (activeSession == 0xFFFFFFFF) return true;
+
+            var logonProcesses = Process.GetProcessesByName("LogonUI");
+            try
+            {
+                foreach (var p in logonProcesses)
+                {
+                    try
+                    {
+                        if ((uint)p.SessionId == activeSession) return true;
+                    }
+                    catch { }
+                }
+            }
+            finally
+            {
+                foreach (var p in logonProcesses) { try { p.Dispose(); } catch { } }
+            }
+            return false;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    public static void ResetUnlockEvent(string eventName = @"Global\TetherPhoneAppUnlocked", ITetherLogger? logger = null)
+    {
+        try
+        {
+            if (EventWaitHandleAcl.TryOpenExisting(eventName, System.Security.AccessControl.EventWaitHandleRights.Modify | System.Security.AccessControl.EventWaitHandleRights.ReadPermissions, out var evt))
+            {
+                using (evt)
+                {
+                    var accessControl = evt.GetAccessControl();
+                    var owner = accessControl.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+                    if (owner != null && (owner.IsWellKnown(WellKnownSidType.LocalSystemSid) || owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid)))
+                    {
+                        evt.Reset();
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger?.Warning($"HardwareExecutor: Failed to reset unlock event '{eventName}': {ex.Message}");
+        }
     }
 
     private static bool SignalUnlockEvent(string eventName, ITetherLogger logger)
