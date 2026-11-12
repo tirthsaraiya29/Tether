@@ -236,13 +236,16 @@ public sealed class TetherSession : IDisposable
             _sessionManager.UnregisterSession(this);
             if (Device != null)
             {
-                _deviceManager.MarkDisconnected(Device.Fingerprint, this);
-                _eventBus.Publish(new TetherEvent
+                bool becameDisconnected = _deviceManager.MarkDisconnected(Device.Fingerprint, this);
+                if (becameDisconnected)
                 {
-                    EventType = TetherEventType.PHONE_DISCONNECTED,
-                    Source = nameof(TetherSession),
-                    PayloadJson = JsonSerializer.Serialize(new { deviceId = Device.DeviceId })
-                });
+                    _eventBus.Publish(new TetherEvent
+                    {
+                        EventType = TetherEventType.PHONE_DISCONNECTED,
+                        Source = nameof(TetherSession),
+                        PayloadJson = JsonSerializer.Serialize(new { deviceId = Device.DeviceId })
+                    });
+                }
             }
         }
     }

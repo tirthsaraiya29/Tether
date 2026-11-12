@@ -36,6 +36,10 @@ class ProductionSecurityEngine {
 
         @Volatile
         private var cachedPublicKeyBytes: ByteArray? = null
+    @Volatile
+    private var cachedPinnedKeyBytes: ByteArray? = null
+    @Volatile
+    private var pinnedKeyLoaded = false
     }
 
     private val keyStore: KeyStore by lazy {
@@ -233,6 +237,8 @@ class ProductionSecurityEngine {
             }
 
             Log.i(TAG, "Pinned Windows public identity key encrypted, saved, and verified in secure storage.")
+            cachedPinnedKeyBytes = publicKeyBytes.copyOf()
+            pinnedKeyLoaded = true
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to store pinned key securely: ${e.message}", e)
@@ -241,15 +247,23 @@ class ProductionSecurityEngine {
     }
 
     fun getPinnedKeyDecrypted(context: Context): ByteArray? {
+        if (pinnedKeyLoaded) {
+            return cachedPinnedKeyBytes?.copyOf()
+        }
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val encodedStr = prefs.getString(PINNED_WINDOWS_KEY_PREF, null)
-        return decryptString(encodedStr)
+        val decrypted = decryptString(encodedStr)
+        cachedPinnedKeyBytes = decrypted?.copyOf()
+        pinnedKeyLoaded = true
+        return decrypted
     }
 
     fun clearPinnedKey(context: Context) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit().remove(PINNED_WINDOWS_KEY_PREF).commit()
+            prefs.edit().remove(PINNED_WINDOWS_KEY_PREF).apply()
+            cachedPinnedKeyBytes = null
+            pinnedKeyLoaded = false
             FileTransferClient.clearCache()
             Log.i(TAG, "Cleared pinned Windows public keys from storage.")
         } catch (e: Exception) {

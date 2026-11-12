@@ -143,6 +143,15 @@ public sealed class TetherWindowsService : ServiceBase
             _ => TetherPowerEventType.None,
         };
 
+        if (change.Reason == SessionChangeReason.SessionLock ||
+            change.Reason == SessionChangeReason.SessionUnlock ||
+            change.Reason == SessionChangeReason.SessionLogon ||
+            change.Reason == SessionChangeReason.SessionLogoff)
+        {
+            Capabilities.HardwareExecutor.ResetUnlockEvent(@"Global\TetherPhoneAppUnlocked");
+            Capabilities.HardwareExecutor.ResetUnlockEvent(@"Global\TetherUnlockPromptRequested");
+        }
+
         if (change.Reason == SessionChangeReason.SessionLogon || change.Reason == SessionChangeReason.SessionUnlock)
         {
             try { FileTransfer.TokenStore.RefreshLocalUiTokenAcl(); } catch { }

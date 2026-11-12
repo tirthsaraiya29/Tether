@@ -103,6 +103,7 @@ public static class LaptopStateCollector
     }
 
     private static readonly object _lock = new();
+    private static readonly System.Threading.SemaphoreSlim _broadcastGate = new(1, 1);
     private static SessionManager? _sessionManager;
     private static ITetherLogger? _logger;
     private static bool _eventsSubscribed = false;
@@ -129,15 +130,24 @@ public static class LaptopStateCollector
 
     private static void OnPowerModeOrSessionChanged(object? sender, EventArgs e)
     {
-        if (_sessionManager != null && _logger != null)
+        var sessionManager = _sessionManager;
+        var logger = _logger;
+        if (sessionManager == null || logger == null) return;
+
+        System.Threading.Tasks.Task.Run(async () =>
         {
+            if (!await _broadcastGate.WaitAsync(TimeSpan.FromSeconds(2))) return;
             try
             {
-                var snap = GetLaptopSnapshot(_logger);
-                _sessionManager.BroadcastLaptopState(snap);
+                var snap = GetLaptopSnapshot(logger);
+                sessionManager.BroadcastLaptopState(snap);
             }
             catch { }
-        }
+            finally
+            {
+                _broadcastGate.Release();
+            }
+        });
     }
 
     private static string DetectLockStateDirect()

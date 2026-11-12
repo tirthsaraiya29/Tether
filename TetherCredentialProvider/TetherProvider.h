@@ -12,6 +12,7 @@
 #include "helpers.h"
 #include <windows.h>
 #include <strsafe.h>
+#include <atomic>
 #include <new>
 
 #include "TetherCredential.h"
@@ -82,13 +83,14 @@ private:
     HRESULT _EnumerateEmptyTileCredential();
 
 private:
-    long                                    _cRef;
+    std::atomic<long>                       _cRef;
     CSampleCredential* _pCredential;
     bool                                    _fRecreateEnumeratedCredentials;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO      _cpus;
     ICredentialProviderUserArray* _pCredProviderUserArray;
 
     // Unified naming alignment matching the implementation file
+    CRITICAL_SECTION                        _csEvents;
     ICredentialProviderEvents* _pCredProviderEvents;
     UINT_PTR                                _upAdviseContext;
     DWORD                                   _dwUpToDateCredentialsCount;
