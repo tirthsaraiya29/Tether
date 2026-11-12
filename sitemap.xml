@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+  <url>
+    <loc>https://tether-control.vercel.app/</loc>
+    <lastmod>2026-11-13</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+    <image:image>
+      <image:loc>https://tether-control.vercel.app/docs/assets/screenshots/desktop-telemetry-control-plane.png</image:loc>
+      <image:title>Tether Windows Desktop Telemetry Control Plane</image:title>
+      <image:caption>Tether desktop control panel showing real-time LAN telemetry, cryptographic key status, and Session 0 isolation</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://tether-control.vercel.app/docs/assets/screenshots/android-command-center.jpg</image:loc>
+      <image:title>Tether Android Trust Command Center</image:title>
+      <image:caption>Android companion app home screen with biometric unlock, trackpad, emergency panic button, and media controls</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://tether-control.vercel.app/docs/assets/screenshots/android-remote-trackpad.jpg</image:loc>
+      <image:title>Tether Android Wireless Remote Trackpad</image:title>
+      <image:caption>Touchscreen trackpad for Windows with low-latency synthetic mouse input and Windows key shortcuts</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://tether-control.vercel.app/docs/assets/screenshots/android-device-pairing.jpg</image:loc>
+      <image:title>Tether Local Device Pairing</image:title>
+      <image:caption>Zero-cloud local network pairing via mDNS and mutual ECDSA P-256 public key exchange</image:caption>
+    </image:image>
+  </url>
+</urlset>
