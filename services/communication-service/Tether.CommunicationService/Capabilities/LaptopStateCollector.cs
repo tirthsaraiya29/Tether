@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -21,6 +21,9 @@ public sealed record LaptopSnapshot
     [JsonPropertyName("lockState")] public string LockState { get; init; } = "UNKNOWN";
     [JsonPropertyName("wallpaperB64")] public string? WallpaperB64 { get; init; }
     [JsonPropertyName("wallpaperHash")] public string? WallpaperHash { get; init; }
+    [JsonPropertyName("volumeLevel")] public int VolumeLevel { get; init; } = -1;
+    [JsonPropertyName("isMuted")] public bool IsMuted { get; init; }
+    [JsonPropertyName("brightnessLevel")] public int BrightnessLevel { get; init; } = -1;
 }
 
 public static class LaptopStateCollector
@@ -334,13 +337,21 @@ public static class LaptopStateCollector
             }
         }
 
+        int volLevel = HardwareExecutor.GetSystemVolumeLevelInUserSession(logger);
+        if (volLevel < 0) volLevel = HardwareExecutor.GetSystemVolumeLevel(logger);
+        bool isMuted = HardwareExecutor.GetSystemMuteInUserSession(logger);
+        int briLevel = HardwareExecutor.GetSystemBrightnessLevelInUserSession(logger);
+
         return new LaptopSnapshot
         {
             BatteryLevel = batteryLevel,
             IsCharging = isCharging,
             LockState = lockState,
             WallpaperB64 = wallpaperB64,
-            WallpaperHash = wallpaperHash
+            WallpaperHash = wallpaperHash,
+            VolumeLevel = volLevel,
+            IsMuted = isMuted,
+            BrightnessLevel = briLevel
         };
     }
 }

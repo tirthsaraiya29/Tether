@@ -39,6 +39,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.BrightnessMedium
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -324,23 +325,12 @@ fun LiquidGlassBrightnessControl(
                     )
                 }
 
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(LiquidCyan.copy(alpha = 0.15f))
-                        .border(
-                            width = 0.5.dp,
-                            color = LiquidCyan,
-                            shape = RoundedCornerShape(16.dp),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "☀️",
-                        fontSize = 20.sp,
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.BrightnessMedium,
+                    contentDescription = null,
+                    tint = LiquidCyan,
+                    modifier = Modifier.size(28.dp)
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))

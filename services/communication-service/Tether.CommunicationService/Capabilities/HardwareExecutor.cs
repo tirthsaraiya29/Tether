@@ -1,4 +1,4 @@
-using System.Security.Principal;
+﻿using System.Security.Principal;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -179,6 +179,12 @@ public static class HardwareExecutor
         return ok ? vol : -1;
     }
 
+    public static bool GetSystemMuteInUserSession(ITetherLogger logger)
+    {
+        bool ok = RunHelperAsUser(new[] { "get-mute" }, logger, out int mute);
+        return ok && mute == 1;
+    }
+
     public static int GetSystemBrightnessLevelInUserSession(ITetherLogger logger)
     {
         bool ok = RunHelperAsUser(new[] { "get-brightness" }, logger, out int bri);
@@ -322,6 +328,21 @@ public static class HardwareExecutor
                     if (muteOk) RunHelperAsUser(new[] { "get-volume" }, logger, out currentVol);
                     logger.Info($"HardwareExecutor: toggle-mute -> {muteOk}");
                     return muteOk;
+
+                case "volume_mute_on":
+                case "mute_on":
+                    bool muteOnOk = RunHelperAsUser(new[] { "set-mute", "true" }, logger, out _);
+                    if (muteOnOk) RunHelperAsUser(new[] { "get-volume" }, logger, out currentVol);
+                    logger.Info($"HardwareExecutor: set-mute true -> {muteOnOk}");
+                    return muteOnOk;
+
+                case "volume_mute_off":
+                case "unmute":
+                case "mute_off":
+                    bool muteOffOk = RunHelperAsUser(new[] { "set-mute", "false" }, logger, out _);
+                    if (muteOffOk) RunHelperAsUser(new[] { "get-volume" }, logger, out currentVol);
+                    logger.Info($"HardwareExecutor: set-mute false -> {muteOffOk}");
+                    return muteOffOk;
 
                 case "bright_get":
                 case "brightness_get":

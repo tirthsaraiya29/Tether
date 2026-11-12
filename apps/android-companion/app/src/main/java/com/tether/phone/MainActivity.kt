@@ -104,6 +104,7 @@ class MainActivity : FragmentActivity() {
     private data class PowerAction(val command: String, val title: String)
 
     private var lastBiometricAuthTime = 0L
+    private val pendingSharedUris = java.util.Collections.synchronizedList(mutableListOf<Uri>())
     private var isPermissionsBannerDismissed = mutableStateOf(false)
     private var permissionStates = mutableStateOf<List<PermissionItemState>>(emptyList())
 
@@ -168,6 +169,9 @@ class MainActivity : FragmentActivity() {
                 Log.d("TetherActivity", "LAN transport state changed: $stateName ($count), trustState=$trustStateName, laptopPowerState=$powerState")
                 runOnUiThread {
                     isConnected.value = count > 0
+                    if (count > 0 && !isAppLocked.value && !isEnvironmentRestricted.value) {
+                        processPendingSharedUris()
+                    }
                     phoneFingerprint.value = phoneFp
                     windowsFingerprint.value = winFp
                     connectedHostAddress.value = hostAddr
@@ -250,6 +254,8 @@ class MainActivity : FragmentActivity() {
                 val reason = intent.getStringExtra("reason") ?: "OK"
                 val vol = intent.getIntExtra("volume_level", -1)
                 val bri = intent.getIntExtra("brightness_level", -1)
+                val hasMute = intent.hasExtra("is_muted")
+                val muted = intent.getBooleanExtra("is_muted", false)
 
                 runOnUiThread {
                     if (vol in 0..100) {
@@ -257,6 +263,9 @@ class MainActivity : FragmentActivity() {
                     }
                     if (bri in 0..100) {
                         updateBrightnessFromRemote(bri)
+                    }
+                    if (hasMute) {
+                        isMuted.value = muted
                     }
                     val isTelemetryCmd = confirmedCmd.equals("laptop_state_get", ignoreCase = true) ||
                             confirmedCmd.equals("get_laptop_state", ignoreCase = true) ||
@@ -292,12 +301,17 @@ class MainActivity : FragmentActivity() {
             if (intent?.action == "com.tether.phone.ACTION_SYNC_HARDWARE_METRICS") {
                 val vol = intent.getIntExtra("VOLUME_LEVEL", -1)
                 val bri = intent.getIntExtra("BRIGHTNESS_LEVEL", -1)
+                val hasMute = intent.hasExtra("IS_MUTED")
+                val muted = intent.getBooleanExtra("IS_MUTED", false)
                 runOnUiThread {
                     if (vol in 0..100) {
                         updateVolumeFromRemote(vol)
                     }
                     if (bri in 0..100) {
                         updateBrightnessFromRemote(bri)
+                    }
+                    if (hasMute) {
+                        isMuted.value = muted
                     }
                 }
             }
@@ -370,6 +384,8 @@ class MainActivity : FragmentActivity() {
         }
 
         updatePermissionStates()
+
+        handleShareIntent(intent)
 
         // Show biometric authentication prompt IMMEDIATELY on app launch
         isLoading.value = false
@@ -589,8 +605,142 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        handleShareIntent(intent)
         if (!isEnvironmentRestricted.value && !isAppLocked.value) {
             handleVoiceIntent(intent)
+            processPendingSharedUris()
+        }
+    }
+
+    private fun handleShareIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action
+        if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return
+
+        val uris = mutableListOf<Uri>()
+
+        if (action == Intent.ACTION_SEND) {
+            val streamUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+            }
+
+            if (streamUri != null) {
+                uris.add(streamUri)
+            } else {
+                val textExtra = intent.getStringExtra(Intent.EXTRA_TEXT)
+                    ?: intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+                if (!textExtra.isNullOrBlank()) {
+                    val tempUri = createTempTextFileUri(textExtra)
+                    if (tempUri != null) uris.add(tempUri)
+                } else {
+                    intent.data?.let { uris.add(it) }
+                }
+            }
+        } else {
+            val streamUris = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+            }
+            if (!streamUris.isNullOrEmpty()) {
+                uris.addAll(streamUris)
+            }
+        }
+
+        if (uris.isEmpty() && intent.clipData != null) {
+            val clipData = intent.clipData!!
+            for (i in 0 until clipData.itemCount) {
+                val item = clipData.getItemAt(i)
+                if (item.uri != null) {
+                    uris.add(item.uri)
+                } else if (!item.text.isNullOrBlank()) {
+                    val tempUri = createTempTextFileUri(item.text.toString())
+                    if (tempUri != null) uris.add(tempUri)
+                }
+            }
+        }
+
+        if (uris.isNotEmpty()) {
+            synchronized(pendingSharedUris) {
+                pendingSharedUris.addAll(uris)
+            }
+            if (!isEnvironmentRestricted.value && !isAppLocked.value) {
+                processPendingSharedUris()
+            }
+        }
+    }
+
+    private fun createTempTextFileUri(text: String): Uri? {
+        return try {
+            val prefix = if (text.startsWith("http://") || text.startsWith("https://")) "shared_link" else "shared_text"
+            val file = java.io.File(cacheDir, "${prefix}_${System.currentTimeMillis()}.txt")
+            file.writeText(text)
+            Uri.fromFile(file)
+        } catch (e: Exception) {
+            Log.e("TetherActivity", "Failed creating temp text file for share", e)
+            null
+        }
+    }
+
+    private fun processPendingSharedUris() {
+        val toSend = synchronized(pendingSharedUris) {
+            val list = ArrayList(pendingSharedUris)
+            pendingSharedUris.clear()
+            list
+        }
+        if (toSend.isEmpty()) return
+
+        lifecycleScope.launch(Dispatchers.Main) {
+            if (checkPermissions()) {
+                startLanService()
+            }
+            val s = TetherLanService.instance
+            val hostIp = connectedHostAddress.value.ifBlank { s?.connectedHostAddress }
+            if (s == null || hostIp.isNullOrBlank()) {
+                synchronized(pendingSharedUris) {
+                    pendingSharedUris.addAll(toSend)
+                }
+                return@launch
+            }
+
+            var count = 0
+            val remaining = mutableListOf<Uri>()
+
+            withContext(Dispatchers.IO) {
+                val token = s.requestFileTransferToken()
+                if (token.isNullOrBlank()) {
+                    remaining.addAll(toSend)
+                } else {
+                    toSend.forEach { uri ->
+                        try {
+                            FileTransferClient.uploadFile(hostIp, uri, "", this@MainActivity, token)
+                            count++
+                        } catch (e: Exception) {
+                            Log.e("TetherActivity", "Failed to upload shared file: ${e.message}")
+                            remaining.add(uri)
+                        }
+                    }
+                }
+            }
+
+            if (remaining.isNotEmpty()) {
+                synchronized(pendingSharedUris) {
+                    pendingSharedUris.addAll(remaining)
+                }
+            }
+
+            if (count > 0) {
+                val msg = if (count == 1) {
+                    getString(R.string.toast_sharing_to_pc)
+                } else {
+                    getString(R.string.toast_files_sending_to_pc, count)
+                }
+                Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -932,6 +1082,11 @@ class MainActivity : FragmentActivity() {
             }
             actionLower == "volume_mute" || actionLower == "mute" -> {
                 isMuted.value = !isMuted.value
+                val s = TetherLanService.instance
+                if (s != null) {
+                    s.sendSetMasterMute(isMuted.value)
+                    return
+                }
             }
             actionLower.startsWith("volume_set:") -> {
                 action.substringAfter("volume_set:").toIntOrNull()?.let {

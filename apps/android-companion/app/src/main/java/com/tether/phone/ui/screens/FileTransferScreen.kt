@@ -154,14 +154,16 @@ fun FileTransferScreen(
     }
 
     val uploadLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let { sourceUri ->
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
             coroutineScope.launch {
                 try {
                     if (hostIp == null || token == null) throw Exception("Not connected or no token")
                     isLoading = true
-                    FileTransferClient.uploadFile(hostIp, sourceUri, currentPath ?: "", context, token!!)
+                    for (sourceUri in uris) {
+                        FileTransferClient.uploadFile(hostIp, sourceUri, currentPath ?: "", context, token!!)
+                    }
                     refreshFileList()
                 } catch (e: Exception) {
                     errorMessage = e.message

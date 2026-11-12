@@ -116,6 +116,9 @@ public sealed class TetherSession : IDisposable
                 LockState = snap.LockState,
                 WallpaperB64 = snap.WallpaperB64,
                 WallpaperHash = snap.WallpaperHash,
+                VolumeLevel = snap.VolumeLevel,
+                IsMuted = snap.IsMuted,
+                BrightnessLevel = snap.BrightnessLevel,
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             }, ct);
         }
@@ -208,6 +211,9 @@ public sealed class TetherSession : IDisposable
                     LockState = initSnap.LockState,
                     WallpaperB64 = initSnap.WallpaperB64,
                     WallpaperHash = initSnap.WallpaperHash,
+                    VolumeLevel = initSnap.VolumeLevel,
+                    IsMuted = initSnap.IsMuted,
+                    BrightnessLevel = initSnap.BrightnessLevel,
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 }, serviceCt);
             }

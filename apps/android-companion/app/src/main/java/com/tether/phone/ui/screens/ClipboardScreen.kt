@@ -196,31 +196,53 @@ fun ClipboardScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = LiquidCyan)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Phone Clipboard", color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                                }
-                                TextButton(onClick = {
-                                    if (phoneClipboardText.isNotEmpty()) {
-                                        service?.sendClipboardSyncFrame(phoneClipboardText)
-                                        historyItems = listOf(
-                                            ClipboardHistoryItem(phoneClipboardText, "PHONE", System.currentTimeMillis())
-                                        ) + historyItems.take(49)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(LiquidCyan.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = LiquidCyan, modifier = Modifier.size(18.dp))
                                     }
-                                }) {
-                                    Icon(Icons.Default.Upload, contentDescription = null, tint = LiquidCyan, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Push to PC", color = LiquidCyan, fontSize = 12.sp)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("Phone Clipboard", color = TextPrimary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                        Text("Local Device", color = TextSecondary, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                                TextButton(
+                                    onClick = {
+                                        if (phoneClipboardText.isNotEmpty()) {
+                                            service?.sendClipboardSyncFrame(phoneClipboardText)
+                                            historyItems = listOf(
+                                                ClipboardHistoryItem(phoneClipboardText, "PHONE", System.currentTimeMillis())
+                                            ) + historyItems.take(49)
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.textButtonColors(containerColor = LiquidCyan.copy(alpha = 0.12f))
+                                ) {
+                                    Icon(Icons.Default.Upload, contentDescription = null, tint = LiquidCyan, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Push to PC", color = LiquidCyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 }
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                if (phoneClipboardText.isNotEmpty()) phoneClipboardText else "No text currently on phone clipboard",
-                                color = if (phoneClipboardText.isNotEmpty()) TextPrimary else TextMuted,
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 4,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = SurfaceElevated.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text(
+                                    text = if (phoneClipboardText.isNotEmpty()) phoneClipboardText else "No text currently on phone clipboard",
+                                    color = if (phoneClipboardText.isNotEmpty()) TextPrimary else TextMuted,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(12.dp),
+                                    maxLines = 4,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
@@ -235,29 +257,51 @@ fun ClipboardScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Laptop, contentDescription = null, tint = IntegrityGreen)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Windows Host Clipboard", color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                                }
-                                TextButton(onClick = {
-                                    if (latestWindowsClipboard.isNotEmpty()) {
-                                        clipboardManager.setText(AnnotatedString(latestWindowsClipboard))
-                                        phoneClipboardText = latestWindowsClipboard
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(IntegrityGreen.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.Laptop, contentDescription = null, tint = IntegrityGreen, modifier = Modifier.size(18.dp))
                                     }
-                                }) {
-                                    Icon(Icons.Default.Download, contentDescription = null, tint = IntegrityGreen, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Copy to Phone", color = IntegrityGreen, fontSize = 12.sp)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("Windows Host Clipboard", color = TextPrimary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                        Text("Paired Workstation", color = TextSecondary, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                                TextButton(
+                                    onClick = {
+                                        if (latestWindowsClipboard.isNotEmpty()) {
+                                            clipboardManager.setText(AnnotatedString(latestWindowsClipboard))
+                                            phoneClipboardText = latestWindowsClipboard
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.textButtonColors(containerColor = IntegrityGreen.copy(alpha = 0.12f))
+                                ) {
+                                    Icon(Icons.Default.Download, contentDescription = null, tint = IntegrityGreen, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Copy to Phone", color = IntegrityGreen, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 }
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                if (latestWindowsClipboard.isNotEmpty()) latestWindowsClipboard else "Awaiting clipboard content from Windows...",
-                                color = if (latestWindowsClipboard.isNotEmpty()) TextPrimary else TextMuted,
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 4,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = SurfaceElevated.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text(
+                                    text = if (latestWindowsClipboard.isNotEmpty()) latestWindowsClipboard else "Awaiting clipboard content from Windows...",
+                                    color = if (latestWindowsClipboard.isNotEmpty()) TextPrimary else TextMuted,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(12.dp),
+                                    maxLines = 4,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }

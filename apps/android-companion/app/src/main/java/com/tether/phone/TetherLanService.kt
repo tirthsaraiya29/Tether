@@ -390,6 +390,59 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     @Volatile
     var currentActiveScreen: String? = null
+        set(value) {
+            field = value
+            if (value != null) {
+                prioritizeScreenSync(value)
+            }
+        }
+
+    private var activeScreenSyncJob: kotlinx.coroutines.Job? = null
+
+    fun prioritizeScreenSync(screenName: String) {
+        if (isHeavyTaskActive && screenName != "RemoteInput" && screenName != "RemoteDesktop") return
+        activeScreenSyncJob?.cancel()
+        activeScreenSyncJob = serviceScope.launch(Dispatchers.IO) {
+            try {
+                when (screenName) {
+                    "AdvancedAudio" -> {
+                        dispatchCommand("volume_get")
+                        requestAudioSessions()
+                        requestAudioDevices()
+                        requestMicState()
+                    }
+                    "RemoteDesktop" -> {
+                        requestRunningWindows()
+                    }
+                    "AppManagement" -> {
+                        requestRunningWindows()
+                        requestInstalledApps()
+                    }
+                    "WindowsAdmin" -> {
+                        requestAdminTelemetry()
+                        requestHardwareSpecs()
+                        requestBatteryHealth()
+                        requestPowerPlans()
+                        requestWindowsServices()
+                        requestWindowsUpdates()
+                    }
+                    "Clipboard" -> {
+                        sendClipboardGet()
+                    }
+                    "RemoteInput" -> {
+                        // High-speed interactive mode, no extra background sync spam
+                    }
+                    else -> {
+                        dispatchCommand("laptop_state_get")
+                        dispatchCommand("volume_get")
+                        dispatchCommand("brightness_get")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Screen priority sync error: ${e.message}")
+            }
+        }
+    }
 
     @Synchronized
     private fun startInputPump() {
@@ -1408,6 +1461,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     }
                 }
 
+                val hasMute = json.has("isMuted") || json.has("IsMuted")
+                val isMutedVal = json.optBoolean("isMuted", json.optBoolean("IsMuted", false))
                 mainHandler.post {
                     val intent = Intent(ACTION_COMMAND_CONFIRMED).apply {
                         putExtra("confirmed_command", confirmedCmd)
@@ -1415,6 +1470,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         putExtra("reason", errorReason)
                         putExtra("volume_level", currentVolumeLevel)
                         putExtra("brightness_level", currentBrightnessLevel)
+                        if (hasMute) {
+                            putExtra("is_muted", isMutedVal)
+                        }
                         putExtra("requestId", responseReqId)
                         setPackage(packageName)
                     }
@@ -1921,16 +1979,21 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
                 val vol = json.optInt("volumeLevel", -1)
                 val bright = json.optInt("brightnessLevel", -1)
+                val hasMute = json.has("isMuted") || json.has("IsMuted")
+                val isMutedVal = json.optBoolean("isMuted", json.optBoolean("IsMuted", false))
                 if ((vol >= 0) && (vol <= 100)) {
                     currentVolumeLevel = vol
                 }
                 if ((bright >= 0) && (bright <= 100)) {
                     currentBrightnessLevel = bright
                 }
-                if ((vol >= 0) || (bright >= 0)) {
+                if ((vol >= 0) || (bright >= 0) || hasMute) {
                     val intent = Intent("com.tether.phone.ACTION_SYNC_HARDWARE_METRICS").apply {
                         putExtra("VOLUME_LEVEL", vol)
                         putExtra("BRIGHTNESS_LEVEL", bright)
+                        if (hasMute) {
+                            putExtra("IS_MUTED", isMutedVal)
+                        }
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
@@ -2680,7 +2743,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     fun sendSetMasterMute(mute: Boolean) {
-        dispatchCommand("volume_mute")
+        dispatchCommand(if (mute) "mute_on" else "mute_off")
     }
 
     fun sendSetMicMute(mute: Boolean) {

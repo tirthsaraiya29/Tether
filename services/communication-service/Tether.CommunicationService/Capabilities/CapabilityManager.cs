@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 using System.Collections.Generic;
 
@@ -148,7 +148,7 @@ public sealed class CapabilityManager
 
             "volume_up" or "volume_down" or "vol_up" or "vol_down"
 
-                or "volume_mute" or "mute" or "brightness_up" or "brightness_down"
+                or "volume_mute" or "mute" or "volume_mute_on" or "mute_on" or "volume_mute_off" or "mute_off" or "unmute" or "brightness_up" or "brightness_down"
 
                 or "bright_up" or "bright_down" => "MEDIA",
 
