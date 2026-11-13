@@ -234,9 +234,28 @@ class MainActivity : FragmentActivity() {
                                 uiConnectionStatusText.value = getString(R.string.status_secure_nodes, count)
                             } else {
                                 if (!isPanicActive.value) {
-                                    uiStatusText.value = getString(R.string.status_broadcasting)
-                                    uiStatusColor.value = LiquidCyan
-                                    uiConnectionStatusText.value = getString(R.string.status_scanning_host)
+                                    when (powerState) {
+                                        LaptopPowerState.POWERED_OFF -> {
+                                            uiStatusText.value = "POWERED OFF"
+                                            uiStatusColor.value = TextSecondary.copy(alpha = 0.6f)
+                                            uiConnectionStatusText.value = "WINDOWS PC IS POWERED OFF"
+                                        }
+                                        LaptopPowerState.RESTARTING -> {
+                                            uiStatusText.value = "RESTARTING"
+                                            uiStatusColor.value = TextSecondary.copy(alpha = 0.6f)
+                                            uiConnectionStatusText.value = "WINDOWS PC IS RESTARTING..."
+                                        }
+                                        LaptopPowerState.SHUTTING_DOWN -> {
+                                            uiStatusText.value = "SHUTTING DOWN"
+                                            uiStatusColor.value = TextSecondary.copy(alpha = 0.6f)
+                                            uiConnectionStatusText.value = "WINDOWS PC IS SHUTTING DOWN..."
+                                        }
+                                        else -> {
+                                            uiStatusText.value = getString(R.string.status_broadcasting)
+                                            uiStatusColor.value = LiquidCyan
+                                            uiConnectionStatusText.value = getString(R.string.status_scanning_host)
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -61,7 +61,10 @@ public class PipeServer : IDisposable
         type == TetherEventType.HARDWARE_SYNC_REQUESTED ||
         type == TetherEventType.FORGET_PHONE ||
         type == TetherEventType.VAULT_UPDATE ||
-        type == TetherEventType.TELEMETRY_SYNC_REQUESTED;
+        type == TetherEventType.TELEMETRY_SYNC_REQUESTED ||
+        type == TetherEventType.SHUTDOWN_INITIATED ||
+        type == TetherEventType.RESTART_INITIATED ||
+        type == TetherEventType.POWER_EVENT_DETECTED;
 
     public void Start()
     {
@@ -347,6 +350,22 @@ public class PipeServer : IDisposable
                                 _logger.Error($"Failed to process VAULT_UPDATE: {ex.Message}", ex);
                             }
                             continue;
+                        }
+
+                        if (evt.EventType == TetherEventType.SHUTDOWN_INITIATED)
+                        {
+                            Power.PowerEventHub.Watcher?.RecordInitiated(Power.TetherPowerEventType.Shutdown, evt.Source ?? "IPC.DesktopUI");
+                        }
+                        else if (evt.EventType == TetherEventType.RESTART_INITIATED)
+                        {
+                            Power.PowerEventHub.Watcher?.RecordInitiated(Power.TetherPowerEventType.Restart, evt.Source ?? "IPC.DesktopUI");
+                        }
+                        else if (evt.EventType == TetherEventType.POWER_EVENT_DETECTED)
+                        {
+                            var powerType = Power.TetherPowerEventType.Shutdown;
+                            if (!string.IsNullOrEmpty(evt.PayloadJson) && evt.PayloadJson.Contains("restart", StringComparison.OrdinalIgnoreCase))
+                                powerType = Power.TetherPowerEventType.Restart;
+                            Power.PowerEventHub.Watcher?.RecordInitiated(powerType, evt.Source ?? "IPC.DesktopUI");
                         }
 
                         _logger.Debug($"IPC received event: {evt.EventType} from Desktop UI");

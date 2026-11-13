@@ -28,7 +28,8 @@ public sealed class SessionManager
         _logger = logger;
     }
 
-    public int ActiveSessionCount => _activeSessions.Count;
+    public int ActiveSessionCount => _activeSessions.Count;
+    public event Action<int>? ActiveSessionCountChanged;
 
     public void RegisterSession(TetherSession session)
     {
@@ -43,7 +44,8 @@ public sealed class SessionManager
 
         _activeSessions[session.SessionId] = session;
         _deviceManager.MarkConnected(device.Fingerprint, session);
-        _logger.Info($"SessionManager: Registered session '{session.SessionId}' for device '{device.DisplayName}' ({device.Fingerprint}). Total active={_activeSessions.Count}.");
+        _logger.Info($"SessionManager: Registered session '{session.SessionId}' for device '{device.DisplayName}' ({device.Fingerprint}). Total active={_activeSessions.Count}.");
+        ActiveSessionCountChanged?.Invoke(_activeSessions.Count);
     }
 
     public void UnregisterSession(TetherSession session)
@@ -54,7 +56,8 @@ public sealed class SessionManager
             {
                 _deviceManager.MarkDisconnected(session.Device.Fingerprint, session);
             }
-            _logger.Info($"SessionManager: Unregistered session '{session.SessionId}'. Total active={_activeSessions.Count}.");
+            _logger.Info($"SessionManager: Unregistered session '{session.SessionId}'. Total active={_activeSessions.Count}.");
+            ActiveSessionCountChanged?.Invoke(_activeSessions.Count);
         }
     }
 

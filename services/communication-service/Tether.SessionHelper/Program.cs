@@ -355,7 +355,7 @@ internal static class Program
             catch { }
         }
 
-        // Initialize Clipboard Controller on STA Thread
+        // Initialize Clipboard Controller on STA Thread with top-level shutdown monitor form
         ClipboardController? clipboardController = null;
         var clipThread = new Thread(() =>
         {
@@ -363,7 +363,26 @@ internal static class Program
             {
                 _ = SendJsonFrameAsync(new { type = "CLIPBOARD_SYNC", text, source = "PC" });
             });
-            System.Windows.Forms.Application.Run();
+
+            var shutdownForm = new ShutdownListenerForm(eventType =>
+            {
+                _ = SendJsonFrameAsync(new { type = "POWER_EVENT", eventType, source = "SessionHelper.WM_QUERYENDSESSION" });
+                try
+                {
+                    using var client = new NamedPipeClientStream(".", "TetherPipe", PipeDirection.Out);
+                    client.Connect(300);
+                    byte[] b = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+                    {
+                        EventType = 32, // SHUTDOWN_INITIATED
+                        Source = "SessionHelper.WM_QUERYENDSESSION"
+                    }));
+                    client.Write(b, 0, b.Length);
+                    client.Flush();
+                }
+                catch { }
+            });
+
+            System.Windows.Forms.Application.Run(shutdownForm);
         });
         clipThread.SetApartmentState(ApartmentState.STA);
         clipThread.IsBackground = true;
@@ -801,5 +820,33 @@ internal static class Program
             read += n;
         }
         return true;
+    }
+
+    private sealed class ShutdownListenerForm : System.Windows.Forms.Form
+    {
+        private const int WM_QUERYENDSESSION = 0x0011;
+        private const int WM_ENDSESSION = 0x0016;
+        private readonly Action<string> _onShutdown;
+
+        public ShutdownListenerForm(Action<string> onShutdown)
+        {
+            _onShutdown = onShutdown;
+            ShowInTaskbar = false;
+            FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
+            WindowState = System.Windows.Forms.FormWindowState.Minimized;
+            Opacity = 0;
+        }
+
+        protected override void SetVisibleCore(bool value) => base.SetVisibleCore(false);
+
+        protected override void WndProc(ref System.Windows.Forms.Message m)
+        {
+            if (m.Msg == WM_QUERYENDSESSION || m.Msg == WM_ENDSESSION)
+            {
+                bool isLogoff = (m.LParam.ToInt64() & 0x80000000) != 0;
+                _onShutdown(isLogoff ? "LOGOFF" : "SHUTDOWN");
+            }
+            base.WndProc(ref m);
+        }
     }
 }

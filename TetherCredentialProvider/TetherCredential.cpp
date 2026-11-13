@@ -22,6 +22,7 @@
 
 #define WM_SIGNAL_CREDENTIALS_CHANGED (WM_USER + 101)
 #define WM_PROMPT_COOLDOWN_TICK (WM_USER + 102)
+#define WM_STATUS_UPDATE (WM_USER + 103)
 
 // Named event consumed by the communication service, which relays an
 // UNLOCK_PROMPT frame to the paired phone over the TLS control channel.
@@ -75,19 +76,17 @@ CSampleCredential::CSampleCredential() :
     _pszUserSid(nullptr),
     _pszQualifiedUserName(nullptr),
     _fIsLocalUser(false),
-    _fChecked(false),
-    _fShowControls(false),
-    _dwComboIndex(0),
-    _dwSelectedMethod(0),
-    _fBypassEnabled(false),
-    _pszStoredPasswordHash(nullptr),
     _cpus(CPUS_INVALID),
     _pProvider(nullptr),
     _hWndMessage(nullptr),
     _hAppEvent(nullptr),
     _hScreenEvent(nullptr),
+    _hPhoneConnectedEvent(nullptr),
     _hWaitApp(nullptr),
     _hWaitScreen(nullptr),
+    _hWaitPhoneConnected(nullptr),
+    _pCooldownTimer(nullptr),
+    _pStatusTimer(nullptr),
     _isValid(true)
 {
     DllAddRef();
@@ -99,6 +98,24 @@ CSampleCredential::CSampleCredential() :
 CSampleCredential::~CSampleCredential()
 {
     _isValid.store(false);
+
+    if (_pStatusTimer)
+    {
+        SetThreadpoolTimer(_pStatusTimer, nullptr, 0, 0);
+        WaitForThreadpoolTimerCallbacks(_pStatusTimer, TRUE);
+        CloseThreadpoolTimer(_pStatusTimer);
+        _pStatusTimer = nullptr;
+    }
+    if (_hWaitPhoneConnected)
+    {
+        UnregisterWaitEx(_hWaitPhoneConnected, INVALID_HANDLE_VALUE);
+        _hWaitPhoneConnected = nullptr;
+    }
+    if (_hPhoneConnectedEvent)
+    {
+        CloseHandle(_hPhoneConnectedEvent);
+        _hPhoneConnectedEvent = nullptr;
+    }
 
     if (_hWaitApp)
     {
@@ -132,7 +149,6 @@ CSampleCredential::~CSampleCredential()
         CoTaskMemFree(_rgFieldStrings[i]);
         CoTaskMemFree(_rgCredProvFieldDescriptors[i].pszLabel);
     }
-    CoTaskMemFree(_pszStoredPasswordHash);
     CoTaskMemFree(_pszUserSid);
     CoTaskMemFree(_pszQualifiedUserName);
     DllRelease();
@@ -163,6 +179,11 @@ LRESULT CALLBACK CSampleCredential::WebAuthMsgProc(HWND hWnd, UINT uMsg, WPARAM 
         if (pThis) pThis->_OnCooldownTick();
         return 0;
     }
+    if (uMsg == WM_STATUS_UPDATE)
+    {
+        if (pThis) pThis->_CheckStatusAndRefreshUi();
+        return 0;
+    }
     return DefWindowProcW(hWnd, uMsg, wParam, lParam);
 }
 
@@ -180,7 +201,6 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     pcpUser->GetProviderID(&guidProvider);
     _fIsLocalUser = (guidProvider == Identity_LocalUserProvider);
 
-    _dwSelectedMethod = 0;
     g_dwSelectedMethod.store(0);
 
     for (DWORD i = 0; SUCCEEDED(hr) && i < ARRAYSIZE(_rgCredProvFieldDescriptors); i++)
@@ -194,15 +214,18 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     _rgFieldStatePairs[SFI_METHOD_LABEL].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
     _rgFieldStatePairs[SFI_SUBMIT_BUTTON].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
     _rgFieldStatePairs[SFI_LOGONSTATUS_TEXT].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
+    _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_HIDDEN;
+    _rgFieldStatePairs[SFI_SERVICE_ACTION_BUTTON].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
 
-    if (SUCCEEDED(hr)) hr = SHStrDupW(L"Tether Pro Gateway", &_rgFieldStrings[SFI_LABEL]);
+    if (SUCCEEDED(hr)) hr = SHStrDupW(L"Tether", &_rgFieldStrings[SFI_LABEL]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Sign in using Tether", &_rgFieldStrings[SFI_LARGE_TEXT]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Open the Tether app on your phone and tap 'Unlock PC'", &_rgFieldStrings[SFI_METHOD_LABEL]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Unlock via Phone App", &_rgFieldStrings[SFI_METHOD_COMBOBOX]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"", &_rgFieldStrings[SFI_PASSWORD]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Unlock", &_rgFieldStrings[SFI_SUBMIT_BUTTON]);
-    if (SUCCEEDED(hr)) hr = SHStrDupW(L"Waiting for the Tether app on your phone...", &_rgFieldStrings[SFI_LOGONSTATUS_TEXT]);
+    if (SUCCEEDED(hr)) hr = SHStrDupW(L"Checking Tether service...", &_rgFieldStrings[SFI_LOGONSTATUS_TEXT]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Send unlock prompt to phone", &_rgFieldStrings[SFI_UNLOCK_PROMPT_BUTTON]);
+    if (SUCCEEDED(hr)) hr = SHStrDupW(L"Restart Tether Service", &_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
 
     if (SUCCEEDED(hr)) hr = pcpUser->GetStringValue(PKEY_Identity_QualifiedUserName, &_pszQualifiedUserName);
     if (SUCCEEDED(hr)) hr = pcpUser->GetSid(&_pszUserSid);
@@ -210,23 +233,14 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     _CreateMessageWindow();
     _StartBackgroundIPCListeners();
 
-    return hr;
-}
-
-HRESULT CSampleCredential::LoadStoredPasswordHashFromTpm()
-{
-    HRESULT hr = S_FALSE;
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    _pStatusTimer = CreateThreadpoolTimer(CSampleCredential::_OnStatusTimerFired, this, nullptr);
+    if (_pStatusTimer)
     {
-        WCHAR szHash[512];
-        DWORD dwSize = sizeof(szHash);
-        if (RegQueryValueExW(hKey, L"PasswordHash", nullptr, nullptr, (LPBYTE)szHash, &dwSize) == ERROR_SUCCESS)
-            hr = SHStrDupW(szHash, &_pszStoredPasswordHash);
-        RegCloseKey(hKey);
+        LONG64 due100ns = -1000000LL; // 100ms
+        FILETIME ftDue = *reinterpret_cast<FILETIME*>(&due100ns);
+        SetThreadpoolTimer(_pStatusTimer, &ftDue, 1500, 0);
     }
-    if (FAILED(hr))
-        hr = SHStrDupW(L"", &_pszStoredPasswordHash);
+
     return hr;
 }
 
@@ -409,7 +423,6 @@ HRESULT CSampleCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD)
     {
         if (dwFieldID == SFI_METHOD_COMBOBOX)
         {
-            _dwSelectedMethod = 0;
             g_dwSelectedMethod.store(0);
             return S_OK;
         }
@@ -573,24 +586,6 @@ HRESULT CSampleCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SER
         RegCloseKey(hKey);
     }
     return hr;
-}
-
-HRESULT CSampleCredential::_GetManualPasswordAndPack(
-    CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
-    CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs)
-{
-    if (!_rgFieldStrings[SFI_PASSWORD] || wcslen(_rgFieldStrings[SFI_PASSWORD]) == 0)
-        return S_FALSE;
-
-    HRESULT hrPack = _PackActualPasswordCredential(pcpgsr, pcpcs, _rgFieldStrings[SFI_PASSWORD]);
-    size_t len = wcslen(_rgFieldStrings[SFI_PASSWORD]);
-    SecureZeroMemory(_rgFieldStrings[SFI_PASSWORD], len * sizeof(WCHAR));
-    if (SUCCEEDED(hrPack) && *pcpgsr == CPGSR_RETURN_CREDENTIAL_FINISHED)
-    {
-        g_fAutoLogonReady.store(false);
-        return S_OK;
-    }
-    return E_FAIL;
 }
 
 bool CSampleCredential::_IsEncryptedPasswordBlobPresent()
@@ -757,172 +752,199 @@ HRESULT CSampleCredential::GetUserSid(PWSTR* ppszSid)
     return E_UNEXPECTED;
 }
 
-static bool ConstantTimeWcsEquals(PCWSTR a, PCWSTR b)
+void CSampleCredential::_CheckStatusAndRefreshUi()
 {
-    if (!a || !b) return false;
-    size_t lenA = wcslen(a);
-    size_t lenB = wcslen(b);
-    size_t maxLen = (lenA > lenB) ? lenA : lenB;
+    if (!_isValid.load() || _fServiceActionInProgress.load()) return;
 
-    int diff = (int)(lenA ^ lenB);
-    for (size_t i = 0; i < maxLen; i++)
+    bool isServiceRunning = false;
+    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (hSCM)
     {
-        WCHAR ca = (i < lenA) ? a[i] : 0;
-        WCHAR cb = (i < lenB) ? b[i] : 0;
-        diff |= (ca ^ cb);
-    }
-    return diff == 0;
-}
-
-static bool DerivePbkdf2Key(LPCWSTR algId, const BYTE* password, DWORD cbPassword, const BYTE* salt, DWORD cbSalt, DWORD iterations, BYTE* derivedKey, DWORD cbDerivedKey)
-{
-    BCRYPT_ALG_HANDLE hAlg = nullptr;
-    if (BCryptOpenAlgorithmProvider(&hAlg, algId, nullptr, BCRYPT_ALG_HANDLE_HMAC_FLAG) != 0)
-        return false;
-
-    NTSTATUS status = BCryptDeriveKeyPBKDF2(hAlg, (PUCHAR)password, cbPassword, (PUCHAR)salt, cbSalt, iterations, derivedKey, cbDerivedKey, 0);
-    BCryptCloseAlgorithmProvider(hAlg, 0);
-    return status == 0;
-}
-
-HRESULT CSampleCredential::_VerifySaltedPassword(PCWSTR pwzEnteredPassword)
-{
-    HKEY hKey = nullptr;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
-    {
-        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
-            return E_FAIL;
-    }
-
-    WCHAR szAlgorithm[64] = L"sha256-v1";
-    DWORD dwSize = sizeof(szAlgorithm);
-    DWORD dwType = 0;
-    RegQueryValueExW(hKey, L"HashAlgorithm", nullptr, &dwType, (LPBYTE)szAlgorithm, &dwSize);
-
-    WCHAR szStoredHash[256];
-    dwSize = sizeof(szStoredHash);
-    if (RegQueryValueExW(hKey, L"PasswordHash", nullptr, &dwType, (LPBYTE)szStoredHash, &dwSize) != ERROR_SUCCESS || dwType != REG_SZ)
-    {
-        RegCloseKey(hKey);
-        return E_FAIL;
-    }
-
-    BYTE salt[64];
-    dwSize = sizeof(salt);
-    if (RegQueryValueExW(hKey, L"PasswordSalt", nullptr, &dwType, salt, &dwSize) != ERROR_SUCCESS || dwType != REG_BINARY)
-    {
-        RegCloseKey(hKey);
-        return E_FAIL;
-    }
-    DWORD saltLen = dwSize;
-    RegCloseKey(hKey);
-
-    int cchPassword = (int)wcslen(pwzEnteredPassword);
-    int cbNeeded = WideCharToMultiByte(CP_UTF8, 0, pwzEnteredPassword, cchPassword, nullptr, 0, nullptr, nullptr);
-    if (cbNeeded <= 0) return E_FAIL;
-
-    std::vector<BYTE> passwordBytes(cbNeeded);
-    if (WideCharToMultiByte(CP_UTF8, 0, pwzEnteredPassword, cchPassword, (LPSTR)passwordBytes.data(), (int)passwordBytes.size(), nullptr, nullptr) == 0)
-        return E_FAIL;
-
-    if (wcscmp(szAlgorithm, L"pbkdf2-sha256-600k") == 0)
-    {
-        BYTE derived[32];
-        if (!DerivePbkdf2Key(BCRYPT_SHA256_ALGORITHM, passwordBytes.data(), (DWORD)passwordBytes.size(), salt, saltLen, 600000, derived, sizeof(derived)))
-            return E_FAIL;
-
-        WCHAR computedHex[65];
-        for (int i = 0; i < 32; i++)
-            swprintf_s(&computedHex[i * 2], 3, L"%02x", derived[i]);
-        computedHex[64] = 0;
-
-        return ConstantTimeWcsEquals(computedHex, szStoredHash) ? S_OK : E_FAIL;
-    }
-    else if (wcscmp(szAlgorithm, L"pbkdf2-sha512-210k") == 0)
-    {
-        BYTE derived[64];
-        if (!DerivePbkdf2Key(BCRYPT_SHA512_ALGORITHM, passwordBytes.data(), (DWORD)passwordBytes.size(), salt, saltLen, 210000, derived, sizeof(derived)))
-            return E_FAIL;
-
-        WCHAR computedHex[129];
-        for (int i = 0; i < 64; i++)
-            swprintf_s(&computedHex[i * 2], 3, L"%02x", derived[i]);
-        computedHex[128] = 0;
-
-        return ConstantTimeWcsEquals(computedHex, szStoredHash) ? S_OK : E_FAIL;
-    }
-    else
-    {
-        std::vector<BYTE> combined;
-        combined.reserve(saltLen + cbNeeded);
-        combined.insert(combined.end(), salt, salt + saltLen);
-        combined.insert(combined.end(), passwordBytes.begin(), passwordBytes.end());
-
-        HCRYPTPROV hProv;
-        if (!CryptAcquireContextW(&hProv, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
-            return E_FAIL;
-        HCRYPTHASH hHash;
-        if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash))
+        SC_HANDLE hSvc = OpenServiceW(hSCM, L"TetherCommService", SERVICE_QUERY_STATUS);
+        if (hSvc)
         {
-            CryptReleaseContext(hProv, 0);
-            return E_FAIL;
-        }
-        if (!CryptHashData(hHash, combined.data(), (DWORD)combined.size(), 0))
-        {
-            CryptDestroyHash(hHash);
-            CryptReleaseContext(hProv, 0);
-            return E_FAIL;
-        }
-        BYTE hash[32];
-        DWORD cbHash = 32;
-        if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &cbHash, 0))
-        {
-            CryptDestroyHash(hHash);
-            CryptReleaseContext(hProv, 0);
-            return E_FAIL;
-        }
-        CryptDestroyHash(hHash);
-        CryptReleaseContext(hProv, 0);
-
-        WCHAR computedHex[65];
-        for (int i = 0; i < 32; i++)
-            swprintf_s(&computedHex[i * 2], 3, L"%02x", hash[i]);
-        computedHex[64] = 0;
-
-        bool isOk = ConstantTimeWcsEquals(computedHex, szStoredHash);
-        if (isOk)
-        {
-            BYTE newDerived[32];
-            if (DerivePbkdf2Key(BCRYPT_SHA256_ALGORITHM, passwordBytes.data(), (DWORD)passwordBytes.size(), salt, saltLen, 600000, newDerived, sizeof(newDerived)))
+            SERVICE_STATUS_PROCESS ssp = {};
+            DWORD bytesNeeded = 0;
+            if (QueryServiceStatusEx(hSvc, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&ssp), sizeof(ssp), &bytesNeeded))
             {
-                WCHAR newHex[65];
-                for (int i = 0; i < 32; i++)
-                    swprintf_s(&newHex[i * 2], 3, L"%02x", newDerived[i]);
-                newHex[64] = 0;
+                isServiceRunning = (ssp.dwCurrentState == SERVICE_RUNNING);
+            }
+            CloseServiceHandle(hSvc);
+        }
+        CloseServiceHandle(hSCM);
+    }
+    _fServiceRunning.store(isServiceRunning);
 
-                HKEY hWriteKey = nullptr;
-                if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_SET_VALUE, &hWriteKey) == ERROR_SUCCESS ||
-                    RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_SET_VALUE, &hWriteKey) == ERROR_SUCCESS)
-                {
-                    RegSetValueExW(hWriteKey, L"PasswordHash", 0, REG_SZ, (LPBYTE)newHex, (DWORD)((wcslen(newHex) + 1) * sizeof(WCHAR)));
-                    const WCHAR* newAlg = L"pbkdf2-sha256-600k";
-                    RegSetValueExW(hWriteKey, L"HashAlgorithm", 0, REG_SZ, (LPBYTE)newAlg, (DWORD)((wcslen(newAlg) + 1) * sizeof(WCHAR)));
-                    RegCloseKey(hWriteKey);
-                }
+    bool isPhoneConnected = false;
+    if (isServiceRunning)
+    {
+        HANDLE hPhone = OpenEventW(SYNCHRONIZE, FALSE, L"Global\\TetherPhoneConnected");
+        if (hPhone)
+        {
+            isPhoneConnected = (WaitForSingleObject(hPhone, 0) == WAIT_OBJECT_0);
+            CloseHandle(hPhone);
+        }
+    }
+    _fPhoneConnected.store(isPhoneConnected);
+
+    if (_pCredProvCredentialEvents)
+    {
+        if (!isServiceRunning)
+        {
+            _SetStatusText(L"Tether service is not running");
+            CoTaskMemFree(_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
+            SHStrDupW(L"Start Tether Service", &_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
+            _pCredProvCredentialEvents->SetFieldString(this, SFI_SERVICE_ACTION_BUTTON, L"Start Tether Service");
+            _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_SERVICE_ACTION_BUTTON, CPFIS_NONE);
+            _pCredProvCredentialEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+
+            _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_HIDDEN;
+            _pCredProvCredentialEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_HIDDEN);
+        }
+        else if (!isPhoneConnected)
+        {
+            _SetStatusText(L"Phone: Disconnected");
+            CoTaskMemFree(_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
+            SHStrDupW(L"Restart Tether Service", &_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
+            _pCredProvCredentialEvents->SetFieldString(this, SFI_SERVICE_ACTION_BUTTON, L"Restart Tether Service");
+            _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_SERVICE_ACTION_BUTTON, CPFIS_NONE);
+            _pCredProvCredentialEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+
+            _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_HIDDEN;
+            _pCredProvCredentialEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_HIDDEN);
+        }
+        else
+        {
+            _SetStatusText(L"Phone: Connected");
+            CoTaskMemFree(_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
+            SHStrDupW(L"Restart Tether Service", &_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
+            _pCredProvCredentialEvents->SetFieldString(this, SFI_SERVICE_ACTION_BUTTON, L"Restart Tether Service");
+            _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_SERVICE_ACTION_BUTTON, CPFIS_NONE);
+            _pCredProvCredentialEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+
+            _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
+            _pCredProvCredentialEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+
+            long long nowMs = GetTickCount64();
+            long long endMs = _promptCooldownEndMs.load(std::memory_order_acquire);
+            if (nowMs >= endMs)
+            {
+                _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFIS_NONE);
+            }
+            else
+            {
+                _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFIS_DISABLED);
             }
         }
-        return isOk ? S_OK : E_FAIL;
     }
 }
 
-HRESULT CSampleCredential::_VerifyTpmPassword(PCWSTR) { return E_NOTIMPL; }
+void CSampleCredential::_PerformServiceActionAsync()
+{
+    struct ActionContext
+    {
+        CSampleCredential* pThis;
+    };
+
+    auto* ctx = new (std::nothrow) ActionContext{ this };
+    if (!ctx) return;
+
+    QueueUserWorkItem([](PVOID param) -> DWORD
+    {
+        auto* c = reinterpret_cast<ActionContext*>(param);
+        if (c && c->pThis && c->pThis->_isValid.load())
+        {
+            SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+            if (hSCM)
+            {
+                SC_HANDLE hSvc = OpenServiceW(hSCM, L"TetherCommService", SERVICE_QUERY_STATUS | SERVICE_START | SERVICE_STOP);
+                if (hSvc)
+                {
+                    SERVICE_STATUS_PROCESS ssp = {};
+                    DWORD bytesNeeded = 0;
+                    if (QueryServiceStatusEx(hSvc, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&ssp), sizeof(ssp), &bytesNeeded))
+                    {
+                        if (ssp.dwCurrentState != SERVICE_STOPPED && ssp.dwCurrentState != SERVICE_STOP_PENDING)
+                        {
+                            SERVICE_STATUS stopStatus = {};
+                            ControlService(hSvc, SERVICE_CONTROL_STOP, &stopStatus);
+                            for (int i = 0; i < 20; i++)
+                            {
+                                Sleep(250);
+                                if (QueryServiceStatusEx(hSvc, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&ssp), sizeof(ssp), &bytesNeeded))
+                                {
+                                    if (ssp.dwCurrentState == SERVICE_STOPPED) break;
+                                }
+                            }
+                        }
+                    }
+
+                    StartServiceW(hSvc, 0, nullptr);
+                    for (int i = 0; i < 20; i++)
+                    {
+                        Sleep(250);
+                        if (QueryServiceStatusEx(hSvc, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&ssp), sizeof(ssp), &bytesNeeded))
+                        {
+                            if (ssp.dwCurrentState == SERVICE_RUNNING) break;
+                        }
+                    }
+
+                    CloseServiceHandle(hSvc);
+                }
+                CloseServiceHandle(hSCM);
+            }
+
+            c->pThis->_fServiceActionInProgress.store(false);
+            if (c->pThis->_hWndMessage)
+            {
+                PostMessageW(c->pThis->_hWndMessage, WM_STATUS_UPDATE, 0, 0);
+            }
+        }
+        delete c;
+        return 0;
+    }, ctx, WT_EXECUTEDEFAULT);
+}
+
+void CALLBACK CSampleCredential::_OnStatusTimerFired(PTP_CALLBACK_INSTANCE, PVOID lpParameter, PTP_TIMER)
+{
+    CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lpParameter);
+    if (!pThis || !pThis->_isValid.load()) return;
+    if (pThis->_hWndMessage)
+        PostMessageW(pThis->_hWndMessage, WM_STATUS_UPDATE, 0, 0);
+}
+
+void CALLBACK CSampleCredential::_OnPhoneConnectedSignaled(PVOID lpParameter, BOOLEAN)
+{
+    CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lpParameter);
+    if (!pThis || !pThis->_isValid.load()) return;
+    if (pThis->_hWndMessage)
+        PostMessageW(pThis->_hWndMessage, WM_STATUS_UPDATE, 0, 0);
+}
 
 HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
 {
     try
     {
+        if (dwFieldID == SFI_SERVICE_ACTION_BUTTON)
+        {
+            if (_fServiceActionInProgress.exchange(true))
+                return S_OK;
+
+            bool isRestart = _fServiceRunning.load();
+            _SetStatusText(isRestart ? L"Restarting Tether service..." : L"Starting Tether service...");
+            if (_pCredProvCredentialEvents)
+            {
+                _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_SERVICE_ACTION_BUTTON, CPFIS_DISABLED);
+            }
+            _PerformServiceActionAsync();
+            return S_OK;
+        }
+
         if (dwFieldID != SFI_UNLOCK_PROMPT_BUTTON)
             return E_INVALIDARG;
+
+        if (!_fPhoneConnected.load())
+            return S_OK;
 
     // 5s cooldown gate: a press inside the window is ignored, the countdown
     // just restarts the displayed seconds via the still-running timer.
@@ -1062,7 +1084,7 @@ void CSampleCredential::_OnCooldownTick()
         if (_pCredProvCredentialEvents)
         {
             _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFIS_NONE);
-            _SetStatusText(L"Waiting for the Tether app on your phone...");
+            _SetStatusText(_fPhoneConnected.load() ? L"Phone: Connected" : L"Phone: Disconnected");
         }
         return;
     }
@@ -1198,6 +1220,14 @@ void CSampleCredential::_StartBackgroundIPCListeners()
     {
         RegisterWaitForSingleObject(&_hWaitApp, _hAppEvent,
             CSampleCredential::_OnAppEventSignaled, this,
+            INFINITE, WT_EXECUTEDEFAULT);
+    }
+
+    _hPhoneConnectedEvent = OpenEventW(SYNCHRONIZE, FALSE, L"Global\\TetherPhoneConnected");
+    if (_hPhoneConnectedEvent)
+    {
+        RegisterWaitForSingleObject(&_hWaitPhoneConnected, _hPhoneConnectedEvent,
+            CSampleCredential::_OnPhoneConnectedSignaled, this,
             INFINITE, WT_EXECUTEDEFAULT);
     }
 }

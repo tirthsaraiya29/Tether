@@ -101,6 +101,8 @@ public sealed class TetherWindowsService : ServiceBase
     /// </summary>
     protected override void OnShutdown()
     {
+        var watcher = _host.Services.GetService<PowerEventWatcher>();
+        watcher?.RecordInitiated(TetherPowerEventType.Shutdown, "ServiceBase.OnShutdown");
         FlushPowerEventToPhone(TimeSpan.FromSeconds(1));
     }
 
@@ -172,6 +174,8 @@ public sealed class TetherWindowsService : ServiceBase
             // here, not in OnShutdown. ~5 s default budget; raise it with:
             //   reg add "HKLM\SYSTEM\CurrentControlSet\Services\TetherCommService" ^
             //           /v PreshutdownTimeout /t REG_DWORD /d 10000 /f
+            var watcher = _host.Services.GetService<PowerEventWatcher>();
+            watcher?.RecordInitiated(TetherPowerEventType.Shutdown, "ServiceBase.OnCustomCommand.PRESHUTDOWN");
             FlushPowerEventToPhone(TimeSpan.FromSeconds(2));
             StopHost(TimeSpan.FromSeconds(2));
         }

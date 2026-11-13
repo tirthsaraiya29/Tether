@@ -68,7 +68,6 @@ public:
         const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* rgcpfd,
         const FIELD_STATE_PAIR* rgfsp,
         ICredentialProviderUser* pcpUser);
-    HRESULT LoadStoredPasswordHashFromTpm();
     CSampleCredential();
 
 private:
@@ -78,22 +77,23 @@ private:
     static void CALLBACK _OnIPCEventSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
     static void CALLBACK _OnAppEventSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
     static void CALLBACK _OnScreenEventSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
+    static void CALLBACK _OnPhoneConnectedSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
     static LRESULT CALLBACK WebAuthMsgProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void _CreateMessageWindow();
     void _DestroyMessageWindow();
     void _BeginUnlockPromptCooldown();
     static void CALLBACK _OnCooldownTimerFired(PTP_CALLBACK_INSTANCE Instance, PVOID lpParameter, PTP_TIMER Timer);
+    static void CALLBACK _OnStatusTimerFired(PTP_CALLBACK_INSTANCE Instance, PVOID lpParameter, PTP_TIMER Timer);
     void _OnCooldownTick();
     void _SetStatusText(PCWSTR pszStatus);
+    void _CheckStatusAndRefreshUi();
+    void _PerformServiceActionAsync();
 
     HRESULT _PackActualPasswordCredential(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
         CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
         PCWSTR pszPassword);
     HRESULT _GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
         CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs);
-    HRESULT _GetManualPasswordAndPack(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
-        CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs);
-    HRESULT _VerifySaltedPassword(PCWSTR pwzEnteredPassword);
     bool _IsEncryptedPasswordBlobPresent();
 
 private:
@@ -104,29 +104,27 @@ private:
     PWSTR                                   _rgFieldStrings[SFI_NUM_FIELDS];
     PWSTR                                   _pszUserSid;
     PWSTR                                   _pszQualifiedUserName;
-    ICredentialProviderCredentialEvents* _pCredProvCredentialEvents;
+    ICredentialProviderCredentialEvents*    _pCredProvCredentialEvents;
 
-    BOOL                                    _fChecked;
-    DWORD                                   _dwComboIndex;
-    bool                                    _fShowControls;
     bool                                    _fIsLocalUser;
-    DWORD                                   _dwSelectedMethod;
-    bool                                    _fBypassEnabled;
-    PWSTR                                   _pszStoredPasswordHash;
+    CSampleProvider*                        _pProvider;
 
-    HRESULT                                 _VerifyTpmPassword(PCWSTR pwzEnteredPassword);
-    CSampleProvider* _pProvider;
-
-    HANDLE                                  _hAppEvent;
-    HANDLE                                  _hScreenEvent;
-    HANDLE                                  _hWaitApp;
-    HANDLE                                  _hWaitScreen;
-    HWND                                    _hWndMessage;
+    HANDLE                                  _hAppEvent{ nullptr };
+    HANDLE                                  _hScreenEvent{ nullptr };
+    HANDLE                                  _hPhoneConnectedEvent{ nullptr };
+    HANDLE                                  _hWaitApp{ nullptr };
+    HANDLE                                  _hWaitScreen{ nullptr };
+    HANDLE                                  _hWaitPhoneConnected{ nullptr };
+    HWND                                    _hWndMessage{ nullptr };
 
     PTP_TIMER                               _pCooldownTimer{ nullptr };
+    PTP_TIMER                               _pStatusTimer{ nullptr };
 
     std::atomic<bool>                       _isValid{ true };
     std::atomic<bool>                       _fInstancePhoneAppTriggered{ false };
     std::atomic<bool>                       _fInstanceAutoLogonReady{ false };
     std::atomic<long long>                  _promptCooldownEndMs{ 0 };
+    std::atomic<bool>                       _fPhoneConnected{ false };
+    std::atomic<bool>                       _fServiceRunning{ false };
+    std::atomic<bool>                       _fServiceActionInProgress{ false };
 };
