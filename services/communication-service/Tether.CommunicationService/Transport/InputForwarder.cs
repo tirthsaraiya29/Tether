@@ -439,6 +439,16 @@ public sealed class InputForwarder : IHostedService, IDisposable
                         tcs.TrySetResult(System.Text.Encoding.UTF8.GetString(frame));
                     }
 
+                    if (type == "POWER_EVENT")
+                    {
+                        string pType = root.TryGetProperty("eventType", out var ptProp) ? (ptProp.GetString() ?? "") : "";
+                        var evtType = pType.Equals("RESTART", StringComparison.OrdinalIgnoreCase)
+                            ? Power.TetherPowerEventType.Restart
+                            : Power.TetherPowerEventType.Shutdown;
+                        Power.PowerEventHub.Watcher?.RecordInitiated(evtType, "SessionHelper.WM_QUERYENDSESSION");
+                        continue;
+                    }
+
                     if (type is "CLIPBOARD_SYNC" or "NOTIFICATION_EVENT" or "MEDIA_METADATA_UPDATE" or "TERMINAL_OUTPUT")
                     {
                         OnHelperEventReceived?.Invoke(System.Text.Encoding.UTF8.GetString(frame));

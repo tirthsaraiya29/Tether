@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Eventing.Reader;
 using System.Management;
 using Microsoft.Win32;
 using Tether.Shared.Logging;
@@ -36,6 +37,7 @@ public sealed class PowerEventWatcher : IDisposable
 
     private ManagementEventWatcher? _wmiShutdownWatcher;
     private ManagementEventWatcher? _wmiPowerWatcher;
+    private EventLogWatcher? _eventLogWatcher;
     private bool _disposed;
 
     private TetherPowerEventType _lastRecordedType = TetherPowerEventType.None;
@@ -61,6 +63,19 @@ public sealed class PowerEventWatcher : IDisposable
         catch (Exception ex)
         {
             _logger.Error($"PowerEventWatcher: SystemEvents subscribe failed: {ex.Message}", ex);
+        }
+
+        try
+        {
+            var eventQuery = new EventLogQuery("System", PathType.LogName, "*[System[Provider[@Name='USER32'] and (EventID=1074)]]");
+            _eventLogWatcher = new EventLogWatcher(eventQuery);
+            _eventLogWatcher.EventRecordWritten += OnEvent1074Written;
+            _eventLogWatcher.Enabled = true;
+            _logger.Info("PowerEventWatcher: subscribed to EventLogWatcher (USER32 Event 1074).");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"PowerEventWatcher: EventLogWatcher subscribe failed: {ex.Message}");
         }
 
         try
@@ -209,6 +224,45 @@ public sealed class PowerEventWatcher : IDisposable
         }
     }
 
+    private void OnEvent1074Written(object? sender, EventRecordWrittenEventArgs e)
+    {
+        if (e.EventRecord == null) return;
+        try
+        {
+            using var record = e.EventRecord;
+            string shutdownType = "";
+            try
+            {
+                if (record.Properties != null && record.Properties.Count > 4)
+                {
+                    shutdownType = record.Properties[4].Value?.ToString() ?? "";
+                }
+            }
+            catch { }
+
+            if (string.IsNullOrWhiteSpace(shutdownType))
+            {
+                var xml = record.ToXml();
+                if (xml.Contains("restart", StringComparison.OrdinalIgnoreCase)) shutdownType = "restart";
+                else if (xml.Contains("power off", StringComparison.OrdinalIgnoreCase) || xml.Contains("shutdown", StringComparison.OrdinalIgnoreCase)) shutdownType = "power off";
+            }
+
+            var type = shutdownType.ToLowerInvariant() switch
+            {
+                var s when s.Contains("restart") || s.Contains("reboot") => TetherPowerEventType.Restart,
+                var s when s.Contains("power off") || s.Contains("shutdown") => TetherPowerEventType.Shutdown,
+                var s when s.Contains("logoff") => TetherPowerEventType.Logoff,
+                _ => TetherPowerEventType.Shutdown,
+            };
+
+            Record(type, "EventLog.USER32.1074");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"PowerEventWatcher: Event 1074 parse failed: {ex.Message}");
+        }
+    }
+
     private void Record(TetherPowerEventType type, string source)
     {
         TetherPowerEvent? evt = null;
@@ -257,6 +311,7 @@ public sealed class PowerEventWatcher : IDisposable
         try { SystemEvents.SessionSwitch -= OnSessionSwitch; } catch { }
         try { SystemEvents.SessionEnding -= OnSessionEnding; } catch { }
 
+        try { _eventLogWatcher?.Dispose(); } catch { }
         try { _wmiShutdownWatcher?.Stop(); _wmiShutdownWatcher?.Dispose(); } catch { }
         try { _wmiPowerWatcher?.Stop(); _wmiPowerWatcher?.Dispose(); } catch { }
     }

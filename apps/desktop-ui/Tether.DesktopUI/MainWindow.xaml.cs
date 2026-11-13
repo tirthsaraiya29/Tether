@@ -385,7 +385,28 @@ namespace Tether.DesktopUI
         protected override void OnSourceInitialized(EventArgs e)
         {
             base.OnSourceInitialized(e);
-            ApplyDwmGlassBackdrop();
+            ApplyDwmGlassBackdrop();
+            var source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+            source?.AddHook(WndProc);
+        }
+
+        private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            const int WM_QUERYENDSESSION = 0x0011;
+            const int WM_ENDSESSION = 0x0016;
+
+            if (msg == WM_QUERYENDSESSION || msg == WM_ENDSESSION)
+            {
+                bool isLogoff = (lParam.ToInt64() & 0x80000000) != 0;
+                var evt = new TetherEvent
+                {
+                    EventType = isLogoff ? TetherEventType.POWER_EVENT_DETECTED : TetherEventType.SHUTDOWN_INITIATED,
+                    Source = "DesktopUI.WM_QUERYENDSESSION",
+                    PayloadJson = isLogoff ? "{\"eventType\":\"LOGOFF\"}" : "{\"eventType\":\"SHUTDOWN\"}"
+                };
+                DispatchServiceBusPipe(evt);
+            }
+            return IntPtr.Zero;
         }
 
         private void ApplyDwmGlassBackdrop()

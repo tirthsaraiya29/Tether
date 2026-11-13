@@ -227,7 +227,14 @@ public sealed class Worker : BackgroundService
             {
                 if (_sessionManager.ActiveSessionCount > 0)
                 {
-                    _powerNotifier.FlushToSession(json => _sessionManager.BroadcastRawFrame(json));
+                    if (evt.Type is Power.TetherPowerEventType.Shutdown or Power.TetherPowerEventType.Restart)
+                    {
+                        _powerNotifier.FlushToSession(json => _sessionManager.TryBroadcastRawFrameBlocking(json, TimeSpan.FromMilliseconds(500)));
+                    }
+                    else
+                    {
+                        _powerNotifier.FlushToSession(json => _sessionManager.BroadcastRawFrame(json));
+                    }
                 }
             }
             catch (Exception ex)
@@ -289,6 +296,7 @@ public sealed class Worker : BackgroundService
     private EventWaitHandle? _unlockPromptEvent;
     private RegisteredWaitHandle? _unlockPromptWait;
     private EventWaitHandle? _appUnlockedEvent;
+    private EventWaitHandle? _phoneConnectedEvent;
 
     /// <summary>
     /// Relays unlock-prompt requests from the credential provider (LogonUI secure desktop)
@@ -318,6 +326,31 @@ public sealed class Worker : BackgroundService
         catch (Exception ex)
         {
             _tetherLogger.Error($"Worker: could not create Global\\TetherPhoneAppUnlocked: {ex.Message}");
+        }
+
+        try
+        {
+            var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
+            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
+            _phoneConnectedEvent = EventWaitHandleAcl.Create(
+                false, EventResetMode.ManualReset, @"Global\TetherPhoneConnected", out _, sec);
+            _phoneConnectedEvent.Reset();
+
+            _sessionManager.ActiveSessionCountChanged += count =>
+            {
+                if (count > 0)
+                {
+                    _phoneConnectedEvent?.Set();
+                }
+                else
+                {
+                    _phoneConnectedEvent?.Reset();
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            _tetherLogger.Error($"Worker: could not create Global\\TetherPhoneConnected: {ex.Message}");
         }
 
         StartUnlockPromptRelay();
@@ -476,6 +509,8 @@ public sealed class Worker : BackgroundService
 
         try
         {
+            _phoneConnectedEvent?.Reset();
+            _phoneConnectedEvent?.Dispose();
             _unlockPromptWait?.Unregister(null);
             _unlockPromptEvent?.Dispose();
             _appUnlockedEvent?.Dispose();

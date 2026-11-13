@@ -259,7 +259,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         readyTransitionJob = null
         while (inputFrameChannel.tryReceive().isSuccess) { /* flush stale frames on link loss */ }
         pendingUnlockRequests.clear()
-        if ((currentPowerState != LaptopPowerState.POWERED_OFF) && (currentPowerState != LaptopPowerState.RESTARTING)) {
+        if ((currentPowerState != LaptopPowerState.POWERED_OFF) && (currentPowerState != LaptopPowerState.RESTARTING) && (currentPowerState != LaptopPowerState.SHUTTING_DOWN)) {
             currentPowerState = when (lastPowerCommand) {
                 "shutdown" -> LaptopPowerState.POWERED_OFF
                 "reboot" -> LaptopPowerState.RESTARTING
@@ -270,6 +270,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             putString("laptop_power_state", currentPowerState.name)
         }
         updateUnlockNotificationState()
+        notifyStateToInterface()
     }
 
     fun updateUnlockNotificationState() {
@@ -1378,12 +1379,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     "LOCK", "SLEEP", "HIBERNATE", "LOCKED", "WORKSTATION_LOCK", "SESSION_LOCK", "WTS_SESSION_LOCK", "LOCK_SCREEN", "DESKTOP_LOCK", "LOCK_NOW", "LOCKED_OUT", "LOCKOUT" -> {
                         activeLockSessionId = incomingLockSessionId.ifEmpty { null }
                         currentPowerState = LaptopPowerState.CONNECTED_LOCKED
-                        if (activeLockSessionId == null || activeLockSessionId != dismissedLockSessionId) {
-                            postPowerEventNotification(eventType, timestamp, activeLockSessionId)
-                        } else {
-                            val safeEventType = sanitizeLog(eventType)
-                            Log.i(TAG, "Unlock prompt for $safeEventType at $timestamp is dismissed for lock session $activeLockSessionId; skipping.")
-                        }
                     }
                     "UNLOCK", "UNLOCKED", "WTS_SESSION_UNLOCK", "CONSOLE_CONNECT" -> {
                         dismissedLockSessionId = null
@@ -1397,9 +1392,25 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     }
                     "SHUTDOWN", "POWER_OFF" -> {
                         currentPowerState = LaptopPowerState.POWERED_OFF
+                        lastPowerCommand = "shutdown"
+                        lastPowerCommandAtMs = timestamp
+                        prefs.edit {
+                            putString("last_power_command", "shutdown")
+                            putLong("last_power_command_at_ms", timestamp)
+                            putString("laptop_power_state", currentPowerState.name)
+                        }
+                        notifyStateToInterface()
                     }
                     "RESTART", "REBOOT" -> {
                         currentPowerState = LaptopPowerState.RESTARTING
+                        lastPowerCommand = "reboot"
+                        lastPowerCommandAtMs = timestamp
+                        prefs.edit {
+                            putString("last_power_command", "reboot")
+                            putLong("last_power_command_at_ms", timestamp)
+                            putString("laptop_power_state", currentPowerState.name)
+                        }
+                        notifyStateToInterface()
                     }
                 }
                 updateUnlockNotificationState()
@@ -2013,12 +2024,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     }
                     currentPowerState = LaptopPowerState.CONNECTED_UNLOCKED
                 } else if (lockState.equals("LOCKED", ignoreCase = true) || lockState.equals("SLEEP", ignoreCase = true) || lockState.equals("HIBERNATE", ignoreCase = true) || lockState.equals("WORKSTATION_LOCK", ignoreCase = true)) {
-                    val wasUnlocked = (currentPowerState != LaptopPowerState.CONNECTED_LOCKED)
                     currentPowerState = LaptopPowerState.CONNECTED_LOCKED
-                    val isPromptDismissed = prefs.getBoolean("is_unlock_prompt_dismissed", false)
-                    if (wasUnlocked && (activeLockSessionId == null || activeLockSessionId != dismissedLockSessionId)) {
-                        postPowerEventNotification("LOCK", System.currentTimeMillis(), activeLockSessionId)
-                    }
                 }
                 updateUnlockNotificationState()
                 val wpB64 = json.optString("wallpaperB64", json.optString("wallpaper", ""))
@@ -2400,7 +2406,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
         } else {
             when {
-                lastPowerCommand == "shutdown" || currentPowerState == LaptopPowerState.POWERED_OFF -> LaptopPowerState.POWERED_OFF
+                lastPowerCommand == "shutdown" || currentPowerState == LaptopPowerState.POWERED_OFF || currentPowerState == LaptopPowerState.SHUTTING_DOWN -> LaptopPowerState.POWERED_OFF
                 lastPowerCommand == "reboot" || currentPowerState == LaptopPowerState.RESTARTING -> LaptopPowerState.RESTARTING
                 else -> LaptopPowerState.DISCONNECTED
             }

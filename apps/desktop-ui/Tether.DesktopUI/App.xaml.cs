@@ -181,6 +181,31 @@ namespace Tether.DesktopUI
             }, _pipeCts.Token);
         }
 
+        protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+        {
+            base.OnSessionEnding(e);
+            try
+            {
+                var evt = new Tether.Shared.Events.TetherEvent
+                {
+                    EventType = e.ReasonSessionEnding == ReasonSessionEnding.Logoff
+                        ? Tether.Shared.Events.TetherEventType.POWER_EVENT_DETECTED
+                        : Tether.Shared.Events.TetherEventType.SHUTDOWN_INITIATED,
+                    Source = "DesktopUI.SessionEnding",
+                    PayloadJson = e.ReasonSessionEnding == ReasonSessionEnding.Logoff
+                        ? "{\"eventType\":\"LOGOFF\"}"
+                        : "{\"eventType\":\"SHUTDOWN\"}"
+                };
+                string json = System.Text.Json.JsonSerializer.Serialize(evt);
+                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(json);
+                using var client = new NamedPipeClientStream(".", Tether.Shared.IPC.IpcConstants.PipeName, PipeDirection.Out);
+                client.Connect(300);
+                client.Write(bytes, 0, bytes.Length);
+                client.Flush();
+            }
+            catch { }
+        }
+
         public static void ProcessLaunchArgs(string[] args) => ProcessLaunchArgs(args, out _);
 
         public static bool ProcessLaunchArgs(string[] args, out string? errorMessage)

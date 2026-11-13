@@ -119,7 +119,9 @@ Download prebuilt binaries directly from the official releases:
 
 ### Windows Integration
 
-- **Custom Credential Provider:** Native C++ Win32 Credential Provider integration through `TetherCredentialProvider`.
+- **Custom Credential Provider:** Native C++ Win32 Credential Provider integration through `TetherCredentialProvider` with direct service management (start/restart) and phone connectivity detection on the secure logon desktop.
+- **Immediate Power State Synchronization:** Instantaneous detection of Windows shutdown and restart events via `EventLogWatcher` (USER32 Event ID 1074) and `WM_QUERYENDSESSION` handling in interactive components, immediately syncing powered off and restarting states to Android before link loss.
+- **On-Demand Unlock Prompts:** Unlock prompts trigger exclusively when requested by the Credential Provider, keeping routine lock events quiet.
 - **Communication Service:** `Tether.CommunicationService` handles local network communication, packet routing, and command dispatch.
 - **Interactive Session Helper:** `Tether.SessionHelper.exe` operates inside active user sessions for session-bound operations.
 - **Desktop Configuration UI:** `Tether.DesktopUI` provides an interface for status monitoring, configuration, and diagnostics.
@@ -526,7 +528,8 @@ All command payloads require:
 - Developer options status.
 
 ### 5. Windows Credential Storage & Password Verification
-- **Phone-app unlock only:** The Credential Provider no longer exposes a manual password fallback, a TPM-stored password option, or a phone-screen-unlock option. Unlock is driven by the paired Android app, which is validated against the trust store before the provider serializes a credential.
+- **Phone-app unlock only:** The Credential Provider tile (labeled simply **Tether**) offers a focused sign-in path driven by the paired Android app. It monitors phone connection state in real time and presents the "Send unlock prompt to phone" command link only when the phone is actively connected.
+- **Service Management from Logon Screen:** The Credential Provider allows starting or restarting `TetherCommService` directly from the secure logon UI.
 - **Registry Vault Hardening:** Credential secrets reside in a dedicated `HKLM\...\Secrets` registry subkey protected by hardened discretionary access control lists (`VaultDaclVersion=2`) restricted to privileged system accounts. The provider now also reads the legacy path under `HKLM\...\CredentialProvider` for backward compatibility.
 - **DPAPI protection:** The stored password payload remains protected with `CryptProtectData` using the `Tether_System_Bound_Vault_v1` entropy string.
 

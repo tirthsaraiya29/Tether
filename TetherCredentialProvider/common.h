@@ -13,7 +13,8 @@ enum SAMPLE_FIELD_ID
     SFI_SUBMIT_BUTTON = 6,
     SFI_LOGONSTATUS_TEXT = 7,
     SFI_UNLOCK_PROMPT_BUTTON = 8,
-    SFI_NUM_FIELDS = 9
+    SFI_SERVICE_ACTION_BUTTON = 9,
+    SFI_NUM_FIELDS = 10
 };
 
 struct FIELD_STATE_PAIR
@@ -32,13 +33,14 @@ static const FIELD_STATE_PAIR s_rgFieldStatePairs[] =
     { CPFS_HIDDEN,                   CPFIS_NONE }, // SFI_PASSWORD        (removed)
     { CPFS_DISPLAY_IN_SELECTED_TILE, CPFIS_NONE }, // SFI_SUBMIT_BUTTON
     { CPFS_DISPLAY_IN_SELECTED_TILE, CPFIS_NONE }, // SFI_LOGONSTATUS_TEXT
-    { CPFS_DISPLAY_IN_SELECTED_TILE, CPFIS_NONE }, // SFI_UNLOCK_PROMPT_BUTTON
+    { CPFS_HIDDEN,                   CPFIS_NONE }, // SFI_UNLOCK_PROMPT_BUTTON (shown only when phone connected)
+    { CPFS_DISPLAY_IN_SELECTED_TILE, CPFIS_NONE }, // SFI_SERVICE_ACTION_BUTTON
 };
 
 static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgCredProvFieldDescriptors[] =
 {
     { SFI_TILEIMAGE,        CPFT_TILE_IMAGE,    const_cast<PWSTR>(L"Logo") },
-    { SFI_LABEL,            CPFT_SMALL_TEXT,    const_cast<PWSTR>(L"Tether Authentication Security") },
+    { SFI_LABEL,            CPFT_SMALL_TEXT,    const_cast<PWSTR>(L"Tether") },
     { SFI_LARGE_TEXT,       CPFT_LARGE_TEXT,    const_cast<PWSTR>(L"Tether Link") },
     { SFI_METHOD_LABEL,     CPFT_SMALL_TEXT,    const_cast<PWSTR>(L"Open the Tether app on your phone and tap 'Unlock PC'") },
     { SFI_METHOD_COMBOBOX,  CPFT_COMBOBOX,      const_cast<PWSTR>(L"Authentication Options") },
@@ -46,6 +48,7 @@ static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgCredProvFieldDescriptors[]
     { SFI_SUBMIT_BUTTON,    CPFT_SUBMIT_BUTTON, const_cast<PWSTR>(L"Unlock") },
     { SFI_LOGONSTATUS_TEXT, CPFT_SMALL_TEXT,    const_cast<PWSTR>(L"Status Context") },
     { SFI_UNLOCK_PROMPT_BUTTON, CPFT_COMMAND_LINK, const_cast<PWSTR>(L"Send unlock prompt to phone") },
+    { SFI_SERVICE_ACTION_BUTTON, CPFT_COMMAND_LINK, const_cast<PWSTR>(L"Restart Tether Service") },
 };
 
 static const PWSTR s_rgUnlockMethodStrings[] =
