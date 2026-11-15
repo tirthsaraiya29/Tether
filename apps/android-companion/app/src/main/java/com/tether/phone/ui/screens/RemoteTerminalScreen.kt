@@ -333,12 +333,34 @@ fun RemoteTerminalScreen(
                     ) {
                         Text("git status", fontSize = 11.sp)
                     }
+                    OutlinedButton(
+                        onClick = { sendKey("dir\r\n") },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = LiquidCyan)
+                    ) {
+                        Text("dir", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = { sendKey("cls\r\n") },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = LiquidCyan)
+                    ) {
+                        Text("cls", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = { sendKey("exit\r\n") },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AlertRed)
+                    ) {
+                        Text("exit", fontSize = 11.sp)
+                    }
                 }
 
                 // Command Input Field
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .imePadding()
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

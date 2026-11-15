@@ -28,6 +28,8 @@
 
         TextOptions.TextRenderingMode="ClearType"
 
+        PreviewKeyDown="MainWindow_PreviewKeyDown"
+
         Loaded="MainWindow_Loaded">
 
 
@@ -1582,6 +1584,10 @@
 
                                                 Maximum="100"
 
+                                                AutoToolTipPlacement="TopLeft"
+
+                                                AutoToolTipPrecision="0"
+
                                                 ValueChanged="SliderVolume_ValueChanged"/>
 
                                     </StackPanel>
@@ -1653,6 +1659,10 @@
                                                 Minimum="0"
 
                                                 Maximum="100"
+
+                                                AutoToolTipPlacement="TopLeft"
+
+                                                AutoToolTipPrecision="0"
 
                                                 ValueChanged="SliderBrightness_ValueChanged"/>
 
@@ -1928,25 +1938,49 @@
 
                                                     </StackPanel>
 
-                                                    <Button Grid.Column="2"
+                                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
 
-                                                            Style="{StaticResource SubtleIconButton}"
+                                                        <Button Style="{StaticResource SubtleIconButton}"
 
-                                                            VerticalAlignment="Center"
+                                                                VerticalAlignment="Center"
 
-                                                            Padding="8,4"
+                                                                Margin="0,0,6,0"
 
-                                                            Tag="{Binding Fingerprint}"
+                                                                Padding="6,4"
 
-                                                            Click="BtnUnpairDevice_Click">
+                                                                ToolTip="Copy full SHA-256 fingerprint"
 
-                                                        <TextBlock Text="Revoke"
+                                                                Tag="{Binding Fingerprint}"
 
-                                                                   Foreground="{StaticResource StatusCriticalBrush}"
+                                                                Click="BtnCopyFingerprint_Click">
 
-                                                                   FontSize="11"/>
+                                                            <TextBlock Text="Copy"
 
-                                                    </Button>
+                                                                       Foreground="{StaticResource TextSecondaryBrush}"
+
+                                                                       FontSize="11"/>
+
+                                                        </Button>
+
+                                                        <Button Style="{StaticResource SubtleIconButton}"
+
+                                                                VerticalAlignment="Center"
+
+                                                                Padding="8,4"
+
+                                                                Tag="{Binding Fingerprint}"
+
+                                                                Click="BtnUnpairDevice_Click">
+
+                                                            <TextBlock Text="Revoke"
+
+                                                                       Foreground="{StaticResource StatusCriticalBrush}"
+
+                                                                       FontSize="11"/>
+
+                                                        </Button>
+
+                                                    </StackPanel>
 
                                                 </Grid>
 

@@ -355,7 +355,6 @@ internal static class Program
             catch { }
         }
 
-        // Initialize Clipboard Controller on STA Thread with top-level shutdown monitor form
         ClipboardController? clipboardController = null;
         var clipThread = new Thread(() =>
         {
@@ -388,7 +387,6 @@ internal static class Program
         clipThread.IsBackground = true;
         clipThread.Start();
 
-        // Initialize Notification Controller
         _ = NotificationController.InitializeAsync(notif =>
         {
             _ = SendJsonFrameAsync(new
@@ -403,7 +401,6 @@ internal static class Program
             });
         });
 
-        // Initialize Media Session Controller
         _ = MediaSessionController.InitializeAsync(meta =>
         {
             _ = SendJsonFrameAsync(new
@@ -419,7 +416,6 @@ internal static class Program
             });
         });
 
-        // Initialize Terminal Session Manager
         var terminalMgr = new TerminalSessionManager((sessionId, data, workingDir, ownerDeviceId) =>
         {
             _ = SendJsonFrameAsync(new

@@ -18,10 +18,7 @@ using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
 using Tether.CommunicationService.Trust;
-using Tether.EnforcementEngine;
 using Tether.EventBus;
-using Tether.PanicEngine;
-using Tether.RecoveryEngine;
 using Tether.Shared.Logging;
 using Tether.TrustEngine;
 
@@ -76,9 +73,6 @@ var host = builder
         services.AddHostedService<SessionHelperDaemon>();
 
         services.AddSingleton<TrustStateManager>();
-        services.AddSingleton<EnforcementManager>();
-        services.AddSingleton<PanicManager>();
-        services.AddSingleton<RecoveryManager>();
 
         services.AddSingleton<PipeServer>();
         services.AddSingleton<IpcEventRelay>();

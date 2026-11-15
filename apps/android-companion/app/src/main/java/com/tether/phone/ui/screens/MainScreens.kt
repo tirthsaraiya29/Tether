@@ -1,6 +1,7 @@
 package com.tether.phone.ui.screens
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import android.content.Intent
 import android.graphics.RenderEffect
 import android.graphics.Shader
@@ -80,7 +81,48 @@ fun TetherAppScreen(
 ) {
     val scrollState = rememberScrollState()
     var visible by remember { mutableStateOf(value = false) }
+    var showPanicConfirm by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
+
+    if (showPanicConfirm) {
+        AlertDialog(
+            onDismissRequest = { showPanicConfirm = false },
+            title = {
+                Text(
+                    text = "Activate Emergency Panic Mode?",
+                    color = AlertRed,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "This will immediately terminate all active remote sessions, enforce workstation lockdown, and alert security logs.",
+                    color = TextPrimary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showPanicConfirm = false
+                        onPanicClick()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AlertRed)
+                ) {
+                    Text("ACTIVATE PANIC", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showPanicConfirm = false },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary)
+                ) {
+                    Text("Cancel")
+                }
+            },
+            containerColor = DeepSpace,
+            tonalElevation = 8.dp
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -171,7 +213,7 @@ fun TetherAppScreen(
                                         TacticalAction(
                                             label = stringResource(R.string.label_panic),
                                             accentColor = AlertRed,
-                                            onClick = onPanicClick,
+                                            onClick = { showPanicConfirm = true },
                                             modifier = Modifier.weight(1f),
                                         )
                                     }
@@ -1230,6 +1272,14 @@ fun TetherNavigationShell(
     val scope = rememberCoroutineScope()
     var currentScreen by remember { mutableStateOf(AppScreen.TELEMETRY_DASHBOARD) }
     var showLinkControlDialog by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = drawerState.isOpen) {
+        scope.launch { drawerState.close() }
+    }
+
+    BackHandler(enabled = !drawerState.isOpen && currentScreen != AppScreen.TELEMETRY_DASHBOARD) {
+        currentScreen = AppScreen.TELEMETRY_DASHBOARD
+    }
 
     if (showLinkControlDialog) {
         LinkServiceDialog(

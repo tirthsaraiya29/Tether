@@ -57,6 +57,8 @@ class TetherTlsTransport(
 
     override val generationId: Long = System.nanoTime()
 
+    @Volatile
+    private var rawSocket: java.net.Socket? = null
     private var sslSocket: SSLSocket? = null
     private var dataInputStream: DataInputStream? = null
     private var dataOutputStream: DataOutputStream? = null
@@ -74,42 +76,48 @@ class TetherTlsTransport(
         val sslContext = createSslContext()
         val factory: SSLSocketFactory = sslContext.socketFactory
 
-        val rawSocket = java.net.Socket()
-        rawSocket.tcpNoDelay = true
-        rawSocket.connect(InetSocketAddress(host, port), timeoutMs)
-        rawSocket.soTimeout = 120000
+        val raw = java.net.Socket()
+        raw.tcpNoDelay = true
+        this.rawSocket = raw
+        try {
+            raw.connect(InetSocketAddress(host, port), timeoutMs)
+            raw.soTimeout = 120000
 
-        val sslSock = factory.createSocket(rawSocket, host, port, true) as SSLSocket
-        sslSock.tcpNoDelay = true
-        sslSock.useClientMode = true
+            val sslSock = factory.createSocket(raw, host, port, true) as SSLSocket
+            sslSock.tcpNoDelay = true
+            sslSock.useClientMode = true
 
-        val sslParams = sslSock.sslParameters
-        sslParams.endpointIdentificationAlgorithm = null // Mutual public-key pinning verifies peer identity over dynamic LAN IPs
-        sslSock.sslParameters = sslParams
+            val sslParams = sslSock.sslParameters
+            sslParams.endpointIdentificationAlgorithm = null // Mutual public-key pinning verifies peer identity over dynamic LAN IPs
+            sslSock.sslParameters = sslParams
 
-        sslSock.enabledProtocols = arrayOf("TLSv1.3")
+            sslSock.enabledProtocols = arrayOf("TLSv1.3")
 
-        sslSock.startHandshake()
-        val session = sslSock.session
-        Log.i(TAG, "TLS 1.3 Handshake complete! Protocol=${session.protocol}, CipherSuite=${session.cipherSuite}")
+            sslSock.startHandshake()
+            val session = sslSock.session
+            Log.i(TAG, "TLS 1.3 Handshake complete! Protocol=${session.protocol}, CipherSuite=${session.cipherSuite}")
 
-        val peerCerts = session.peerCertificates
-        if (peerCerts.isEmpty() || (peerCerts[0] !is X509Certificate)) {
-            sslSock.close()
-            throw SSLException("No valid X.509 peer certificate presented during TLS handshake")
+            val peerCerts = session.peerCertificates
+            if (peerCerts.isEmpty() || (peerCerts[0] !is X509Certificate)) {
+                sslSock.close()
+                throw SSLException("No valid X.509 peer certificate presented during TLS handshake")
+            }
+
+            val cert = peerCerts[0] as X509Certificate
+
+            peerCertificate = cert
+            peerFingerprint = securityEngine.computePublicKeyFingerprint(cert.publicKey.encoded)
+            val safeFp = sanitizeLog(peerFingerprint)
+            Log.i(TAG, "Peer TLS Identity SHA-256 Fingerprint: $safeFp")
+
+            this.sslSocket = sslSock
+            this.dataInputStream = DataInputStream(sslSock.inputStream)
+            this.dataOutputStream = DataOutputStream(sslSock.outputStream)
+            this.connected = true
+        } catch (e: Exception) {
+            disconnect("Connect failed: ${e.message}")
+            throw e
         }
-
-        val cert = peerCerts[0] as X509Certificate
-
-        peerCertificate = cert
-        peerFingerprint = securityEngine.computePublicKeyFingerprint(cert.publicKey.encoded)
-        val safeFp = sanitizeLog(peerFingerprint)
-        Log.i(TAG, "Peer TLS Identity SHA-256 Fingerprint: $safeFp")
-
-        this.sslSocket = sslSock
-        this.dataInputStream = DataInputStream(sslSock.inputStream)
-        this.dataOutputStream = DataOutputStream(sslSock.outputStream)
-        this.connected = true
     }
 
     private fun createSslContext(): SSLContext {
@@ -202,16 +210,18 @@ class TetherTlsTransport(
 
     @Synchronized
     override fun disconnect(reason: String) {
-        if (!connected && (sslSocket == null)) return
+        if (!connected && (sslSocket == null) && (rawSocket == null)) return
         val safeReason = sanitizeLog(reason)
         Log.i(TAG, "Disconnecting TLS transport (gen=$generationId): $safeReason")
         connected = false
         try { dataInputStream?.close() } catch (_: Exception) {}
         try { dataOutputStream?.close() } catch (_: Exception) {}
         try { sslSocket?.close() } catch (_: Exception) {}
+        try { rawSocket?.close() } catch (_: Exception) {}
         dataInputStream = null
         dataOutputStream = null
         sslSocket = null
+        rawSocket = null
         peerCertificate = null
         peerFingerprint = null
     }

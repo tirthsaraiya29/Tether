@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 using Tether.CommunicationService.Devices;
-
+using Tether.CommunicationService.Trust;
 using Tether.Shared.Logging;
 
 
@@ -176,56 +176,48 @@ public sealed class CapabilityManager
 
 
 
-    public bool HasCapability(TetherDevice device, string requiredCap)
-
+    public static bool HasCapability(IEnumerable<string>? capabilities, string requiredCap)
     {
-
-        if (device == null || string.IsNullOrEmpty(requiredCap))
-
+        if (capabilities == null || string.IsNullOrEmpty(requiredCap))
             return false;
 
-
-
-        var caps = (device.Capabilities == null || device.Capabilities.Count == 0)
-
-            ? (device.TrustState == DeviceTrustState.Paired ? DefaultCapabilities.ToList() : new List<string>())
-
-            : device.Capabilities;
-
-
+        var caps = capabilities as IList<string> ?? capabilities.ToList();
 
         if (caps.Contains("*"))
-
             return true;
-
-
 
         if (caps.Contains(requiredCap, StringComparer.OrdinalIgnoreCase))
-
             return true;
-
-
 
         if (requiredCap.Equals("APP_LAUNCH", StringComparison.OrdinalIgnoreCase) &&
-
             caps.Contains("APP_MANAGEMENT", StringComparer.OrdinalIgnoreCase))
-
             return true;
-
-
 
         if (requiredCap.Equals("POWER_ELEVATED", StringComparison.OrdinalIgnoreCase) &&
-
             (caps.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase) ||
-
              caps.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)))
-
             return true;
 
-
-
         return false;
+    }
 
+    public static bool HasCapability(TrustedPhone? phone, string requiredCap)
+    {
+        if (phone == null || string.IsNullOrEmpty(requiredCap))
+            return false;
+        return HasCapability(phone.Capabilities, requiredCap);
+    }
+
+    public bool HasCapability(TetherDevice device, string requiredCap)
+    {
+        if (device == null || string.IsNullOrEmpty(requiredCap))
+            return false;
+
+        var caps = (device.Capabilities == null || device.Capabilities.Count == 0)
+            ? (device.TrustState == DeviceTrustState.Paired ? DefaultCapabilities.ToList() : new List<string>())
+            : device.Capabilities;
+
+        return HasCapability(caps, requiredCap);
     }
 
 

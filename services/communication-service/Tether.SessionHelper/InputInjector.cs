@@ -600,14 +600,14 @@ internal sealed class InputInjector : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct INPUT
+    internal struct INPUT
     {
         public uint type;
         public InputUnion u;
     }
 
     [StructLayout(LayoutKind.Explicit)]
-    private struct InputUnion
+    internal struct InputUnion
     {
         [FieldOffset(0)] public MOUSEINPUT mi;
         [FieldOffset(0)] public KEYBDINPUT ki;
@@ -615,7 +615,7 @@ internal sealed class InputInjector : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct MOUSEINPUT
+    internal struct MOUSEINPUT
     {
         public int dx;
         public int dy;
@@ -626,7 +626,7 @@ internal sealed class InputInjector : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct KEYBDINPUT
+    internal struct KEYBDINPUT
     {
         public ushort wVk;
         public ushort wScan;
@@ -636,7 +636,7 @@ internal sealed class InputInjector : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct HARDWAREINPUT
+    internal struct HARDWAREINPUT
     {
         public uint uMsg;
         public ushort wParamL;

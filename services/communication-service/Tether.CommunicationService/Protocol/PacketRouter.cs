@@ -89,7 +89,7 @@ public sealed class PacketRouter
         catch { return; }
 
         string reqId = doc.RootElement.TryGetProperty("requestId", out var rProp) ? (rProp.GetString() ?? "") : "";
-        if (string.IsNullOrEmpty(reqId))
+        if (string.IsNullOrEmpty(reqId) || reqId.Length > 64)
         {
             reqId = Guid.NewGuid().ToString("N")[..8];
         }
@@ -121,8 +121,14 @@ public sealed class PacketRouter
 
             case "FILE_TRANSFER_TOKEN_REQUEST":
                 _logger.Info($"PacketRouter: Received FILE_TRANSFER_TOKEN_REQUEST from '{device.DisplayName}'. Generating token for fingerprint '{device.Fingerprint}'.");
-                var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(60), device.Fingerprint);
-                await session.WriteJsonFrameSafeAsync(new { type = "FILE_TRANSFER_TOKEN_RESPONSE", requestId = reqId, token = token, validForMinutes = 60 }, ct);
+                if (!_capabilityManager.HasCapability(device, "FILES"))
+                {
+                    _logger.Warning($"PacketRouter: Device '{device.DisplayName}' denied file transfer token (missing FILES capability).");
+                    await session.WriteJsonFrameSafeAsync(new { type = "FILE_TRANSFER_TOKEN_RESPONSE", requestId = reqId, success = false, reason = "FILES capability required" }, ct);
+                    break;
+                }
+                var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(60), device.Fingerprint, device.Capabilities);
+                await session.WriteJsonFrameSafeAsync(new { type = "FILE_TRANSFER_TOKEN_RESPONSE", requestId = reqId, success = true, token = token, validForMinutes = 60 }, ct);
                 break;
 
             case "FS_LIST_RESULT":
@@ -484,8 +490,42 @@ public sealed class PacketRouter
                     break;
                 }
                 var wfObj = JsonSerializer.Deserialize<TetherWorkflow>(doc.RootElement.GetProperty("workflow").GetRawText());
-                if (wfObj != null) _automationEngine.SaveWorkflow(wfObj);
-                await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = wfObj != null }, ct);
+                if (wfObj == null)
+                {
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Invalid workflow payload" }, ct);
+                    break;
+                }
+
+                bool allActionsAuthorized = true;
+                string? unauthorizedAction = null;
+                string? requiredActionCap = null;
+                if (wfObj.Actions != null)
+                {
+                    foreach (var action in wfObj.Actions)
+                    {
+                        var cap = CapabilityManager.MapCommandToCapability(action);
+                        if (!string.IsNullOrEmpty(cap) && !_capabilityManager.HasCapability(device, cap))
+                        {
+                            allActionsAuthorized = false;
+                            unauthorizedAction = action;
+                            requiredActionCap = cap;
+                            break;
+                        }
+                    }
+                }
+
+                if (!allActionsAuthorized)
+                {
+                    _logger.Warning($"PacketRouter: Device '{device.DisplayName}' denied saving workflow with action '{unauthorizedAction}' (requires {requiredActionCap}).");
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = $"Action '{unauthorizedAction}' requires {requiredActionCap} capability" }, ct);
+                    break;
+                }
+
+                wfObj.OriginatingDeviceId = device.DeviceId;
+                wfObj.OriginatingFingerprint = device.Fingerprint;
+
+                _automationEngine.SaveWorkflow(wfObj);
+                await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = true }, ct);
                 break;
 
             case "WORKFLOW_DELETE":

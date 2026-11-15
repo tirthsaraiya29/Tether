@@ -34,12 +34,14 @@ class ProductionSecurityEngine {
         private const val GCM_IV_LENGTH_BYTES = 12
         private const val GCM_TAG_LENGTH_BITS = 128
 
+        private val keyCacheLock = Any()
+
         @Volatile
         private var cachedPublicKeyBytes: ByteArray? = null
-    @Volatile
-    private var cachedPinnedKeyBytes: ByteArray? = null
-    @Volatile
-    private var pinnedKeyLoaded = false
+        @Volatile
+        private var cachedPinnedKeyBytes: ByteArray? = null
+        @Volatile
+        private var pinnedKeyLoaded = false
     }
 
     private val keyStore: KeyStore by lazy {
@@ -220,20 +222,20 @@ class ProductionSecurityEngine {
         }
     }
 
-    fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray): Boolean {
-        return try {
+    fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray): Boolean = synchronized(keyCacheLock) {
+        try {
             val encodedStr = encryptBytes(publicKeyBytes)
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val committed = prefs.edit().putString(PINNED_WINDOWS_KEY_PREF, encodedStr).commit()
             if (!committed) {
                 Log.e(TAG, "Failed committing pinned Windows key to storage")
-                return false
+                return@synchronized false
             }
 
             val readBack = getPinnedKeyDecrypted(context)
             if (readBack == null || !MessageDigest.isEqual(readBack, publicKeyBytes)) {
                 Log.e(TAG, "Read-back verification of pinned Windows key failed")
-                return false
+                return@synchronized false
             }
 
             Log.i(TAG, "Pinned Windows public identity key encrypted, saved, and verified in secure storage.")
@@ -246,19 +248,19 @@ class ProductionSecurityEngine {
         }
     }
 
-    fun getPinnedKeyDecrypted(context: Context): ByteArray? {
+    fun getPinnedKeyDecrypted(context: Context): ByteArray? = synchronized(keyCacheLock) {
         if (pinnedKeyLoaded) {
-            return cachedPinnedKeyBytes?.copyOf()
+            return@synchronized cachedPinnedKeyBytes?.copyOf()
         }
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val encodedStr = prefs.getString(PINNED_WINDOWS_KEY_PREF, null)
         val decrypted = decryptString(encodedStr)
         cachedPinnedKeyBytes = decrypted?.copyOf()
         pinnedKeyLoaded = true
-        return decrypted
+        decrypted
     }
 
-    fun clearPinnedKey(context: Context) {
+    fun clearPinnedKey(context: Context) = synchronized(keyCacheLock) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit().remove(PINNED_WINDOWS_KEY_PREF).apply()

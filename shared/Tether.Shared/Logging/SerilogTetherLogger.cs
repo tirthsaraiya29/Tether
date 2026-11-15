@@ -4,9 +4,10 @@ using Serilog;
 
 namespace Tether.Shared.Logging
 {
-    public class SerilogTetherLogger : ITetherLogger
+    public class SerilogTetherLogger : ITetherLogger, IDisposable
     {
         private readonly ILogger _logger;
+        private bool _disposed;
 
         public SerilogTetherLogger()
         {
@@ -39,5 +40,17 @@ namespace Tether.Shared.Logging
             else _logger.Error("{Message}", sanitized);
         }
         public void Debug(string message) => _logger.Debug("{Message}", SanitizeLogInput(message));
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            try
+            {
+                (_logger as IDisposable)?.Dispose();
+                Log.CloseAndFlush();
+            }
+            catch { }
+        }
     }
 }

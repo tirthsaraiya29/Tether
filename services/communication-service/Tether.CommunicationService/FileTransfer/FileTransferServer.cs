@@ -28,8 +28,39 @@ namespace Tether.CommunicationService.FileTransfer;
 public class FileTransferServer : IHostedService
 {
     private const long MaxUploadSizeBytes = 4L * 1024L * 1024L * 1024L; // 4 GB per transfer
+    internal const int MaxJsonPayloadSizeBytes = 64 * 1024;               // 64 KB limit for JSON control payloads
     private const long MinimumDiskBufferBytes = 250L * 1024L * 1024L;   // 250 MB free space safety margin
     private const int MaxConcurrentTransfers = 4;
+
+    internal static async Task<(bool Success, string? Content, IResult? ErrorResult)> ReadBoundedJsonBodyAsync(HttpContext context, int maxBytes = MaxJsonPayloadSizeBytes)
+    {
+        var maxBodyFeature = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+        if (maxBodyFeature != null && !maxBodyFeature.IsReadOnly)
+        {
+            maxBodyFeature.MaxRequestBodySize = maxBytes;
+        }
+
+        if (context.Request.ContentLength.HasValue && context.Request.ContentLength.Value > maxBytes)
+        {
+            return (false, null, Results.StatusCode(StatusCodes.Status413PayloadTooLarge));
+        }
+
+        using var ms = new MemoryStream();
+        var buffer = new byte[4096];
+        int totalRead = 0;
+        int read;
+        while ((read = await context.Request.Body.ReadAsync(buffer, 0, buffer.Length)) > 0)
+        {
+            totalRead += read;
+            if (totalRead > maxBytes)
+            {
+                return (false, null, Results.StatusCode(StatusCodes.Status413PayloadTooLarge));
+            }
+            ms.Write(buffer, 0, read);
+        }
+
+        return (true, Encoding.UTF8.GetString(ms.ToArray()), null);
+    }
 
     private readonly ITetherLogger _logger;
     private readonly WindowsIdentity _identity;
@@ -668,14 +699,31 @@ public class FileTransferServer : IHostedService
                 }
 
                 string hashHex = ComputeSha512Hex(fullPath);
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                context.Response.ContentType = "application/octet-stream";
+                context.Response.ContentLength = fi.Length;
                 context.Response.Headers["X-Tether-File-SHA512"] = hashHex;
 
-                return Results.File(fullPath, "application/octet-stream", enableRangeProcessing: true);
+                await using (var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, useAsync: true))
+                {
+                    await fs.CopyToAsync(context.Response.Body, context.RequestAborted);
+                    await context.Response.Body.FlushAsync(context.RequestAborted);
+                }
+
+                return Results.Empty;
+            }
+            catch (OperationCanceledException)
+            {
+                return Results.Empty;
             }
             catch (Exception ex)
             {
                 _logger.Error($"Error downloading {path}: {ex.Message}");
-                return Results.Problem("File download failed");
+                if (!context.Response.HasStarted)
+                {
+                    return Results.Problem("File download failed");
+                }
+                return Results.Empty;
             }
             finally
             {
@@ -899,90 +947,174 @@ public class FileTransferServer : IHostedService
         // Remote proxy endpoints
         _app.MapPost("/api/fs/remote/list", async (HttpContext context) =>
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var reqJson = await reader.ReadToEndAsync();
+            var (success, reqJson, errorResult) = await ReadBoundedJsonBodyAsync(context);
+            if (!success) return errorResult!;
             var path = "";
-            try { path = JsonDocument.Parse(reqJson).RootElement.GetProperty("path").GetString(); } catch { }
+            try { path = JsonDocument.Parse(reqJson!).RootElement.GetProperty("path").GetString(); } catch { }
 
             string reqId = Guid.NewGuid().ToString();
-            var tcs = new TaskCompletionSource<string>();
+            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             _pendingRequests[reqId] = tcs;
 
-            _sessionManager.BroadcastRawFrame(JsonSerializer.Serialize(new { type = "FS_LIST", requestId = reqId, path = path }));
-
-            var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(5000));
-            if (completedTask == tcs.Task)
+            try
             {
-                var resultJson = await tcs.Task;
-                try
+                _sessionManager.BroadcastRawFrame(JsonSerializer.Serialize(new { type = "FS_LIST", requestId = reqId, path = path }));
+
+                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(5000));
+                if (completedTask == tcs.Task)
                 {
-                    var items = JsonDocument.Parse(resultJson).RootElement.GetProperty("items");
-                    return Results.Content(items.GetRawText(), "application/json");
+                    var resultJson = await tcs.Task;
+                    try
+                    {
+                        var items = JsonDocument.Parse(resultJson).RootElement.GetProperty("items");
+                        return Results.Content(items.GetRawText(), "application/json");
+                    }
+                    catch { return Results.Ok(new object[0]); }
                 }
-                catch { return Results.Ok(new object[0]); }
+                else
+                {
+                    return Results.Problem("Timeout waiting for Android");
+                }
             }
-            else
+            finally
             {
                 _pendingRequests.TryRemove(reqId, out _);
-                return Results.Problem("Timeout waiting for Android");
             }
         });
 
         _app.MapPost("/api/fs/remote/download", async (HttpContext context) =>
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var reqJson = await reader.ReadToEndAsync();
-            var doc = JsonDocument.Parse(reqJson).RootElement;
+            var (success, reqJson, errorResult) = await ReadBoundedJsonBodyAsync(context);
+            if (!success) return errorResult!;
+            var doc = JsonDocument.Parse(reqJson!).RootElement;
             var remotePath = doc.GetProperty("remotePath").GetString() ?? "";
             var localDir = doc.GetProperty("localDir").GetString() ?? "";
 
             string reqId = Guid.NewGuid().ToString();
-            var tcs = new TaskCompletionSource<string>();
+            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             _pendingRequests[reqId] = tcs;
 
-            var activeDevice = _sessionManager.GetActiveSessions().Select(s => s.Device).FirstOrDefault(d => d != null);
-            string targetFingerprint = activeDevice?.Fingerprint ?? "";
-            var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(10), targetFingerprint);
-            var fileName = Path.GetFileName(remotePath);
-            var windowsDestPath = Path.Combine(localDir, fileName);
-
-            _sessionManager.BroadcastRawFrame(JsonSerializer.Serialize(new
+            try
             {
-                type = "FS_SEND_FILE",
-                requestId = reqId,
-                androidPath = remotePath,
-                windowsDestPath = windowsDestPath,
-                token = token
-            }));
-            return Results.Ok();
+                var activeDevice = _sessionManager.GetActiveSessions().Select(s => s.Device).FirstOrDefault(d => d != null);
+                string targetFingerprint = activeDevice?.Fingerprint ?? "";
+                var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(10), targetFingerprint, new[] { "FILES" });
+                var fileName = Path.GetFileName(remotePath);
+                var windowsDestPath = Path.Combine(localDir, fileName);
+
+                _sessionManager.BroadcastRawFrame(JsonSerializer.Serialize(new
+                {
+                    type = "FS_SEND_FILE",
+                    requestId = reqId,
+                    androidPath = remotePath,
+                    windowsDestPath = windowsDestPath,
+                    token = token
+                }));
+
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, timeoutCts.Token);
+
+                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, linkedCts.Token));
+                if (completedTask == tcs.Task)
+                {
+                    var resultJson = await tcs.Task;
+                    try
+                    {
+                        var status = JsonDocument.Parse(resultJson).RootElement.GetProperty("status").GetString();
+                        if (string.Equals(status, "SUCCESS", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return Results.Ok();
+                        }
+                        return Results.Problem("Remote download reported error");
+                    }
+                    catch
+                    {
+                        return Results.Ok();
+                    }
+                }
+
+                return Results.StatusCode(StatusCodes.Status408RequestTimeout);
+            }
+            catch (OperationCanceledException)
+            {
+                return Results.StatusCode(StatusCodes.Status408RequestTimeout);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Error in remote download: {ex.Message}");
+                return Results.Problem("Remote download failed");
+            }
+            finally
+            {
+                _pendingRequests.TryRemove(reqId, out _);
+            }
         });
 
         _app.MapPost("/api/fs/remote/upload", async (HttpContext context) =>
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var reqJson = await reader.ReadToEndAsync();
-            var doc = JsonDocument.Parse(reqJson).RootElement;
+            var (success, reqJson, errorResult) = await ReadBoundedJsonBodyAsync(context);
+            if (!success) return errorResult!;
+            var doc = JsonDocument.Parse(reqJson!).RootElement;
             var localPath = doc.GetProperty("localPath").GetString() ?? "";
             var remoteDir = doc.GetProperty("remoteDir").GetString() ?? "";
 
             string reqId = Guid.NewGuid().ToString();
-            var tcs = new TaskCompletionSource<string>();
+            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             _pendingRequests[reqId] = tcs;
 
-            var activeDevice = _sessionManager.GetActiveSessions().Select(s => s.Device).FirstOrDefault(d => d != null);
-            string targetFingerprint = activeDevice?.Fingerprint ?? "";
-            var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(10), targetFingerprint);
-            var fileName = Path.GetFileName(localPath);
-
-            _sessionManager.BroadcastRawFrame(JsonSerializer.Serialize(new
+            try
             {
-                type = "FS_RECEIVE_FILE",
-                requestId = reqId,
-                windowsPath = localPath,
-                fileName = fileName,
-                token = token
-            }));
-            return Results.Ok();
+                var activeDevice = _sessionManager.GetActiveSessions().Select(s => s.Device).FirstOrDefault(d => d != null);
+                string targetFingerprint = activeDevice?.Fingerprint ?? "";
+                var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(10), targetFingerprint, new[] { "FILES" });
+                var fileName = Path.GetFileName(localPath);
+
+                _sessionManager.BroadcastRawFrame(JsonSerializer.Serialize(new
+                {
+                    type = "FS_RECEIVE_FILE",
+                    requestId = reqId,
+                    windowsPath = localPath,
+                    fileName = fileName,
+                    token = token
+                }));
+
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, timeoutCts.Token);
+
+                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, linkedCts.Token));
+                if (completedTask == tcs.Task)
+                {
+                    var resultJson = await tcs.Task;
+                    try
+                    {
+                        var status = JsonDocument.Parse(resultJson).RootElement.GetProperty("status").GetString();
+                        if (string.Equals(status, "SUCCESS", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return Results.Ok();
+                        }
+                        return Results.Problem("Remote upload reported error");
+                    }
+                    catch
+                    {
+                        return Results.Ok();
+                    }
+                }
+
+                return Results.StatusCode(StatusCodes.Status408RequestTimeout);
+            }
+            catch (OperationCanceledException)
+            {
+                return Results.StatusCode(StatusCodes.Status408RequestTimeout);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Error in remote upload: {ex.Message}");
+                return Results.Problem("Remote upload failed");
+            }
+            finally
+            {
+                _pendingRequests.TryRemove(reqId, out _);
+            }
         });
 
         // Remote Desktop Streaming Endpoint (MJPEG)
@@ -1163,9 +1295,15 @@ public class FileTransferServer : IHostedService
         });
 
         // File Rename
-        _app.MapPost("/api/fs/rename", (RenamePayload req) =>
+        _app.MapPost("/api/fs/rename", async (HttpContext context) =>
         {
-            if (string.IsNullOrWhiteSpace(req.Path) || string.IsNullOrWhiteSpace(req.NewName))
+            var (success, content, errorResult) = await ReadBoundedJsonBodyAsync(context);
+            if (!success) return errorResult!;
+            RenamePayload? req;
+            try { req = JsonSerializer.Deserialize<RenamePayload>(content!); }
+            catch { return Results.BadRequest(new { error = "Invalid JSON payload" }); }
+
+            if (req == null || string.IsNullOrWhiteSpace(req.Path) || string.IsNullOrWhiteSpace(req.NewName))
             {
                 return Results.BadRequest(new { error = "Missing path or newName" });
             }
@@ -1208,9 +1346,15 @@ public class FileTransferServer : IHostedService
         });
 
         // File Move
-        _app.MapPost("/api/fs/move", (MovePayload req) =>
+        _app.MapPost("/api/fs/move", async (HttpContext context) =>
         {
-            if (!TryGetValidPath(req.SourcePath, out var srcPath) || !TryGetValidPath(req.DestinationPath, out var dstPath, isUpload: true))
+            var (success, content, errorResult) = await ReadBoundedJsonBodyAsync(context);
+            if (!success) return errorResult!;
+            MovePayload? req;
+            try { req = JsonSerializer.Deserialize<MovePayload>(content!); }
+            catch { return Results.BadRequest(new { error = "Invalid JSON payload" }); }
+
+            if (req == null || !TryGetValidPath(req.SourcePath, out var srcPath) || !TryGetValidPath(req.DestinationPath, out var dstPath, isUpload: true))
             {
                 return Results.BadRequest(new { error = "Invalid source or destination path" });
             }
@@ -1246,9 +1390,15 @@ public class FileTransferServer : IHostedService
         });
 
         // File Delete (Recycle Bin / Permanent)
-        _app.MapPost("/api/fs/delete", (DeletePayload req) =>
+        _app.MapPost("/api/fs/delete", async (HttpContext context) =>
         {
-            if (!TryGetValidPath(req.Path, out var fullPath))
+            var (success, content, errorResult) = await ReadBoundedJsonBodyAsync(context);
+            if (!success) return errorResult!;
+            DeletePayload? req;
+            try { req = JsonSerializer.Deserialize<DeletePayload>(content!); }
+            catch { return Results.BadRequest(new { error = "Invalid JSON payload" }); }
+
+            if (req == null || !TryGetValidPath(req.Path, out var fullPath))
             {
                 return Results.BadRequest(new { error = "Invalid path or access restricted" });
             }
@@ -1284,9 +1434,15 @@ public class FileTransferServer : IHostedService
         });
 
         // Directory Creation
-        _app.MapPost("/api/fs/mkdir", (MkdirPayload req) =>
+        _app.MapPost("/api/fs/mkdir", async (HttpContext context) =>
         {
-            if (string.IsNullOrWhiteSpace(req.Path) || string.IsNullOrWhiteSpace(req.Name))
+            var (success, content, errorResult) = await ReadBoundedJsonBodyAsync(context);
+            if (!success) return errorResult!;
+            MkdirPayload? req;
+            try { req = JsonSerializer.Deserialize<MkdirPayload>(content!); }
+            catch { return Results.BadRequest(new { error = "Invalid JSON payload" }); }
+
+            if (req == null || string.IsNullOrWhiteSpace(req.Path) || string.IsNullOrWhiteSpace(req.Name))
             {
                 return Results.BadRequest(new { error = "Missing path or name" });
             }

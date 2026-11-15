@@ -23,6 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Tether.FileTransfer.Tests" />
+    <InternalsVisibleTo Include="Tether.Tests" />
   </ItemGroup>
+
 </Project>

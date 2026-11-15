@@ -255,6 +255,9 @@ fun FileTransferScreen(
                                 tint = LiquidCyan
                             )
                         }
+                        IconButton(onClick = { refreshFileList() }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = LiquidCyan)
+                        }
                         IconButton(onClick = { showNewFolderDialog = true }) {
                             Icon(Icons.Default.CreateNewFolder, contentDescription = "New Folder", tint = TextPrimary)
                         }
@@ -318,6 +321,35 @@ fun FileTransferScreen(
                             Text("Re-authenticate & Refresh", color = DeepSpace, fontWeight = FontWeight.Bold)
                         }
                     }
+                } else if (files.isEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.FolderOpen,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(56.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (isSearchActive) "No matching files found" else "Directory is empty",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedButton(
+                            onClick = { refreshFileList() },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = LiquidCyan)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Refresh", fontSize = 12.sp)
+                        }
+                    }
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(files) { file ->
@@ -353,8 +385,12 @@ fun FileTransferScreen(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(file.name, fontWeight = FontWeight.Bold, color = TextPrimary, maxLines = 1)
                                         if (!file.isDirectory) {
-                                            val sizeKb = file.size / 1024.0
-                                            val sizeStr = if (sizeKb > 1024.0) String.format("%.2f MB", sizeKb / 1024.0) else String.format("%.1f KB", sizeKb)
+                                            val sizeStr = when {
+                                                file.size < 1024 -> "${file.size} B"
+                                                file.size < 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f KB", file.size / 1024.0)
+                                                file.size < 1024L * 1024 * 1024 -> String.format(java.util.Locale.US, "%.2f MB", file.size / (1024.0 * 1024.0))
+                                                else -> String.format(java.util.Locale.US, "%.2f GB", file.size / (1024.0 * 1024.0 * 1024.0))
+                                            }
                                             Text(sizeStr, style = MaterialTheme.typography.bodySmall, color = TextMuted)
                                         }
                                     }

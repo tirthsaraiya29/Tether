@@ -13,10 +13,7 @@ using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
 using Tether.CommunicationService.Trust;
-using Tether.EnforcementEngine;
 using Tether.EventBus;
-using Tether.PanicEngine;
-using Tether.RecoveryEngine;
 using Tether.Shared.Events;
 using Tether.Shared.Logging;
 using Tether.TrustEngine;
@@ -31,8 +28,6 @@ public sealed class Worker : BackgroundService
     private const string RuleLegacyExe = "Tether Service Exe";
     private const string RuleLegacyTcp = "Tether TCP 37123";
     private const string RuleLegacyUdp = "Tether UDP 37124";
-    private const string RuleLegacyQuicUdp = "Tether QUIC UDP 37125";
-    private const string RuleLegacyQuicTcp = "Tether QUIC TCP 37125";
 
     // Active port rules
     private const string RuleControlTcp = "Tether Control (TCP-In 37123)";
@@ -64,9 +59,6 @@ public sealed class Worker : BackgroundService
         PowerEventWatcher powerWatcher,
         PowerEventNotifier powerNotifier,
         TrustStateManager trustStateManager,
-        EnforcementManager enforcementManager,
-        PanicManager panicManager,
-        RecoveryManager recoveryManager,
         IpcEventRelay ipcEventRelay,
         IEventBus eventBus,
         TrustStore trustStore)
@@ -82,7 +74,7 @@ public sealed class Worker : BackgroundService
         _powerWatcher = powerWatcher;
         _powerNotifier = powerNotifier;
         _trustStore = trustStore;
-        _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager; _ = ipcEventRelay;
+        _ = trustStateManager; _ = ipcEventRelay;
 
         eventBus.Subscribe(evt =>
         {
@@ -333,20 +325,35 @@ public sealed class Worker : BackgroundService
             var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
             sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
             _phoneConnectedEvent = EventWaitHandleAcl.Create(
-                false, EventResetMode.ManualReset, @"Global\TetherPhoneConnected", out _, sec);
-            _phoneConnectedEvent.Reset();
-
-            _sessionManager.ActiveSessionCountChanged += count =>
+                false, EventResetMode.ManualReset, @"Global\TetherPhoneConnected", out bool createdNewConnected, sec);
+            if (!createdNewConnected)
             {
-                if (count > 0)
+                var ac = _phoneConnectedEvent.GetAccessControl();
+                var owner = ac.GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
+                if (owner == null || (!owner.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid) && !owner.IsWellKnown(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid)))
                 {
-                    _phoneConnectedEvent?.Set();
+                    _tetherLogger.Warning($"Worker: Untrusted owner '{owner?.Value}' on phone connected event. Discarding.");
+                    _phoneConnectedEvent.Dispose();
+                    _phoneConnectedEvent = null;
                 }
-                else
+            }
+
+            if (_phoneConnectedEvent != null)
+            {
+                _phoneConnectedEvent.Reset();
+
+                _sessionManager.ActiveSessionCountChanged += count =>
                 {
-                    _phoneConnectedEvent?.Reset();
-                }
-            };
+                    if (count > 0)
+                    {
+                        _phoneConnectedEvent?.Set();
+                    }
+                    else
+                    {
+                        _phoneConnectedEvent?.Reset();
+                    }
+                };
+            }
         }
         catch (Exception ex)
         {
@@ -430,8 +437,6 @@ public sealed class Worker : BackgroundService
 
             // 1. Purge legacy wide-open rules
             DeleteFirewallRule(RuleLegacyExe);
-            DeleteFirewallRule(RuleLegacyQuicUdp);
-            DeleteFirewallRule(RuleLegacyQuicTcp);
             DeleteFirewallRule(RuleLegacyTcp);
             DeleteFirewallRule(RuleLegacyUdp);
 

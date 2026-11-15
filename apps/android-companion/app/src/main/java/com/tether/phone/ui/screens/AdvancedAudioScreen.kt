@@ -493,6 +493,25 @@ fun AdvancedAudioScreen(
                                         inactiveTrackColor = SurfaceElevated
                                     )
                                 )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    listOf(0, 25, 50, 75, 100).forEach { jumpVal ->
+                                        Text(
+                                            text = "$jumpVal%",
+                                            color = if (vol == jumpVal) LiquidCyan else TextMuted,
+                                            fontSize = 9.sp,
+                                            fontWeight = if (vol == jumpVal) FontWeight.Bold else FontWeight.Normal,
+                                            modifier = Modifier
+                                                .clickable {
+                                                    vol = jumpVal
+                                                    service?.sendSetAppVolume(app.pid, jumpVal)
+                                                }
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
                             }
                             IconButton(
                                 onClick = {

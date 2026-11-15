@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Tether.CommunicationService.Capabilities;
@@ -284,6 +285,12 @@ public sealed class TetherSession : IDisposable
         if (init == null || !string.Equals(init.Type, "HANDSHAKE_INIT", StringComparison.Ordinal) || string.IsNullOrEmpty(init.PublicKey))
         {
             _logger.Warning($"TetherSession [{SessionId}]: Rejected HANDSHAKE_INIT (bad type or missing public key).");
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(init.DeviceId) && !Regex.IsMatch(init.DeviceId, @"^[a-zA-Z0-9_\-\.]{1,64}$"))
+        {
+            _logger.Warning($"TetherSession [{SessionId}]: Rejected HANDSHAKE_INIT (invalid deviceId format).");
             return false;
         }
 

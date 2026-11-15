@@ -171,6 +171,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     private lateinit var capabilityManager: TetherCapabilityManager
     private lateinit var connectivityManager: ConnectivityManager
     private var activeTransport: TetherTransport? = null
+    private var connectingTransport: TetherTransport? = null
 
     private lateinit var powerManager: PowerManager
     private var wakeLock: PowerManager.WakeLock? = null
@@ -1006,18 +1007,26 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             connectedHostAddress = hostAddress
             connectedHostPort = port
 
+            try { connectingTransport?.disconnect("Replaced by new connection") } catch (_: Exception) {}
+            connectingTransport = null
             connectJob?.cancel()
-            connectJob = serviceScope.launch {
+            val job = serviceScope.launch {
             try {
                 activeTransport?.disconnect("Replaced by new connection")
             } catch (_: Exception) {}
             activeTransport = null
             val transport = TetherTlsTransport(this@TetherLanService, securityEngine)
+            synchronized(connectLock) {
+                connectingTransport = transport
+            }
             try {
                 currentState = TransportState.TLS_HANDSHAKE
                 transport.connect(hostAddress, port)
 
-                activeTransport = transport
+                synchronized(connectLock) {
+                    activeTransport = transport
+                    connectingTransport = null
+                }
                 currentState = TransportState.AUTHENTICATING
 
                 val isPairingReq = isExplicitPairingRequested || (trustState == TrustState.PAIRING_REQUESTED) || (trustState == TrustState.REPAIRING)
@@ -1114,7 +1123,18 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 Log.d(TAG, "Connection attempt to ${sanitizeLog(hostAddress)}:$port cancelled.")
+                try { transport.disconnect("Connect cancelled") } catch (_: Exception) {}
+                synchronized(connectLock) {
+                    if (connectingTransport == transport) {
+                        connectingTransport = null
+                    }
+                }
             } catch (e: Exception) {
+                synchronized(connectLock) {
+                    if (connectingTransport == transport) {
+                        connectingTransport = null
+                    }
+                }
                 Log.e(TAG, "Connection failed to ${sanitizeLog(hostAddress)}:$port: ${e.message}", e)
                 if (activeTransport == null || !activeTransport!!.isConnected()) {
                     currentState = TransportState.FAILED
@@ -1123,6 +1143,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             }
         }
+        job.invokeOnCompletion { cause ->
+            if (cause is kotlinx.coroutines.CancellationException) {
+                try { connectingTransport?.disconnect("Connect job cancelled") } catch (_: Exception) {}
+                synchronized(connectLock) {
+                    connectingTransport = null
+                }
+            }
+        }
+        connectJob = job
         }
     }
 

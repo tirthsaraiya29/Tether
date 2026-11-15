@@ -170,14 +170,18 @@ public class PipeServer : IDisposable
         return 0xFFFFFFFF;
     }
 
-    private bool AuthenticateClient(NamedPipeServerStream pipeStream, out string clientSid, out uint clientSessionId)
+    private bool AuthenticateClient(NamedPipeServerStream pipeStream, out string clientSid, out uint clientSessionId) =>
+        AuthenticateClient(pipeStream, out clientSid, out clientSessionId, out _);
+
+    private bool AuthenticateClient(NamedPipeServerStream pipeStream, out string clientSid, out uint clientSessionId, out bool isClientSystem)
     {
         clientSid = string.Empty;
         clientSessionId = GetClientSessionId(pipeStream);
+        isClientSystem = false;
 
         bool clientAuthorized = false;
         string? extractedSid = null;
-        bool isClientSystem = false;
+        bool localIsClientSystem = false;
         uint tokenSessionId = 0xFFFFFFFF;
 
         try
@@ -188,7 +192,7 @@ public class PipeServer : IDisposable
                 if (clientIdentity.User != null)
                 {
                     extractedSid = clientIdentity.User.Value;
-                    isClientSystem = clientIdentity.User.IsWellKnown(WellKnownSidType.LocalSystemSid);
+                    localIsClientSystem = clientIdentity.User.IsWellKnown(WellKnownSidType.LocalSystemSid);
 
                     if (GetTokenInformation(clientIdentity.Token, 12, out uint sessionInfo, sizeof(uint), out _))
                     {
@@ -202,6 +206,8 @@ public class PipeServer : IDisposable
             _logger.Error($"Failed to collect client identification tokens: {ex.Message}");
             return false;
         }
+
+        isClientSystem = localIsClientSystem;
 
         if (string.IsNullOrEmpty(extractedSid))
         {
@@ -223,30 +229,59 @@ public class PipeServer : IDisposable
         else
         {
             uint consoleSessionId = WTSGetActiveConsoleSessionId();
-            uint[] sessionIdsToCheck = new[] { tokenSessionId, clientSessionId, consoleSessionId };
-
-            foreach (var sid in sessionIdsToCheck)
+            if (consoleSessionId == 0xFFFFFFFF)
             {
-                if (sid != 0xFFFFFFFF && WTSQueryUserToken(sid, out IntPtr userToken))
+                _logger.Warning("PipeServer: No active console session found. Rejecting non-SYSTEM client.");
+                return false;
+            }
+
+            if (clientSessionId != consoleSessionId || tokenSessionId != consoleSessionId)
+            {
+                _logger.Warning($"PipeServer: Access denied. Client session {clientSessionId} or token session {tokenSessionId} does not match active console session {consoleSessionId}.");
+                return false;
+            }
+
+            if (WTSQueryUserToken(consoleSessionId, out IntPtr userToken))
+            {
+                try
                 {
-                    try
+                    using var tokenIdentity = new WindowsIdentity(userToken);
+                    if (tokenIdentity.User != null && clientSid.Equals(tokenIdentity.User.Value, StringComparison.OrdinalIgnoreCase))
                     {
-                        using var tokenIdentity = new WindowsIdentity(userToken);
-                        if (tokenIdentity.User != null && clientSid.Equals(tokenIdentity.User.Value, StringComparison.OrdinalIgnoreCase))
-                        {
-                            clientAuthorized = true;
-                            break;
-                        }
+                        clientAuthorized = true;
                     }
-                    finally
-                    {
-                        CloseHandle(userToken);
-                    }
+                }
+                finally
+                {
+                    CloseHandle(userToken);
                 }
             }
         }
 
         return clientAuthorized;
+    }
+
+    internal static bool IsActiveConsoleUser(string clientSid)
+    {
+        try
+        {
+            uint consoleSessionId = WTSGetActiveConsoleSessionId();
+            if (consoleSessionId == 0xFFFFFFFF) return false;
+            if (WTSQueryUserToken(consoleSessionId, out IntPtr userToken))
+            {
+                try
+                {
+                    using var tokenIdentity = new WindowsIdentity(userToken);
+                    return tokenIdentity.User != null && clientSid.Equals(tokenIdentity.User.Value, StringComparison.OrdinalIgnoreCase);
+                }
+                finally
+                {
+                    CloseHandle(userToken);
+                }
+            }
+        }
+        catch { }
+        return false;
     }
 
     private static void SaveVaultSecret(byte[] encryptedPassword, string clientSid, string? username)
@@ -284,7 +319,7 @@ public class PipeServer : IDisposable
         using (var clientCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt))
         {
             // Immediate client authentication prior to accepting any data
-            if (!AuthenticateClient(pipeStream, out string clientSid, out uint clientSessionId))
+            if (!AuthenticateClient(pipeStream, out string clientSid, out uint clientSessionId, out bool isClientSystem))
             {
                 _logger.Warning($"Rejected unauthorized named pipe client (SID: {clientSid}, Session: {clientSessionId}). Closing connection.");
                 return;
@@ -327,6 +362,12 @@ public class PipeServer : IDisposable
 
                         if (evt.EventType == TetherEventType.VAULT_UPDATE)
                         {
+                            if (!isClientSystem && !IsActiveConsoleUser(clientSid))
+                            {
+                                _logger.Warning($"Security Block: Rejected VAULT_UPDATE from non-active console user SID {clientSid}.");
+                                continue;
+                            }
+
                             try
                             {
                                 using var doc = JsonDocument.Parse(evt.PayloadJson ?? "{}");
@@ -350,6 +391,15 @@ public class PipeServer : IDisposable
                                 _logger.Error($"Failed to process VAULT_UPDATE: {ex.Message}", ex);
                             }
                             continue;
+                        }
+
+                        if (evt.EventType == TetherEventType.FORGET_PHONE)
+                        {
+                            if (!isClientSystem && !IsActiveConsoleUser(clientSid))
+                            {
+                                _logger.Warning($"Security Block: Rejected FORGET_PHONE from non-active console user SID {clientSid}.");
+                                continue;
+                            }
                         }
 
                         if (evt.EventType == TetherEventType.SHUTDOWN_INITIATED)

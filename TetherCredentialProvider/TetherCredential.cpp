@@ -31,6 +31,27 @@ static const int c_promptCooldownSeconds = 3;
 
 void WriteDebugLog(const wchar_t* format, ...);
 
+static bool IsTrustedKernelObjectOwner(HANDLE hObject)
+{
+    if (!hObject) return false;
+    PSID pOwner = nullptr;
+    PSECURITY_DESCRIPTOR pSecDesc = nullptr;
+    DWORD dwRes = GetSecurityInfo(hObject, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, &pOwner, nullptr, nullptr, nullptr, &pSecDesc);
+    bool isTrusted = false;
+    if (dwRes == ERROR_SUCCESS && pOwner != nullptr)
+    {
+        if (IsWellKnownSid(pOwner, WinLocalSystemSid) || IsWellKnownSid(pOwner, WinBuiltinAdministratorsSid))
+        {
+            isTrusted = true;
+        }
+    }
+    if (pSecDesc != nullptr)
+    {
+        LocalFree(pSecDesc);
+    }
+    return isTrusted;
+}
+
 static HBITMAP CreateFallbackLogoBitmap(int cx, int cy)
 {
     BITMAPINFO bmi = {};
@@ -263,6 +284,7 @@ HRESULT CSampleCredential::UnAdvise()
     {
         if (_pCredProvCredentialEvents) _pCredProvCredentialEvents->Release();
         _pCredProvCredentialEvents = nullptr;
+        _pProvider = nullptr;
         return S_OK;
     }
     catch (...)
@@ -778,10 +800,17 @@ void CSampleCredential::_CheckStatusAndRefreshUi()
     bool isPhoneConnected = false;
     if (isServiceRunning)
     {
-        HANDLE hPhone = OpenEventW(SYNCHRONIZE, FALSE, L"Global\\TetherPhoneConnected");
+        HANDLE hPhone = OpenEventW(SYNCHRONIZE | READ_CONTROL, FALSE, L"Global\\TetherPhoneConnected");
         if (hPhone)
         {
-            isPhoneConnected = (WaitForSingleObject(hPhone, 0) == WAIT_OBJECT_0);
+            if (IsTrustedKernelObjectOwner(hPhone))
+            {
+                isPhoneConnected = (WaitForSingleObject(hPhone, 0) == WAIT_OBJECT_0);
+            }
+            else
+            {
+                WriteDebugLog(L"SECURITY WARNING: Global\\TetherPhoneConnected has untrusted owner! Discarding.");
+            }
             CloseHandle(hPhone);
         }
     }
@@ -849,60 +878,91 @@ void CSampleCredential::_PerformServiceActionAsync()
     auto* ctx = new (std::nothrow) ActionContext{ this };
     if (!ctx) return;
 
-    QueueUserWorkItem([](PVOID param) -> DWORD
+    this->AddRef();
+
+    BOOL queued = QueueUserWorkItem([](PVOID param) -> DWORD
     {
         auto* c = reinterpret_cast<ActionContext*>(param);
-        if (c && c->pThis && c->pThis->_isValid.load())
+        if (c)
         {
-            SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
-            if (hSCM)
+            CSampleCredential* pThis = c->pThis;
+            try
             {
-                SC_HANDLE hSvc = OpenServiceW(hSCM, L"TetherCommService", SERVICE_QUERY_STATUS | SERVICE_START | SERVICE_STOP);
-                if (hSvc)
+                if (pThis && pThis->_isValid.load())
                 {
-                    SERVICE_STATUS_PROCESS ssp = {};
-                    DWORD bytesNeeded = 0;
-                    if (QueryServiceStatusEx(hSvc, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&ssp), sizeof(ssp), &bytesNeeded))
+                    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+                    if (hSCM)
                     {
-                        if (ssp.dwCurrentState != SERVICE_STOPPED && ssp.dwCurrentState != SERVICE_STOP_PENDING)
+                        SC_HANDLE hSvc = OpenServiceW(hSCM, L"TetherCommService", SERVICE_QUERY_STATUS | SERVICE_START | SERVICE_STOP);
+                        if (hSvc)
                         {
-                            SERVICE_STATUS stopStatus = {};
-                            ControlService(hSvc, SERVICE_CONTROL_STOP, &stopStatus);
-                            for (int i = 0; i < 20; i++)
+                            SERVICE_STATUS_PROCESS ssp = {};
+                            DWORD bytesNeeded = 0;
+                            if (QueryServiceStatusEx(hSvc, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&ssp), sizeof(ssp), &bytesNeeded))
                             {
-                                Sleep(250);
-                                if (QueryServiceStatusEx(hSvc, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&ssp), sizeof(ssp), &bytesNeeded))
+                                if (ssp.dwCurrentState != SERVICE_STOPPED && ssp.dwCurrentState != SERVICE_STOP_PENDING)
                                 {
-                                    if (ssp.dwCurrentState == SERVICE_STOPPED) break;
+                                    SERVICE_STATUS stopStatus = {};
+                                    ControlService(hSvc, SERVICE_CONTROL_STOP, &stopStatus);
+                                    for (int i = 0; i < 20; i++)
+                                    {
+                                        if (!pThis->_isValid.load()) break;
+                                        Sleep(250);
+                                        if (QueryServiceStatusEx(hSvc, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&ssp), sizeof(ssp), &bytesNeeded))
+                                        {
+                                            if (ssp.dwCurrentState == SERVICE_STOPPED) break;
+                                        }
+                                    }
                                 }
                             }
+
+                            if (pThis->_isValid.load())
+                            {
+                                StartServiceW(hSvc, 0, nullptr);
+                                for (int i = 0; i < 20; i++)
+                                {
+                                    if (!pThis->_isValid.load()) break;
+                                    Sleep(250);
+                                    if (QueryServiceStatusEx(hSvc, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&ssp), sizeof(ssp), &bytesNeeded))
+                                    {
+                                        if (ssp.dwCurrentState == SERVICE_RUNNING) break;
+                                    }
+                                }
+                            }
+
+                            CloseServiceHandle(hSvc);
                         }
+                        CloseServiceHandle(hSCM);
                     }
 
-                    StartServiceW(hSvc, 0, nullptr);
-                    for (int i = 0; i < 20; i++)
+                    if (pThis->_isValid.load())
                     {
-                        Sleep(250);
-                        if (QueryServiceStatusEx(hSvc, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&ssp), sizeof(ssp), &bytesNeeded))
+                        pThis->_fServiceActionInProgress.store(false);
+                        if (pThis->_hWndMessage)
                         {
-                            if (ssp.dwCurrentState == SERVICE_RUNNING) break;
+                            PostMessageW(pThis->_hWndMessage, WM_STATUS_UPDATE, 0, 0);
                         }
                     }
-
-                    CloseServiceHandle(hSvc);
                 }
-                CloseServiceHandle(hSCM);
+            }
+            catch (...)
+            {
             }
 
-            c->pThis->_fServiceActionInProgress.store(false);
-            if (c->pThis->_hWndMessage)
+            if (pThis)
             {
-                PostMessageW(c->pThis->_hWndMessage, WM_STATUS_UPDATE, 0, 0);
+                pThis->Release();
             }
+            delete c;
         }
-        delete c;
         return 0;
     }, ctx, WT_EXECUTEDEFAULT);
+
+    if (!queued)
+    {
+        this->Release();
+        delete ctx;
+    }
 }
 
 void CALLBACK CSampleCredential::_OnStatusTimerFired(PTP_CALLBACK_INSTANCE, PVOID lpParameter, PTP_TIMER)
@@ -1223,12 +1283,22 @@ void CSampleCredential::_StartBackgroundIPCListeners()
             INFINITE, WT_EXECUTEDEFAULT);
     }
 
-    _hPhoneConnectedEvent = OpenEventW(SYNCHRONIZE, FALSE, L"Global\\TetherPhoneConnected");
-    if (_hPhoneConnectedEvent)
+    HANDLE hPhoneConnected = OpenEventW(SYNCHRONIZE | READ_CONTROL, FALSE, L"Global\\TetherPhoneConnected");
+    if (hPhoneConnected)
     {
-        RegisterWaitForSingleObject(&_hWaitPhoneConnected, _hPhoneConnectedEvent,
-            CSampleCredential::_OnPhoneConnectedSignaled, this,
-            INFINITE, WT_EXECUTEDEFAULT);
+        if (IsTrustedKernelObjectOwner(hPhoneConnected))
+        {
+            _hPhoneConnectedEvent = hPhoneConnected;
+            RegisterWaitForSingleObject(&_hWaitPhoneConnected, _hPhoneConnectedEvent,
+                CSampleCredential::_OnPhoneConnectedSignaled, this,
+                INFINITE, WT_EXECUTEDEFAULT);
+        }
+        else
+        {
+            WriteDebugLog(L"SECURITY WARNING: Global\\TetherPhoneConnected has untrusted owner! Discarding.");
+            CloseHandle(hPhoneConnected);
+            _hPhoneConnectedEvent = nullptr;
+        }
     }
 }
 

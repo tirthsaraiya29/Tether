@@ -9,28 +9,34 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Tether.CommunicationService.Capabilities;
+using Tether.CommunicationService.Trust;
 using Tether.Shared.Logging;
 
 namespace Tether.CommunicationService.Automation;
 
 public sealed class AutomationEngine : IHostedService, IDisposable
 {
-    private static readonly string WorkflowsDir = Path.Combine(
+    private static readonly string DefaultWorkflowsDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether");
-    private static readonly string WorkflowsFile = Path.Combine(WorkflowsDir, "Workflows.json");
+    private readonly string _workflowsDir;
+    private readonly string _workflowsFile;
 
     private readonly ITetherLogger _logger;
     private readonly WindowsAdminManager _adminManager;
-    private readonly ConcurrentDictionary<string, TetherWorkflow> _workflows = new();
-    private readonly ConcurrentDictionary<string, byte> _runningWorkflows = new();
+    private readonly TrustStore? _trustStore;
+    internal readonly ConcurrentDictionary<string, TetherWorkflow> _workflows = new();
+    internal readonly ConcurrentDictionary<string, byte> _runningWorkflows = new();
     private readonly object _persistLock = new();
     private readonly CancellationTokenSource _cts = new();
     private Task? _schedulerTask;
 
-    public AutomationEngine(ITetherLogger logger, WindowsAdminManager adminManager)
+    public AutomationEngine(ITetherLogger logger, WindowsAdminManager adminManager, TrustStore? trustStore = null, string? customWorkflowsDir = null)
     {
         _logger = logger;
         _adminManager = adminManager;
+        _trustStore = trustStore;
+        _workflowsDir = customWorkflowsDir ?? DefaultWorkflowsDir;
+        _workflowsFile = Path.Combine(_workflowsDir, "Workflows.json");
         LoadWorkflows();
     }
 
@@ -85,56 +91,93 @@ public sealed class AutomationEngine : IHostedService, IDisposable
             return new WorkflowExecutionResult { WorkflowId = id, Success = false, Message = "Workflow is already running" };
         }
 
-        // Evaluate Condition if specified
-        if (!string.IsNullOrEmpty(wf.ConditionType) && wf.ConditionType != "none")
+        try
         {
-            bool condPass = EvaluateCondition(wf.ConditionType, wf.ConditionValue);
-            if (!condPass)
+            // Evaluate Originating Device Authorization if bound
+            TrustedPhone? originatingPhone = null;
+            if (!string.IsNullOrEmpty(wf.OriginatingFingerprint) && _trustStore != null)
             {
-                wf.LastExecutedMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                wf.LastStatus = "SKIPPED_CONDITION";
-                PersistWorkflows();
-                return new WorkflowExecutionResult
+                originatingPhone = _trustStore.All().FirstOrDefault(p =>
+                    string.Equals(p.Fingerprint, wf.OriginatingFingerprint, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(p.DeviceId, wf.OriginatingDeviceId, StringComparison.OrdinalIgnoreCase));
+
+                if (originatingPhone == null)
                 {
-                    WorkflowId = id,
-                    Success = true,
-                    Message = "Condition not met; step skipped."
-                };
+                    _logger.Warning($"AutomationEngine: Workflow '{id}' originating device '{wf.OriginatingFingerprint}' is revoked or not found in trust store.");
+                    wf.LastExecutedMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    wf.LastStatus = "FAILED_REVOKED";
+                    PersistWorkflows();
+                    return new WorkflowExecutionResult { WorkflowId = id, Success = false, Message = "Originating device revoked or unauthorized" };
+                }
             }
-        }
 
-        // Execute Actions
-        bool allOk = true;
-        var executedActions = new List<string>();
-
-        foreach (var action in wf.Actions)
-        {
-            try
+            // Evaluate Condition if specified
+            if (!string.IsNullOrEmpty(wf.ConditionType) && wf.ConditionType != "none")
             {
-                bool ok = HardwareExecutor.ExecuteCommand(action, _logger, out _);
-                executedActions.Add($"{action}: {(ok ? "OK" : "FAILED")}");
-                if (!ok) allOk = false;
+                bool condPass = EvaluateCondition(wf.ConditionType, wf.ConditionValue);
+                if (!condPass)
+                {
+                    wf.LastExecutedMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    wf.LastStatus = "SKIPPED_CONDITION";
+                    PersistWorkflows();
+                    return new WorkflowExecutionResult
+                    {
+                        WorkflowId = id,
+                        Success = true,
+                        Message = "Condition not met; step skipped."
+                    };
+                }
             }
-            catch (Exception ex)
+
+            // Execute Actions
+            bool allOk = true;
+            var executedActions = new List<string>();
+
+            foreach (var action in wf.Actions)
             {
-                executedActions.Add($"{action}: ERROR ({ex.Message})");
-                allOk = false;
+                ct.ThrowIfCancellationRequested();
+
+                if (originatingPhone != null)
+                {
+                    var reqCap = CapabilityManager.MapCommandToCapability(action);
+                    if (!string.IsNullOrEmpty(reqCap) && !CapabilityManager.HasCapability(originatingPhone.Capabilities, reqCap))
+                    {
+                        _logger.Warning($"AutomationEngine: Workflow '{id}' action '{action}' requires capability '{reqCap}' which originating device lacks.");
+                        executedActions.Add($"{action}: REJECTED (Missing {reqCap})");
+                        allOk = false;
+                        continue;
+                    }
+                }
+
+                try
+                {
+                    bool ok = HardwareExecutor.ExecuteCommand(action, _logger, out _);
+                    executedActions.Add($"{action}: {(ok ? "OK" : "FAILED")}");
+                    if (!ok) allOk = false;
+                }
+                catch (Exception ex)
+                {
+                    executedActions.Add($"{action}: ERROR ({ex.Message})");
+                    allOk = false;
+                }
+                await Task.Delay(100, ct);
             }
-            await Task.Delay(100, ct);
+
+            wf.LastExecutedMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            wf.LastStatus = allOk ? "SUCCESS" : "FAILED";
+            PersistWorkflows();
+
+            return new WorkflowExecutionResult
+            {
+                WorkflowId = id,
+                Success = allOk,
+                Message = string.Join(", ", executedActions)
+            };
         }
-
-        wf.LastExecutedMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        wf.LastStatus = allOk ? "SUCCESS" : "FAILED";
-        PersistWorkflows();
-
-        _runningWorkflows.TryRemove(id, out _);
-
-        return new WorkflowExecutionResult
+        finally
         {
-            WorkflowId = id,
-            Success = allOk,
-            Message = string.Join(", ", executedActions)
-        };
+            _runningWorkflows.TryRemove(id, out _);
+        }
     }
 
     private bool EvaluateCondition(string type, string? val)
@@ -220,9 +263,9 @@ public sealed class AutomationEngine : IHostedService, IDisposable
     {
         try
         {
-            if (File.Exists(WorkflowsFile))
+            if (File.Exists(_workflowsFile))
             {
-                string json = File.ReadAllText(WorkflowsFile);
+                string json = File.ReadAllText(_workflowsFile);
                 var list = JsonSerializer.Deserialize<List<TetherWorkflow>>(json);
                 if (list != null)
                 {
@@ -272,14 +315,14 @@ public sealed class AutomationEngine : IHostedService, IDisposable
         {
             try
             {
-                if (!Directory.Exists(WorkflowsDir))
+                if (!Directory.Exists(_workflowsDir))
                 {
-                    Directory.CreateDirectory(WorkflowsDir);
+                    Directory.CreateDirectory(_workflowsDir);
                 }
                 string json = JsonSerializer.Serialize(_workflows.Values.ToList(), new JsonSerializerOptions { WriteIndented = true });
-                string tempFile = WorkflowsFile + $".tmp_{Guid.NewGuid():N}";
+                string tempFile = _workflowsFile + $".tmp_{Guid.NewGuid():N}";
                 File.WriteAllText(tempFile, json);
-                File.Move(tempFile, WorkflowsFile, overwrite: true);
+                File.Move(tempFile, _workflowsFile, overwrite: true);
             }
             catch (Exception ex)
             {
@@ -307,6 +350,8 @@ public sealed class TetherWorkflow
     public List<string> Actions { get; set; } = new();
     public long LastExecutedMs { get; set; }
     public string LastStatus { get; set; } = "NEVER";
+    public string OriginatingDeviceId { get; set; } = string.Empty;
+    public string OriginatingFingerprint { get; set; } = string.Empty;
 }
 
 public sealed class WorkflowExecutionResult

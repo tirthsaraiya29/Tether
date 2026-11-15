@@ -127,8 +127,6 @@ public sealed class PairingManager
         int pinNum = RandomNumberGenerator.GetInt32(100000, 1000000);
         string pin = pinNum.ToString("D6");
 
-        // FIX TETH-001: Do NOT transmit a PIN hash/commitment over the wire.
-        // Leaving Commitment empty completely removes the offline oracle.
         var respPayload = new HandshakeResponse
         {
             DeviceId = winDeviceId,
@@ -167,7 +165,6 @@ public sealed class PairingManager
 
         _pending[requestId] = pending;
 
-        // FIX TETH-011: Do NOT write the PIN to disk or plaintext logs.
         _logger.Info($"PairingManager: Generated pairing request {requestId} for phone '{phoneDisplayName}' ({phoneFingerprint}).");
 
         // TETHER-2026-005: Do NOT broadcast cleartext PIN over IPC event bus.
@@ -283,32 +280,48 @@ public sealed class PairingManager
 
     private static byte[] ComputeAuthKey(string pin, byte[] transcriptHash, string requestId, byte[] winSpki, byte[] phoneSpki)
     {
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(pin.Trim()));
-        byte[] label = Encoding.UTF8.GetBytes("TETHER-PAIRING-v2");
-        byte[] reqIdBytes = Encoding.UTF8.GetBytes(requestId);
+        byte[] pinBytes = Encoding.UTF8.GetBytes(pin.Trim());
+        try
+        {
+            using var hmac = new HMACSHA256(pinBytes);
+            byte[] label = Encoding.UTF8.GetBytes("TETHER-PAIRING-v2");
+            byte[] reqIdBytes = Encoding.UTF8.GetBytes(requestId);
 
-        using var ms = new MemoryStream();
-        ms.Write(label);
-        ms.Write(transcriptHash);
-        ms.Write(reqIdBytes);
-        ms.Write(winSpki);
-        ms.Write(phoneSpki);
+            using var ms = new MemoryStream();
+            ms.Write(label);
+            ms.Write(transcriptHash);
+            ms.Write(reqIdBytes);
+            ms.Write(winSpki);
+            ms.Write(phoneSpki);
 
-        return hmac.ComputeHash(ms.ToArray());
+            return hmac.ComputeHash(ms.ToArray());
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(pinBytes);
+        }
     }
 
     private static byte[] ComputeServerProof(string pin, byte[] authKey, byte[] winSpki, byte[] phoneSpki)
     {
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(pin.Trim()));
-        byte[] label = Encoding.UTF8.GetBytes("SERVER-OK");
+        byte[] pinBytes = Encoding.UTF8.GetBytes(pin.Trim());
+        try
+        {
+            using var hmac = new HMACSHA256(pinBytes);
+            byte[] label = Encoding.UTF8.GetBytes("SERVER-OK");
 
-        using var ms = new MemoryStream();
-        ms.Write(label);
-        ms.Write(authKey);
-        ms.Write(winSpki);
-        ms.Write(phoneSpki);
+            using var ms = new MemoryStream();
+            ms.Write(label);
+            ms.Write(authKey);
+            ms.Write(winSpki);
+            ms.Write(phoneSpki);
 
-        return hmac.ComputeHash(ms.ToArray());
+            return hmac.ComputeHash(ms.ToArray());
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(pinBytes);
+        }
     }
 
     private static bool TryUnpackProof(byte[] payload, out byte[] authKey, out byte[] signature)

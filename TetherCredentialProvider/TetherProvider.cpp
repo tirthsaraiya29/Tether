@@ -1,14 +1,3 @@
-//
-// THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF
-// ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO
-// THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
-// PARTICULAR PURPOSE.
-//
-// Copyright (c) Microsoft Corporation. All rights reserved.
-//
-// CSampleProvider implements ICredentialProvider, which is the main
-// interface that logonUI uses to decide which tiles to display.
-
 #include <initguid.h>
 #include <new>
 #include "TetherProvider.h"
@@ -277,7 +266,6 @@ HRESULT CSampleProvider::SetSerialization(_In_ const CREDENTIAL_PROVIDER_CREDENT
     }
 }
 
-// Fixed: Unified body signature returning HRESULT matching the header file declaration
 HRESULT CSampleProvider::SignalCredentialsChanged()
 {
     ICredentialProviderEvents* pEvents = nullptr;
@@ -344,7 +332,6 @@ HRESULT CSampleProvider::_EnumerateCredentials()
         }
         else
         {
-            // No users – do not create a credential (FIX #3)
             _pCredential = nullptr;
             hr = S_OK;
         }

@@ -1,42 +1,45 @@
-﻿using System.Collections.Concurrent;
+﻿using System;
+using System.Collections.Concurrent;
 using Tether.Shared.Events;
 using Tether.Shared.Logging;
 
-namespace Tether.EventBus
+namespace Tether.EventBus;
+
+public class InMemoryEventBus : IEventBus
 {
-    public class InMemoryEventBus : IEventBus
+    private readonly ConcurrentDictionary<Guid, Action<TetherEvent>> _handlers = new();
+    private readonly ITetherLogger _logger;
+
+    public InMemoryEventBus(ITetherLogger logger)
     {
-        private readonly ConcurrentBag<Action<TetherEvent>> _handlers = new();
-        private readonly ITetherLogger _logger;
+        _logger = logger;
+    }
 
-        public InMemoryEventBus(ITetherLogger logger)
+    public void Publish(TetherEvent evt)
+    {
+        _logger.Debug($"Publishing event: {evt.EventType}");
+        foreach (var handler in _handlers.Values)
         {
-            _logger = logger;
+            try { handler(evt); }
+            catch (Exception ex) { _logger.Error($"Handler failed: {ex.Message}", ex); }
         }
+    }
 
-        public void Publish(TetherEvent evt)
+    public void Subscribe(Action<TetherEvent> handler)
+    {
+        var id = Guid.NewGuid();
+        _handlers.TryAdd(id, handler);
+        _logger.Debug("New subscription added");
+    }
+
+    public void Unsubscribe(Action<TetherEvent> handler)
+    {
+        foreach (var pair in _handlers)
         {
-            _logger.Debug($"Publishing event: {evt.EventType}");
-            foreach (var handler in _handlers)
+            if (pair.Value == handler)
             {
-                try { handler(evt); }
-                catch (Exception ex) { _logger.Error($"Handler failed: {ex.Message}", ex); }
+                _handlers.TryRemove(pair.Key, out _);
             }
-        }
-
-        public void Subscribe(Action<TetherEvent> handler)
-        {
-            _handlers.Add(handler);
-            _logger.Debug("New subscription added");
-        }
-
-        public void Unsubscribe(Action<TetherEvent> handler)
-        {
-            // simple removal – not perfect but fine for skeleton
-            var list = _handlers.ToList();
-            list.Remove(handler);
-            _handlers.Clear();
-            foreach (var h in list) _handlers.Add(h);
         }
     }
 }

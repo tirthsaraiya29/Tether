@@ -24,7 +24,6 @@ data class DiscoveredDevice(
     val name: String,
     val hostAddress: String,
     val port: Int,
-    val quicPort: Int = 37125,
     val protocolVersion: String = "2.0",
     val capabilities: String = "",
     val pqcSupported: Boolean = false,
@@ -477,7 +476,6 @@ class TetherDiscoveryManager(
             setAttribute("id", phoneId)
             setAttribute("name", deviceName)
             setAttribute("caps", "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
-            setAttribute("quicPort", "37125")
             setAttribute("pqc", "false")
         }
 
