@@ -6,6 +6,8 @@
 #include <atomic>
 #include <new>
 
+#include <vector>
+
 #include "TetherCredential.h"
 
 class CSampleProvider : public ICredentialProvider,
@@ -75,14 +77,14 @@ private:
 
 private:
     std::atomic<long>                       _cRef;
-    CSampleCredential* _pCredential;
+    std::vector<CSampleCredential*>         _credentials;
     bool                                    _fRecreateEnumeratedCredentials;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO      _cpus;
-    ICredentialProviderUserArray* _pCredProviderUserArray;
+    ICredentialProviderUserArray*           _pCredProviderUserArray;
 
     // Unified naming alignment matching the implementation file
     CRITICAL_SECTION                        _csEvents;
-    ICredentialProviderEvents* _pCredProviderEvents;
+    ICredentialProviderEvents*              _pCredProviderEvents;
     UINT_PTR                                _upAdviseContext;
     DWORD                                   _dwUpToDateCredentialsCount;
 };

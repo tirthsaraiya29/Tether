@@ -119,7 +119,7 @@ Download prebuilt binaries directly from the official releases:
 
 ### Windows Integration
 
-- **Custom Credential Provider:** Native C++ Win32 Credential Provider integration through `TetherCredentialProvider` with direct service management (start/restart) and phone connectivity detection on the secure logon desktop.
+- **Custom Credential Provider:** Native C++ Win32 Credential Provider integration through `TetherCredentialProvider` with thread-safe COM event callbacks, non-blocking asynchronous IPC synchronization, seamless sign-in option switching, direct service management (start/restart), and multi-user credential enumeration on the secure logon desktop.
 - **Immediate Power State Synchronization:** Instantaneous detection of Windows shutdown and restart events via `EventLogWatcher` (USER32 Event ID 1074) and `WM_QUERYENDSESSION` handling in interactive components, immediately syncing powered off and restarting states to Android before link loss.
 - **On-Demand Unlock Prompts:** Unlock prompts trigger exclusively when requested by the Credential Provider, keeping routine lock events quiet.
 - **Communication Service:** `Tether.CommunicationService` handles local network communication, packet routing, and command dispatch.

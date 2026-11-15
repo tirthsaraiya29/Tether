@@ -7,13 +7,12 @@
 
 CSampleProvider::CSampleProvider() :
     _cRef(1),
-    _pCredential(nullptr),
     _pCredProviderUserArray(nullptr),
     _fRecreateEnumeratedCredentials(false),
     _cpus(CPUS_INVALID),
     _pCredProviderEvents(nullptr),
     _upAdviseContext(0),
-    _dwUpToDateCredentialsCount(0) // Fixed initialization
+    _dwUpToDateCredentialsCount(0)
 {
     InitializeCriticalSection(&_csEvents);
     DllAddRef();
@@ -133,20 +132,57 @@ HRESULT CSampleProvider::GetCredentialCount(_Out_ DWORD* pdwCount,
         *pdwDefault = CREDENTIAL_PROVIDER_NO_DEFAULT;
         *pbAutoLogonWithDefault = FALSE;
 
-        HRESULT hr = S_OK;
-        if (_pCredential == nullptr)
-            hr = _EnumerateCredentials();
-
-        if (SUCCEEDED(hr) && _pCredential != nullptr)
+        if (_credentials.empty())
         {
-            *pdwCount = 1;
-            *pdwDefault = 0;
-            if (g_fAutoLogonReady.load())
-                *pbAutoLogonWithDefault = TRUE;
-            else
-                *pbAutoLogonWithDefault = FALSE;
+            _EnumerateCredentials();
         }
-        return hr;
+
+        *pdwCount = static_cast<DWORD>(_credentials.size());
+
+        if (*pdwCount > 0)
+        {
+            if (g_fAutoLogonReady.load())
+            {
+                DWORD defaultIdx = 0;
+                // Check if a target user SID is configured in registry secrets
+                HKEY hKeyVault = nullptr;
+                WCHAR szTargetSid[128] = { 0 };
+                DWORD dwTargetSidLen = sizeof(szTargetSid);
+                if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ, &hKeyVault) == ERROR_SUCCESS ||
+                    RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKeyVault) == ERROR_SUCCESS)
+                {
+                    RegQueryValueExW(hKeyVault, L"TargetUserSid", nullptr, nullptr, (LPBYTE)szTargetSid, &dwTargetSidLen);
+                    RegCloseKey(hKeyVault);
+                }
+
+                if (szTargetSid[0] != L'\0')
+                {
+                    for (DWORD i = 0; i < *pdwCount; i++)
+                    {
+                        PWSTR pszTileSid = nullptr;
+                        if (SUCCEEDED(_credentials[i]->GetUserSid(&pszTileSid)) && pszTileSid)
+                        {
+                            if (_wcsicmp(szTargetSid, pszTileSid) == 0)
+                            {
+                                defaultIdx = i;
+                                CoTaskMemFree(pszTileSid);
+                                break;
+                            }
+                            CoTaskMemFree(pszTileSid);
+                        }
+                    }
+                }
+
+                *pdwDefault = defaultIdx;
+                *pbAutoLogonWithDefault = TRUE;
+            }
+            else
+            {
+                *pdwDefault = CREDENTIAL_PROVIDER_NO_DEFAULT;
+                *pbAutoLogonWithDefault = FALSE;
+            }
+        }
+        return S_OK;
     }
     catch (...)
     {
@@ -166,14 +202,12 @@ HRESULT CSampleProvider::GetCredentialAt(
         }
         *ppcpc = nullptr;
 
-        HRESULT hr = E_INVALIDARG;
-
-        if (dwIndex == 0 && _pCredential != nullptr)
+        if (dwIndex < _credentials.size() && _credentials[dwIndex] != nullptr)
         {
-            hr = _pCredential->QueryInterface(IID_PPV_ARGS(ppcpc));
+            return _credentials[dwIndex]->QueryInterface(IID_PPV_ARGS(ppcpc));
         }
 
-        return hr;
+        return E_INVALIDARG;
     }
     catch (...)
     {
@@ -291,52 +325,51 @@ HRESULT CSampleProvider::SignalCredentialsChanged()
 
 void CSampleProvider::_ReleaseEnumeratedCredentials()
 {
-    if (_pCredential != nullptr)
+    for (auto* pCred : _credentials)
     {
-        _pCredential->Release();
-        _pCredential = nullptr;
+        if (pCred != nullptr)
+        {
+            pCred->Release();
+        }
     }
+    _credentials.clear();
 }
 
 HRESULT CSampleProvider::_EnumerateCredentials()
 {
-    HRESULT hr = E_UNEXPECTED;
     _ReleaseEnumeratedCredentials();
 
     if (_pCredProviderUserArray != nullptr)
     {
         DWORD dwUserCount = 0;
-        _pCredProviderUserArray->GetCount(&dwUserCount);
-
-        if (dwUserCount > 0)
+        HRESULT hr = _pCredProviderUserArray->GetCount(&dwUserCount);
+        if (SUCCEEDED(hr) && dwUserCount > 0)
         {
-            ICredentialProviderUser* pCredUser = nullptr;
-            hr = _pCredProviderUserArray->GetAt(0, &pCredUser);
-            if (SUCCEEDED(hr) && pCredUser != nullptr)
+            for (DWORD i = 0; i < dwUserCount; i++)
             {
-                _pCredential = new(std::nothrow) CSampleCredential();
-                if (_pCredential)
+                ICredentialProviderUser* pCredUser = nullptr;
+                if (SUCCEEDED(_pCredProviderUserArray->GetAt(i, &pCredUser)) && pCredUser != nullptr)
                 {
-                    _pCredential->SetProvider(this);
-                    hr = _pCredential->Initialize(_cpus, s_rgCredProvFieldDescriptors,
-                        s_rgFieldStatePairs, pCredUser);
-                    if (FAILED(hr))
+                    CSampleCredential* pCredential = new(std::nothrow) CSampleCredential();
+                    if (pCredential != nullptr)
                     {
-                        _pCredential->Release();
-                        _pCredential = nullptr;
+                        pCredential->SetProvider(this);
+                        if (SUCCEEDED(pCredential->Initialize(_cpus, s_rgCredProvFieldDescriptors,
+                            s_rgFieldStatePairs, pCredUser)))
+                        {
+                            _credentials.push_back(pCredential);
+                        }
+                        else
+                        {
+                            pCredential->Release();
+                        }
                     }
+                    pCredUser->Release();
                 }
-                else hr = E_OUTOFMEMORY;
-                pCredUser->Release();
             }
         }
-        else
-        {
-            _pCredential = nullptr;
-            hr = S_OK;
-        }
     }
-    return hr;
+    return S_OK;
 }
 
 HRESULT CSample_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv)

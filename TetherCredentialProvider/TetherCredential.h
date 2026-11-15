@@ -74,13 +74,7 @@ private:
     virtual ~CSampleCredential();
 
     void _StartBackgroundIPCListeners();
-    static void CALLBACK _OnIPCEventSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
     static void CALLBACK _OnAppEventSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
-    static void CALLBACK _OnScreenEventSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
-    static void CALLBACK _OnPhoneConnectedSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
-    static LRESULT CALLBACK WebAuthMsgProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-    void _CreateMessageWindow();
-    void _DestroyMessageWindow();
     void _BeginUnlockPromptCooldown();
     static void CALLBACK _OnCooldownTimerFired(PTP_CALLBACK_INSTANCE Instance, PVOID lpParameter, PTP_TIMER Timer);
     static void CALLBACK _OnStatusTimerFired(PTP_CALLBACK_INSTANCE Instance, PVOID lpParameter, PTP_TIMER Timer);
@@ -88,6 +82,7 @@ private:
     void _SetStatusText(PCWSTR pszStatus);
     void _CheckStatusAndRefreshUi();
     void _PerformServiceActionAsync();
+    ICredentialProviderCredentialEvents* _GetCredentialEventsSafe();
 
     HRESULT _PackActualPasswordCredential(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
         CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
@@ -104,18 +99,15 @@ private:
     PWSTR                                   _rgFieldStrings[SFI_NUM_FIELDS];
     PWSTR                                   _pszUserSid;
     PWSTR                                   _pszQualifiedUserName;
+
+    CRITICAL_SECTION                        _csCredentialEvents;
     ICredentialProviderCredentialEvents*    _pCredProvCredentialEvents;
 
     bool                                    _fIsLocalUser;
     CSampleProvider*                        _pProvider;
 
     HANDLE                                  _hAppEvent{ nullptr };
-    HANDLE                                  _hScreenEvent{ nullptr };
-    HANDLE                                  _hPhoneConnectedEvent{ nullptr };
     HANDLE                                  _hWaitApp{ nullptr };
-    HANDLE                                  _hWaitScreen{ nullptr };
-    HANDLE                                  _hWaitPhoneConnected{ nullptr };
-    HWND                                    _hWndMessage{ nullptr };
 
     PTP_TIMER                               _pCooldownTimer{ nullptr };
     PTP_TIMER                               _pStatusTimer{ nullptr };
@@ -126,5 +118,7 @@ private:
     std::atomic<long long>                  _promptCooldownEndMs{ 0 };
     std::atomic<bool>                       _fPhoneConnected{ false };
     std::atomic<bool>                       _fServiceRunning{ false };
+    std::atomic<bool>                       _prevServiceRunning{ false };
+    std::atomic<bool>                       _prevPhoneConnected{ false };
     std::atomic<bool>                       _fServiceActionInProgress{ false };
 };

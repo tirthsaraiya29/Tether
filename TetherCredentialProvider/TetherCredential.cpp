@@ -20,10 +20,6 @@
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "crypt32.lib")
 
-#define WM_SIGNAL_CREDENTIALS_CHANGED (WM_USER + 101)
-#define WM_PROMPT_COOLDOWN_TICK (WM_USER + 102)
-#define WM_STATUS_UPDATE (WM_USER + 103)
-
 // Named event consumed by the communication service, which relays an
 // UNLOCK_PROMPT frame to the paired phone over the TLS control channel.
 static const wchar_t c_wszUnlockPromptEventName[] = L"Global\\TetherUnlockPromptRequested";
@@ -99,17 +95,13 @@ CSampleCredential::CSampleCredential() :
     _fIsLocalUser(false),
     _cpus(CPUS_INVALID),
     _pProvider(nullptr),
-    _hWndMessage(nullptr),
     _hAppEvent(nullptr),
-    _hScreenEvent(nullptr),
-    _hPhoneConnectedEvent(nullptr),
     _hWaitApp(nullptr),
-    _hWaitScreen(nullptr),
-    _hWaitPhoneConnected(nullptr),
     _pCooldownTimer(nullptr),
     _pStatusTimer(nullptr),
     _isValid(true)
 {
+    InitializeCriticalSection(&_csCredentialEvents);
     DllAddRef();
     ZeroMemory(_rgCredProvFieldDescriptors, sizeof(_rgCredProvFieldDescriptors));
     ZeroMemory(_rgFieldStatePairs, sizeof(_rgFieldStatePairs));
@@ -127,30 +119,7 @@ CSampleCredential::~CSampleCredential()
         CloseThreadpoolTimer(_pStatusTimer);
         _pStatusTimer = nullptr;
     }
-    if (_hWaitPhoneConnected)
-    {
-        UnregisterWaitEx(_hWaitPhoneConnected, INVALID_HANDLE_VALUE);
-        _hWaitPhoneConnected = nullptr;
-    }
-    if (_hPhoneConnectedEvent)
-    {
-        CloseHandle(_hPhoneConnectedEvent);
-        _hPhoneConnectedEvent = nullptr;
-    }
 
-    if (_hWaitApp)
-    {
-        UnregisterWaitEx(_hWaitApp, INVALID_HANDLE_VALUE);
-        _hWaitApp = nullptr;
-    }
-    if (_hWaitScreen)
-    {
-        UnregisterWaitEx(_hWaitScreen, INVALID_HANDLE_VALUE);
-        _hWaitScreen = nullptr;
-    }
-
-    if (_hAppEvent) CloseHandle(_hAppEvent);
-    if (_hScreenEvent) CloseHandle(_hScreenEvent);
     if (_pCooldownTimer)
     {
         SetThreadpoolTimer(_pCooldownTimer, nullptr, 0, 0);
@@ -158,7 +127,27 @@ CSampleCredential::~CSampleCredential()
         CloseThreadpoolTimer(_pCooldownTimer);
         _pCooldownTimer = nullptr;
     }
-    _DestroyMessageWindow();
+
+    if (_hWaitApp)
+    {
+        UnregisterWaitEx(_hWaitApp, NULL);
+        _hWaitApp = nullptr;
+    }
+
+    if (_hAppEvent)
+    {
+        CloseHandle(_hAppEvent);
+        _hAppEvent = nullptr;
+    }
+
+    EnterCriticalSection(&_csCredentialEvents);
+    if (_pCredProvCredentialEvents)
+    {
+        _pCredProvCredentialEvents->Release();
+        _pCredProvCredentialEvents = nullptr;
+    }
+    LeaveCriticalSection(&_csCredentialEvents);
+    DeleteCriticalSection(&_csCredentialEvents);
 
     if (_rgFieldStrings[SFI_PASSWORD])
     {
@@ -175,37 +164,17 @@ CSampleCredential::~CSampleCredential()
     DllRelease();
 }
 
-LRESULT CALLBACK CSampleCredential::WebAuthMsgProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+ICredentialProviderCredentialEvents* CSampleCredential::_GetCredentialEventsSafe()
 {
-    // WM_NCCREATE carries the lpParam passed to CreateWindowExW ('this'); stashed
-    // here so messages that don't route it explicitly (WM_TIMER) can find the owner.
-    if (uMsg == WM_NCCREATE)
+    ICredentialProviderCredentialEvents* pEvents = nullptr;
+    EnterCriticalSection(&_csCredentialEvents);
+    if (_pCredProvCredentialEvents != nullptr)
     {
-        CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(
-            reinterpret_cast<LPCREATESTRUCTW>(lParam)->lpCreateParams);
-        SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pThis));
-        return DefWindowProcW(hWnd, uMsg, wParam, lParam);
+        pEvents = _pCredProvCredentialEvents;
+        pEvents->AddRef();
     }
-
-    auto pThis = reinterpret_cast<CSampleCredential*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
-
-    if (uMsg == WM_SIGNAL_CREDENTIALS_CHANGED)
-    {
-        if (pThis && pThis->_pProvider)
-            pThis->_pProvider->SignalCredentialsChanged();
-        return 0;
-    }
-    if (uMsg == WM_PROMPT_COOLDOWN_TICK)
-    {
-        if (pThis) pThis->_OnCooldownTick();
-        return 0;
-    }
-    if (uMsg == WM_STATUS_UPDATE)
-    {
-        if (pThis) pThis->_CheckStatusAndRefreshUi();
-        return 0;
-    }
-    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
+    LeaveCriticalSection(&_csCredentialEvents);
+    return pEvents;
 }
 
 HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
@@ -238,26 +207,83 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_HIDDEN;
     _rgFieldStatePairs[SFI_SERVICE_ACTION_BUTTON].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
 
+    // Determine initial service and phone connection status synchronously
+    bool isServiceRunning = false;
+    SC_HANDLE hSCM = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (hSCM)
+    {
+        SC_HANDLE hSvc = OpenServiceW(hSCM, L"TetherCommService", SERVICE_QUERY_STATUS);
+        if (hSvc)
+        {
+            SERVICE_STATUS_PROCESS ssp = {};
+            DWORD bytesNeeded = 0;
+            if (QueryServiceStatusEx(hSvc, SC_STATUS_PROCESS_INFO, reinterpret_cast<LPBYTE>(&ssp), sizeof(ssp), &bytesNeeded))
+            {
+                isServiceRunning = (ssp.dwCurrentState == SERVICE_RUNNING);
+            }
+            CloseServiceHandle(hSvc);
+        }
+        CloseServiceHandle(hSCM);
+    }
+    _fServiceRunning.store(isServiceRunning);
+    _prevServiceRunning.store(isServiceRunning);
+
+    bool isPhoneConnected = false;
+    if (isServiceRunning)
+    {
+        HANDLE hPhone = OpenEventW(SYNCHRONIZE | READ_CONTROL, FALSE, L"Global\\TetherPhoneConnected");
+        if (hPhone)
+        {
+            if (IsTrustedKernelObjectOwner(hPhone))
+            {
+                isPhoneConnected = (WaitForSingleObject(hPhone, 0) == WAIT_OBJECT_0);
+            }
+            CloseHandle(hPhone);
+        }
+    }
+    _fPhoneConnected.store(isPhoneConnected);
+    _prevPhoneConnected.store(isPhoneConnected);
+
+    PCWSTR pszInitialStatus = !isServiceRunning ? L"Tether service is not running" :
+                              (isPhoneConnected ? L"Phone: Connected" : L"Phone: Disconnected");
+
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Tether", &_rgFieldStrings[SFI_LABEL]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Sign in using Tether", &_rgFieldStrings[SFI_LARGE_TEXT]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Open the Tether app on your phone and tap 'Unlock PC'", &_rgFieldStrings[SFI_METHOD_LABEL]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Unlock via Phone App", &_rgFieldStrings[SFI_METHOD_COMBOBOX]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"", &_rgFieldStrings[SFI_PASSWORD]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Unlock", &_rgFieldStrings[SFI_SUBMIT_BUTTON]);
-    if (SUCCEEDED(hr)) hr = SHStrDupW(L"Checking Tether service...", &_rgFieldStrings[SFI_LOGONSTATUS_TEXT]);
+    if (SUCCEEDED(hr)) hr = SHStrDupW(pszInitialStatus, &_rgFieldStrings[SFI_LOGONSTATUS_TEXT]);
     if (SUCCEEDED(hr)) hr = SHStrDupW(L"Send unlock prompt to phone", &_rgFieldStrings[SFI_UNLOCK_PROMPT_BUTTON]);
-    if (SUCCEEDED(hr)) hr = SHStrDupW(L"Restart Tether Service", &_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
+    if (SUCCEEDED(hr)) hr = SHStrDupW(!isServiceRunning ? L"Start Tether Service" : L"Restart Tether Service", &_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
 
-    if (SUCCEEDED(hr)) hr = pcpUser->GetStringValue(PKEY_Identity_QualifiedUserName, &_pszQualifiedUserName);
-    if (SUCCEEDED(hr)) hr = pcpUser->GetSid(&_pszUserSid);
+    if (isPhoneConnected)
+    {
+        _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
+    }
 
-    _CreateMessageWindow();
+    // Retrieve user SID and qualified name robustly
+    pcpUser->GetSid(&_pszUserSid);
+    if (!_pszUserSid)
+    {
+        PWSTR pszPrimarySid = nullptr;
+        if (SUCCEEDED(pcpUser->GetStringValue(PKEY_Identity_PrimarySid, &pszPrimarySid)) && pszPrimarySid)
+        {
+            _pszUserSid = pszPrimarySid;
+        }
+    }
+
+    if (FAILED(pcpUser->GetStringValue(PKEY_Identity_QualifiedUserName, &_pszQualifiedUserName)) || !_pszQualifiedUserName)
+    {
+        pcpUser->GetStringValue(PKEY_Identity_UserName, &_pszQualifiedUserName);
+    }
+
     _StartBackgroundIPCListeners();
 
     _pStatusTimer = CreateThreadpoolTimer(CSampleCredential::_OnStatusTimerFired, this, nullptr);
     if (_pStatusTimer)
     {
-        LONG64 due100ns = -1000000LL; // 100ms
+        LONG64 due100ns = -15000000LL; // 1500ms
         FILETIME ftDue = *reinterpret_cast<FILETIME*>(&due100ns);
         SetThreadpoolTimer(_pStatusTimer, &ftDue, 1500, 0);
     }
@@ -269,8 +295,19 @@ HRESULT CSampleCredential::Advise(ICredentialProviderCredentialEvents* pcpce)
 {
     try
     {
-        if (_pCredProvCredentialEvents) _pCredProvCredentialEvents->Release();
-        return pcpce->QueryInterface(IID_PPV_ARGS(&_pCredProvCredentialEvents));
+        EnterCriticalSection(&_csCredentialEvents);
+        if (_pCredProvCredentialEvents)
+        {
+            _pCredProvCredentialEvents->Release();
+            _pCredProvCredentialEvents = nullptr;
+        }
+        HRESULT hr = E_INVALIDARG;
+        if (pcpce)
+        {
+            hr = pcpce->QueryInterface(IID_PPV_ARGS(&_pCredProvCredentialEvents));
+        }
+        LeaveCriticalSection(&_csCredentialEvents);
+        return hr;
     }
     catch (...)
     {
@@ -282,8 +319,13 @@ HRESULT CSampleCredential::UnAdvise()
 {
     try
     {
-        if (_pCredProvCredentialEvents) _pCredProvCredentialEvents->Release();
-        _pCredProvCredentialEvents = nullptr;
+        EnterCriticalSection(&_csCredentialEvents);
+        if (_pCredProvCredentialEvents)
+        {
+            _pCredProvCredentialEvents->Release();
+            _pCredProvCredentialEvents = nullptr;
+        }
+        LeaveCriticalSection(&_csCredentialEvents);
         _pProvider = nullptr;
         return S_OK;
     }
@@ -736,42 +778,15 @@ HRESULT CSampleCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatu
 
 HRESULT CSampleCredential::GetUserSid(PWSTR* ppszSid)
 {
-    if (_pszUserSid)
+    if (!ppszSid) return E_POINTER;
+    *ppszSid = nullptr;
+
+    if (_pszUserSid && _pszUserSid[0] != L'\0')
     {
         return SHStrDupW(_pszUserSid, ppszSid);
     }
 
-    if (_pszQualifiedUserName && _pszQualifiedUserName[0] != L'\0')
-    {
-        DWORD cbSid = 0;
-        DWORD cchDomain = 0;
-        SID_NAME_USE sidType;
-        LookupAccountNameW(nullptr, _pszQualifiedUserName, nullptr, &cbSid, nullptr, &cchDomain, &sidType);
-        if (cbSid > 0)
-        {
-            BYTE* pSid = (BYTE*)LocalAlloc(LPTR, cbSid);
-            WCHAR* pDomain = (WCHAR*)LocalAlloc(LPTR, (cchDomain > 0 ? cchDomain : 1) * sizeof(WCHAR));
-            if (pSid && pDomain)
-            {
-                if (LookupAccountNameW(nullptr, _pszQualifiedUserName, pSid, &cbSid, pDomain, &cchDomain, &sidType))
-                {
-                    LPWSTR pStrSid = nullptr;
-                    if (ConvertSidToStringSidW(pSid, &pStrSid) && pStrSid)
-                    {
-                        HRESULT hr = SHStrDupW(pStrSid, ppszSid);
-                        LocalFree(pStrSid);
-                        LocalFree(pSid);
-                        LocalFree(pDomain);
-                        return hr;
-                    }
-                }
-            }
-            if (pSid) LocalFree(pSid);
-            if (pDomain) LocalFree(pDomain);
-        }
-    }
-
-    return E_UNEXPECTED;
+    return E_FAIL;
 }
 
 void CSampleCredential::_CheckStatusAndRefreshUi()
@@ -816,56 +831,68 @@ void CSampleCredential::_CheckStatusAndRefreshUi()
     }
     _fPhoneConnected.store(isPhoneConnected);
 
-    if (_pCredProvCredentialEvents)
+    bool prevRunning = _prevServiceRunning.exchange(isServiceRunning);
+    bool prevConnected = _prevPhoneConnected.exchange(isPhoneConnected);
+    bool statusChanged = (prevRunning != isServiceRunning) || (prevConnected != isPhoneConnected);
+
+    ICredentialProviderCredentialEvents* pEvents = _GetCredentialEventsSafe();
+    if (!pEvents) return;
+
+    if (statusChanged)
     {
         if (!isServiceRunning)
         {
             _SetStatusText(L"Tether service is not running");
             CoTaskMemFree(_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
             SHStrDupW(L"Start Tether Service", &_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
-            _pCredProvCredentialEvents->SetFieldString(this, SFI_SERVICE_ACTION_BUTTON, L"Start Tether Service");
-            _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_SERVICE_ACTION_BUTTON, CPFIS_NONE);
-            _pCredProvCredentialEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+            pEvents->SetFieldString(this, SFI_SERVICE_ACTION_BUTTON, L"Start Tether Service");
+            pEvents->SetFieldInteractiveState(this, SFI_SERVICE_ACTION_BUTTON, CPFIS_NONE);
+            pEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
 
             _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_HIDDEN;
-            _pCredProvCredentialEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_HIDDEN);
+            pEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_HIDDEN);
         }
         else if (!isPhoneConnected)
         {
             _SetStatusText(L"Phone: Disconnected");
             CoTaskMemFree(_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
             SHStrDupW(L"Restart Tether Service", &_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
-            _pCredProvCredentialEvents->SetFieldString(this, SFI_SERVICE_ACTION_BUTTON, L"Restart Tether Service");
-            _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_SERVICE_ACTION_BUTTON, CPFIS_NONE);
-            _pCredProvCredentialEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+            pEvents->SetFieldString(this, SFI_SERVICE_ACTION_BUTTON, L"Restart Tether Service");
+            pEvents->SetFieldInteractiveState(this, SFI_SERVICE_ACTION_BUTTON, CPFIS_NONE);
+            pEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
 
             _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_HIDDEN;
-            _pCredProvCredentialEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_HIDDEN);
+            pEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_HIDDEN);
         }
         else
         {
             _SetStatusText(L"Phone: Connected");
             CoTaskMemFree(_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
             SHStrDupW(L"Restart Tether Service", &_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
-            _pCredProvCredentialEvents->SetFieldString(this, SFI_SERVICE_ACTION_BUTTON, L"Restart Tether Service");
-            _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_SERVICE_ACTION_BUTTON, CPFIS_NONE);
-            _pCredProvCredentialEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+            pEvents->SetFieldString(this, SFI_SERVICE_ACTION_BUTTON, L"Restart Tether Service");
+            pEvents->SetFieldInteractiveState(this, SFI_SERVICE_ACTION_BUTTON, CPFIS_NONE);
+            pEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
 
             _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
-            _pCredProvCredentialEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
-
-            long long nowMs = GetTickCount64();
-            long long endMs = _promptCooldownEndMs.load(std::memory_order_acquire);
-            if (nowMs >= endMs)
-            {
-                _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFIS_NONE);
-            }
-            else
-            {
-                _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFIS_DISABLED);
-            }
+            pEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
         }
     }
+
+    if (isServiceRunning && isPhoneConnected)
+    {
+        long long nowMs = GetTickCount64();
+        long long endMs = _promptCooldownEndMs.load(std::memory_order_acquire);
+        if (nowMs >= endMs)
+        {
+            pEvents->SetFieldInteractiveState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFIS_NONE);
+        }
+        else
+        {
+            pEvents->SetFieldInteractiveState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFIS_DISABLED);
+        }
+    }
+
+    pEvents->Release();
 }
 
 void CSampleCredential::_PerformServiceActionAsync()
@@ -938,10 +965,7 @@ void CSampleCredential::_PerformServiceActionAsync()
                     if (pThis->_isValid.load())
                     {
                         pThis->_fServiceActionInProgress.store(false);
-                        if (pThis->_hWndMessage)
-                        {
-                            PostMessageW(pThis->_hWndMessage, WM_STATUS_UPDATE, 0, 0);
-                        }
+                        pThis->_CheckStatusAndRefreshUi();
                     }
                 }
             }
@@ -969,16 +993,7 @@ void CALLBACK CSampleCredential::_OnStatusTimerFired(PTP_CALLBACK_INSTANCE, PVOI
 {
     CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lpParameter);
     if (!pThis || !pThis->_isValid.load()) return;
-    if (pThis->_hWndMessage)
-        PostMessageW(pThis->_hWndMessage, WM_STATUS_UPDATE, 0, 0);
-}
-
-void CALLBACK CSampleCredential::_OnPhoneConnectedSignaled(PVOID lpParameter, BOOLEAN)
-{
-    CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lpParameter);
-    if (!pThis || !pThis->_isValid.load()) return;
-    if (pThis->_hWndMessage)
-        PostMessageW(pThis->_hWndMessage, WM_STATUS_UPDATE, 0, 0);
+    pThis->_CheckStatusAndRefreshUi();
 }
 
 HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
@@ -1080,41 +1095,45 @@ HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
 
 void CSampleCredential::_SetStatusText(PCWSTR pszStatus)
 {
-    CoTaskMemFree(_rgFieldStrings[SFI_LOGONSTATUS_TEXT]);
-    if (FAILED(SHStrDupW(pszStatus, &_rgFieldStrings[SFI_LOGONSTATUS_TEXT])))
-        _rgFieldStrings[SFI_LOGONSTATUS_TEXT] = nullptr;
+    if (!pszStatus) return;
 
-    if (_pCredProvCredentialEvents)
-        _pCredProvCredentialEvents->SetFieldString(this, SFI_LOGONSTATUS_TEXT, pszStatus);
+    if (_rgFieldStrings[SFI_LOGONSTATUS_TEXT] && wcscmp(_rgFieldStrings[SFI_LOGONSTATUS_TEXT], pszStatus) == 0)
+    {
+        return; // Text hasn't changed; avoid redundant redraw
+    }
+
+    CoTaskMemFree(_rgFieldStrings[SFI_LOGONSTATUS_TEXT]);
+    _rgFieldStrings[SFI_LOGONSTATUS_TEXT] = nullptr;
+    SHStrDupW(pszStatus, &_rgFieldStrings[SFI_LOGONSTATUS_TEXT]);
+
+    ICredentialProviderCredentialEvents* pEvents = _GetCredentialEventsSafe();
+    if (pEvents)
+    {
+        pEvents->SetFieldString(this, SFI_LOGONSTATUS_TEXT, pszStatus);
+        pEvents->Release();
+    }
 }
 
 void CSampleCredential::_BeginUnlockPromptCooldown()
 {
     _promptCooldownEndMs.store(GetTickCount64() + c_promptCooldownSeconds * 1000LL, std::memory_order_release);
 
-    if (_pCredProvCredentialEvents)
+    ICredentialProviderCredentialEvents* pEvents = _GetCredentialEventsSafe();
+    if (pEvents)
     {
-        // Disable the button and announce the countdown; both field updates are
-        // refreshed by the WM_PROMPT_COOLDOWN_TICK posts from the pool timer.
-        _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFIS_DISABLED);
-        wchar_t statusText[64];
-        swprintf_s(statusText, L"Unlock prompt sent - resend available in %d s", c_promptCooldownSeconds);
-        _SetStatusText(statusText);
+        pEvents->SetFieldInteractiveState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFIS_DISABLED);
+        pEvents->Release();
     }
+    wchar_t statusText[64];
+    swprintf_s(statusText, L"Unlock prompt sent - resend available in %d s", c_promptCooldownSeconds);
+    _SetStatusText(statusText);
 
-    // SetTimer is unreliable here: ticks are only delivered if the thread that
-    // created the window keeps pumping its queue, which LogonUI does not
-    // guarantee for credential callbacks. Use a threadpool timer instead - it
-    // fires on a pool thread and hops to the window thread via PostMessage,
-    // the same pattern the unlock-refresh path uses.
     if (!_pCooldownTimer)
         _pCooldownTimer = CreateThreadpoolTimer(CSampleCredential::_OnCooldownTimerFired, this, nullptr);
     if (_pCooldownTimer)
     {
-        // Negative FILETIME = due time relative to now, in 100ns units (-1s).
         LONG64 due100ns = -10000000LL;
         FILETIME ftDue = *reinterpret_cast<FILETIME*>(&due100ns);
-        // msPeriod = 1000: re-fire every second until the countdown ends.
         SetThreadpoolTimer(_pCooldownTimer, &ftDue, 1000, 0);
     }
 }
@@ -1123,9 +1142,7 @@ void CALLBACK CSampleCredential::_OnCooldownTimerFired(PTP_CALLBACK_INSTANCE, PV
 {
     CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lpParameter);
     if (!pThis || !pThis->_isValid.load()) return;
-
-    if (pThis->_hWndMessage)
-        PostMessageW(pThis->_hWndMessage, WM_PROMPT_COOLDOWN_TICK, 0, reinterpret_cast<LPARAM>(pThis));
+    pThis->_OnCooldownTick();
 }
 
 void CSampleCredential::_OnCooldownTick()
@@ -1141,11 +1158,13 @@ void CSampleCredential::_OnCooldownTick()
             CloseThreadpoolTimer(_pCooldownTimer);
             _pCooldownTimer = nullptr;
         }
-        if (_pCredProvCredentialEvents)
+        ICredentialProviderCredentialEvents* pEvents = _GetCredentialEventsSafe();
+        if (pEvents)
         {
-            _pCredProvCredentialEvents->SetFieldInteractiveState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFIS_NONE);
-            _SetStatusText(_fPhoneConnected.load() ? L"Phone: Connected" : L"Phone: Disconnected");
+            pEvents->SetFieldInteractiveState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFIS_NONE);
+            pEvents->Release();
         }
+        _SetStatusText(_fPhoneConnected.load() ? L"Phone: Connected" : L"Phone: Disconnected");
         return;
     }
 
@@ -1159,8 +1178,6 @@ HRESULT CSampleCredential::GetFieldOptions(DWORD dwFieldID, CREDENTIAL_PROVIDER_
     try
     {
         *pcpcfo = CPCFO_NONE;
-        if (dwFieldID == SFI_TILEIMAGE)
-            *pcpcfo = CPCFO_ENABLE_TOUCH_KEYBOARD_AUTO_INVOKE;
         return S_OK;
     }
     catch (...)
@@ -1181,99 +1198,45 @@ void CALLBACK CSampleCredential::_OnAppEventSignaled(PVOID lpParameter, BOOLEAN)
     g_fAutoLogonReady.store(true);
 
     if (pThis->_hAppEvent) ResetEvent(pThis->_hAppEvent);
-    if (pThis->_hWndMessage)
-    {
-        PostMessageW(pThis->_hWndMessage, WM_SIGNAL_CREDENTIALS_CHANGED, 0, reinterpret_cast<LPARAM>(pThis));
-    }
-    else if (pThis->_pProvider)
+    if (pThis->_pProvider)
     {
         pThis->_pProvider->SignalCredentialsChanged();
     }
 }
 
-void CALLBACK CSampleCredential::_OnScreenEventSignaled(PVOID lpParameter, BOOLEAN)
-{
-    CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lpParameter);
-    if (!pThis || !pThis->_isValid.load()) return;
-
-    if (pThis->_hWndMessage && !g_fPhoneScreenTriggered.load())
-    {
-        g_fPhoneScreenTriggered.store(true);
-        g_fAutoLogonReady.store(true);
-        if (pThis->_hScreenEvent) ResetEvent(pThis->_hScreenEvent);
-        PostMessageW(pThis->_hWndMessage, WM_SIGNAL_CREDENTIALS_CHANGED, 0, reinterpret_cast<LPARAM>(pThis));
-    }
-}
-
 void CSampleCredential::_StartBackgroundIPCListeners()
 {
-    PSECURITY_DESCRIPTOR pSD = nullptr;
-    // D:P(A;;GA;;;SY)(A;;GA;;;BA) -> Protected DACL, Grant Generic All to SYSTEM and Builtin Admins only
-    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
-        L"D:P(A;;GA;;;SY)(A;;GA;;;BA)",
-        SDDL_REVISION_1,
-        &pSD,
-        nullptr))
+    _hAppEvent = OpenEventW(SYNCHRONIZE | EVENT_MODIFY_STATE | READ_CONTROL, FALSE, L"Global\\TetherPhoneAppUnlocked");
+    if (_hAppEvent)
     {
-        SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), pSD, FALSE };
-        _hAppEvent = CreateEventW(&sa, TRUE, FALSE, L"Global\\TetherPhoneAppUnlocked");
-        DWORD dwErr = GetLastError();
-
-        if (_hAppEvent != nullptr)
+        if (!IsTrustedKernelObjectOwner(_hAppEvent))
         {
-            if (dwErr == ERROR_ALREADY_EXISTS)
-            {
-                PSID pOwner = nullptr;
-                PSECURITY_DESCRIPTOR pSecDesc = nullptr;
-                DWORD dwRes = GetSecurityInfo(_hAppEvent, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, &pOwner, nullptr, nullptr, nullptr, &pSecDesc);
-                if (dwRes == ERROR_SUCCESS && pOwner != nullptr)
-                {
-                    if (IsWellKnownSid(pOwner, WinLocalSystemSid) || IsWellKnownSid(pOwner, WinBuiltinAdministratorsSid))
-                    {
-                        // Verified trusted owner (SYSTEM or Builtin Administrators); enforce secure DACL
-                        if (!SetKernelObjectSecurity(_hAppEvent, DACL_SECURITY_INFORMATION, pSD))
-                        {
-                            WriteDebugLog(L"SECURITY WARNING: SetKernelObjectSecurity failed (%u) on TetherPhoneAppUnlocked. Discarding.", GetLastError());
-                            CloseHandle(_hAppEvent);
-                            _hAppEvent = nullptr;
-                        }
-                        else
-                        {
-                            WriteDebugLog(L"Opened existing global event with verified owner and secure attributes: TetherPhoneAppUnlocked");
-                        }
-                    }
-                    else
-                    {
-                        WriteDebugLog(L"SECURITY WARNING: Existing TetherPhoneAppUnlocked event has untrusted owner! Discarding.");
-                        CloseHandle(_hAppEvent);
-                        _hAppEvent = nullptr;
-                    }
-                }
-                else
-                {
-                    WriteDebugLog(L"SECURITY WARNING: Failed to query owner for existing TetherPhoneAppUnlocked event (dwRes=%u). Discarding.", dwRes);
-                    CloseHandle(_hAppEvent);
-                    _hAppEvent = nullptr;
-                }
-                if (pSecDesc != nullptr)
-                {
-                    LocalFree(pSecDesc);
-                }
-            }
-            else
+            WriteDebugLog(L"SECURITY WARNING: Existing TetherPhoneAppUnlocked event has untrusted owner! Discarding.");
+            CloseHandle(_hAppEvent);
+            _hAppEvent = nullptr;
+        }
+        else
+        {
+            WriteDebugLog(L"Opened existing global event with verified owner: TetherPhoneAppUnlocked");
+        }
+    }
+    else
+    {
+        PSECURITY_DESCRIPTOR pSD = nullptr;
+        if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            L"D:P(A;;GA;;;SY)(A;;GA;;;BA)",
+            SDDL_REVISION_1,
+            &pSD,
+            nullptr))
+        {
+            SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), pSD, FALSE };
+            _hAppEvent = CreateEventW(&sa, TRUE, FALSE, L"Global\\TetherPhoneAppUnlocked");
+            LocalFree(pSD);
+            if (_hAppEvent)
             {
                 WriteDebugLog(L"Created secure global event: TetherPhoneAppUnlocked");
             }
         }
-        else
-        {
-            WriteDebugLog(L"CreateEventW failed (%u)", dwErr);
-        }
-        LocalFree(pSD);
-    }
-    else
-    {
-        WriteDebugLog(L"ConvertStringSecurityDescriptorToSecurityDescriptorW failed (%u)", GetLastError());
     }
 
     if (_hAppEvent)
@@ -1282,45 +1245,6 @@ void CSampleCredential::_StartBackgroundIPCListeners()
             CSampleCredential::_OnAppEventSignaled, this,
             INFINITE, WT_EXECUTEDEFAULT);
     }
-
-    HANDLE hPhoneConnected = OpenEventW(SYNCHRONIZE | READ_CONTROL, FALSE, L"Global\\TetherPhoneConnected");
-    if (hPhoneConnected)
-    {
-        if (IsTrustedKernelObjectOwner(hPhoneConnected))
-        {
-            _hPhoneConnectedEvent = hPhoneConnected;
-            RegisterWaitForSingleObject(&_hWaitPhoneConnected, _hPhoneConnectedEvent,
-                CSampleCredential::_OnPhoneConnectedSignaled, this,
-                INFINITE, WT_EXECUTEDEFAULT);
-        }
-        else
-        {
-            WriteDebugLog(L"SECURITY WARNING: Global\\TetherPhoneConnected has untrusted owner! Discarding.");
-            CloseHandle(hPhoneConnected);
-            _hPhoneConnectedEvent = nullptr;
-        }
-    }
-}
-
-void CALLBACK CSampleCredential::_OnIPCEventSignaled(PVOID lpParameter, BOOLEAN)
-{
-    CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lpParameter);
-    if (pThis && pThis->_pProvider && pThis->_isValid.load())
-    {
-        g_fAutoLogonReady.store(true);
-        pThis->_pProvider->SignalCredentialsChanged();
-    }
-}
-
-void CSampleCredential::_CreateMessageWindow()
-{
-    WNDCLASSEXW wcex = { sizeof(wcex) };
-    wcex.lpfnWndProc = CSampleCredential::WebAuthMsgProc;
-    wcex.hInstance = HINST_THISDLL;
-    wcex.lpszClassName = L"TetherMessageWindowPool";
-    RegisterClassExW(&wcex);
-    _hWndMessage = CreateWindowExW(0, wcex.lpszClassName, nullptr, 0, 0, 0, 0, 0,
-        HWND_MESSAGE, nullptr, HINST_THISDLL, this);
 }
 
 void WriteDebugLog(const wchar_t* format, ...)
@@ -1371,14 +1295,5 @@ void WriteDebugLog(const wchar_t* format, ...)
                 CloseHandle(hFile);
             }
         }
-    }
-}
-
-void CSampleCredential::_DestroyMessageWindow()
-{
-    if (_hWndMessage)
-    {
-        DestroyWindow(_hWndMessage);
-        _hWndMessage = nullptr;
     }
 }
