@@ -311,7 +311,7 @@ public sealed class TetherSession : IDisposable
         // =========================================================================
         // PATH 1: KNOWN PAIRED DEVICE -> Cryptographic Proof-of-Possession Challenge
         // =========================================================================
-        if (isAlreadyPaired && knownDevice != null)
+        if (isAlreadyPaired && !init.IsPairingRequested && knownDevice != null)
         {
             string storedSpki = string.IsNullOrEmpty(knownDevice.PublicKeySpkiBase64)
                 ? init.PublicKey
