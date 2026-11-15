@@ -178,7 +178,7 @@ HRESULT CSampleProvider::GetCredentialCount(_Out_ DWORD* pdwCount,
             }
             else
             {
-                *pdwDefault = CREDENTIAL_PROVIDER_NO_DEFAULT;
+                *pdwDefault = 0;
                 *pbAutoLogonWithDefault = FALSE;
             }
         }
