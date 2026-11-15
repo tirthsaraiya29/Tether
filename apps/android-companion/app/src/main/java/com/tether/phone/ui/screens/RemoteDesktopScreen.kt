@@ -42,9 +42,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.CertificatePinner
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.BufferedInputStream
 import java.security.MessageDigest
 import java.io.ByteArrayOutputStream
@@ -107,36 +104,20 @@ fun RemoteDesktopScreen(
 
     // High-performance MJPEG Streaming coroutine
     LaunchedEffect(hostIp, token, isStreaming, targetFps, targetQuality, selectedWindow) {
-        if (!isStreaming || hostIp == null || token == null) return@LaunchedEffect
+        val currentHost = hostIp ?: return@LaunchedEffect
+        val currentToken = token ?: return@LaunchedEffect
+        if (!isStreaming) return@LaunchedEffect
 
         withContext(Dispatchers.IO) {
             try {
-                val pinnedKey = FileTransferClient.resolvePinnedKey(context, null)
-                val baseClient = FileTransferClient.getPinnedClient(context, pinnedKey, hostIp)
-                val client = baseClient.newBuilder()
-                    .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
-                    .build()
-
-                val winParam = if (selectedWindow != null && selectedWindow!!.hwnd != 0L) "&windowId=${selectedWindow!!.hwnd}" else ""
-                val url = "https://$hostIp:37124/api/desktop/stream?fps=$targetFps&quality=$targetQuality$winParam"
-                val requestBuilder = Request.Builder().url(url)
-
-                val timestampMs = System.currentTimeMillis().toString()
-                if (pinnedKey != null && pinnedKey.isNotEmpty()) {
-                    val winSpkiBase64 = android.util.Base64.encodeToString(pinnedKey, android.util.Base64.NO_WRAP)
-                    val proofData = "$token:$timestampMs:$winSpkiBase64".toByteArray(Charsets.UTF_8)
-                    val sig = ProductionSecurityEngine().signWithIdentityKey(proofData)
-                    val proofBase64 = android.util.Base64.encodeToString(sig, android.util.Base64.NO_WRAP)
-                    requestBuilder
-                        .header("Authorization", "Bearer $token")
-                        .header("X-Tether-Client-Proof", proofBase64)
-                        .header("X-Tether-Client-Timestamp", timestampMs)
-                        .header("X-Tether-Client-WinSpki", winSpkiBase64)
-                } else {
-                    requestBuilder.header("Authorization", "Bearer $token")
-                }
-
-                client.newCall(requestBuilder.build()).execute().use { response ->
+                FileTransferClient.openDesktopStream(
+                    hostIp = currentHost,
+                    token = currentToken,
+                    targetFps = targetFps,
+                    targetQuality = targetQuality,
+                    windowId = selectedWindow?.hwnd,
+                    context = context,
+                ).use { response ->
                     if (!response.isSuccessful) {
                         streamError = "Stream connection failed: HTTP ${response.code}"
                         return@use

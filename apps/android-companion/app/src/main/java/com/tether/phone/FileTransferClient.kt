@@ -277,6 +277,62 @@ object FileTransferClient {
         }
     }
 
+    fun getStreamingClient(
+        context: Context?,
+        customPinnedKey: ByteArray? = null,
+        host: String? = null
+    ): OkHttpClient {
+        val base = getPinnedClient(context, customPinnedKey, host)
+        val pinnedKey = resolvePinnedKey(context, customPinnedKey)
+            ?: throw IllegalStateException("Windows host public key must be pinned before initiating desktop streaming.")
+        val sha256 = MessageDigest.getInstance("SHA-256").digest(pinnedKey)
+        val pinBase64 = android.util.Base64.encodeToString(sha256, android.util.Base64.NO_WRAP)
+        val pin = "sha256/$pinBase64"
+        val hostPart = host?.trim() ?: ""
+
+        val pinnerBuilder = CertificatePinner.Builder()
+        if (hostPart.isNotEmpty()) {
+            pinnerBuilder.add(hostPart, pin)
+        }
+        pinnerBuilder.add("localhost", pin)
+        pinnerBuilder.add("127.0.0.1", pin)
+        pinnerBuilder.add("*.local", pin)
+
+        return base.newBuilder()
+            .certificatePinner(pinnerBuilder.build())
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .build()
+    }
+
+    fun openDesktopStream(
+        hostIp: String,
+        token: String,
+        targetFps: Int,
+        targetQuality: Int,
+        windowId: Long?,
+        context: Context?,
+        customPinnedKey: ByteArray? = null
+    ): Response {
+        val client = getStreamingClient(context, customPinnedKey, hostIp)
+        val urlBuilder = HttpUrl.Builder()
+            .scheme("https")
+            .host(hostIp)
+            .port(37124)
+            .addPathSegment("api")
+            .addPathSegment("desktop")
+            .addPathSegment("stream")
+            .addQueryParameter("fps", targetFps.toString())
+            .addQueryParameter("quality", targetQuality.toString())
+
+        if (windowId != null && windowId != 0L) {
+            urlBuilder.addQueryParameter("windowId", windowId.toString())
+        }
+
+        val requestBuilder = Request.Builder().url(urlBuilder.build())
+        addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
+        return client.newCall(requestBuilder.build()).execute()
+    }
+
     private inline fun <T> Call.executeWithDiagnostics(block: (Response) -> T): T {
         try {
             return execute().use(block)

@@ -990,6 +990,18 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
     }
 
+    fun resolveExpectedFingerprint(hostAddress: String): String? {
+        val discovered = discoveryManager.getDiscoveredDevices().firstOrNull { 
+            it.hostAddress.equals(hostAddress, ignoreCase = true) || 
+            (hostAddress == "127.0.0.1" && it.hostAddress.equals("localhost", ignoreCase = true)) ||
+            (hostAddress.equals("localhost", ignoreCase = true) && it.hostAddress == "127.0.0.1")
+        }
+        if (discovered != null && discovered.deviceId.isNotBlank()) {
+            return discovered.deviceId
+        }
+        return null
+    }
+
     fun connectToHost(hostAddress: String, port: Int = TetherDiscoveryManager.DEFAULT_PORT) {
         synchronized(connectLock) {
             if ((currentState == TransportState.AUTHENTICATING) || (currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) return
@@ -1015,7 +1027,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 activeTransport?.disconnect("Replaced by new connection")
             } catch (_: Exception) {}
             activeTransport = null
-            val transport = TetherTlsTransport(this@TetherLanService, securityEngine)
+            val expectedFingerprint = resolveExpectedFingerprint(hostAddress)
+            val transport = TetherTlsTransport(
+                appContext = this@TetherLanService,
+                securityEngine = securityEngine,
+                expectedPeerFingerprint = expectedFingerprint,
+            )
             synchronized(connectLock) {
                 connectingTransport = transport
             }

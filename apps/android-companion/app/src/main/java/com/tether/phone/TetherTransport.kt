@@ -35,9 +35,85 @@ interface TetherTransport {
     fun getPeerIdentityFingerprint(): String?
 }
 
+class TetherTransportTrustManager(
+    private val context: Context? = null,
+    private val securityEngine: ProductionSecurityEngine,
+    private val expectedPeerFingerprint: String? = null,
+    private val expectedPeerPublicKey: ByteArray? = null,
+) : javax.net.ssl.X509ExtendedTrustManager() {
+
+    @Volatile
+    private var lastVerifiedCert: X509Certificate? = null
+
+    override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+        throw CertificateException("Client certificates are not supported by this transport")
+    }
+
+    override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+        verifyCertificate(chain)
+    }
+
+    override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
+        throw CertificateException("Client certificates are not supported by this transport")
+    }
+
+    override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
+        verifyCertificate(chain)
+    }
+
+    override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: SSLEngine?) {
+        throw CertificateException("Client certificates are not supported by this transport")
+    }
+
+    override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: SSLEngine?) {
+        verifyCertificate(chain)
+    }
+
+    fun checkServerTrusted(chain: Array<X509Certificate>, authType: String?, host: String?): List<X509Certificate> {
+        verifyCertificate(chain)
+        return chain.toList()
+    }
+
+    override fun getAcceptedIssuers(): Array<X509Certificate> {
+        val cert = lastVerifiedCert
+        return if (cert != null) arrayOf(cert) else emptyArray()
+    }
+
+    fun verifyCertificate(chain: Array<out X509Certificate>?) {
+        if (chain.isNullOrEmpty()) {
+            throw CertificateException("Server certificate chain is null or empty")
+        }
+        val leaf = chain[0]
+        leaf.checkValidity()
+
+        val pinnedBytes = expectedPeerPublicKey ?: context?.let { securityEngine.getPinnedKeyDecrypted(it) }
+        if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
+            if (!MessageDigest.isEqual(pinnedBytes, leaf.publicKey.encoded)) {
+                throw CertificateException("Certificate pinning verification failed: public key mismatch")
+            }
+            lastVerifiedCert = leaf
+            return
+        }
+
+        val expectedFp = expectedPeerFingerprint
+        if (!expectedFp.isNullOrBlank()) {
+            val leafFp = securityEngine.computePublicKeyFingerprint(leaf.publicKey.encoded)
+            if (!leafFp.equals(expectedFp, ignoreCase = true)) {
+                throw CertificateException("Certificate pinning verification failed: fingerprint mismatch with discovered identity")
+            }
+            lastVerifiedCert = leaf
+            return
+        }
+
+        throw CertificateException("Refusing connection: peer public key is not pinned and no expected discovered fingerprint was provided")
+    }
+}
+
 class TetherTlsTransport(
     private val appContext: Context,
     private val securityEngine: ProductionSecurityEngine,
+    private val expectedPeerFingerprint: String? = null,
+    private val expectedPeerPublicKey: ByteArray? = null,
 ) : TetherTransport {
 
     companion object {
@@ -121,62 +197,12 @@ class TetherTlsTransport(
     }
 
     private fun createSslContext(): SSLContext {
-        val tmf = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
-        tmf.init(null as java.security.KeyStore?)
-        val defaultTrustManager = tmf.trustManagers.filterIsInstance<javax.net.ssl.X509ExtendedTrustManager>().firstOrNull()
-
-        val pinningTrustManager = object : javax.net.ssl.X509ExtendedTrustManager() {
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                throw CertificateException("Client certificates are not supported by this transport")
-            }
-
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                checkPinning(chain)
-            }
-
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
-                throw CertificateException("Client certificates are not supported by this transport")
-            }
-
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
-                checkPinning(chain)
-            }
-
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
-                throw CertificateException("Client certificates are not supported by this transport")
-            }
-
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
-                checkPinning(chain)
-            }
-
-            override fun getAcceptedIssuers(): Array<X509Certificate> {
-                return defaultTrustManager?.acceptedIssuers ?: arrayOf()
-            }
-
-            private fun checkPinning(
-                chain: Array<out X509Certificate>?,
-            ) {
-                if (chain.isNullOrEmpty()) {
-                    throw CertificateException("Server certificate chain is null or empty")
-                }
-                val leaf = chain[0]
-                leaf.checkValidity()
-
-                val pinnedBytes = securityEngine.getPinnedKeyDecrypted(appContext)
-                if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
-                    if (!MessageDigest.isEqual(pinnedBytes, leaf.publicKey.encoded)) {
-                        throw CertificateException("Certificate pinning verification failed: public key fingerprint mismatch")
-                    }
-                } else {
-                    // Trust On First Use (TOFU) / Pairing Mode:
-                    // If no key is pinned, we temporarily accept the self-signed certificate at the TLS layer.
-                    // The application-level TetherPairingManager will negotiate identity, display fingerprints,
-                    // and require user approval before finally pinning this key.
-                    Log.i(TAG, "No pinned key found. Temporarily accepting certificate for pairing handshake.")
-                }
-            }
-        }
+        val pinningTrustManager = TetherTransportTrustManager(
+            context = appContext,
+            securityEngine = securityEngine,
+            expectedPeerFingerprint = expectedPeerFingerprint,
+            expectedPeerPublicKey = expectedPeerPublicKey,
+        )
 
         val customKeyManager = object : X509ExtendedKeyManager() {
             override fun getClientAliases(keyType: String?, issuers: Array<out Principal>?): Array<String> = arrayOf("TetherIdentity")

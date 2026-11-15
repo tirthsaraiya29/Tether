@@ -288,7 +288,7 @@ public sealed class TetherSession : IDisposable
             return false;
         }
 
-        if (!string.IsNullOrEmpty(init.DeviceId) && !Regex.IsMatch(init.DeviceId, @"^[a-zA-Z0-9_\-\.]{1,64}$"))
+        if (!string.IsNullOrEmpty(init.DeviceId) && !Regex.IsMatch(init.DeviceId, @"^[a-zA-Z0-9_\-\.:]{1,128}$"))
         {
             _logger.Warning($"TetherSession [{SessionId}]: Rejected HANDSHAKE_INIT (invalid deviceId format).");
             return false;
