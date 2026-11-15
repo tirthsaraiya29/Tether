@@ -626,7 +626,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
         val isPaired = try {
             securityEngine = ProductionSecurityEngine()
-            securityEngine.getPinnedKeyDecrypted(this) != null
+            securityEngine.getPinnedKeyResult(this) is PinnedKeyResult.Present
         } catch (_: Exception) { false }
         val hasUnlockedOnce = prefs.getBoolean("has_unlocked_app_once", false)
 
@@ -674,8 +674,15 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         pairingManager = TetherPairingManager(this, securityEngine)
         capabilityManager = TetherCapabilityManager()
 
-        val pinnedKey = securityEngine.getPinnedKeyDecrypted(this)
-        trustState = if (pinnedKey != null) TrustState.PAIRED else TrustState.UNPAIRED
+        val pinnedKeyResult = securityEngine.getPinnedKeyResult(this)
+        trustState = when (pinnedKeyResult) {
+            is PinnedKeyResult.Present -> TrustState.PAIRED
+            is PinnedKeyResult.Corrupted -> {
+                Log.e(TAG, "SECURITY ALERT: Pinned Windows key storage is corrupted or inaccessible.")
+                TrustState.KEY_MISMATCH
+            }
+            is PinnedKeyResult.Unprovisioned -> TrustState.UNPAIRED
+        }
 
         powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
@@ -772,7 +779,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             if (!::securityEngine.isInitialized) {
                 securityEngine = ProductionSecurityEngine()
             }
-            securityEngine.getPinnedKeyDecrypted(this) != null
+            securityEngine.getPinnedKeyResult(this) is PinnedKeyResult.Present
         } catch (_: Exception) { false }
         val hasUnlockedOnce = prefs.getBoolean("has_unlocked_app_once", false)
 
@@ -2467,7 +2474,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val phoneKeyBytes = securityEngine.getPublicKeyBytes()
         val phoneFp = securityEngine.computePublicKeyFingerprint(phoneKeyBytes)
 
-        val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(this)
+        val pinnedKeyResult = securityEngine.getPinnedKeyResult(this)
+        val pinnedKeyBytes = (pinnedKeyResult as? PinnedKeyResult.Present)?.keyBytes
         val winFp = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
 
         val intent = Intent(ACTION_LAN_STATE_CHANGED).apply {

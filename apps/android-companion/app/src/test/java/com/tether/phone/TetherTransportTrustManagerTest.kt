@@ -14,7 +14,7 @@ import java.util.Date
 
 class TetherTransportTrustManagerTest {
 
-    private class TestX509Certificate(
+    private open class TestX509Certificate(
         private val pubKey: PublicKey,
         private val isValid: Boolean = true
     ) : X509Certificate() {
@@ -50,9 +50,18 @@ class TetherTransportTrustManagerTest {
         override fun getExtensionValue(oid: String?): ByteArray? = null
     }
 
-    private val kpg = KeyPairGenerator.getInstance("EC").apply { initialize(256) }
-    private val keyPair1 = kpg.generateKeyPair()
-    private val keyPair2 = kpg.generateKeyPair()
+    private class TestCaX509Certificate(
+        pubKey: PublicKey
+    ) : TestX509Certificate(pubKey) {
+        override fun getBasicConstraints(): Int = 0 // CA certificate
+    }
+
+    private val ecKpg = KeyPairGenerator.getInstance("EC").apply { initialize(256) }
+    private val keyPair1 = ecKpg.generateKeyPair()
+    private val keyPair2 = ecKpg.generateKeyPair()
+
+    private val rsaKpg = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }
+    private val rsaKeyPair = rsaKpg.generateKeyPair()
 
     @Test
     fun testRejectNullOrEmptyChain() {
@@ -71,6 +80,51 @@ class TetherTransportTrustManagerTest {
     }
 
     @Test
+    fun testRejectExpiredCertificate() {
+        val expiredCert = TestX509Certificate(keyPair1.public, isValid = false)
+        val tm = TetherTransportTrustManager(
+            context = null,
+            securityEngine = ProductionSecurityEngine(),
+            expectedPeerPublicKey = keyPair1.public.encoded
+        )
+
+        val ex = assertThrows(CertificateException::class.java) {
+            tm.verifyCertificate(arrayOf(expiredCert))
+        }
+        assertTrue(ex.message!!.contains("invalid or expired"))
+    }
+
+    @Test
+    fun testRejectCaCertificateAsLeaf() {
+        val caCert = TestCaX509Certificate(keyPair1.public)
+        val tm = TetherTransportTrustManager(
+            context = null,
+            securityEngine = ProductionSecurityEngine(),
+            expectedPeerPublicKey = keyPair1.public.encoded
+        )
+
+        val ex = assertThrows(CertificateException::class.java) {
+            tm.verifyCertificate(arrayOf(caCert))
+        }
+        assertTrue(ex.message!!.contains("CA certificate"))
+    }
+
+    @Test
+    fun testRejectNonEcPublicKeyAlgorithm() {
+        val rsaCert = TestX509Certificate(rsaKeyPair.public)
+        val tm = TetherTransportTrustManager(
+            context = null,
+            securityEngine = ProductionSecurityEngine(),
+            expectedPeerPublicKey = rsaKeyPair.public.encoded
+        )
+
+        val ex = assertThrows(CertificateException::class.java) {
+            tm.verifyCertificate(arrayOf(rsaCert))
+        }
+        assertTrue(ex.message!!.contains("expected EC or ECDSA"))
+    }
+
+    @Test
     fun testValidateAgainstPinnedKey_SuccessAndMismatch() {
         val cert = TestX509Certificate(keyPair1.public)
         val tmMatch = TetherTransportTrustManager(
@@ -79,11 +133,9 @@ class TetherTransportTrustManagerTest {
             expectedPeerPublicKey = keyPair1.public.encoded
         )
 
-        // Must succeed without throwing
         tmMatch.verifyCertificate(arrayOf(cert))
         assertEquals(cert, tmMatch.acceptedIssuers.firstOrNull())
 
-        // Mismatched pinned key must throw CertificateException
         val tmMismatch = TetherTransportTrustManager(
             context = null,
             securityEngine = ProductionSecurityEngine(),
@@ -135,13 +187,30 @@ class TetherTransportTrustManagerTest {
     }
 
     @Test
-    fun testRejectClientCertificates() {
-        val tm = TetherTransportTrustManager(
+    fun testOverloadsEnforceIdenticalPolicies() {
+        val cert = TestX509Certificate(keyPair1.public)
+        val tmMatch = TetherTransportTrustManager(
             context = null,
-            securityEngine = ProductionSecurityEngine()
+            securityEngine = ProductionSecurityEngine(),
+            expectedPeerPublicKey = keyPair1.public.encoded
         )
+
+        // All server trust overloads must succeed for valid cert
+        tmMatch.checkServerTrusted(arrayOf(cert), "ECDSA")
+        tmMatch.checkServerTrusted(arrayOf(cert), "ECDSA", null as java.net.Socket?)
+        tmMatch.checkServerTrusted(arrayOf(cert), "ECDSA", null as javax.net.ssl.SSLEngine?)
+        val certList = tmMatch.checkServerTrusted(arrayOf(cert), "ECDSA", "192.168.1.50")
+        assertEquals(1, certList.size)
+
+        // All client trust overloads must throw CertificateException
         assertThrows(CertificateException::class.java) {
-            tm.checkClientTrusted(arrayOf(TestX509Certificate(keyPair1.public)), "ECDSA")
+            tmMatch.checkClientTrusted(arrayOf(cert), "ECDSA")
+        }
+        assertThrows(CertificateException::class.java) {
+            tmMatch.checkClientTrusted(arrayOf(cert), "ECDSA", null as java.net.Socket?)
+        }
+        assertThrows(CertificateException::class.java) {
+            tmMatch.checkClientTrusted(arrayOf(cert), "ECDSA", null as javax.net.ssl.SSLEngine?)
         }
     }
 }

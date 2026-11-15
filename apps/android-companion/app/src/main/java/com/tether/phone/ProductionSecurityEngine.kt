@@ -11,7 +11,6 @@ import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.KeyPairGenerator
-import java.security.SecureRandom
 import java.security.Signature
 import java.security.cert.X509Certificate
 import java.util.Locale
@@ -20,6 +19,19 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.security.auth.x500.X500Principal
+
+sealed class PinnedKeyResult {
+    object Unprovisioned : PinnedKeyResult()
+    data class Present(val keyBytes: ByteArray) : PinnedKeyResult() {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is Present) return false
+            return keyBytes.contentEquals(other.keyBytes)
+        }
+        override fun hashCode(): Int = keyBytes.contentHashCode()
+    }
+    data class Corrupted(val exception: Throwable? = null) : PinnedKeyResult()
+}
 
 class ProductionSecurityEngine {
 
@@ -40,6 +52,8 @@ class ProductionSecurityEngine {
         private var cachedPublicKeyBytes: ByteArray? = null
         @Volatile
         private var cachedPinnedKeyBytes: ByteArray? = null
+        @Volatile
+        private var cachedPinnedKeyResult: PinnedKeyResult? = null
         @Volatile
         private var pinnedKeyLoaded = false
     }
@@ -222,8 +236,51 @@ class ProductionSecurityEngine {
         }
     }
 
+    fun getPinnedKeyResult(context: Context): PinnedKeyResult = synchronized(keyCacheLock) {
+        cachedPinnedKeyResult?.let { cached ->
+            return@synchronized when (cached) {
+                is PinnedKeyResult.Present -> PinnedKeyResult.Present(cached.keyBytes.copyOf())
+                else -> cached
+            }
+        }
+
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (!prefs.contains(PINNED_WINDOWS_KEY_PREF)) {
+            val result = PinnedKeyResult.Unprovisioned
+            cachedPinnedKeyResult = result
+            return@synchronized result
+        }
+
+        val encodedStr = prefs.getString(PINNED_WINDOWS_KEY_PREF, null)
+        if (encodedStr.isNullOrBlank()) {
+            val result = PinnedKeyResult.Unprovisioned
+            cachedPinnedKeyResult = result
+            return@synchronized result
+        }
+
+        return@synchronized try {
+            val decrypted = decryptString(encodedStr)
+            if (decrypted != null && decrypted.isNotEmpty()) {
+                val result = PinnedKeyResult.Present(decrypted)
+                cachedPinnedKeyResult = result
+                result
+            } else {
+                Log.e(TAG, "Decrypted pinned key is null or empty, treating stored pin as corrupted.")
+                val result = PinnedKeyResult.Corrupted(IllegalStateException("Decryption returned empty pin data"))
+                cachedPinnedKeyResult = result
+                result
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to decrypt pinned key from storage: ${e.message}", e)
+            val result = PinnedKeyResult.Corrupted(e)
+            cachedPinnedKeyResult = result
+            result
+        }
+    }
+
     fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray): Boolean = synchronized(keyCacheLock) {
         try {
+            cachedPinnedKeyResult = null
             val encodedStr = encryptBytes(publicKeyBytes)
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val committed = prefs.edit().putString(PINNED_WINDOWS_KEY_PREF, encodedStr).commit()
@@ -232,13 +289,14 @@ class ProductionSecurityEngine {
                 return@synchronized false
             }
 
-            val readBack = getPinnedKeyDecrypted(context)
-            if (readBack == null || !MessageDigest.isEqual(readBack, publicKeyBytes)) {
+            val readBackResult = getPinnedKeyResult(context)
+            if (readBackResult !is PinnedKeyResult.Present || !MessageDigest.isEqual(readBackResult.keyBytes, publicKeyBytes)) {
                 Log.e(TAG, "Read-back verification of pinned Windows key failed")
                 return@synchronized false
             }
 
             Log.i(TAG, "Pinned Windows public identity key encrypted, saved, and verified in secure storage.")
+            cachedPinnedKeyResult = PinnedKeyResult.Present(publicKeyBytes.copyOf())
             cachedPinnedKeyBytes = publicKeyBytes.copyOf()
             pinnedKeyLoaded = true
             true
@@ -249,15 +307,14 @@ class ProductionSecurityEngine {
     }
 
     fun getPinnedKeyDecrypted(context: Context): ByteArray? = synchronized(keyCacheLock) {
-        if (pinnedKeyLoaded) {
-            return@synchronized cachedPinnedKeyBytes?.copyOf()
+        when (val result = getPinnedKeyResult(context)) {
+            is PinnedKeyResult.Present -> result.keyBytes.copyOf()
+            is PinnedKeyResult.Unprovisioned -> null
+            is PinnedKeyResult.Corrupted -> throw SecurityException(
+                "Stored pinned key is corrupted or cannot be decrypted",
+                result.exception
+            )
         }
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val encodedStr = prefs.getString(PINNED_WINDOWS_KEY_PREF, null)
-        val decrypted = decryptString(encodedStr)
-        cachedPinnedKeyBytes = decrypted?.copyOf()
-        pinnedKeyLoaded = true
-        decrypted
     }
 
     fun clearPinnedKey(context: Context) = synchronized(keyCacheLock) {
@@ -265,6 +322,7 @@ class ProductionSecurityEngine {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit().remove(PINNED_WINDOWS_KEY_PREF).apply()
             cachedPinnedKeyBytes = null
+            cachedPinnedKeyResult = PinnedKeyResult.Unprovisioned
             pinnedKeyLoaded = false
             FileTransferClient.clearCache()
             Log.i(TAG, "Cleared pinned Windows public keys from storage.")

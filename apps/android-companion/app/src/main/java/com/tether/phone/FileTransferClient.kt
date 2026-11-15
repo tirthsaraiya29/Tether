@@ -56,7 +56,7 @@ class TetherPinnedTrustManager(
     }
 
     override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-        // Client cert validation is handled at middleware level via proof headers
+        throw CertificateException("Client certificates are not supported by this trust manager")
     }
 
     override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
@@ -64,7 +64,7 @@ class TetherPinnedTrustManager(
     }
 
     override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) {
-        // Client cert validation is handled at middleware level via proof headers
+        throw CertificateException("Client certificates are not supported by this trust manager")
     }
 
     override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) {
@@ -72,7 +72,7 @@ class TetherPinnedTrustManager(
     }
 
     override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: SSLEngine?) {
-        // Client cert validation is handled at middleware level via proof headers
+        throw CertificateException("Client certificates are not supported by this trust manager")
     }
 
     override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: SSLEngine?) {
@@ -97,8 +97,32 @@ class TetherPinnedTrustManager(
         if (chain.isNullOrEmpty()) {
             throw CertificateException("Server certificate chain is null or empty")
         }
+        for (cert in chain) {
+            try {
+                cert.checkValidity()
+            } catch (e: Exception) {
+                throw CertificateException("Certificate in chain is invalid or expired: ${e.message}", e)
+            }
+        }
+
         val leaf = chain[0]
-        leaf.checkValidity()
+        val basicConstraints = leaf.basicConstraints
+        val keyUsage = leaf.keyUsage
+        val isCa = (basicConstraints != -1) || (keyUsage != null && keyUsage.size > 5 && keyUsage[5])
+        if (isCa) {
+            throw CertificateException("Leaf certificate cannot be a CA certificate; end-entity identity certificate expected")
+        }
+
+        val pubKey = leaf.publicKey
+            ?: throw CertificateException("Leaf certificate public key is null")
+        val algorithm = pubKey.algorithm
+        if (algorithm == null || (!algorithm.equals("EC", ignoreCase = true) && !algorithm.equals("ECDSA", ignoreCase = true))) {
+            throw CertificateException("Leaf certificate public key algorithm is '$algorithm'; expected EC or ECDSA")
+        }
+        val presentedKeyBytes = pubKey.encoded
+        if (presentedKeyBytes == null || presentedKeyBytes.isEmpty()) {
+            throw CertificateException("Leaf certificate public key encoded bytes are null or empty")
+        }
 
         val pinnedBytes = FileTransferClient.resolvePinnedKey(context, overridePinnedKey)
 
@@ -106,7 +130,6 @@ class TetherPinnedTrustManager(
             throw CertificateException("No pinned Windows public key found. Refusing untrusted peer connection.")
         }
 
-        val presentedKeyBytes = leaf.publicKey.encoded
         if (!MessageDigest.isEqual(pinnedBytes, presentedKeyBytes)) {
             throw CertificateException("Certificate pinning failed: presented server public key does not match pinned identity.")
         }
@@ -135,15 +158,15 @@ object FileTransferClient {
         }
 
         val targetContext = resolveContext(providedContext)
-        val storedKey = targetContext?.let {
-            try {
-                ProductionSecurityEngine().getPinnedKeyDecrypted(it)
-            } catch (_: Exception) {
-                null
+        if (targetContext != null) {
+            val engine = ProductionSecurityEngine()
+            when (val pinResult = engine.getPinnedKeyResult(targetContext)) {
+                is PinnedKeyResult.Present -> return pinResult.keyBytes
+                is PinnedKeyResult.Corrupted -> {
+                    throw IllegalStateException("Cannot resolve pinned key: stored pin is corrupted or inaccessible")
+                }
+                is PinnedKeyResult.Unprovisioned -> { /* Fall through to active peer key if connected */ }
             }
-        }
-        if (storedKey != null && storedKey.isNotEmpty()) {
-            return storedKey
         }
 
         val service = TetherLanService.instance

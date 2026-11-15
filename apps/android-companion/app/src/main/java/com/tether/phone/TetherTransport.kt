@@ -9,6 +9,7 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.SocketException
 import java.net.SocketTimeoutException
+import java.nio.charset.StandardCharsets
 import java.security.Principal
 import java.security.PrivateKey
 import java.security.MessageDigest
@@ -80,27 +81,83 @@ class TetherTransportTrustManager(
     }
 
     fun verifyCertificate(chain: Array<out X509Certificate>?) {
+        // 1. Reject null or empty certificate chains
         if (chain.isNullOrEmpty()) {
             throw CertificateException("Server certificate chain is null or empty")
         }
-        val leaf = chain[0]
-        leaf.checkValidity()
 
-        val pinnedBytes = expectedPeerPublicKey ?: context?.let { securityEngine.getPinnedKeyDecrypted(it) }
+        // 2. Validate certificate validity periods for all certificates in chain
+        for (cert in chain) {
+            try {
+                cert.checkValidity()
+            } catch (e: Exception) {
+                throw CertificateException("Certificate in server chain is invalid or expired: ${e.message}", e)
+            }
+        }
+
+        val leaf = chain[0]
+
+        // 3. Reject CA certificates being used as the peer's leaf identity certificate
+        val basicConstraints = leaf.basicConstraints
+        val keyUsage = leaf.keyUsage
+        val isCa = (basicConstraints != -1) || (keyUsage != null && keyUsage.size > 5 && keyUsage[5])
+        if (isCa) {
+            throw CertificateException("Leaf certificate must be an end-entity identity certificate, not a CA certificate")
+        }
+
+        // 4. Validate that the public key uses the expected EC algorithm and has valid encoded key material
+        val pubKey = leaf.publicKey
+            ?: throw CertificateException("Leaf certificate contains null public key")
+        val algorithm = pubKey.algorithm
+        if (algorithm == null || (!algorithm.equals("EC", ignoreCase = true) && !algorithm.equals("ECDSA", ignoreCase = true))) {
+            throw CertificateException("Leaf certificate public key algorithm is '$algorithm'; expected EC or ECDSA")
+        }
+        val leafKeyBytes = pubKey.encoded
+        if (leafKeyBytes == null || leafKeyBytes.isEmpty()) {
+            throw CertificateException("Leaf certificate public key encoded bytes are null or empty")
+        }
+
+        // Resolve pinned key state from explicit override or storage
+        val pinnedBytes: ByteArray? = when {
+            expectedPeerPublicKey != null && expectedPeerPublicKey.isNotEmpty() -> expectedPeerPublicKey
+            context != null -> {
+                when (val pinResult = securityEngine.getPinnedKeyResult(context)) {
+                    is PinnedKeyResult.Present -> pinResult.keyBytes
+                    is PinnedKeyResult.Corrupted -> {
+                        // 11. Fail closed if stored pin cannot be retrieved due to storage/decryption error
+                        throw CertificateException(
+                            "Refusing connection: stored pinning material is corrupted or inaccessible",
+                            pinResult.exception
+                        )
+                    }
+                    is PinnedKeyResult.Unprovisioned -> null
+                }
+            }
+            else -> null
+        }
+
+        // 5 & 6. When a pinned key exists, require exact constant-time comparison and reject mismatches
         if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
-            if (!MessageDigest.isEqual(pinnedBytes, leaf.publicKey.encoded)) {
+            if (!MessageDigest.isEqual(pinnedBytes, leafKeyBytes)) {
                 throw CertificateException("Certificate pinning verification failed: public key mismatch")
             }
             lastVerifiedCert = leaf
             return
         }
 
+        // 7, 8, 9, 10. First-contact Trust On First Use (TOFU) pairing path
         val expectedFp = expectedPeerFingerprint
         if (!expectedFp.isNullOrBlank()) {
-            val leafFp = securityEngine.computePublicKeyFingerprint(leaf.publicKey.encoded)
-            if (!leafFp.equals(expectedFp, ignoreCase = true)) {
+            val leafFp = securityEngine.computePublicKeyFingerprint(leafKeyBytes)
+            val expectedFpBytes = expectedFp.toByteArray(StandardCharsets.UTF_8)
+            val leafFpBytes = leafFp.toByteArray(StandardCharsets.UTF_8)
+            if (!MessageDigest.isEqual(expectedFpBytes, leafFpBytes)) {
                 throw CertificateException("Certificate pinning verification failed: fingerprint mismatch with discovered identity")
             }
+            Log.i(
+                "TetherTransportTrustManager",
+                "Accepting unpinned self-signed certificate at TLS layer during first-contact pairing. TLS acceptance does NOT authenticate peer; application-level pairing protocol must subsequently validate SPKI and complete interactive PIN + mutual proof before persisting trusted identity."
+            )
             lastVerifiedCert = leaf
             return
         }

@@ -117,7 +117,16 @@ class TetherPairingManager(
             val phoneFingerprint = securityEngine.computePublicKeyFingerprint(phonePubKeyBytes)
             val phonePubKeyBase64 = Base64.encodeToString(phonePubKeyBytes, Base64.NO_WRAP)
 
-            val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(context)
+            val pinnedResult = securityEngine.getPinnedKeyResult(context)
+            val pinnedKeyBytes = when (pinnedResult) {
+                is PinnedKeyResult.Present -> pinnedResult.keyBytes
+                is PinnedKeyResult.Corrupted -> {
+                    Log.e(TAG, "SECURITY ALERT: Stored pinned key is corrupted or inaccessible!")
+                    return PairingResult.Error("Stored trusted key is corrupted or inaccessible. Full interactive re-pairing required.")
+                }
+                is PinnedKeyResult.Unprovisioned -> null
+            }
+
             val pinnedFingerprint = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
             val isAlreadyPinned = ((pinnedKeyBytes != null) && pinnedKeyBytes.isNotEmpty())
 
@@ -187,7 +196,7 @@ class TetherPairingManager(
             when (pairingStatus) {
                 "PAIRED", "PAIRING_ACCEPTED" -> {
                     // Fail closed if device has no pinned key locally (TETH-003 FIX 2)
-                    if (!isAlreadyPinned || pinnedKeyBytes == null) {
+                    if (pinnedKeyBytes == null) {
                         Log.e(TAG, "SECURITY ALERT: Windows host reported PAIRED status, but device has no pinned key locally. Refusing auto-pinning.")
                         return PairingResult.Error("Windows host claims paired status, but no trusted key is pinned locally. Full interactive pairing required.")
                     }
