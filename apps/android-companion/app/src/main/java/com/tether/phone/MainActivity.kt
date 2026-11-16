@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
@@ -410,15 +411,6 @@ class MainActivity : FragmentActivity() {
         isLoading.value = false
         authenticateForAppUnlock()
 
-        lifecycleScope.launch(Dispatchers.IO) {
-            val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
-                withContext(Dispatchers.Main) {
-                    requestBatteryOptimizationExemption()
-                }
-            }
-        }
-
         setContent {
             LaunchedEffect(isPrivacyMaskEnabled.value, isBlockScreenReadingEnabled.value, isHideInRecentsEnabled.value) {
             }
@@ -576,10 +568,27 @@ class MainActivity : FragmentActivity() {
                                     onDismiss = { updateViewModel.snooze(this@MainActivity, 4) },
                                     onSnooze = { hours -> updateViewModel.snooze(this@MainActivity, hours) },
                                     onDownload = {
-                                        val downloadUrl = currentUpdateInfo.apkDownloadUrl ?: currentUpdateInfo.releaseUrl
-                                        if (downloadUrl.isNotBlank()) {
+                                        val downloadUrl = currentUpdateInfo.apkDownloadUrl
+                                        if (!downloadUrl.isNullOrBlank()) {
+                                            Toast.makeText(this@MainActivity, getString(R.string.update_downloading), Toast.LENGTH_SHORT).show()
+                                            lifecycleScope.launch(Dispatchers.IO) {
+                                                val result = InAppUpdateInstaller.downloadAndInstall(this@MainActivity, downloadUrl)
+                                                withContext(Dispatchers.Main) {
+                                                    if (result.error == "install_permission_required") {
+                                                        Toast.makeText(this@MainActivity, getString(R.string.update_install_permission_required), Toast.LENGTH_LONG).show()
+                                                    } else if (result.error == "signature_mismatch") {
+                                                        Toast.makeText(this@MainActivity, getString(R.string.update_signature_mismatch), Toast.LENGTH_LONG).show()
+                                                    } else if (result.error != null) {
+                                                        Toast.makeText(this@MainActivity, getString(R.string.update_download_failed), Toast.LENGTH_LONG).show()
+                                                    }
+                                                }
+                                                if (result.error == null) {
+                                                    withContext(Dispatchers.Main) { updateViewModel.dismissDialog() }
+                                                }
+                                            }
+                                        } else if (currentUpdateInfo.releaseUrl.isNotBlank()) {
                                             try {
-                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl))
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(currentUpdateInfo.releaseUrl))
                                                 startActivity(intent)
                                                 updateViewModel.dismissDialog()
                                             } catch (e: Exception) {
@@ -796,6 +805,8 @@ class MainActivity : FragmentActivity() {
         super.onStart()
         if (isEnvironmentRestricted.value) return
 
+        if (isAppLocked.value) return
+
         if (checkPermissions()) {
             startLanService()
         } else {
@@ -822,6 +833,7 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         updatePermissionStates()
+        if (isAppLocked.value) return
         updateViewModel.checkForUpdate(BuildConfig.VERSION_NAME, this)
         if (isEnvironmentRestricted.value || isPanicActive.value) return
         if (checkPermissions()) {
@@ -863,9 +875,6 @@ class MainActivity : FragmentActivity() {
                     }
 
                     isAppLocked.value = false
-                    if (isConnected.value && laptopTelemetry.value.powerState == LaptopPowerState.CONNECTED_LOCKED) {
-                        triggerLanAction("unlock", isAuthorizedBiometric = true)
-                    }
 
                     lifecycleScope.launch(Dispatchers.IO) {
                         val report = DeviceIntegrityRegistry(this@MainActivity).getCachedOrFastReport()
@@ -1396,6 +1405,51 @@ class MainActivity : FragmentActivity() {
                 )
             )
         }
+
+        val isNotifListenerGranted = NotificationManagerCompat.getEnabledListenerPackages(context).contains(packageName)
+        list.add(
+            PermissionItemState(
+                id = "notification_listener",
+                title = "Notification Access",
+                description = "Lets Tether mirror Android notifications to your paired Windows PC.",
+                level = PermissionLevel.HIGH,
+                isGranted = isNotifListenerGranted,
+                actionText = "CONFIGURE",
+                onClick = {
+                    if (!isNotifListenerGranted) {
+                        try {
+                            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        } catch (_: Exception) {
+                            openAppSettings()
+                        }
+                    }
+                }
+            )
+        )
+
+        val canInstallPackages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            packageManager.canRequestPackageInstalls()
+        } else true
+        list.add(
+            PermissionItemState(
+                id = "install_packages",
+                title = "Install Unknown Apps",
+                description = "Required for in-app Tether updates to install the downloaded update package.",
+                level = PermissionLevel.HIGH,
+                isGranted = canInstallPackages,
+                actionText = "CONFIGURE",
+                onClick = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !canInstallPackages) {
+                        try {
+                            val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+                            startActivity(intent)
+                        } catch (_: Exception) {
+                            openAppSettings()
+                        }
+                    }
+                }
+            )
+        )
 
         permissionStates.value = list
     }

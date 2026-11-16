@@ -135,7 +135,7 @@ Download prebuilt binaries directly from the official releases:
 
 ### Expanded Capability Ecosystem
 
-Tether provides nine integrated remote capability domains accessible from the Android companion app:
+Tether provides eight integrated remote capability domains accessible from the Android companion app:
 
 1. **Remote Desktop Streaming:**
    - Real-time low-latency screen streaming (multipart MJPEG on Port 37124).
@@ -154,25 +154,19 @@ Tether provides nine integrated remote capability domains accessible from the An
    - Scrollable monospace output canvas with streaming UTF-8 I/O.
    - Virtual terminal shortcut bar (Tab, Ctrl+C, Esc, Arrow keys) and quick diagnostic presets.
 
-4. **Bidirectional Clipboard Synchronization:**
-   - Live synchronization of text between Windows and Android clipboards.
-   - SHA-256 content hashing to eliminate echo loops.
-   - Remote Copy (Ctrl+C) and Remote Paste (Ctrl+V) command execution.
-   - Local clipboard history buffer.
-
-5. **Notification Bridge:**
+4. **Notification Bridge:**
    - Windows toast notification forwarding to the companion app.
    - Android notification mirroring to Windows desktop toasts via NotificationListenerService.
    - Remote notification dismissal across devices.
 
-6. **Advanced File Management:**
+5. **Advanced File Management:**
    - Directory navigation with recursive search.
    - Remote file renaming, moving, and folder creation.
    - Recycle Bin integration for safe deletion with optional permanent removal.
    - One-tap Recycle Bin emptying.
    - Resumable chunked file transfers protected by SHA-512 integrity hashes.
 
-7. **Windows Administration and Diagnostics:**
+6. **Windows Administration and Diagnostics:**
    - Hardware telemetry: CPU load percentage, RAM usage, logical disk storage meters, and network adapter throughput.
    - Battery health analytics: Design capacity, full charge capacity, wear level percentage, and charge cycle counts via WMI.
    - Windows ACPI power plan switching via native powrprof APIs.
@@ -180,11 +174,11 @@ Tether provides nine integrated remote capability domains accessible from the An
    - Windows Services control: start, stop, and restart services by name.
    - Windows Update queries: pending update counts and title inspection.
 
-8. **Application and Window Management:**
+7. **Application and Window Management:**
    - Start Menu catalog scanning with one-tap application launching.
    - Live desktop window management: focus, left/right snap, maximize, minimize, graceful close, and process termination.
 
-9. **Automation Workflows:**
+8. **Automation Workflows:**
    - Persistent multi-command workflow recipes stored on the Windows host.
    - Trigger options: manual execution, recurring time intervals, and scheduled wall-clock times.
    - Conditional evaluation: execution gated on battery level, charging status, or process presence.
@@ -193,7 +187,8 @@ Tether provides nine integrated remote capability domains accessible from the An
 ### Android Update Checks and Permissions
 
 - **Background update notifications:** A foreground `UpdateCheckService` checks GitHub releases on a dedicated notification channel and offers an in-app update dialog.
-- **Permissions dashboard:** A dedicated Permissions screen, plus a dashboard banner, tracks the runtime permissions Tether needs (nearby Wi-Fi, location, notifications, battery optimization exemption, overlays, full-screen intents) and offers one-tap grant actions.
+- **In-app updates:** Downloading the update APK happens inside the app; the package is signature-checked against the installed app before the system installer is invoked. "Install unknown apps" is requested as part of the Permissions screen.
+- **Permissions screen:** A dedicated Permissions screen, reachable after the app lock is unlocked, tracks the runtime permissions Tether needs (nearby Wi-Fi, location, notifications, notification listener access, battery optimization exemption, overlays, full-screen intents, install-unknown-apps) and offers per-item grant actions. Nothing is auto-prompted at first launch.
 ---
 
 ## Visual Highlights and UI Screenshots

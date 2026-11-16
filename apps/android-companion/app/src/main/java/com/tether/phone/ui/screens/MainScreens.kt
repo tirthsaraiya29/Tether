@@ -1318,7 +1318,6 @@ fun TetherNavigationShell(
                             Triple("REMOTE DESKTOP", Icons.Default.DesktopWindows, AppScreen.REMOTE_DESKTOP),
                             Triple("ADVANCED AUDIO", Icons.AutoMirrored.Filled.VolumeUp, AppScreen.ADVANCED_AUDIO),
                             Triple("REMOTE TERMINAL", Icons.Default.Terminal, AppScreen.REMOTE_TERMINAL),
-                            Triple("CLIPBOARD SYNC", Icons.Default.ContentPaste, AppScreen.CLIPBOARD),
                             Triple("NOTIFICATIONS", Icons.Default.Notifications, AppScreen.NOTIFICATIONS),
                             Triple("WINDOWS ADMIN", Icons.Default.AdminPanelSettings, AppScreen.WINDOWS_ADMIN),
                             Triple("APP MANAGER", Icons.Default.Apps, AppScreen.APP_MANAGEMENT),
@@ -1467,9 +1466,6 @@ fun TetherNavigationShell(
                             onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
                         )
                         AppScreen.REMOTE_TERMINAL -> RemoteTerminalScreen(
-                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
-                        )
-                        AppScreen.CLIPBOARD -> ClipboardScreen(
                             onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
                         )
                         AppScreen.NOTIFICATIONS -> NotificationSyncScreen(

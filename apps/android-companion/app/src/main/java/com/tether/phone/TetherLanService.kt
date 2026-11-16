@@ -5,8 +5,6 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
-import android.content.ClipData
-import android.content.ClipboardManager
 import java.security.MessageDigest
 import android.content.Context
 import android.content.Intent
@@ -107,7 +105,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         const val ALARM_ACTION = "com.tether.phone.ALARM_HEALTH_CHECK"
         const val ACTION_RESTART_SERVER = "com.tether.phone.ACTION_RESTART_SERVER"
-        const val ACTION_CLIPBOARD_SYNC = "com.tether.phone.ACTION_CLIPBOARD_SYNC"
         const val ACTION_NOTIFICATION_SYNC = "com.tether.phone.ACTION_NOTIFICATION_SYNC"
         const val ACTION_TERMINAL_OUTPUT = "com.tether.phone.ACTION_TERMINAL_OUTPUT"
         const val ACTION_TERMINAL_SESSION = "com.tether.phone.ACTION_TERMINAL_SESSION"
@@ -179,8 +176,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
-    private var lastClipboardHash: String = ""
-    private var clipboardListener: ClipboardManager.OnPrimaryClipChangedListener? = null
 
     private val notificationMirrorReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -426,9 +421,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         requestWindowsServices()
                         requestWindowsUpdates()
                     }
-                    "Clipboard" -> {
-                        sendClipboardGet()
-                    }
                     "RemoteInput" -> {
                         // High-speed interactive mode, no extra background sync spam
                     }
@@ -635,7 +627,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
 
         TetherNotificationChannels.createAllChannels(this)
-        setupClipboardSync()
         try {
             ContextCompat.registerReceiver(
                 this,
@@ -1715,33 +1706,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 activeLockSessionId?.let { dismissedLockSessionId = null }
                 postPowerEventNotification("LOCK", System.currentTimeMillis(), activeLockSessionId, force = true)
             }
-            "CLIPBOARD_SYNC" -> {
-                val contentStr = json.optString("text", json.optString("content", ""))
-                val hash = json.optString("hash", "")
-                val resolvedHash = if (hash.isNotEmpty()) hash else computeSha256(contentStr)
-                val prefs = getSharedPreferences("tether_clipboard_prefs", MODE_PRIVATE)
-                val isLiveSync = prefs.getBoolean("live_sync_enabled", true)
-                if (isLiveSync && !resolvedHash.equals(lastClipboardHash, ignoreCase = true) && contentStr.isNotEmpty()) {
-                    lastClipboardHash = resolvedHash
-                    mainHandler.post {
-                        try {
-                            val cb = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                            cb?.setPrimaryClip(ClipData.newPlainText("Tether", contentStr))
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Error updating Android clipboard: ${e.message}")
-                        }
-                    }
-                }
-                mainHandler.post {
-                    val intent = Intent(ACTION_CLIPBOARD_SYNC).apply {
-                        putExtra("content", contentStr)
-                        putExtra("hash", resolvedHash)
-                        putExtra("timestamp", json.optLong("timestamp", System.currentTimeMillis()))
-                        setPackage(packageName)
-                    }
-                    sendBroadcast(intent)
-                }
-            }
             "NOTIFICATION_EVENT" -> {
                 mainHandler.post {
                     val intent = Intent(ACTION_NOTIFICATION_SYNC).apply {
@@ -2576,10 +2540,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         try { unregisterReceiver(powerSaveReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(notificationMirrorReceiver) } catch (_: Exception) {}
-        clipboardListener?.let {
-            val cb = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-            cb?.removePrimaryClipChangedListener(it)
-        }
         try { connectivityManager.unregisterNetworkCallback(wifiNetworkCallback) } catch (_: Exception) {}
 
         discoveryManager.stopDiscovery()
@@ -2600,56 +2560,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val digest = MessageDigest.getInstance("SHA-256")
         val bytes = digest.digest(input.toByteArray(StandardCharsets.UTF_8))
         return bytes.joinToString("") { "%02x".format(it) }
-    }
-
-    private fun setupClipboardSync() {
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
-        clipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
-            try {
-                val clip = clipboard.primaryClip
-                if (clip != null && clip.itemCount > 0) {
-                    val text = clip.getItemAt(0).text?.toString() ?: ""
-                    if (text.isNotEmpty()) {
-                        val hash = computeSha256(text)
-                        if (hash != lastClipboardHash) {
-                            lastClipboardHash = hash
-                            sendClipboardSyncFrame(text, hash)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error in onPrimaryClipChanged: ${e.message}")
-            }
-        }
-        clipboard.addPrimaryClipChangedListener(clipboardListener)
-    }
-
-    fun sendClipboardSyncFrame(text: String, hash: String = computeSha256(text)) {
-        val json = JSONObject().apply {
-            put("type", "CLIPBOARD_SYNC")
-            put("content", text)
-            put("hash", hash)
-            put("timestamp", System.currentTimeMillis())
-        }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
-    }
-
-    fun sendRemoteCopy() {
-        val json = JSONObject().apply {
-            put("type", "CLIPBOARD_SIMULATE_COPY")
-            put("requestId", UUID.randomUUID().toString())
-            put("timestamp", System.currentTimeMillis())
-        }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
-    }
-
-    fun sendRemotePaste() {
-        val json = JSONObject().apply {
-            put("type", "CLIPBOARD_SIMULATE_PASTE")
-            put("requestId", UUID.randomUUID().toString())
-            put("timestamp", System.currentTimeMillis())
-        }
-        sendInputFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun sendNotificationMirror(id: Long, app: String, title: String, body: String, timestamp: Long) {
@@ -2881,14 +2791,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val json = JSONObject().apply {
             put("type", "CHECK_UPDATES")
             put("requestId", UUID.randomUUID().toString())
-        }
-        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
-    }
-
-    fun sendClipboardGet() {
-        val json = JSONObject().apply {
-            put("type", "CLIPBOARD_GET")
-            put("requestId", java.util.UUID.randomUUID().toString())
         }
         sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }

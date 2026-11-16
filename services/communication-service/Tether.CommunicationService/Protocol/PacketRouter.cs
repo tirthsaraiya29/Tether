@@ -162,35 +162,6 @@ public sealed class PacketRouter
                 }
                 break;
 
-            // Clipboard Frames
-            case "CLIPBOARD_SYNC":
-            case "CLIPBOARD_SET":
-            case "CLIPBOARD_GET":
-            case "CLIPBOARD_SIMULATE_COPY":
-            case "CLIPBOARD_SIMULATE_PASTE":
-                if (!_capabilityManager.CanDeviceExecuteCommand(device, "clipboard"))
-                {
-                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Clipboard capability required" }, ct);
-                    return;
-                }
-                if (type == "CLIPBOARD_GET")
-                {
-                    string? cRes = await _inputForwarder.RequestAsync(new { type = "CLIPBOARD_GET", requestId = reqId }, reqId, TimeSpan.FromSeconds(3), ct);
-                    if (cRes != null)
-                    {
-                        await session.WriteRawFrameSafeAsync(System.Text.Encoding.UTF8.GetBytes(cRes), ct);
-                    }
-                }
-                else
-                {
-                    _inputForwarder.PostToHelper(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!);
-                    if (reqId != "")
-                    {
-                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = true }, ct);
-                    }
-                }
-                break;
-
             // Notification Frames
             case "NOTIFICATION_EVENT": // Mirrored from phone to PC
                 if (!_capabilityManager.HasCapability(device, "NOTIFICATIONS"))
@@ -508,16 +479,9 @@ public sealed class PacketRouter
         _logger.Info($"PacketRouter: Command accepted for '{device.DisplayName}': {cmd.Command} (requestId={cmd.RequestId}).");
 
         string cmdLower = cmd.Command.Trim().ToLowerInvariant();
-        if (cmdLower is "clipboard_copy")
+        if (cmdLower is "clipboard_copy" || cmdLower is "clipboard_paste")
         {
-            _inputForwarder.PostToHelper(new { type = "CLIPBOARD_SIMULATE_COPY" });
-            await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_COMMAND", confirmedCommand = cmd.Command, success = true, reason = "OK" }, ct);
-            return;
-        }
-        if (cmdLower is "clipboard_paste")
-        {
-            _inputForwarder.PostToHelper(new { type = "CLIPBOARD_SIMULATE_PASTE" });
-            await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_COMMAND", confirmedCommand = cmd.Command, success = true, reason = "OK" }, ct);
+            await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_COMMAND", confirmedCommand = cmd.Command, success = false, reason = "Clipboard sync removed" }, ct);
             return;
         }
         if (cmdLower is "notification_dismiss")

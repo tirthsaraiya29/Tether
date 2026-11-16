@@ -27,7 +27,7 @@ namespace Tether.CommunicationService.Transport;
 public sealed class TetherSession : IDisposable
 {
     private const string ProtocolVersion = "2.0";
-    private const string ServerCaps = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,WINDOWS_ADMIN,APP_MANAGEMENT";
+    private const string ServerCaps = "FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,WINDOWS_ADMIN,APP_MANAGEMENT";
 
     private const byte PacketTypeInputEvent = 0x05;
 

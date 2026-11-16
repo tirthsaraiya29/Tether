@@ -449,7 +449,7 @@ public sealed class InputForwarder : IHostedService, IDisposable
                         continue;
                     }
 
-                    if (type is "CLIPBOARD_SYNC" or "NOTIFICATION_EVENT" or "MEDIA_METADATA_UPDATE" or "TERMINAL_OUTPUT")
+                    if (type is "NOTIFICATION_EVENT" or "MEDIA_METADATA_UPDATE" or "TERMINAL_OUTPUT")
                     {
                         OnHelperEventReceived?.Invoke(System.Text.Encoding.UTF8.GetString(frame));
                     }

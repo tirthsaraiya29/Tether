@@ -475,7 +475,7 @@ class TetherDiscoveryManager(
             setAttribute("v", "2.0")
             setAttribute("id", phoneId)
             setAttribute("name", deviceName)
-            setAttribute("caps", "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
+            setAttribute("caps", "FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED")
             setAttribute("pqc", "false")
         }
 

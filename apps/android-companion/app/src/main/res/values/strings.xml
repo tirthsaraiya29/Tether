@@ -53,6 +53,10 @@
     <string name="btn_done">DONE</string>
     <string name="btn_copy_key">COPY KEY</string>
     <string name="toast_key_copied">Key copied to clipboard</string>
+    <string name="update_downloading">Downloading update…</string>
+    <string name="update_install_permission_required">Tether needs "Install unknown apps" permission. Grant it in Permissions, then tap Download again.</string>
+    <string name="update_signature_mismatch">Update blocked: package signature does not match the installed app.</string>
+    <string name="update_download_failed">Update download failed. Try again from GitHub Releases.</string>
     <string name="error_qr_failed">Failed to generate QR code: %1$s</string>
     <string name="auth_trust_restoration">SYSTEM TRUST RESTORATION</string>
     <string name="auth_confirm_master_code">Confirm master security code</string>

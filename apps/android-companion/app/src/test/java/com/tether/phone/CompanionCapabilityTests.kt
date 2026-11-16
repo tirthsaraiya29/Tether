@@ -11,7 +11,6 @@ class CompanionCapabilityTests {
 
     @Test
     fun testFromScopeName() {
-        assertEquals(TetherCapability.CLIPBOARD, TetherCapability.fromScopeName("CLIPBOARD"))
         assertEquals(TetherCapability.POWER_ELEVATED, TetherCapability.fromScopeName("power_elevated"))
         assertNull(TetherCapability.fromScopeName("Automation"))
         assertNull(TetherCapability.fromScopeName("NON_EXISTENT_CAP"))
@@ -29,8 +28,7 @@ class CompanionCapabilityTests {
     @Test
     fun testNegotiateCapabilities_RestrictedPeer_IntersectsCorrectly() {
         val manager = TetherCapabilityManager()
-        val negotiated = manager.negotiateCapabilities("CLIPBOARD, MEDIA")
-        assertTrue(negotiated.contains(TetherCapability.CLIPBOARD))
+        val negotiated = manager.negotiateCapabilities("MEDIA")
         assertTrue(negotiated.contains(TetherCapability.MEDIA))
         assertFalse(negotiated.contains(TetherCapability.POWER_ELEVATED))
         assertFalse(manager.isCapabilityGranted(TetherCapability.POWER_ELEVATED))

@@ -3,7 +3,6 @@ package com.tether.phone
 import android.util.Log
 
 enum class TetherCapability(val scopeName: String, val isElevated: Boolean) {
-    CLIPBOARD("CLIPBOARD", false),
     NOTIFICATIONS("NOTIFICATIONS", false),
     MEDIA("MEDIA", false),
     TERMINAL("TERMINAL", true),
@@ -24,7 +23,6 @@ class TetherCapabilityManager {
         private const val TAG = "TetherCapabilityManager"
 
         val DEFAULT_ANDROID_CAPABILITIES = setOf(
-            TetherCapability.CLIPBOARD,
             TetherCapability.NOTIFICATIONS,
             TetherCapability.MEDIA,
             TetherCapability.TERMINAL,
@@ -67,7 +65,6 @@ class TetherCapabilityManager {
         val requiredCap = when {
             cmdLower in setOf("shutdown", "reboot", "sleep", "halt", "lock_now", "unlock", "lock") -> TetherCapability.POWER_ELEVATED
             cmdLower in setOf("cmd", "powershell", "powershell7", "wsl", "bash") || cmdLower.startsWith("terminal_") -> TetherCapability.TERMINAL
-            cmdLower in setOf("copy", "paste", "clipboard") || cmdLower.startsWith("clipboard_") -> TetherCapability.CLIPBOARD
             cmdLower.startsWith("notification_") -> TetherCapability.NOTIFICATIONS
             cmdLower.startsWith("admin_") || cmdLower.startsWith("service_") || cmdLower.startsWith("power_plan") ||
                 cmdLower in setOf("battery_health_get", "printers_get", "usb_devices_get", "services_get", "updates_check") -> TetherCapability.WINDOWS_ADMIN

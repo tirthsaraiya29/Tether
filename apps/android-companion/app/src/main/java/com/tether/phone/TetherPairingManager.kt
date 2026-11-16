@@ -140,7 +140,7 @@ class TetherPairingManager(
                 put("publicKey", phonePubKeyBase64)
                 put("nonce", Base64.encodeToString(clientNonce, Base64.NO_WRAP))
                 put("isPairingRequested", isUserInitiatedPairing || !isAlreadyPinned)
-                put("capabilities", "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,WINDOWS_ADMIN,APP_MANAGEMENT")
+                put("capabilities", "FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,WINDOWS_ADMIN,APP_MANAGEMENT")
             }
 
             val initJsonStr = initJson.toString()

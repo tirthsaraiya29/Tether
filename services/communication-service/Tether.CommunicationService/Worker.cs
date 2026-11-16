@@ -22,7 +22,7 @@ namespace Tether.CommunicationService;
 
 public sealed class Worker : BackgroundService
 {
-    private const string AdvertisedCaps = "CLIPBOARD,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,WINDOWS_ADMIN,APP_MANAGEMENT";
+    private const string AdvertisedCaps = "NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,WINDOWS_ADMIN,APP_MANAGEMENT";
 
     // Legacy rules to purge
     private const string RuleLegacyExe = "Tether Service Exe";

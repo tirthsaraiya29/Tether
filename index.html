@@ -2209,110 +2209,27 @@
 
       <h3 style="margin-top: 32px;">Connect Android to Windows over Local Wi-Fi</h3>
       <p>
-        Setup is straightforward: install the Tether app on your Android phone (Android 12 / API 31 or newer) and run the Tether installer on your Windows 10 or Windows 11 PC. The two devices discover each other automatically via mDNS (multicast DNS, also known as Bonjour or Avahi) on your local network, so there is no manual IP address to type. After a one-time pairing step — where both devices exchange ECDSA P-256 public keys and store them in tamper-resistant hardware (Android Keystore with StrongBox, Windows DPAPI) — the tether is live. The connection is maintained with a 5-second heartbeat, and sessions are automatically invalidated if the network interface changes.
+        Install the Tether app on your Android phone (Android 12 or newer) and run the installer on your Windows 10 or 11 PC. The two devices find each other automatically via mDNS — no IP addresses to type. A one-time pairing exchange stores ECDSA P-256 keys in tamper-resistant hardware on both ends (Android Keystore StrongBox, Windows DPAPI), then the tether is live over a TLS 1.3 connection. Everything stays on your LAN: if you are offline, Tether still works.
       </p>
 
       <h3 style="margin-top: 32px;">Unlock Windows with Android Biometrics</h3>
       <p>
-        The flagship feature of Tether is <strong>device-assisted Windows unlock</strong>. A native C++20 Credential Provider DLL (<code>TetherCredentialProvider.dll</code>) is registered with Windows Logon (Winlogon / LogonUI). When you approach your PC, you tap your phone. The Android app asks for your fingerprint or face ID, then signs a one-time challenge with your hardware-bound ECDSA private key. The Windows service verifies the signature against the stored public key and signals the Credential Provider to complete authentication. The result: you walk up, tap your phone, your PC unlocks — no password, no PIN typed, no cloud involved. This is a local-first alternative to Windows Hello for Business without requiring Active Directory, Azure AD, or any Microsoft cloud infrastructure.
+        A native C++ Credential Provider is registered with Windows Logon. Walk up to your locked PC, tap your phone, confirm with your fingerprint — the phone signs a one-time challenge with its hardware-bound key and your PC unlocks. No password typed, no Microsoft account, no cloud. This works on any Windows 10/11 edition that accepts third-party Credential Providers.
       </p>
 
-      <h3 style="margin-top: 32px;">Use Your Android Phone as a Wireless Trackpad</h3>
+      <h3 style="margin-top: 32px;">Everyday Remote Control</h3>
       <p>
-        Tether includes a <strong>wireless remote trackpad</strong> feature that turns your Android touchscreen into a low-latency mouse for Windows. Touch coordinates are streamed over the local TLS connection to <code>Tether.SessionHelper.exe</code>, a helper process spawned in the active user's desktop session using <code>WTSQueryUserToken</code> + <code>CreateProcessAsUser</code> (required because the main Windows service runs in isolated Session 0). The helper injects synthetic mouse events via <code>SendInput</code>, supporting pointer movement, left/right/middle clicks, smooth scrolling, and Windows modifier-key chords. No Bluetooth pairing, no USB cable, no additional driver. If your phone and PC are on the same Wi-Fi, your phone becomes your trackpad.
+        Use your phone as a wireless trackpad (touch and scroll streamed to <code>Tether.SessionHelper.exe</code> via <code>SendInput</code>), transfer files over a local TLS-protected server on port 37124, adjust volume, brightness, and media playback, launch apps, run remote terminal commands, and mirror notifications between devices. Tether also detects shutdowns and reboots the instant they start (Event ID 1074 / <code>WM_QUERYENDSESSION</code>), so your phone shows <strong>POWERED OFF</strong> or <strong>RESTARTING</strong> instead of a generic disconnect. A one-tap Panic Lock instantly locks the workstation and revokes trust until a fresh biometric challenge passes.
       </p>
 
-      <h3 style="margin-top: 32px;">Emergency Lockdown from Your Phone</h3>
+      <h3 style="margin-top: 32px;">Security Model</h3>
       <p>
-        Tether's <strong>Panic Engine</strong> (<code>Tether.PanicEngine</code>) provides a one-tap emergency lockdown from your Android device. Activating it immediately locks the Windows workstation, revokes the current trust state, and invalidates active sessions across the network boundary. The paired device must pass a fresh biometric challenge before commands are accepted again. This is designed for situations where you need to secure your PC instantly — leaving your desk unexpectedly, detecting an intrusion, or simply wanting a fast lock without reaching your keyboard.
+        Identity keys live in hardware (StrongBox TEE on Android; DPAPI-protected secrets in <code>HKLM\SOFTWARE\Tether\Secrets</code> on Windows) and are never exported — only signatures leave the device. IPC runs over ACL-enforced named pipes, TLS sessions are mutually pinned, and replay attacks are blocked with monotonic request IDs. The service runs as SYSTEM in Session 0 and never breaks that boundary; user-session work is done by a separate helper process.
       </p>
 
-      <h3 style="margin-top: 32px;">Audio, Display, and System Control</h3>
+      <h3 style="margin-top: 32px;">Open Source &amp; Platforms</h3>
       <p>
-        Beyond security features, Tether gives you everyday remote control of your Windows PC from your phone: adjust the master volume via the Windows Core Audio endpoint (<code>IAudioEndpointVolume</code>), change display brightness through WMI, control system media playback via the System Media Transport Controls (SMTC), and launch pre-configured applications. All commands are executed by <code>Tether.SessionHelper.exe</code> in the active user session, respecting the Session 0 isolation boundary of the Windows service architecture.
-      </p>
-
-      <h3 style="margin-top: 32px;">Real-Time Power State Sync &amp; Logon Management</h3>
-      <p>
-        Tether continuously synchronizes your PC's power state with your phone at maximum speed. By watching USER32 Event ID 1074 through .NET's <code>EventLogWatcher</code> in the background service and listening for <code>WM_QUERYENDSESSION</code> broadcasts in user-session processes, Tether detects Windows shutdowns and reboots the exact instant they are initiated. The state is instantly transmitted over the TLS connection before network teardown, allowing the Android app to cleanly display <strong>POWERED OFF</strong> or <strong>RESTARTING</strong> instead of showing a generic disconnect. Furthermore, the native Credential Provider allows restarting or starting the Tether communication service directly from the Windows logon screen, detects phone connection status in real time, and conditionally displays unlock controls only when your phone is reachable.
-      </p>
-
-      <h3 style="margin-top: 32px;">Security Architecture at a Glance</h3>
-      <p>
-        Tether is built with a layered security model. The Android side stores identity keys inside the hardware security enclave (Android Keystore, StrongBox TEE) under key alias <code>TetherIdentityKey_v1</code> using ECDSA P-256. Private key material is never exported. The Windows side protects stored credentials and entropy using DPAPI (<code>CryptProtectData</code>) under system-bound entropy, stored in <code>HKLM\SOFTWARE\Tether\Secrets</code> with restrictive DACLs limited to LocalSystem and Administrators. Named Pipe IPC (<code>TetherPipe</code>, <code>Tether.InputPipe</code>, <code>TetherUiPipe</code>) is enforced with per-user ACLs. All TLS sessions use TLS 1.3 with mutual certificate pinning. Replay attacks are blocked with monotonically increasing request IDs.
-      </p>
-
-      <h3 style="margin-top: 32px;">Open Source — Android, Windows, and C++</h3>
-      <p>
-        Every line of Tether is open source and available on GitHub at <a href="https://github.com/tirthsaraiya29/Tether" rel="noopener">github.com/tirthsaraiya29/Tether</a>. The codebase spans Kotlin (Android Jetpack Compose companion app), C# .NET 10 (Windows background service and WPF desktop UI), and C++20 (the Windows Credential Provider COM component). Contributions, issues, and pull requests are welcome. The project is in active early development; a security audit has not yet been performed.
-      </p>
-
-      <h3 style="margin-top: 32px;">Alternatives Compared</h3>
-      <p>
-        Tether occupies a specific niche: a <strong>local-only, cloud-free, open-source Android-to-Windows companion</strong> with a hardware-backed credential system. Here is how it compares to popular alternatives:
-      </p>
-      <ul style="list-style: disc; padding-left: 1.5rem; color: var(--text-muted); font-size: 0.95rem; line-height: 1.8;">
-        <li><strong>KDE Connect</strong> — Linux-first, no native Windows Credential Provider, no biometric Windows logon.</li>
-        <li><strong>Link to Windows (Microsoft)</strong> — Requires Microsoft account, routes traffic through Microsoft cloud, closed source.</li>
-        <li><strong>Intel Unison</strong> — Requires Intel account, cloud-dependent, closed source, limited to Intel hardware.</li>
-        <li><strong>AirDroid</strong> — Freemium, cloud-relay dependent, closed source.</li>
-        <li><strong>DeskDock</strong> — Android-to-PC input only, no authentication, no file transfer, no security features.</li>
-        <li><strong>Tether</strong> — Fully local, no account, open source, hardware-backed authentication, Windows Credential Provider, emergency lockdown, free forever.</li>
-      </ul>
-
-      <h3 style="margin-top: 32px;">Frequently Searched Topics — Extended Coverage</h3>
-      <p>
-        Tether is the answer to a wide range of searches around <strong>Android to Windows local connectivity</strong>. Whether you are searching for <em>how to connect Android phone to Windows PC without cloud</em>, <em>use phone as wireless mouse for PC</em>, <em>unlock Windows with Android fingerprint</em>, <em>phone link alternative no Microsoft account</em>, <em>KDE Connect alternative for Windows 10</em>, <em>KDE Connect alternative Windows 11</em>, <em>AirDroid alternative no cloud</em>, <em>local LAN file transfer Android Windows</em>, or <em>open source Android Windows bridge free</em> — Tether is built specifically for these use cases. Every feature runs 100% on your own local network.
-      </p>
-
-      <h3 style="margin-top: 32px;">Android to Windows — No Cloud, No Account Required</h3>
-      <p>
-        Many popular phone-to-PC tools — including <strong>Microsoft Phone Link</strong> (formerly Your Phone), <strong>Intel Unison</strong>, and <strong>AirDroid</strong> — require you to sign into a cloud account and route your data through external servers. Tether is designed from the ground up to operate exclusively on your local Wi-Fi (LAN). There is no server in the middle. Your <strong>Android phone connects directly to your Windows PC</strong> via an encrypted TLS 1.3 tunnel on port 37123, using mDNS for zero-configuration automatic device discovery. This means Tether works on a home network, an office network, or even a router with no internet — perfect for air-gapped environments, travel, or anyone who does not want to create yet another cloud account.
-      </p>
-
-      <h3 style="margin-top: 32px;">Unlock Your Windows PC with Your Phone Fingerprint — No Password</h3>
-      <p>
-        One of the most searched-for features in the Android-Windows companion space is <strong>unlocking a Windows PC using an Android phone's biometric sensor</strong>. Tether is one of the very few open-source tools that implements this through a native <strong>C++ Windows Credential Provider</strong> (a COM component loaded directly by Winlogon / LogonUI). When you approach your locked PC, you simply tap your phone. Your Android device presents a biometric prompt (fingerprint or face). Once your biometric is confirmed, the hardware-backed ECDSA P-256 private key stored in your phone's <strong>Android Keystore (StrongBox TEE)</strong> signs a one-time cryptographic challenge sent by the Windows service. The service verifies the signature and signals the Credential Provider to complete the logon. The result: <em>passwordless Windows unlock with your phone fingerprint</em>, with no Microsoft account, no Azure AD, no Windows Hello for Business configuration required. This works on Windows 10 Home, Windows 10 Pro, Windows 11 Home, and Windows 11 Pro — any edition that supports third-party Credential Providers.
-      </p>
-
-      <h3 style="margin-top: 32px;">Phone as Wireless Trackpad for Windows — No Bluetooth, No USB</h3>
-      <p>
-        Tether lets you <strong>use your Android phone as a wireless mouse or trackpad for your Windows PC</strong> entirely over your Wi-Fi connection. This is useful when your mouse runs out of battery, when you are presenting and want to control your PC from across the room, or when you just want a secondary input device without additional hardware. The Android companion app streams touch coordinates over the encrypted LAN connection to <code>Tether.SessionHelper.exe</code>, a helper process that injects synthetic <code>SendInput</code> mouse events directly into your active Windows desktop session. It supports smooth pointer movement, left-click, right-click, two-finger scrolling, and Windows modifier-key combinations (Ctrl, Alt, Win key) — the same operations you get from a hardware touchpad. No Bluetooth pairing, no USB cable, no additional driver installation needed. If both devices are on the same Wi-Fi, your phone is your trackpad.
-      </p>
-
-      <h3 style="margin-top: 32px;">Emergency PC Lockdown from Your Android Phone</h3>
-      <p>
-        Tether includes a dedicated <strong>emergency workstation lockdown</strong> feature (<code>Tether.PanicEngine</code>) that lets you lock your Windows PC instantly from your phone with a single tap. This is useful in many real-world scenarios: stepping away from your desk suddenly, noticing someone approaching your workstation, or responding to any situation where you need to secure your PC immediately without reaching your keyboard. Activating the panic lock over your local Wi-Fi sends a trust-revocation signal that immediately locks the Windows session and invalidates the current authentication state. Your paired phone must pass a fresh biometric challenge before Tether accepts commands again. No other popular phone-to-PC tool — not KDE Connect, not Phone Link, not Intel Unison — offers this level of immediate hardware-level workstation security from a phone.
-      </p>
-
-      <h3 style="margin-top: 32px;">Fast Local File Transfer — Android to Windows over LAN</h3>
-      <p>
-        Tether includes a <strong>high-speed LAN file transfer</strong> feature that lets you send files from your Android phone to your Windows PC (or vice versa) entirely over your home or office network. Files are transferred over a local HTTPS server powered by Kestrel (TCP 37124, TLS 1.3), so transfer speeds are limited only by your Wi-Fi link rate — not by any external cloud bottleneck or relay server. This makes Tether one of the fastest <em>local wireless file transfer</em> solutions for Android-to-Windows, comparable to or faster than alternatives like LocalSend, Snapdrop, or KDE Connect's file sharing — but with the added benefit of full integration with Tether's security and trust engine.
-      </p>
-
-      <h3 style="margin-top: 32px;">System Control — Volume, Brightness, Media, Apps</h3>
-      <p>
-        Beyond security, Tether gives you day-to-day <strong>remote control of your Windows PC from your Android phone</strong>: adjust the master audio volume (via the Windows Core Audio <code>IAudioEndpointVolume</code> API), change display brightness (via WMI), control media playback through the System Media Transport Controls (SMTC), and launch pre-configured applications. These commands are executed by <code>Tether.SessionHelper.exe</code> in the active user's interactive desktop session, properly respecting Windows Session 0 isolation. This means Tether's Windows background service (which runs as SYSTEM in Session 0) never breaks the Session 0 boundary — a critical security property that many DIY Android-to-Windows tools overlook.
-      </p>
-
-      <h3 style="margin-top: 32px;">Real-Time Power State Sync — Shutdown & Reboot Detection</h3>
-      <p>
-        Tether continuously monitors your Windows PC's power state and synchronizes it to your Android phone in real time. By watching Windows Event Log (Event ID 1074) through <code>EventLogWatcher</code> in the background service and listening for <code>WM_QUERYENDSESSION</code> broadcasts in user-session processes, Tether detects Windows shutdowns and reboots the instant they are initiated. The state is transmitted over the TLS connection before network teardown, allowing the Android app to display accurate <strong>POWERED OFF</strong> or <strong>RESTARTING</strong> status instead of a generic disconnect indicator. This tight integration between Android phone state and Windows system power makes Tether feel far more like a native integrated product than a third-party utility.
-      </p>
-
-      <h3 style="margin-top: 32px;">Security Architecture — Hardware Enclave to Hardware Vault</h3>
-      <p>
-        Tether is built on a <strong>hardware-to-hardware security model</strong>: Android identity keys are generated and stored inside the <strong>Android Hardware Security Module (HSM) / StrongBox Trusted Execution Environment (TEE)</strong> under key alias <code>TetherIdentityKey_v1</code> using ECDSA P-256. Private key material is never exported — only signatures are produced. On the Windows side, stored public keys and entropy are protected using <strong>Windows DPAPI</strong> (<code>CryptProtectData</code> / <code>CryptUnprotectData</code>) under a system-bound entropy string, stored in <code>HKLM\SOFTWARE\Tether\Secrets</code> with restrictive DACLs limited to the LocalSystem account and the Administrators group. All IPC channels between processes (Tether.CommunicationService, Tether.DesktopUI, Tether.SessionHelper) use ACL-enforced Named Pipes. All TLS sessions use TLS 1.3 with mutual certificate pinning. Replay attacks are blocked by monotonically increasing request IDs. This architecture makes Tether one of the most security-conscious <em>Android-to-Windows local bridge</em> projects available as open source.
-      </p>
-
-      <h3 style="margin-top: 32px;">Supported Platforms — Android & Windows Versions</h3>
-      <p>
-        Tether supports <strong>Android 12 (API 31) and newer</strong> — including Android 12, Android 13, Android 14, and Android 15 — and <strong>Windows 10 (64-bit) and Windows 11 (64-bit)</strong>. The Android companion app is built with Kotlin and Jetpack Compose, targeting modern AndroidX security APIs. The Windows communication service is built with C# and .NET 10. The Windows Credential Provider is a native C++20 COM DLL registered with Winlogon. The Windows desktop UI is built with WPF (Windows Presentation Foundation). No 32-bit Windows support; no macOS or Linux support (yet).
-      </p>
-
-      <h3 style="margin-top: 32px;">Download & Get Started with Tether</h3>
-      <p>
-        Tether is available free on <a href="https://github.com/tirthsaraiya29/Tether/releases" rel="noopener">GitHub Releases</a>. Download the Android APK and the Windows installer, follow the quick 3-step pairing guide, and your Android phone will be tethered to your Windows PC in under three minutes — with no account signup, no cloud configuration, and no subscription required. The full source code is at <a href="https://github.com/tirthsaraiya29/Tether" rel="noopener">github.com/tirthsaraiya29/Tether</a>.
+        Tether is free and open source at <a href="https://github.com/tirthsaraiya29/Tether" rel="noopener">github.com/tirthsaraiya29/Tether</a> — Kotlin/Compose for Android, C# .NET 10 for Windows services and the WPF UI, C++ for the Credential Provider. It supports Android 12+ and 64-bit Windows 10/11. The project is in active development; a security audit has not yet been performed. Download from <a href="https://github.com/tirthsaraiya29/Tether/releases" rel="noopener">GitHub Releases</a>, pair in three steps, and you are tethered in minutes.
       </p>
     </div>
   </section>

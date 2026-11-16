@@ -355,14 +355,8 @@ internal static class Program
             catch { }
         }
 
-        ClipboardController? clipboardController = null;
-        var clipThread = new Thread(() =>
+        var shutdownThread = new Thread(() =>
         {
-            clipboardController = new ClipboardController(text =>
-            {
-                _ = SendJsonFrameAsync(new { type = "CLIPBOARD_SYNC", text, source = "PC" });
-            });
-
             var shutdownForm = new ShutdownListenerForm(eventType =>
             {
                 _ = SendJsonFrameAsync(new { type = "POWER_EVENT", eventType, source = "SessionHelper.WM_QUERYENDSESSION" });
@@ -383,9 +377,9 @@ internal static class Program
 
             System.Windows.Forms.Application.Run(shutdownForm);
         });
-        clipThread.SetApartmentState(ApartmentState.STA);
-        clipThread.IsBackground = true;
-        clipThread.Start();
+        shutdownThread.SetApartmentState(ApartmentState.STA);
+        shutdownThread.IsBackground = true;
+        shutdownThread.Start();
 
         _ = NotificationController.InitializeAsync(notif =>
         {
@@ -574,28 +568,6 @@ internal static class Program
                                 duration = meta.DurationSeconds,
                                 thumbnail = meta.ThumbnailBase64
                             });
-                            break;
-
-                        case "CLIPBOARD_SET":
-                        case "CLIPBOARD_SYNC":
-                            string clipText = doc.RootElement.TryGetProperty("text", out var tTextProp) ? (tTextProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("content", out var cProp) ? (cProp.GetString() ?? "") : "");
-                            clipboardController?.SetText(clipText);
-                            await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = true });
-                            break;
-
-                        case "CLIPBOARD_GET":
-                            string curText = ClipboardController.GetCurrentText();
-                            await SendJsonFrameAsync(new { type = "CLIPBOARD_SYNC", requestId = reqId, text = curText, content = curText, source = "PC" });
-                            break;
-
-                        case "CLIPBOARD_SIMULATE_COPY":
-                            ClipboardController.SimulateCopy();
-                            await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = true });
-                            break;
-
-                        case "CLIPBOARD_SIMULATE_PASTE":
-                            ClipboardController.SimulatePaste();
-                            await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = true });
                             break;
 
                         case "NOTIFICATION_DISMISS":

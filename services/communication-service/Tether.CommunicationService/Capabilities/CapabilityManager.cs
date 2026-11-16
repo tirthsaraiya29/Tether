@@ -64,16 +64,6 @@ public sealed class CapabilityManager
 
 
 
-        if (cmd.StartsWith("clipboard_") || cmd is "copy" or "paste" or "clipboard")
-
-        {
-
-            return "CLIPBOARD";
-
-        }
-
-
-
         if (cmd.StartsWith("notification_"))
 
         {
@@ -267,7 +257,7 @@ public sealed class CapabilityManager
 
     public static IEnumerable<string> ElevatedCapabilities =>
 
-        new[] { "MEDIA", "APP_LAUNCH", "FILES", "POWER_ELEVATED", "WINDOWS_ADMIN", "APP_MANAGEMENT", "TERMINAL", "CLIPBOARD", "NOTIFICATIONS" };
+        new[] { "MEDIA", "APP_LAUNCH", "FILES", "POWER_ELEVATED", "WINDOWS_ADMIN", "APP_MANAGEMENT", "TERMINAL", "NOTIFICATIONS" };
 
 }
 
