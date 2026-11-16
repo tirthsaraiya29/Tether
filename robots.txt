@@ -1,4 +1,24 @@
 User-agent: *
 Allow: /
 
+# Explicit permits for all six target engines (some ignore bare * rules)
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+# DuckDuckGo + Yahoo use Bing's index
+User-agent: DuckDuckBot
+Allow: /
+
+User-agent: Slurp
+Allow: /
+
+User-agent: YandexBot
+Allow: /
+
+User-agent: Bravebot
+Allow: /
+
 Sitemap: https://tether-control.vercel.app/sitemap.xml
