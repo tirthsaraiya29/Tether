@@ -34,8 +34,7 @@ enum class AppScreen {
     CLIPBOARD,
     NOTIFICATIONS,
     WINDOWS_ADMIN,
-    APP_MANAGEMENT,
-    AUTOMATION
+    APP_MANAGEMENT
 }
 
 enum class TrustTier(@param:StringRes val labelRes: Int, val color: Color) {
@@ -213,17 +212,4 @@ data class RunningWindowItem(
     val pid: Int = 0,
     val isMinimized: Boolean = false,
     val isMaximized: Boolean = false
-)
-
-data class AutomationWorkflowItem(
-    val id: String = "",
-    val name: String = "",
-    val isEnabled: Boolean = true,
-    val scheduleType: String = "manual",
-    val scheduleValue: String = "",
-    val conditionType: String = "none",
-    val conditionValue: String = "",
-    val actions: List<String> = emptyList(),
-    val lastExecutedMs: Long = 0L,
-    val lastStatus: String = "NEVER"
 )

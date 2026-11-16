@@ -3,7 +3,6 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Tether.CommunicationService.Automation;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.FileTransfer;
@@ -23,7 +22,6 @@ public sealed class PacketRouter
     private readonly TokenStore _tokenStore;
     private readonly InputForwarder _inputForwarder;
     private readonly WindowsAdminManager _adminManager;
-    private readonly AutomationEngine _automationEngine;
     private readonly SessionManager _sessionManager;
 
     public PacketRouter(
@@ -33,7 +31,6 @@ public sealed class PacketRouter
         TokenStore tokenStore,
         InputForwarder inputForwarder,
         WindowsAdminManager adminManager,
-        AutomationEngine automationEngine,
         SessionManager sessionManager)
     {
         _logger = logger;
@@ -42,7 +39,6 @@ public sealed class PacketRouter
         _tokenStore = tokenStore;
         _inputForwarder = inputForwarder;
         _adminManager = adminManager;
-        _automationEngine = automationEngine;
         _sessionManager = sessionManager;
 
         // Relay events from SessionHelper (Windows desktop) to connected phone sessions
@@ -470,86 +466,16 @@ public sealed class PacketRouter
                 }, ct);
                 break;
 
-            // Automation Frames
             case "WORKFLOW_LIST":
             case "GET_WORKFLOWS":
-                if (!_capabilityManager.HasCapability(device, "AUTOMATION"))
-                {
-                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Automation capability required" }, ct);
-                    break;
-                }
-                var wfList = _automationEngine.GetWorkflows();
-                await session.WriteJsonFrameSafeAsync(new { type = "WORKFLOW_LIST_RESPONSE", requestId = reqId, workflows = wfList }, ct);
-                break;
-
             case "WORKFLOW_SAVE":
             case "SAVE_WORKFLOW":
-                if (!_capabilityManager.HasCapability(device, "AUTOMATION"))
-                {
-                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Automation capability required" }, ct);
-                    break;
-                }
-                var wfObj = JsonSerializer.Deserialize<TetherWorkflow>(doc.RootElement.GetProperty("workflow").GetRawText());
-                if (wfObj == null)
-                {
-                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Invalid workflow payload" }, ct);
-                    break;
-                }
-
-                bool allActionsAuthorized = true;
-                string? unauthorizedAction = null;
-                string? requiredActionCap = null;
-                if (wfObj.Actions != null)
-                {
-                    foreach (var action in wfObj.Actions)
-                    {
-                        var cap = CapabilityManager.MapCommandToCapability(action);
-                        if (!string.IsNullOrEmpty(cap) && !_capabilityManager.HasCapability(device, cap))
-                        {
-                            allActionsAuthorized = false;
-                            unauthorizedAction = action;
-                            requiredActionCap = cap;
-                            break;
-                        }
-                    }
-                }
-
-                if (!allActionsAuthorized)
-                {
-                    _logger.Warning($"PacketRouter: Device '{device.DisplayName}' denied saving workflow with action '{unauthorizedAction}' (requires {requiredActionCap}).");
-                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = $"Action '{unauthorizedAction}' requires {requiredActionCap} capability" }, ct);
-                    break;
-                }
-
-                wfObj.OriginatingDeviceId = device.DeviceId;
-                wfObj.OriginatingFingerprint = device.Fingerprint;
-
-                _automationEngine.SaveWorkflow(wfObj);
-                await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = true }, ct);
-                break;
-
             case "WORKFLOW_DELETE":
             case "DELETE_WORKFLOW":
-                if (!_capabilityManager.HasCapability(device, "AUTOMATION"))
-                {
-                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Automation capability required" }, ct);
-                    break;
-                }
-                string wfDelId = doc.RootElement.GetProperty("id").GetString() ?? "";
-                bool delOk = _automationEngine.DeleteWorkflow(wfDelId);
-                await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = delOk }, ct);
-                break;
-
             case "WORKFLOW_RUN":
             case "RUN_WORKFLOW":
-                if (!_capabilityManager.HasCapability(device, "AUTOMATION"))
-                {
-                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Automation capability required" }, ct);
-                    break;
-                }
-                string wfRunId = doc.RootElement.GetProperty("id").GetString() ?? "";
-                var runRes = await _automationEngine.RunWorkflowAsync(wfRunId, ct);
-                await session.WriteJsonFrameSafeAsync(new { type = "WORKFLOW_STATUS", requestId = reqId, result = runRes }, ct);
+                _logger.Warning($"PacketRouter: Workflow protocol '{type}' rejected — workflow feature removed.");
+                await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Workflow feature not supported" }, ct);
                 break;
 
             default:

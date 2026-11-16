@@ -9,8 +9,7 @@ enum class TetherCapability(val scopeName: String, val isElevated: Boolean) {
     TERMINAL("TERMINAL", true),
     POWER_ELEVATED("POWER_ELEVATED", true),
     WINDOWS_ADMIN("WINDOWS_ADMIN", true),
-    APP_MANAGEMENT("APP_MANAGEMENT", false),
-    AUTOMATION("AUTOMATION", false);
+    APP_MANAGEMENT("APP_MANAGEMENT", false);
 
     companion object {
         fun fromScopeName(name: String): TetherCapability? {
@@ -32,7 +31,6 @@ class TetherCapabilityManager {
             TetherCapability.POWER_ELEVATED,
             TetherCapability.WINDOWS_ADMIN,
             TetherCapability.APP_MANAGEMENT,
-            TetherCapability.AUTOMATION,
         )
     }
 
@@ -74,7 +72,6 @@ class TetherCapabilityManager {
             cmdLower.startsWith("admin_") || cmdLower.startsWith("service_") || cmdLower.startsWith("power_plan") ||
                 cmdLower in setOf("battery_health_get", "printers_get", "usb_devices_get", "services_get", "updates_check") -> TetherCapability.WINDOWS_ADMIN
             cmdLower.startsWith("app_") || cmdLower.startsWith("launch_") -> TetherCapability.APP_MANAGEMENT
-            cmdLower.startsWith("workflow_") -> TetherCapability.AUTOMATION
             (cmdLower in setOf("volume_up", "volume_down", "volume_mute", "volume_get", "vol_get", "get_volume", "set_volume", "brightness_up", "brightness_down", "bright_up", "bright_down", "brightness_get", "bright_get", "get_brightness", "set_brightness")) ||
                 cmdLower.startsWith("volume_set:") || cmdLower.startsWith("set_volume:") || cmdLower.startsWith("vol_set:") ||
                 cmdLower.startsWith("brightness_set:") || cmdLower.startsWith("set_brightness:") || cmdLower.startsWith("bright_set:") ||

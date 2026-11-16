@@ -120,8 +120,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         const val ACTION_USB_DEVICES = "com.tether.phone.ACTION_USB_DEVICES"
         const val ACTION_SERVICES = "com.tether.phone.ACTION_SERVICES"
         const val ACTION_UPDATES = "com.tether.phone.ACTION_UPDATES"
-        const val ACTION_WORKFLOWS = "com.tether.phone.ACTION_WORKFLOWS"
-        const val ACTION_WORKFLOW_STATUS = "com.tether.phone.ACTION_WORKFLOW_STATUS"
         const val ACTION_WINDOWS_LIST = "com.tether.phone.ACTION_WINDOWS_LIST"
         const val ACTION_INSTALLED_APPS = "com.tether.phone.ACTION_INSTALLED_APPS"
         const val ACTION_BATTERY_REPORT = "com.tether.phone.ACTION_BATTERY_REPORT"
@@ -1996,26 +1994,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     sendBroadcast(intent)
                 }
             }
-            "WORKFLOW_LIST_RESPONSE" -> {
-                mainHandler.post {
-                    val intent = Intent(ACTION_WORKFLOWS).apply {
-                        putExtra("workflowsJson", json.optJSONArray("workflows")?.toString() ?: "[]")
-                        setPackage(packageName)
-                    }
-                    sendBroadcast(intent)
-                }
-            }
-            "WORKFLOW_STATUS" -> {
-                mainHandler.post {
-                    val intent = Intent(ACTION_WORKFLOW_STATUS).apply {
-                        putExtra("id", json.optString("id", ""))
-                        putExtra("status", json.optString("status", ""))
-                        putExtra("timestamp", json.optLong("timestamp", System.currentTimeMillis()))
-                        setPackage(packageName)
-                    }
-                    sendBroadcast(intent)
-                }
-            }
             "WINDOWS_LIST_RESPONSE", "APP_WINDOWS_RESPONSE" -> {
                 val wArr = json.optJSONArray("windows")
                 if (wArr != null) LaptopStateCache.saveRunningWindows(applicationContext, wArr.toString())
@@ -2980,38 +2958,4 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
-    fun requestWorkflows() {
-        val json = JSONObject().apply {
-            put("type", "GET_WORKFLOWS")
-            put("requestId", UUID.randomUUID().toString())
-        }
-        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
-    }
-
-    fun sendSaveWorkflow(workflowJson: JSONObject) {
-        val json = JSONObject().apply {
-            put("type", "SAVE_WORKFLOW")
-            put("requestId", UUID.randomUUID().toString())
-            put("workflow", workflowJson)
-        }
-        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
-    }
-
-    fun sendDeleteWorkflow(id: String) {
-        val json = JSONObject().apply {
-            put("type", "DELETE_WORKFLOW")
-            put("requestId", UUID.randomUUID().toString())
-            put("id", id)
-        }
-        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
-    }
-
-    fun sendTriggerWorkflow(id: String) {
-        val json = JSONObject().apply {
-            put("type", "RUN_WORKFLOW")
-            put("requestId", UUID.randomUUID().toString())
-            put("id", id)
-        }
-        sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
-    }
 }

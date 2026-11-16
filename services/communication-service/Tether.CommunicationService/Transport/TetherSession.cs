@@ -27,7 +27,7 @@ namespace Tether.CommunicationService.Transport;
 public sealed class TetherSession : IDisposable
 {
     private const string ProtocolVersion = "2.0";
-    private const string ServerCaps = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,WINDOWS_ADMIN,APP_MANAGEMENT,AUTOMATION";
+    private const string ServerCaps = "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,WINDOWS_ADMIN,APP_MANAGEMENT";
 
     private const byte PacketTypeInputEvent = 0x05;
 
@@ -45,7 +45,10 @@ public sealed class TetherSession : IDisposable
 
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private SslStream? _tls;
+    private Stream? _testStream;
     private long _lastFrameReceivedTicks;
+
+    internal void SetStreamForTesting(Stream stream) => _testStream = stream;
 
     public string SessionId { get; } = Guid.NewGuid().ToString("N")[..8];
     public TetherDevice? Device { get; private set; }
@@ -77,12 +80,12 @@ public sealed class TetherSession : IDisposable
 
     public async Task WriteJsonFrameSafeAsync<T>(T payload, CancellationToken ct)
     {
-        var tls = _tls;
-        if (tls == null) return;
+        var stream = (Stream?)_tls ?? _testStream;
+        if (stream == null) return;
         await _writeLock.WaitAsync(ct);
         try
         {
-            await FrameCodec.WriteJsonFrameAsync(tls, payload, ct);
+            await FrameCodec.WriteJsonFrameAsync(stream, payload, ct);
         }
         finally
         {
@@ -92,12 +95,12 @@ public sealed class TetherSession : IDisposable
 
     public async Task WriteRawFrameSafeAsync(byte[] payload, CancellationToken ct)
     {
-        var tls = _tls;
-        if (tls == null || payload == null || payload.Length == 0) return;
+        var stream = (Stream?)_tls ?? _testStream;
+        if (stream == null || payload == null || payload.Length == 0) return;
         await _writeLock.WaitAsync(ct);
         try
         {
-            await FrameCodec.WriteFrameAsync(tls, payload, ct);
+            await FrameCodec.WriteFrameAsync(stream, payload, ct);
         }
         finally
         {

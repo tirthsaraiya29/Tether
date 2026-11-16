@@ -1321,7 +1321,6 @@ fun TetherNavigationShell(
                             Triple("NOTIFICATIONS", Icons.Default.Notifications, AppScreen.NOTIFICATIONS),
                             Triple("WINDOWS ADMIN", Icons.Default.AdminPanelSettings, AppScreen.WINDOWS_ADMIN),
                             Triple("APP MANAGER", Icons.Default.Apps, AppScreen.APP_MANAGEMENT),
-                            Triple("AUTOMATION", Icons.Default.AutoFixHigh, AppScreen.AUTOMATION),
                             Triple("FILE SHARING", Icons.Default.Folder, AppScreen.FILE_TRANSFER),
                             Triple("REMOTE INPUT", Icons.Default.TouchApp, AppScreen.REMOTE_INPUT),
                             Triple("PERMISSIONS", Icons.Default.CheckCircle, AppScreen.PERMISSIONS),
@@ -1479,9 +1478,6 @@ fun TetherNavigationShell(
                             onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
                         )
                         AppScreen.APP_MANAGEMENT -> ApplicationManagementScreen(
-                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
-                        )
-                        AppScreen.AUTOMATION -> AutomationScreen(
                             onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
                         )
                     }

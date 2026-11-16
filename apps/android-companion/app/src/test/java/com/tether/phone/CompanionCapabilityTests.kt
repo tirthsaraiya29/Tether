@@ -13,7 +13,7 @@ class CompanionCapabilityTests {
     fun testFromScopeName() {
         assertEquals(TetherCapability.CLIPBOARD, TetherCapability.fromScopeName("CLIPBOARD"))
         assertEquals(TetherCapability.POWER_ELEVATED, TetherCapability.fromScopeName("power_elevated"))
-        assertEquals(TetherCapability.AUTOMATION, TetherCapability.fromScopeName("Automation"))
+        assertNull(TetherCapability.fromScopeName("Automation"))
         assertNull(TetherCapability.fromScopeName("NON_EXISTENT_CAP"))
     }
 

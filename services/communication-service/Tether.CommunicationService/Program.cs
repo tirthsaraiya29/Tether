@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.ServiceProcess;
 using Tether.CommunicationService;
-using Tether.CommunicationService.Automation;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.Discovery;
@@ -59,9 +58,6 @@ var host = builder
         services.AddSingleton<PowerEventWatcher>();
         services.AddSingleton<PowerEventNotifier>();
         services.AddSingleton<WindowsAdminManager>();
-        services.AddSingleton<AutomationEngine>();
-        services.AddHostedService(sp => sp.GetRequiredService<AutomationEngine>());
-
         services.AddSingleton<TokenStore>();
         services.AddHostedService<FileTransferServer>();
 
