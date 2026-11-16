@@ -31,7 +31,11 @@
   <link rel="alternate" hreflang="en" href="https://tether-control.vercel.app/">
   <link rel="canonical" href="https://tether-control.vercel.app/">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="apple-touch-icon" href="apps/android-companion/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="docs/assets/branding/tether-logo-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="docs/assets/branding/tether-logo-16.png">
 
   <!-- Open Graph / Facebook / LinkedIn / Discord -->
   <meta property="og:title" content="Tether — Connect Android to Windows over Local Wi-Fi (No Cloud)">
@@ -53,8 +57,6 @@
   <meta name="twitter:description" content="Open-source bridge: biometric Windows unlock, wireless trackpad, emergency lockdown, and local file transfer — entirely over your LAN via TLS 1.3.">
   <meta name="twitter:image" content="https://tether-control.vercel.app/docs/assets/screenshots/desktop-telemetry-control-plane.png">
   <meta name="twitter:image:alt" content="Tether — Android to Windows Local Wi-Fi Bridge and Telemetry Control Plane">
-
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23020403'/%3E%3Cpath d='M9 10h14M16 10v13' stroke='%2300ff9d' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 
   <!-- JSON-LD Structured Data (Schema.org) -->
   <script type="application/ld+json">
@@ -724,20 +726,26 @@
       color: var(--green);
     }
 
-    /* Brand mark: the tether glyph, a green tick on black */
+    /* Brand mark: Tether glowing squircle logo */
     .brand-mark {
-      width: 22px;
-      height: 22px;
-      border-radius: 6px;
-      background: var(--surface-raised);
-      border: 1px solid var(--border-strong);
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
       display: grid;
       place-items: center;
+      overflow: hidden;
       transition: transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast) var(--ease-out);
     }
+    .brand-logo {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      object-fit: cover;
+      display: block;
+    }
     .brand:hover .brand-mark {
-      transform: rotate(90deg);
-      box-shadow: 0 0 12px var(--green-mid);
+      transform: scale(1.08);
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.5);
     }
 
     .primary-nav {
@@ -1622,7 +1630,7 @@
     <div class="container header-inner">
       <a href="#top" class="brand">
         <span class="brand-mark" aria-hidden="true">
-          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 3h8M6 3v6" stroke="#00ff9d" stroke-width="2" stroke-linecap="round"/></svg>
+          <img src="docs/assets/branding/tether-logo-64.png" alt="Tether" width="26" height="26" class="brand-logo" />
         </span>
         Tether
       </a>
@@ -2334,7 +2342,10 @@
   <footer class="site-footer">
     <div class="container footer-grid">
       <div class="footer-brand">
-        <p style="font-weight: 600; color: var(--silver); font-size: 1.1rem;">Tether</p>
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+          <img src="docs/assets/branding/tether-logo-64.png" alt="Tether" width="28" height="28" style="border-radius: 7px;" />
+          <p style="font-weight: 600; color: var(--silver); font-size: 1.1rem; margin: 0;">Tether</p>
+        </div>
         <p>Connecting an Android phone to a Windows PC over your own Wi-Fi. No cloud, no accounts, just two devices you own talking to each other.</p>
         <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px;">
           <span class="chip">Windows 10 / 11</span>

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
@@ -1315,7 +1316,7 @@ fun TetherNavigationShell(
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
                             Triple("REMOTE DESKTOP", Icons.Default.DesktopWindows, AppScreen.REMOTE_DESKTOP),
-                            Triple("ADVANCED AUDIO", Icons.Default.VolumeUp, AppScreen.ADVANCED_AUDIO),
+                            Triple("ADVANCED AUDIO", Icons.AutoMirrored.Filled.VolumeUp, AppScreen.ADVANCED_AUDIO),
                             Triple("REMOTE TERMINAL", Icons.Default.Terminal, AppScreen.REMOTE_TERMINAL),
                             Triple("CLIPBOARD SYNC", Icons.Default.ContentPaste, AppScreen.CLIPBOARD),
                             Triple("NOTIFICATIONS", Icons.Default.Notifications, AppScreen.NOTIFICATIONS),

@@ -9,13 +9,13 @@
   "theme_color": "#020403",
   "icons": [
     {
-      "src": "apps/android-companion/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp",
+      "src": "icon-192.png",
       "sizes": "192x192",
-      "type": "image/webp",
+      "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "apps/android-companion/app/src/main/ic_launcher-playstore.png",
+      "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"

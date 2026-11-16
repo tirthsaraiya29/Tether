@@ -1,4 +1,8 @@
-# Tether
+<p align="center">
+  <img src="docs/assets/branding/tether-logo-1024.png" width="160" height="160" alt="Tether Brand Logo" />
+</p>
+
+<h1 align="center">Tether</h1>
 
 **Adaptive personal trust and security system for Windows and Android.**
 
@@ -25,6 +29,7 @@
 - [Quick Start and Usage](#quick-start-and-usage)
 - [Security Model](#security-model)
 - [Project Structure](#project-structure)
+- [Brand Identity &amp; Visual Assets](docs/BRANDING.md)
 - [Configuration](#configuration)
 - [Troubleshooting and Error Matrix](#troubleshooting-and-error-matrix)
 - [Roadmap](#roadmap)

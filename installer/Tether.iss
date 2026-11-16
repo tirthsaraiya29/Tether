@@ -78,6 +78,7 @@ AllowNoIcons=yes
 CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
+SetupIconFile=assets\tether.ico
 UninstallDisplayIcon={app}\{#MyDesktopUIExeName}
 UninstallDisplayName={#MyAppName} {#MyAppVersion}
 

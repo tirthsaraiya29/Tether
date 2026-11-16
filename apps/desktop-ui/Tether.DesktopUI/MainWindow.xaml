@@ -7,6 +7,7 @@
         xmlns:updates="clr-namespace:Tether.DesktopUI.Updates"
 
         Title="Tether"
+        Icon="assets/tether-32.png"
 
         Height="840" Width="1220"
 
@@ -109,29 +110,17 @@
 
 
                     <Border Grid.Column="0"
-
                             Width="26" Height="26"
-
                             CornerRadius="6"
-
                             Background="{StaticResource AccentPillBackgroundBrush}"
-
                             BorderBrush="{StaticResource AccentPillBorderBrush}"
-
-                            BorderThickness="1">
-
-                        <TextBlock Text="&#xE72E;"
-
-                                   FontFamily="{StaticResource IconFontFamily}"
-
-                                   FontSize="12.5"
-
-                                   Foreground="{StaticResource SystemAccentBrush}"
-
-                                   HorizontalAlignment="Center"
-
-                                   VerticalAlignment="Center"/>
-
+                            BorderThickness="1"
+                            ClipToBounds="True">
+                        <Image Source="assets/tether-32.png"
+                               Width="18" Height="18"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Border>
 
 

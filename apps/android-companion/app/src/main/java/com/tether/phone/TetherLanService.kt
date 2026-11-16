@@ -2558,7 +2558,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         if (!isReady) return
         serviceScope.launch(Dispatchers.IO) {
             try {
-                transport?.sendFrame(data)
+                transport.sendFrame(data)
             } catch (e: Exception) {
                 Log.w(TAG, "sendDirectControlFrame failed: ${e.message}")
             }

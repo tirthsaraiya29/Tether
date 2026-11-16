@@ -11,6 +11,7 @@
 		<SelfContained>true</SelfContained>
 		<PublishSingleFile>true</PublishSingleFile>
 		<PublishReadyToRun>true</PublishReadyToRun>
+		<ApplicationIcon>assets\tether.ico</ApplicationIcon>
 	</PropertyGroup>
 
 	<ItemGroup>
