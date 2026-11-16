@@ -35,6 +35,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <permission
         android:name="com.tether.phone.permission.VOICE_COMMAND"
@@ -139,6 +140,10 @@
 
         <receiver
             android:name=".TetherAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".PackageInstallStatusReceiver"
             android:exported="false" />
 
         <receiver

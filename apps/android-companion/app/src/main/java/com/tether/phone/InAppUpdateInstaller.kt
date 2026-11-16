@@ -1,11 +1,11 @@
 package com.tether.phone
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import android.content.pm.PackageInstaller
 import android.os.Build
 import android.util.Log
-import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -23,6 +23,7 @@ object InAppUpdateInstaller {
 
     private const val TAG = "InAppUpdateInstaller"
     private const val FILE_NAME = "tether-update.apk"
+    const val ACTION_PACKAGE_INSTALL_STATUS = "com.tether.phone.ACTION_PACKAGE_INSTALL_STATUS"
 
     data class DownloadResult(val file: File?, val error: String? = null)
 
@@ -73,6 +74,7 @@ object InAppUpdateInstaller {
      * A package can only be installed over this one if it is signed with the same key,
      * so the pre-check is a fail-fast guard, not the sole defense.
      */
+    @Suppress("DEPRECATION")
     private fun isSameSignature(context: Context, apk: File): Boolean {
         return try {
             val pm = context.packageManager
@@ -107,19 +109,34 @@ object InAppUpdateInstaller {
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     private fun installApk(context: Context, apk: File) {
-        val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
-        } else {
-            Uri.fromFile(apk)
+        val packageInstaller = context.packageManager.packageInstaller
+        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+            setAppPackageName(context.packageName)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
+            }
         }
-        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val sessionId = packageInstaller.createSession(params)
+        packageInstaller.openSession(sessionId).use { session ->
+            session.openWrite("tether-update", 0, apk.length()).use { out ->
+                apk.inputStream().use { input ->
+                    input.copyTo(out)
+                }
+                session.fsync(out)
+            }
+            val intent = Intent(context, PackageInstallStatusReceiver::class.java).apply {
+                action = ACTION_PACKAGE_INSTALL_STATUS
+                setPackage(context.packageName)
+            }
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                sessionId,
+                intent,
+                flags
+            )
+            session.commit(pendingIntent.intentSender)
         }
-        context.startActivity(intent)
-        // shortcut: file is deleted on next updater run / cache clear, since ACTION_INSTALL_PACKAGE
-        // streams the content immediately; upgrade to a DELETE receiver when targeting stricter OEMs.
         apk.delete()
     }
 }

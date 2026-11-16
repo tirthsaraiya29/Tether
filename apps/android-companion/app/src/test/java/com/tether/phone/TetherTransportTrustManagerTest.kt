@@ -213,4 +213,19 @@ class TetherTransportTrustManagerTest {
             tmMatch.checkClientTrusted(arrayOf(cert), "ECDSA", null as javax.net.ssl.SSLEngine?)
         }
     }
+
+    @Test
+    fun testEndpointIdentificationAlgorithmHttpsSupport() {
+        val cert = TestX509Certificate(keyPair1.public)
+        val tmMatch = TetherTransportTrustManager(
+            context = null,
+            securityEngine = ProductionSecurityEngine(),
+            expectedPeerPublicKey = keyPair1.public.encoded
+        )
+
+        // Verifies endpoint identification resolution with host parameter
+        val trustedList = tmMatch.checkServerTrusted(arrayOf(cert), "ECDSA", "10.0.0.5")
+        assertEquals(1, trustedList.size)
+        assertEquals(cert, tmMatch.acceptedIssuers.firstOrNull())
+    }
 }
