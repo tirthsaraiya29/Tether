@@ -16,6 +16,7 @@ using Tether.CommunicationService.Trust;
 using Tether.EventBus;
 using Tether.Shared.Events;
 using Tether.Shared.Logging;
+using Tether.Shared.Network;
 using Tether.TrustEngine;
 
 namespace Tether.CommunicationService;
@@ -26,14 +27,14 @@ public sealed class Worker : BackgroundService
 
     // Legacy rules to purge
     private const string RuleLegacyExe = "Tether Service Exe";
-    private const string RuleLegacyTcp = "Tether TCP 37123";
-    private const string RuleLegacyUdp = "Tether UDP 37124";
+    private static readonly string RuleLegacyTcp = $"Tether TCP {NetworkConstants.ControlPort}";
+    private static readonly string RuleLegacyUdp = $"Tether UDP {NetworkConstants.DiscoveryPort}";
 
     // Active port rules
-    private const string RuleControlTcp = "Tether Control (TCP-In 37123)";
-    private const string RuleDiscoveryUdp = "Tether Discovery (UDP-In 37124)";
-    private const string RuleMdnsUdp = "Tether mDNS (UDP-In 5353)";
-    private const string RuleFileTransferTcp = "Tether File Transfer (TCP-In 37124)";
+    private static readonly string RuleControlTcp = $"Tether Control (TCP-In {NetworkConstants.ControlPort})";
+    private static readonly string RuleDiscoveryUdp = $"Tether Discovery (UDP-In {NetworkConstants.DiscoveryPort})";
+    private static readonly string RuleMdnsUdp = $"Tether mDNS (UDP-In {NetworkConstants.MdnsPort})";
+    private static readonly string RuleFileTransferTcp = $"Tether File Transfer (TCP-In {NetworkConstants.FileTransferPort})";
 
     private readonly ILogger<Worker> _logger;
     private readonly ITetherLogger _tetherLogger;
@@ -208,7 +209,7 @@ public sealed class Worker : BackgroundService
             name: _identity.DeviceName,
             caps: AdvertisedCaps,
             pqc: false,
-            ftPort: 37124);
+            ftPort: NetworkConstants.FileTransferPort);
 
         _tetherLogger.Info($"Transport up. DeviceId={_identity.DeviceId}");
 
@@ -441,19 +442,19 @@ public sealed class Worker : BackgroundService
             DeleteFirewallRule(RuleLegacyUdp);
 
             // 2. Add port-specific rules scoped to executable and Private/Domain profiles
-            // Port 37123 TCP: Primary TLS Control Channel
-            AddPortRule(RuleControlTcp, "TCP", 37123, exePath);
+            // Primary TLS Control Channel
+            AddPortRule(RuleControlTcp, "TCP", NetworkConstants.ControlPort, exePath);
 
-            // Port 37124 UDP: Local Broadcast Discovery
-            AddPortRule(RuleDiscoveryUdp, "UDP", 37124, exePath);
+            // Local Broadcast Discovery
+            AddPortRule(RuleDiscoveryUdp, "UDP", NetworkConstants.DiscoveryPort, exePath);
 
-            // Port 5353 UDP: Multicast DNS (mDNS for Android NsdManager)
-            AddPortRule(RuleMdnsUdp, "UDP", 5353, exePath);
+            // Multicast DNS (mDNS for Android NsdManager)
+            AddPortRule(RuleMdnsUdp, "UDP", NetworkConstants.MdnsPort, exePath);
 
-            // Port 37124 TCP: HTTPS File Transfer API
-            AddPortRule(RuleFileTransferTcp, "TCP", 37124, exePath);
+            // HTTPS File Transfer API
+            AddPortRule(RuleFileTransferTcp, "TCP", NetworkConstants.FileTransferPort, exePath);
 
-            _tetherLogger.Info("Firewall rules synchronized: Scoped strictly to TCP 37123, UDP 37124, UDP 5353, TCP 37124 on Private/Domain profiles.");
+            _tetherLogger.Info($"Firewall rules synchronized: Scoped strictly to TCP {NetworkConstants.ControlPort}, UDP {NetworkConstants.DiscoveryPort}, UDP {NetworkConstants.MdnsPort}, TCP {NetworkConstants.FileTransferPort} on Private/Domain profiles.");
         }
         catch (Exception ex)
         {

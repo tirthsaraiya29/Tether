@@ -629,6 +629,14 @@
 
                       Grid.ColumnSpan="3">
 
+                    <Grid.RowDefinitions>
+
+                        <RowDefinition Height="*"/>
+
+                        <RowDefinition Height="Auto"/>
+
+                    </Grid.RowDefinitions>
+
                     <Grid.ColumnDefinitions>
 
                         <ColumnDefinition Width="*"/>
@@ -643,7 +651,7 @@
 
                     <!-- Local Windows Storage Pane -->
 
-                    <Border Grid.Column="0"
+                    <Border Grid.Row="0" Grid.Column="0"
 
                             Style="{StaticResource GlassPanel}"
 
@@ -879,7 +887,7 @@
 
                     <!-- Remote Phone Storage Pane -->
 
-                    <Border Grid.Column="2"
+                    <Border Grid.Row="0" Grid.Column="2"
 
                             Style="{StaticResource GlassPanel}"
 
@@ -1129,6 +1137,44 @@
 
                         </Grid>
 
+                    </Border>
+
+                    <!-- File Transfer Progress & Status Banner -->
+                    <Border x:Name="CardFileTransferProgress"
+                            Grid.Row="1"
+                            Grid.Column="0"
+                            Grid.ColumnSpan="3"
+                            Style="{StaticResource GlassPanel}"
+                            Margin="0,14,0,0"
+                            Padding="16,12"
+                            Visibility="Collapsed">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Border Grid.Row="0" Grid.RowSpan="2" Width="36" Height="36" CornerRadius="8" Background="{StaticResource AccentPillBackgroundBrush}" Margin="0,0,12,0" VerticalAlignment="Center">
+                                <TextBlock x:Name="IconTransferDirection" Text="&#xE898;" FontFamily="{StaticResource IconFontFamily}" FontSize="16" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+
+                            <StackPanel Grid.Column="1" Grid.Row="0" VerticalAlignment="Center">
+                                <TextBlock x:Name="TxtTransferFileName" Text="Transfer in progress..." FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <TextBlock x:Name="TxtTransferMetrics" Text="Connecting..." FontSize="11.5" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" Grid.Row="0" Grid.RowSpan="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="BtnOpenSavedLocation" Content="Open Folder" Style="{StaticResource StandardButton}" Margin="0,0,8,0" Visibility="Collapsed" Click="BtnOpenSavedLocation_Click"/>
+                                <Button x:Name="BtnDismissTransferProgress" Content="&#xE711;" FontFamily="{StaticResource IconFontFamily}" Style="{StaticResource StandardButton}" Width="28" Height="28" Padding="0" Visibility="Collapsed" Click="BtnDismissTransferProgress_Click"/>
+                            </StackPanel>
+
+                            <ProgressBar x:Name="ProgressFileTransfer" Grid.Row="1" Grid.Column="1" Height="5" Margin="0,8,12,0" Minimum="0" Maximum="100" Value="0" Foreground="{StaticResource AccentBrush}"/>
+                        </Grid>
                     </Border>
 
                 </Grid>

@@ -175,8 +175,8 @@ class TetherDiscoveryManager(
     companion object {
         private const val TAG = "TetherDiscoveryManager"
         const val SERVICE_TYPE = "_tether._tcp"
-        const val DEFAULT_PORT = 37123
-        const val UDP_DISCOVERY_PORT = 37124
+        const val DEFAULT_PORT = TetherNetworkConstants.CONTROL_PORT
+        const val UDP_DISCOVERY_PORT = TetherNetworkConstants.DISCOVERY_PORT
         private const val MULTICAST_LOCK_TAG = "TetherMdnsMulticastLock"
     }
 

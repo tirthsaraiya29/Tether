@@ -340,7 +340,7 @@ object FileTransferClient {
         val urlBuilder = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
-            .port(37124)
+            .port(TetherNetworkConstants.FILE_TRANSFER_PORT)
             .addPathSegment("api")
             .addPathSegment("desktop")
             .addPathSegment("stream")
@@ -384,7 +384,7 @@ object FileTransferClient {
         val urlBuilder = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
-            .port(37124)
+            .port(TetherNetworkConstants.FILE_TRANSFER_PORT)
             .addPathSegment("api")
             .addPathSegment("fs")
             .addPathSegment("list")
@@ -419,20 +419,40 @@ object FileTransferClient {
         }
     }
 
+    fun queryDisplayName(context: Context, uri: Uri): String {
+        if (uri.scheme == "content") {
+            try {
+                context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0) {
+                            val name = cursor.getString(idx)
+                            if (!name.isNullOrBlank()) return name
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return uri.lastPathSegment?.substringAfterLast('/')?.ifBlank { null } ?: "file_${System.currentTimeMillis()}"
+    }
+
     suspend fun downloadFile(
         hostIp: String,
         path: String,
         destUri: Uri,
         context: Context,
         token: String,
-        customPinnedKey: ByteArray? = null
+        customPinnedKey: ByteArray? = null,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long, speedBps: Long, etaSec: Long) -> Unit)? = null
     ) = withContext(Dispatchers.IO) {
         val client = getPinnedClient(context, customPinnedKey, hostIp)
+        val resolvedFileName = path.substringAfterLast('\\').substringAfterLast('/').ifBlank { "downloaded_file" }
+        val transferId = (System.currentTimeMillis() and 0x7FFFFFFF).toInt()
 
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
-            .port(37124)
+            .port(TetherNetworkConstants.FILE_TRANSFER_PORT)
             .addPathSegment("api")
             .addPathSegment("fs")
             .addPathSegment("download")
@@ -442,32 +462,63 @@ object FileTransferClient {
         val requestBuilder = Request.Builder().url(url)
         addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
 
-        client.newCall(requestBuilder.build()).executeWithDiagnostics { response ->
-            if (!response.isSuccessful) {
-                throw Exception("Failed to download file: ${response.code} ${response.message}")
-            }
-            val body = response.body ?: throw Exception("Empty response body")
-            val expectedHashHex = response.header("X-Tether-File-SHA512")?.trim()?.lowercase(Locale.US)
+        try {
+            client.newCall(requestBuilder.build()).executeWithDiagnostics { response ->
+                if (!response.isSuccessful) {
+                    throw Exception("Failed to download file: ${response.code} ${response.message}")
+                }
+                val body = response.body ?: throw Exception("Empty response body")
+                val totalBytes = body.contentLength()
+                val expectedHashHex = response.header("X-Tether-File-SHA512")?.trim()?.lowercase(Locale.US)
 
-            val digest = MessageDigest.getInstance("SHA-512")
-            context.contentResolver.openOutputStream(destUri)?.use { outputStream ->
-                body.byteStream().use { inputStream ->
-                    val buffer = ByteArray(81920)
-                    var bytesRead: Int
-                    while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                        outputStream.write(buffer, 0, bytesRead)
-                        digest.update(buffer, 0, bytesRead)
+                val digest = MessageDigest.getInstance("SHA-512")
+                val startTime = System.currentTimeMillis()
+                var lastProgressTime = 0L
+                var totalBytesRead = 0L
+
+                context.contentResolver.openOutputStream(destUri)?.use { outputStream ->
+                    body.byteStream().use { inputStream ->
+                        val buffer = ByteArray(81920)
+                        var bytesRead: Int
+                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                            outputStream.write(buffer, 0, bytesRead)
+                            digest.update(buffer, 0, bytesRead)
+                            totalBytesRead += bytesRead
+
+                            val now = System.currentTimeMillis()
+                            if (now - lastProgressTime >= 250 || (totalBytes > 0 && totalBytesRead >= totalBytes)) {
+                                lastProgressTime = now
+                                val elapsedSec = (now - startTime).coerceAtLeast(1) / 1000.0
+                                val speedBps = (totalBytesRead / elapsedSec).toLong()
+                                val etaSec = if (speedBps > 0 && totalBytes > totalBytesRead) (totalBytes - totalBytesRead) / speedBps else 0L
+
+                                onProgress?.invoke(totalBytesRead, totalBytes, speedBps, etaSec)
+                                FileTransferNotificationManager.showProgress(
+                                    context, transferId, resolvedFileName, false, totalBytesRead, totalBytes, speedBps, etaSec
+                                )
+                            }
+                        }
+                    }
+                } ?: throw Exception("Could not open destination URI for writing")
+
+                if (!expectedHashHex.isNullOrBlank()) {
+                    val actualHashHex = digest.digest().joinToString("") { "%02x".format(it) }
+                    if (!expectedHashHex.equals(actualHashHex, ignoreCase = true)) {
+                        try { context.contentResolver.delete(destUri, null, null) } catch (_: Exception) {}
+                        throw Exception("SHA-512 integrity check failed for downloaded file: expected $expectedHashHex, got $actualHashHex")
                     }
                 }
-            } ?: throw Exception("Could not open destination URI for writing")
 
-            if (!expectedHashHex.isNullOrBlank()) {
-                val actualHashHex = digest.digest().joinToString("") { "%02x".format(it) }
-                if (!expectedHashHex.equals(actualHashHex, ignoreCase = true)) {
-                    try { context.contentResolver.delete(destUri, null, null) } catch (_: Exception) {}
-                    throw Exception("SHA-512 integrity check failed for downloaded file: expected $expectedHashHex, got $actualHashHex")
-                }
+                val savedDisplayPath = destUri.path?.substringAfterLast(':') ?: destUri.lastPathSegment ?: resolvedFileName
+                FileTransferNotificationManager.showComplete(
+                    context, transferId, resolvedFileName, false, destUri, savedDisplayPath
+                )
             }
+        } catch (e: Exception) {
+            FileTransferNotificationManager.showError(
+                context, transferId, resolvedFileName, false, e.message ?: "Download failed"
+            )
+            throw e
         }
     }
 
@@ -477,26 +528,44 @@ object FileTransferClient {
         destPath: String,
         context: Context,
         token: String,
-        customPinnedKey: ByteArray? = null
+        customPinnedKey: ByteArray? = null,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long, speedBps: Long, etaSec: Long) -> Unit)? = null
     ) = withContext(Dispatchers.IO) {
         val client = getPinnedClient(context, customPinnedKey, hostIp)
+        val resolvedFileName = queryDisplayName(context, sourceUri)
+        val transferId = (System.currentTimeMillis() and 0x7FFFFFFF).toInt()
+
+        val effectiveDestPath = if (destPath.isBlank() || destPath.endsWith("\\") || destPath.endsWith("/")) {
+            (destPath.trimEnd('\\', '/') + "\\" + resolvedFileName).trimStart('\\')
+        } else {
+            destPath
+        }
 
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
-            .port(37124)
+            .port(TetherNetworkConstants.FILE_TRANSFER_PORT)
             .addPathSegment("api")
             .addPathSegment("fs")
             .addPathSegment("upload")
-            .addQueryParameter("path", destPath)
+            .addQueryParameter("path", effectiveDestPath)
             .build()
 
         val contentResolver = context.contentResolver
         val mimeType = contentResolver.getType(sourceUri) ?: "application/octet-stream"
+        val fileSize = try {
+            contentResolver.openFileDescriptor(sourceUri, "r")?.use { it.statSize } ?: -1L
+        } catch (_: Exception) { -1L }
 
         val digest = MessageDigest.getInstance("SHA-512")
+        val startTime = System.currentTimeMillis()
+        var lastProgressTime = 0L
+        var totalBytesRead = 0L
+
         val requestBody = object : RequestBody() {
             override fun contentType(): MediaType? = mimeType.toMediaTypeOrNull()
+
+            override fun contentLength(): Long = fileSize
 
             override fun writeTo(sink: BufferedSink) {
                 contentResolver.openInputStream(sourceUri)?.use { inputStream ->
@@ -505,6 +574,20 @@ object FileTransferClient {
                     while (inputStream.read(buffer).also { read = it } != -1) {
                         sink.write(buffer, 0, read)
                         digest.update(buffer, 0, read)
+                        totalBytesRead += read
+
+                        val now = System.currentTimeMillis()
+                        if (now - lastProgressTime >= 250 || (fileSize > 0 && totalBytesRead >= fileSize)) {
+                            lastProgressTime = now
+                            val elapsedSec = (now - startTime).coerceAtLeast(1) / 1000.0
+                            val speedBps = (totalBytesRead / elapsedSec).toLong()
+                            val etaSec = if (speedBps > 0 && fileSize > totalBytesRead) (fileSize - totalBytesRead) / speedBps else 0L
+
+                            onProgress?.invoke(totalBytesRead, fileSize, speedBps, etaSec)
+                            FileTransferNotificationManager.showProgress(
+                                context, transferId, resolvedFileName, true, totalBytesRead, fileSize, speedBps, etaSec
+                            )
+                        }
                     }
                 } ?: throw IOException("Could not open source URI for reading")
             }
@@ -527,13 +610,24 @@ object FileTransferClient {
             .url(url)
             .post(requestBody)
             .header("X-Tether-File-SHA512", fileHashHex)
+            .header("X-Tether-File-Name", resolvedFileName)
 
         addAuthAndProofHeaders(requestBuilder, token, context, customPinnedKey)
 
-        client.newCall(requestBuilder.build()).executeWithDiagnostics { response ->
-            if (!response.isSuccessful) {
-                throw Exception("Failed to upload file: ${response.code} ${response.message}")
+        try {
+            client.newCall(requestBuilder.build()).executeWithDiagnostics { response ->
+                if (!response.isSuccessful) {
+                    throw Exception("Failed to upload file: ${response.code} ${response.message}")
+                }
+                FileTransferNotificationManager.showComplete(
+                    context, transferId, resolvedFileName, true, null, effectiveDestPath
+                )
             }
+        } catch (e: Exception) {
+            FileTransferNotificationManager.showError(
+                context, transferId, resolvedFileName, true, e.message ?: "Upload failed"
+            )
+            throw e
         }
     }
 
@@ -550,7 +644,7 @@ object FileTransferClient {
         val urlBuilder = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
-            .port(37124)
+            .port(TetherNetworkConstants.FILE_TRANSFER_PORT)
             .addPathSegment("api")
             .addPathSegment("fs")
             .addPathSegment("search")
@@ -599,7 +693,7 @@ object FileTransferClient {
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
-            .port(37124)
+            .port(TetherNetworkConstants.FILE_TRANSFER_PORT)
             .addPathSegment("api")
             .addPathSegment("fs")
             .addPathSegment("rename")
@@ -631,7 +725,7 @@ object FileTransferClient {
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
-            .port(37124)
+            .port(TetherNetworkConstants.FILE_TRANSFER_PORT)
             .addPathSegment("api")
             .addPathSegment("fs")
             .addPathSegment("move")
@@ -663,7 +757,7 @@ object FileTransferClient {
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
-            .port(37124)
+            .port(TetherNetworkConstants.FILE_TRANSFER_PORT)
             .addPathSegment("api")
             .addPathSegment("fs")
             .addPathSegment("delete")
@@ -695,7 +789,7 @@ object FileTransferClient {
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
-            .port(37124)
+            .port(TetherNetworkConstants.FILE_TRANSFER_PORT)
             .addPathSegment("api")
             .addPathSegment("fs")
             .addPathSegment("mkdir")
@@ -725,7 +819,7 @@ object FileTransferClient {
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
-            .port(37124)
+            .port(TetherNetworkConstants.FILE_TRANSFER_PORT)
             .addPathSegment("api")
             .addPathSegment("fs")
             .addPathSegment("recycle-bin")
@@ -751,7 +845,7 @@ object FileTransferClient {
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
-            .port(37124)
+            .port(TetherNetworkConstants.FILE_TRANSFER_PORT)
             .addPathSegment("api")
             .addPathSegment("desktop")
             .addPathSegment("windows")
@@ -802,7 +896,7 @@ object FileTransferClient {
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
-            .port(37124)
+            .port(TetherNetworkConstants.FILE_TRANSFER_PORT)
             .addPathSegment("api")
             .addPathSegment("apps")
             .addPathSegment("catalog")
@@ -849,7 +943,7 @@ object FileTransferClient {
         val url = HttpUrl.Builder()
             .scheme("https")
             .host(hostIp)
-            .port(37124)
+            .port(TetherNetworkConstants.FILE_TRANSFER_PORT)
             .addPathSegment("api")
             .addPathSegment("desktop")
             .addPathSegment("screenshot")

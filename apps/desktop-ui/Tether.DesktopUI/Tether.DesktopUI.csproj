@@ -17,6 +17,10 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<Resource Include="assets\**\*" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\..\..\shared\Tether.Shared\Tether.Shared.csproj" />
 		<ProjectReference Include="..\..\..\services\event-bus\Tether.EventBus\Tether.EventBus.csproj" />
 	</ItemGroup>

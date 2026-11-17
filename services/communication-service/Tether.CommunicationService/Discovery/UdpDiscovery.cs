@@ -7,18 +7,19 @@ using System.Threading;
 using System.Threading.Tasks;
 using Tether.CommunicationService.Security;
 using Tether.Shared.Logging;
+using Tether.Shared.Network;
 
 namespace Tether.CommunicationService.Discovery;
 
 /// <summary>
 /// Fast UDP Broadcast Discovery Listener & Responder (KDE Connect Style).
-/// Listens on UDP port 37124 for discovery probes from Tether Android devices
+/// Listens on UDP port for discovery probes from Tether Android devices
 /// and broadcasts discovery pongs every 4 seconds over local subnet.
 /// </summary>
 public sealed class UdpDiscovery : IDisposable
 {
-    public const int UdpPort = 37124;
-    public const int TcpPort = 37123;
+    public const int UdpPort = NetworkConstants.DiscoveryPort;
+    public const int TcpPort = NetworkConstants.ControlPort;
 
     private readonly ITetherLogger _logger;
     private readonly WindowsIdentity _identity;

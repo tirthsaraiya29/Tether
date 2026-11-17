@@ -165,6 +165,8 @@ Tether provides eight integrated remote capability domains accessible from the A
    - Recycle Bin integration for safe deletion with optional permanent removal.
    - One-tap Recycle Bin emptying.
    - Resumable chunked file transfers protected by SHA-512 integrity hashes.
+   - Live bidirectional progress bar notifications with transfer speed (MB/s), ETA calculations, and saved location indicators on both Windows and Android.
+   - Direct "Open Folder" explorer shortcut and tap-to-view notification triggers upon completion.
 
 6. **Windows Administration and Diagnostics:**
    - Hardware telemetry: CPU load percentage, RAM usage, logical disk storage meters, and network adapter throughput.

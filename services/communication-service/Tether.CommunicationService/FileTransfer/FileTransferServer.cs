@@ -9,6 +9,7 @@ using Microsoft.Win32.SafeHandles;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -21,7 +22,10 @@ using System.Threading.Tasks;
 using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Trust;
+using Tether.EventBus;
+using Tether.Shared.Events;
 using Tether.Shared.Logging;
+using Tether.Shared.Network;
 
 namespace Tether.CommunicationService.FileTransfer;
 
@@ -68,6 +72,7 @@ public class FileTransferServer : IHostedService
     private readonly SessionManager _sessionManager;
     private readonly TrustStore _trustStore;
     private readonly Tether.CommunicationService.Transport.InputForwarder _inputForwarder;
+    private readonly IEventBus? _eventBus;
     private WebApplication? _app;
 
     private static readonly SemaphoreSlim _transferThrottle = new(MaxConcurrentTransfers, MaxConcurrentTransfers);
@@ -250,7 +255,14 @@ public class FileTransferServer : IHostedService
     }
     #endregion
 
-    public FileTransferServer(ITetherLogger logger, WindowsIdentity identity, TokenStore tokenStore, SessionManager sessionManager, TrustStore trustStore, Tether.CommunicationService.Transport.InputForwarder inputForwarder)
+    public FileTransferServer(
+        ITetherLogger logger,
+        WindowsIdentity identity,
+        TokenStore tokenStore,
+        SessionManager sessionManager,
+        TrustStore trustStore,
+        Tether.CommunicationService.Transport.InputForwarder inputForwarder,
+        IEventBus? eventBus = null)
     {
         _logger = logger;
         _identity = identity;
@@ -258,6 +270,7 @@ public class FileTransferServer : IHostedService
         _sessionManager = sessionManager;
         _trustStore = trustStore;
         _inputForwarder = inputForwarder;
+        _eventBus = eventBus;
     }
 
     private static string[] InitializeBlockedPrefixes()
@@ -576,7 +589,7 @@ public class FileTransferServer : IHostedService
             options.Limits.MaxRequestBodySize = MaxUploadSizeBytes;
             options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(30);
 
-            options.ListenAnyIP(37124, listenOptions =>
+            options.ListenAnyIP(NetworkConstants.FileTransferPort, listenOptions =>
             {
                 listenOptions.UseHttps(httpsOptions =>
                 {
@@ -704,11 +717,66 @@ public class FileTransferServer : IHostedService
                 context.Response.ContentLength = fi.Length;
                 context.Response.Headers["X-Tether-File-SHA512"] = hashHex;
 
-                await using (var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, useAsync: true))
+                long totalBytes = fi.Length;
+                long totalSent = 0L;
+                var sw = Stopwatch.StartNew();
+                long lastProgressTick = 0;
+                string fileName = Path.GetFileName(fullPath);
+
+                await using (var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
                 {
-                    await fs.CopyToAsync(context.Response.Body, context.RequestAborted);
+                    byte[] buffer = new byte[81920];
+                    int bytesRead;
+                    while ((bytesRead = await fs.ReadAsync(buffer, 0, buffer.Length, context.RequestAborted)) > 0)
+                    {
+                        await context.Response.Body.WriteAsync(buffer.AsMemory(0, bytesRead), context.RequestAborted);
+                        totalSent += bytesRead;
+
+                        long nowMs = sw.ElapsedMilliseconds;
+                        if (nowMs - lastProgressTick >= 250 || totalSent >= totalBytes)
+                        {
+                            lastProgressTick = nowMs;
+                            double elapsedSec = Math.Max(0.001, sw.Elapsed.TotalSeconds);
+                            long speedBps = (long)(totalSent / elapsedSec);
+                            long etaSec = (speedBps > 0 && totalBytes > totalSent) ? (totalBytes - totalSent) / speedBps : 0L;
+
+                            _eventBus?.Publish(new TetherEvent
+                            {
+                                EventType = TetherEventType.FILE_TRANSFER_PROGRESS,
+                                PayloadJson = JsonSerializer.Serialize(new FileTransferProgressPayload
+                                {
+                                    FileName = fileName,
+                                    BytesTransferred = totalSent,
+                                    TotalBytes = totalBytes,
+                                    SpeedBps = speedBps,
+                                    EtaSec = etaSec,
+                                    IsUpload = true
+                                })
+                            });
+                        }
+                    }
                     await context.Response.Body.FlushAsync(context.RequestAborted);
                 }
+
+                _eventBus?.Publish(new TetherEvent
+                {
+                    EventType = TetherEventType.FILE_TRANSFER_COMPLETED,
+                    PayloadJson = JsonSerializer.Serialize(new FileTransferProgressPayload
+                    {
+                        FileName = fileName,
+                        SavedPath = fullPath,
+                        TotalBytes = totalSent,
+                        IsUpload = true
+                    })
+                });
+
+                _inputForwarder.PostToHelper(new
+                {
+                    type = "NOTIFICATION_SHOW_DESKTOP",
+                    title = "File Sent to Phone",
+                    body = $"{fileName} was sent to your phone",
+                    app = "Tether File Transfer"
+                });
 
                 return Results.Empty;
             }
@@ -719,6 +787,16 @@ public class FileTransferServer : IHostedService
             catch (Exception ex)
             {
                 _logger.Error($"Error downloading {path}: {ex.Message}");
+                _eventBus?.Publish(new TetherEvent
+                {
+                    EventType = TetherEventType.FILE_TRANSFER_FAILED,
+                    PayloadJson = JsonSerializer.Serialize(new FileTransferProgressPayload
+                    {
+                        FileName = Path.GetFileName(path),
+                        Error = ex.Message,
+                        IsUpload = true
+                    })
+                });
                 if (!context.Response.HasStarted)
                 {
                     return Results.Problem("File download failed");
@@ -731,7 +809,7 @@ public class FileTransferServer : IHostedService
             }
         });
 
-        _app.MapPost("/api/fs/upload", async (string path, HttpContext context) =>
+        _app.MapPost("/api/fs/upload", async (string? path, HttpContext context) =>
         {
             if (!await _transferThrottle.WaitAsync(TimeSpan.FromSeconds(5)))
             {
@@ -741,9 +819,40 @@ public class FileTransferServer : IHostedService
             string tempPath = "";
             try
             {
+                string fileNameHeader = context.Request.Headers["X-Tether-File-Name"].ToString().Trim();
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    string safeName = !string.IsNullOrWhiteSpace(fileNameHeader)
+                        ? Path.GetFileName(fileNameHeader)
+                        : $"tether_received_{DateTime.Now:yyyyMMdd_HHmmss}";
+                    string? activeProfile = Tether.CommunicationService.Capabilities.LaptopStateCollector.GetActiveConsoleUserProfilePath();
+                    if (string.IsNullOrEmpty(activeProfile) || !Directory.Exists(activeProfile))
+                    {
+                        activeProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                    }
+                    string downloadsDir = Path.Combine(activeProfile, "Downloads");
+                    if (!Directory.Exists(downloadsDir)) Directory.CreateDirectory(downloadsDir);
+                    path = Path.Combine(downloadsDir, safeName);
+                }
+                else if (Directory.Exists(path))
+                {
+                    string safeName = !string.IsNullOrWhiteSpace(fileNameHeader)
+                        ? Path.GetFileName(fileNameHeader)
+                        : $"tether_received_{DateTime.Now:yyyyMMdd_HHmmss}";
+                    path = Path.Combine(path, safeName);
+                }
+
                 if (!TryGetValidPath(path, out var fullPath, isUpload: true))
                 {
                     return Results.BadRequest("Destination path is invalid, restricted, or traverses a reparse point");
+                }
+
+                if (Directory.Exists(fullPath))
+                {
+                    string safeName = !string.IsNullOrWhiteSpace(fileNameHeader)
+                        ? Path.GetFileName(fileNameHeader)
+                        : $"tether_received_{DateTime.Now:yyyyMMdd_HHmmss}";
+                    fullPath = Path.Combine(fullPath, safeName);
                 }
 
                 // Disallow overwriting read-only, hidden, or reparse point files
@@ -835,6 +944,10 @@ public class FileTransferServer : IHostedService
                     var buffer = new byte[81920];
                     int bytesRead;
                     long totalBytesRead = 0L;
+                    long expectedTotal = context.Request.ContentLength ?? 0L;
+                    var sw = Stopwatch.StartNew();
+                    long lastProgressTick = 0;
+                    string fileName = Path.GetFileName(fullPath);
 
                     while ((bytesRead = await context.Request.Body.ReadAsync(buffer, 0, buffer.Length, context.RequestAborted)) > 0)
                     {
@@ -847,6 +960,29 @@ public class FileTransferServer : IHostedService
                         }
 
                         await tempStream.WriteAsync(buffer, 0, bytesRead, context.RequestAborted);
+
+                        long nowMs = sw.ElapsedMilliseconds;
+                        if (nowMs - lastProgressTick >= 250 || (expectedTotal > 0 && totalBytesRead >= expectedTotal))
+                        {
+                            lastProgressTick = nowMs;
+                            double elapsedSec = Math.Max(0.001, sw.Elapsed.TotalSeconds);
+                            long speedBps = (long)(totalBytesRead / elapsedSec);
+                            long etaSec = (speedBps > 0 && expectedTotal > totalBytesRead) ? (expectedTotal - totalBytesRead) / speedBps : 0L;
+
+                            _eventBus?.Publish(new TetherEvent
+                            {
+                                EventType = TetherEventType.FILE_TRANSFER_PROGRESS,
+                                PayloadJson = JsonSerializer.Serialize(new FileTransferProgressPayload
+                                {
+                                    FileName = fileName,
+                                    BytesTransferred = totalBytesRead,
+                                    TotalBytes = expectedTotal,
+                                    SpeedBps = speedBps,
+                                    EtaSec = etaSec,
+                                    IsUpload = false
+                                })
+                            });
+                        }
                     }
 
                     await tempStream.FlushAsync(context.RequestAborted);
@@ -917,6 +1053,26 @@ public class FileTransferServer : IHostedService
                         try { File.Delete(tempPath); } catch { }
                         return Results.Problem($"Atomic file promotion failed (Win32 error {err})");
                     }
+
+                    _eventBus?.Publish(new TetherEvent
+                    {
+                        EventType = TetherEventType.FILE_TRANSFER_COMPLETED,
+                        PayloadJson = JsonSerializer.Serialize(new FileTransferProgressPayload
+                        {
+                            FileName = fileName,
+                            SavedPath = fullPath,
+                            TotalBytes = totalBytesRead,
+                            IsUpload = false
+                        })
+                    });
+
+                    _inputForwarder.PostToHelper(new
+                    {
+                        type = "NOTIFICATION_SHOW_DESKTOP",
+                        title = "File Received",
+                        body = $"{fileName} saved to {fullPath}",
+                        app = "Tether File Transfer"
+                    });
                 }
 
                 return Results.Ok();
@@ -936,6 +1092,16 @@ public class FileTransferServer : IHostedService
                     try { File.Delete(tempPath); } catch { }
                 }
                 _logger.Error($"Error uploading {path}: {ex.Message}");
+                _eventBus?.Publish(new TetherEvent
+                {
+                    EventType = TetherEventType.FILE_TRANSFER_FAILED,
+                    PayloadJson = JsonSerializer.Serialize(new FileTransferProgressPayload
+                    {
+                        FileName = Path.GetFileName(path ?? "Upload"),
+                        Error = ex.Message,
+                        IsUpload = false
+                    })
+                });
                 return Results.Problem("File upload failed");
             }
             finally
@@ -1691,7 +1857,7 @@ public class FileTransferServer : IHostedService
         });
 
         await _app.StartAsync(cancellationToken);
-        _logger.Info("FileTransferServer started on port 37124.");
+        _logger.Info($"FileTransferServer started on port {NetworkConstants.FileTransferPort}.");
     }
 
     public static string ComputeSha512Hex(string filePath)

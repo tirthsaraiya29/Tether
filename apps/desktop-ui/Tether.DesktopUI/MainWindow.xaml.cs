@@ -26,6 +26,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Tether.Shared.Events;
 using Tether.Shared.IPC;
+using Tether.Shared.Network;
 
 namespace Tether.DesktopUI
 {
@@ -779,6 +780,51 @@ namespace Tether.DesktopUI
                         LogTerminal("Screen woken.");
                     }
                     break;
+
+                case TetherEventType.FILE_TRANSFER_PROGRESS:
+                    if (!string.IsNullOrEmpty(evt.PayloadJson))
+                    {
+                        try
+                        {
+                            var progress = JsonSerializer.Deserialize<FileTransferProgressPayload>(evt.PayloadJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            if (progress != null)
+                            {
+                                UpdateTransferProgressUi(progress);
+                            }
+                        }
+                        catch { }
+                    }
+                    break;
+
+                case TetherEventType.FILE_TRANSFER_COMPLETED:
+                    if (!string.IsNullOrEmpty(evt.PayloadJson))
+                    {
+                        try
+                        {
+                            var progress = JsonSerializer.Deserialize<FileTransferProgressPayload>(evt.PayloadJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            if (progress != null)
+                            {
+                                UpdateTransferCompletedUi(progress);
+                            }
+                        }
+                        catch { }
+                    }
+                    break;
+
+                case TetherEventType.FILE_TRANSFER_FAILED:
+                    if (!string.IsNullOrEmpty(evt.PayloadJson))
+                    {
+                        try
+                        {
+                            var progress = JsonSerializer.Deserialize<FileTransferProgressPayload>(evt.PayloadJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            if (progress != null)
+                            {
+                                UpdateTransferFailedUi(progress);
+                            }
+                        }
+                        catch { }
+                    }
+                    break;
             }
         }
 
@@ -1457,7 +1503,7 @@ namespace Tether.DesktopUI
 
             var client = new System.Net.Http.HttpClient(handler)
             {
-                BaseAddress = new Uri("https://localhost:37124")
+                BaseAddress = new Uri($"https://127.0.0.1:{NetworkConstants.FileTransferPort}")
             };
 
             EnsureLocalAuthHeader(client);
@@ -1670,6 +1716,133 @@ namespace Tether.DesktopUI
             }
         }
 
+        private string? _lastSavedFilePath;
+
+        private void UpdateTransferProgressUi(FileTransferProgressPayload progress)
+        {
+            if (CardFileTransferProgress == null) return;
+
+            CardFileTransferProgress.Visibility = Visibility.Visible;
+            if (IconTransferDirection != null) IconTransferDirection.Text = progress.IsUpload ? "\uE898" : "\uE896";
+            if (TxtTransferFileName != null) TxtTransferFileName.Text = progress.IsUpload ? $"Sending {progress.FileName} to phone" : $"Receiving {progress.FileName} from phone";
+
+            int percent = progress.TotalBytes > 0 ? (int)((progress.BytesTransferred * 100) / progress.TotalBytes) : 0;
+            string speedStr = FormatSpeed(progress.SpeedBps);
+            string etaStr = FormatEta(progress.EtaSec);
+            string sizeStr = progress.TotalBytes > 0 ? $"{FormatBytes(progress.BytesTransferred)} / {FormatBytes(progress.TotalBytes)}" : FormatBytes(progress.BytesTransferred);
+
+            if (TxtTransferMetrics != null) TxtTransferMetrics.Text = $"{percent}% ({sizeStr}) • {speedStr} • {etaStr}";
+            if (ProgressFileTransfer != null)
+            {
+                ProgressFileTransfer.IsIndeterminate = progress.TotalBytes <= 0;
+                ProgressFileTransfer.Value = Math.Clamp(percent, 0, 100);
+            }
+            if (BtnOpenSavedLocation != null) BtnOpenSavedLocation.Visibility = Visibility.Collapsed;
+            if (BtnDismissTransferProgress != null) BtnDismissTransferProgress.Visibility = Visibility.Collapsed;
+        }
+
+        private void UpdateTransferCompletedUi(FileTransferProgressPayload progress)
+        {
+            if (CardFileTransferProgress == null) return;
+
+            _lastSavedFilePath = progress.SavedPath;
+            CardFileTransferProgress.Visibility = Visibility.Visible;
+            if (IconTransferDirection != null) IconTransferDirection.Text = "\uE73E";
+            if (ProgressFileTransfer != null)
+            {
+                ProgressFileTransfer.IsIndeterminate = false;
+                ProgressFileTransfer.Value = 100;
+            }
+
+            if (progress.IsUpload)
+            {
+                if (TxtTransferFileName != null) TxtTransferFileName.Text = $"Sent {progress.FileName} to phone";
+                if (TxtTransferMetrics != null) TxtTransferMetrics.Text = "Transfer completed successfully";
+                if (BtnOpenSavedLocation != null) BtnOpenSavedLocation.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                if (TxtTransferFileName != null) TxtTransferFileName.Text = $"Received {progress.FileName}";
+                if (TxtTransferMetrics != null) TxtTransferMetrics.Text = $"Saved to: {progress.SavedPath}";
+                if (BtnOpenSavedLocation != null) BtnOpenSavedLocation.Visibility = string.IsNullOrEmpty(progress.SavedPath) ? Visibility.Collapsed : Visibility.Visible;
+                LogTerminal($"File received: {progress.FileName} saved to {progress.SavedPath}");
+                LoadLocalFiles(TxtLocalPath?.Text ?? "");
+            }
+            if (BtnDismissTransferProgress != null) BtnDismissTransferProgress.Visibility = Visibility.Visible;
+        }
+
+        private void UpdateTransferFailedUi(FileTransferProgressPayload progress)
+        {
+            if (CardFileTransferProgress == null) return;
+
+            CardFileTransferProgress.Visibility = Visibility.Visible;
+            if (IconTransferDirection != null) IconTransferDirection.Text = "\uE783";
+            if (ProgressFileTransfer != null)
+            {
+                ProgressFileTransfer.IsIndeterminate = false;
+                ProgressFileTransfer.Value = 0;
+            }
+            if (TxtTransferFileName != null) TxtTransferFileName.Text = $"Transfer failed: {progress.FileName}";
+            if (TxtTransferMetrics != null) TxtTransferMetrics.Text = progress.Error ?? "Transfer failed";
+            if (BtnOpenSavedLocation != null) BtnOpenSavedLocation.Visibility = Visibility.Collapsed;
+            if (BtnDismissTransferProgress != null) BtnDismissTransferProgress.Visibility = Visibility.Visible;
+            LogTerminal($"Transfer error: {progress.Error ?? "Transfer failed"}");
+        }
+
+        private void BtnOpenSavedLocation_Click(object sender, RoutedEventArgs e)
+        {
+            if (!string.IsNullOrEmpty(_lastSavedFilePath))
+            {
+                try
+                {
+                    if (File.Exists(_lastSavedFilePath))
+                    {
+                        Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_lastSavedFilePath}\"") { UseShellExecute = true });
+                    }
+                    else if (Directory.Exists(_lastSavedFilePath))
+                    {
+                        Process.Start(new ProcessStartInfo("explorer.exe", $"\"{_lastSavedFilePath}\"") { UseShellExecute = true });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogTerminal($"Failed to open folder: {ex.Message}");
+                }
+            }
+        }
+
+        private void BtnDismissTransferProgress_Click(object sender, RoutedEventArgs e)
+        {
+            if (CardFileTransferProgress != null)
+            {
+                CardFileTransferProgress.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private static string FormatSpeed(long bps)
+        {
+            if (bps <= 0) return "0 KB/s";
+            if (bps < 1024 * 1024) return $"{bps / 1024} KB/s";
+            return $"{(bps / (1024.0 * 1024.0)):F1} MB/s";
+        }
+
+        private static string FormatEta(long sec)
+        {
+            if (sec <= 0) return "ETA: 0s";
+            if (sec < 60) return $"ETA: {sec}s";
+            if (sec < 3600) return $"ETA: {sec / 60}m {sec % 60}s";
+            return $"ETA: {sec / 3600}h {(sec % 3600) / 60}m";
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            if (bytes < 0) return "0 B";
+            if (bytes < 1024) return $"{bytes} B";
+            if (bytes < 1024 * 1024) return $"{(bytes / 1024.0):F1} KB";
+            if (bytes < 1024 * 1024 * 1024) return $"{(bytes / (1024.0 * 1024.0)):F1} MB";
+            return $"{(bytes / (1024.0 * 1024.0 * 1024.0)):F2} GB";
+        }
+
         private async void BtnUpload_Click(object sender, RoutedEventArgs e)
         {
             if (ListLocalFiles.SelectedItem is FileItem item && !item.IsDirectory)
@@ -1678,6 +1851,16 @@ namespace Tether.DesktopUI
                 {
                     EnsureLocalAuthHeader(_httpClient);
                     LogTerminal($"Sending {item.Name} to phone...");
+                    if (CardFileTransferProgress != null)
+                    {
+                        CardFileTransferProgress.Visibility = Visibility.Visible;
+                        if (IconTransferDirection != null) IconTransferDirection.Text = "\uE898";
+                        if (TxtTransferFileName != null) TxtTransferFileName.Text = $"Sending {item.Name} to phone";
+                        if (TxtTransferMetrics != null) TxtTransferMetrics.Text = "Initiating transfer...";
+                        if (ProgressFileTransfer != null) ProgressFileTransfer.IsIndeterminate = true;
+                        if (BtnOpenSavedLocation != null) BtnOpenSavedLocation.Visibility = Visibility.Collapsed;
+                        if (BtnDismissTransferProgress != null) BtnDismissTransferProgress.Visibility = Visibility.Collapsed;
+                    }
                     var payload = new { localPath = item.FullPath, remoteDir = TxtRemotePath.Text };
                     var content = new System.Net.Http.StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
                     var res = await _httpClient.PostAsync("/api/fs/remote/upload", content);
@@ -1707,6 +1890,16 @@ namespace Tether.DesktopUI
                 {
                     EnsureLocalAuthHeader(_httpClient);
                     LogTerminal($"Downloading {item.Name} from phone...");
+                    if (CardFileTransferProgress != null)
+                    {
+                        CardFileTransferProgress.Visibility = Visibility.Visible;
+                        if (IconTransferDirection != null) IconTransferDirection.Text = "\uE896";
+                        if (TxtTransferFileName != null) TxtTransferFileName.Text = $"Downloading {item.Name} from phone";
+                        if (TxtTransferMetrics != null) TxtTransferMetrics.Text = "Initiating transfer...";
+                        if (ProgressFileTransfer != null) ProgressFileTransfer.IsIndeterminate = true;
+                        if (BtnOpenSavedLocation != null) BtnOpenSavedLocation.Visibility = Visibility.Collapsed;
+                        if (BtnDismissTransferProgress != null) BtnDismissTransferProgress.Visibility = Visibility.Collapsed;
+                    }
                     string sep = TxtRemotePath.Text.EndsWith("/") ? "" : "/";
                     string remotePath = TxtRemotePath.Text + sep + item.Name;
                     var payload = new { remotePath = remotePath, localDir = TxtLocalPath.Text };
