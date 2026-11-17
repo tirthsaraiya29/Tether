@@ -43,9 +43,7 @@ public sealed class UdpDiscovery : IDisposable
     private readonly NetworkAvailabilityChangedEventHandler _availabilityChangedHandler;
     private Action? _triggerBurst;
 
-    private readonly ConcurrentDictionary<IPAddress, (int count, long windowStartTicks)> _rateLimits = new();
-    private int _globalProbeCount = 0;
-    private long _globalWindowStartTicks = 0;
+    private readonly DiscoveryRateLimiter _rateLimiter = new();
 
     public string? LastDiscoveryIp { get; private set; }
 
@@ -80,10 +78,10 @@ public sealed class UdpDiscovery : IDisposable
         return false;
     }
 
-    public static bool IsAllowedInterface(NetworkInterface ni)
+    public static bool IsAllowedInterface(string name, string description, NetworkInterfaceType type, OperationalStatus status)
     {
-        if (ni.OperationalStatus != OperationalStatus.Up) return false;
-        if (ni.NetworkInterfaceType is NetworkInterfaceType.Loopback or
+        if (status != OperationalStatus.Up) return false;
+        if (type is NetworkInterfaceType.Loopback or
             NetworkInterfaceType.Tunnel or
             NetworkInterfaceType.Ppp or
             NetworkInterfaceType.Slip)
@@ -92,10 +90,10 @@ public sealed class UdpDiscovery : IDisposable
         }
 
         // Exclude WWAN / Cellular interface type IDs if present
-        int typeVal = (int)ni.NetworkInterfaceType;
+        int typeVal = (int)type;
         if (typeVal is 243 or 244) return false;
 
-        string desc = (ni.Description + " " + ni.Name).ToLowerInvariant();
+        string desc = (description + " " + name).ToLowerInvariant();
         if (desc.Contains("virtual") || desc.Contains("hyper-v") || desc.Contains("vmware") ||
             desc.Contains("wsl") || desc.Contains("tap-") || desc.Contains("wireguard") ||
             desc.Contains("tailscale") || desc.Contains("zerotier") || desc.Contains("cisco") ||
@@ -105,6 +103,11 @@ public sealed class UdpDiscovery : IDisposable
         }
 
         return true;
+    }
+
+    public static bool IsAllowedInterface(NetworkInterface ni)
+    {
+        return IsAllowedInterface(ni.Name, ni.Description, ni.NetworkInterfaceType, ni.OperationalStatus);
     }
 
     public void Start()
@@ -136,17 +139,16 @@ public sealed class UdpDiscovery : IDisposable
         try { _cts?.Dispose(); } catch { }
         _cts = null;
         _udpClient = null;
-        _rateLimits.Clear();
+        _rateLimiter.Reset();
     }
 
     public void Dispose() => Stop();
 
+    internal DiscoveryRateLimiter RateLimiter => _rateLimiter;
+
     public static List<IPEndPoint> GetDiscoveryTargetEndPoints(int port)
     {
-        var targets = new List<IPEndPoint>
-        {
-            new IPEndPoint(IPAddress.Broadcast, port)
-        };
+        var targets = new List<IPEndPoint>();
 
         try
         {
@@ -155,6 +157,7 @@ public sealed class UdpDiscovery : IDisposable
                 if (!IsAllowedInterface(ni)) continue;
 
                 var ipProps = ni.GetIPProperties();
+                var subnets = new List<(byte[] netBytes, byte[] maskBytes)>();
 
                 // 1. Unicast addresses and directed subnet broadcasts
                 foreach (var unicast in ipProps.UnicastAddresses)
@@ -166,10 +169,14 @@ public sealed class UdpDiscovery : IDisposable
                         var ipBytes = unicast.Address.GetAddressBytes();
                         var maskBytes = unicast.IPv4Mask.GetAddressBytes();
                         var bcastBytes = new byte[4];
+                        var netBytes = new byte[4];
                         for (int i = 0; i < 4; i++)
                         {
+                            netBytes[i] = (byte)(ipBytes[i] & maskBytes[i]);
                             bcastBytes[i] = (byte)(ipBytes[i] | ~maskBytes[i]);
                         }
+                        subnets.Add((netBytes, maskBytes));
+
                         var subnetBcast = new IPAddress(bcastBytes);
                         if (!targets.Any(t => t.Address.Equals(subnetBcast)))
                         {
@@ -179,11 +186,32 @@ public sealed class UdpDiscovery : IDisposable
                 }
 
                 // 2. Default Gateways (on an Android mobile hotspot, the gateway is the phone itself)
+                // Associate gateway strictly with the interface subnet
                 foreach (var gw in ipProps.GatewayAddresses)
                 {
                     if (IsPrivateIpv4(gw.Address))
                     {
-                        if (!targets.Any(t => t.Address.Equals(gw.Address)))
+                        var gwBytes = gw.Address.GetAddressBytes();
+                        bool inSubnet = false;
+                        foreach (var (netBytes, maskBytes) in subnets)
+                        {
+                            bool match = true;
+                            for (int i = 0; i < 4; i++)
+                            {
+                                if ((gwBytes[i] & maskBytes[i]) != netBytes[i])
+                                {
+                                    match = false;
+                                    break;
+                                }
+                            }
+                            if (match)
+                            {
+                                inSubnet = true;
+                                break;
+                            }
+                        }
+
+                        if (inSubnet && !targets.Any(t => t.Address.Equals(gw.Address)))
                         {
                             targets.Add(new IPEndPoint(gw.Address, port));
                         }
@@ -193,7 +221,7 @@ public sealed class UdpDiscovery : IDisposable
         }
         catch
         {
-            // Fall back to general broadcast if interface enumeration fails
+            // Do not use global broadcast fallback
         }
 
         return targets;
@@ -201,38 +229,7 @@ public sealed class UdpDiscovery : IDisposable
 
     internal bool CheckRateLimit(IPAddress remoteIp)
     {
-        long now = DateTime.UtcNow.Ticks;
-        long oneSecondTicks = TimeSpan.FromSeconds(1).Ticks;
-
-        // Global rate limit
-        long globalWindow = Volatile.Read(ref _globalWindowStartTicks);
-        if (now - globalWindow > oneSecondTicks)
-        {
-            Interlocked.Exchange(ref _globalWindowStartTicks, now);
-            Interlocked.Exchange(ref _globalProbeCount, 1);
-        }
-        else
-        {
-            if (Interlocked.Increment(ref _globalProbeCount) > MaxProbesPerSecondGlobal)
-            {
-                return false;
-            }
-        }
-
-        // Per-IP rate limit
-        var record = _rateLimits.AddOrUpdate(
-            remoteIp,
-            _ => (1, now),
-            (_, existing) =>
-            {
-                if (now - existing.windowStartTicks > oneSecondTicks)
-                {
-                    return (1, now);
-                }
-                return (existing.count + 1, existing.windowStartTicks);
-            });
-
-        return record.count <= MaxProbesPerSecondPerIp;
+        return _rateLimiter.CheckAllowed(remoteIp.ToString());
     }
 
     internal bool ValidateInboundProbe(byte[] buffer, IPEndPoint remoteEndPoint, out string? probeDeviceId)
@@ -281,9 +278,9 @@ public sealed class UdpDiscovery : IDisposable
 
             if (doc.RootElement.TryGetProperty("tcpPort", out var portProp))
             {
-                if (portProp.TryGetInt32(out int port))
+                if (!portProp.TryGetInt32(out int port) || port != TcpPort)
                 {
-                    if (port < 1024 || port > 65535) return false;
+                    return false;
                 }
             }
 

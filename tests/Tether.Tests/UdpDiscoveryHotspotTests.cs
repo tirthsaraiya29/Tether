@@ -156,7 +156,7 @@ public class UdpDiscoveryHotspotTests
         using var discovery = CreateDiscoveryInstance();
         var remoteEp = new IPEndPoint(IPAddress.Parse("192.168.43.50"), NetworkConstants.DiscoveryPort);
 
-        // Port < 1024
+        // Port != 37123 must be rejected (e.g. port 80, 8080, 37124)
         var lowPortPayload = JsonSerializer.SerializeToUtf8Bytes(new
         {
             type = "TETHER_DISCOVERY_PROBE",
@@ -164,6 +164,14 @@ public class UdpDiscoveryHotspotTests
             tcpPort = 80
         });
         Assert.False(discovery.ValidateInboundProbe(lowPortPayload, remoteEp, out _));
+
+        var fileTransferPortPayload = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            type = "TETHER_DISCOVERY_PROBE",
+            deviceId = "valid-id",
+            tcpPort = 37124
+        });
+        Assert.False(discovery.ValidateInboundProbe(fileTransferPortPayload, remoteEp, out _));
 
         // Port > 65535
         var highPortPayload = JsonSerializer.SerializeToUtf8Bytes(new
@@ -205,18 +213,84 @@ public class UdpDiscoveryHotspotTests
     }
 
     [Fact]
-    public void GetDiscoveryTargetEndPoints_IncludesBroadcastAndExcludesLoopback()
+    public void DiscoveryRateLimiter_GlobalAndCapacityLimits()
+    {
+        var limiter = new DiscoveryRateLimiter(maxPerIp: 5, maxGlobal: 30, maxTrackedSources: 50);
+        long startTicks = DateTime.UtcNow.Ticks;
+
+        // 1. Global limit across different IPs in the same second window
+        for (int i = 0; i < 30; i++)
+        {
+            string ip = $"192.168.1.{i + 1}";
+            Assert.True(limiter.CheckAllowed(ip, startTicks), $"Global probe #{i + 1} should be allowed");
+        }
+
+        // 31st probe from a brand-new IP must be dropped by the global limit
+        Assert.False(limiter.CheckAllowed("192.168.1.99", startTicks), "31st probe must exceed global limit");
+
+        // 2. Window expiration allows new probes
+        long nextWindowTicks = startTicks + TimeSpan.FromSeconds(1.1).Ticks;
+        Assert.True(limiter.CheckAllowed("192.168.1.99", nextWindowTicks), "Probe in new window must be allowed");
+
+        // 3. Capacity bounded tracking and eviction
+        limiter.Reset();
+        long now = startTicks;
+        // Insert 50 entries
+        for (int i = 0; i < 50; i++)
+        {
+            limiter.CheckAllowed($"10.0.0.{i + 1}", now);
+        }
+        Assert.True(limiter.TrackedSourceCount <= 50, "Tracked sources should not exceed max capacity");
+
+        // Advance beyond expiry (3.5s) and insert more
+        long later = now + TimeSpan.FromSeconds(3.5).Ticks;
+        for (int i = 50; i < 70; i++)
+        {
+            limiter.CheckAllowed($"10.0.0.{i + 1}", later);
+        }
+        Assert.True(limiter.TrackedSourceCount <= 50, "Expired sources must be cleaned up without exceeding capacity");
+    }
+
+    [Fact]
+    public void IsAllowedInterface_ValidatesAllInterfaceTypes()
+    {
+        // Allowed: Wi-Fi, Ethernet
+        Assert.True(UdpDiscovery.IsAllowedInterface("Wi-Fi", "Intel(R) Wi-Fi 6 AX200", System.Net.NetworkInformation.NetworkInterfaceType.Wireless80211, System.Net.NetworkInformation.OperationalStatus.Up));
+        Assert.True(UdpDiscovery.IsAllowedInterface("Ethernet", "Realtek Gaming GbE Family Controller", System.Net.NetworkInformation.NetworkInterfaceType.Ethernet, System.Net.NetworkInformation.OperationalStatus.Up));
+
+        // Ineligible: Down interface
+        Assert.False(UdpDiscovery.IsAllowedInterface("Wi-Fi", "Intel Wi-Fi", System.Net.NetworkInformation.NetworkInterfaceType.Wireless80211, System.Net.NetworkInformation.OperationalStatus.Down));
+
+        // Ineligible: Loopback, Tunnel, PPP, Slip
+        Assert.False(UdpDiscovery.IsAllowedInterface("Loopback", "Software Loopback Interface 1", System.Net.NetworkInformation.NetworkInterfaceType.Loopback, System.Net.NetworkInformation.OperationalStatus.Up));
+        Assert.False(UdpDiscovery.IsAllowedInterface("Tunnel", "Teredo Tunneling Pseudo-Interface", System.Net.NetworkInformation.NetworkInterfaceType.Tunnel, System.Net.NetworkInformation.OperationalStatus.Up));
+        Assert.False(UdpDiscovery.IsAllowedInterface("PPP", "WAN Miniport (PPPOE)", System.Net.NetworkInformation.NetworkInterfaceType.Ppp, System.Net.NetworkInformation.OperationalStatus.Up));
+
+        // Ineligible: Cellular / WWAN
+        Assert.False(UdpDiscovery.IsAllowedInterface("Cellular", "Qualcomm Snapdragon X55 LTE", (System.Net.NetworkInformation.NetworkInterfaceType)243, System.Net.NetworkInformation.OperationalStatus.Up));
+        Assert.False(UdpDiscovery.IsAllowedInterface("Mobile Broadband", "Broadband Adapter", System.Net.NetworkInformation.NetworkInterfaceType.Wwanpp, System.Net.NetworkInformation.OperationalStatus.Up));
+
+        // Ineligible: Virtual / VPN / Hyper-V / WSL
+        Assert.False(UdpDiscovery.IsAllowedInterface("vEthernet (WSL)", "Hyper-V Virtual Ethernet Adapter", System.Net.NetworkInformation.NetworkInterfaceType.Ethernet, System.Net.NetworkInformation.OperationalStatus.Up));
+        Assert.False(UdpDiscovery.IsAllowedInterface("wg0", "WireGuard Tunnel", System.Net.NetworkInformation.NetworkInterfaceType.Ethernet, System.Net.NetworkInformation.OperationalStatus.Up));
+        Assert.False(UdpDiscovery.IsAllowedInterface("Tailscale", "Tailscale Tunnel", System.Net.NetworkInformation.NetworkInterfaceType.Ethernet, System.Net.NetworkInformation.OperationalStatus.Up));
+        Assert.False(UdpDiscovery.IsAllowedInterface("OpenVPN", "TAP-Windows Adapter V9", System.Net.NetworkInformation.NetworkInterfaceType.Ethernet, System.Net.NetworkInformation.OperationalStatus.Up));
+    }
+
+    [Fact]
+    public void GetDiscoveryTargetEndPoints_ExcludesGlobalBroadcastAndLoopback()
     {
         var targets = UdpDiscovery.GetDiscoveryTargetEndPoints(NetworkConstants.DiscoveryPort);
 
         Assert.NotNull(targets);
-        Assert.NotEmpty(targets);
-        Assert.Contains(targets, t => t.Address.Equals(IPAddress.Broadcast) && t.Port == NetworkConstants.DiscoveryPort);
+        // Security Remediation: Global broadcast 255.255.255.255 must NEVER be unconditionally added
+        Assert.DoesNotContain(targets, t => t.Address.Equals(IPAddress.Broadcast));
 
         foreach (var target in targets)
         {
             Assert.Equal(NetworkConstants.DiscoveryPort, target.Port);
             Assert.False(IPAddress.IsLoopback(target.Address));
+            Assert.True(UdpDiscovery.IsPrivateIpv4(target.Address) || target.Address.GetAddressBytes()[3] == 255);
         }
     }
 

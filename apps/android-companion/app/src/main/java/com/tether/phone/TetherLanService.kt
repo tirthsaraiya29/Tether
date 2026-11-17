@@ -596,32 +596,53 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
     }
 
-    @Volatile
-    private var isHotspotActiveByBroadcast = false
+    private val hotspotStateTracker = HotspotStateTracker()
+    private val recentFailedConnectionAttempts = ConcurrentHashMap<String, Long>()
+    private val recentDiscoveredConnectTimes = ConcurrentHashMap<String, Long>()
 
     private val hotspotReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action ?: return
             if (action == "android.net.wifi.WIFI_AP_STATE_CHANGED") {
                 val state = intent.getIntExtra("wifi_state", 0)
-                isHotspotActiveByBroadcast = (state == 13) // WIFI_AP_STATE_ENABLED
+                hotspotStateTracker.onWifiApStateChanged(state)
             } else if (action == "android.net.conn.TETHER_STATE_CHANGED") {
                 val activeList = intent.getStringArrayListExtra("activeArray")
                 val localOnlyList = intent.getStringArrayListExtra("activeLocalOnly")
-                val hasTether = (activeList != null && activeList.isNotEmpty()) ||
-                                (localOnlyList != null && localOnlyList.isNotEmpty())
-                if (hasTether) {
-                    isHotspotActiveByBroadcast = true
-                }
+                hotspotStateTracker.onTetherStateChanged(activeList, localOnlyList)
             }
-            Log.d(TAG, "Hotspot/Tethering state broadcast received: $action (active=$isHotspotActiveByBroadcast)")
+            Log.d(TAG, "Hotspot/Tethering state broadcast received: $action (active=${hotspotStateTracker.isHotspotActive()})")
             handleNetworkStateChange("Hotspot event: $action")
         }
     }
 
     fun isHotspotOrLocalNetworkActive(): Boolean {
-        if (isHotspotActiveByBroadcast) return true
+        if (hotspotStateTracker.isHotspotActive()) {
+            if (hasAnyActiveAllowedInterface()) {
+                return true
+            }
+        }
+        return hasActiveApInterface()
+    }
 
+    private fun hasAnyActiveAllowedInterface(): Boolean {
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                val iface = interfaces.nextElement()
+                if (!isAllowedDiscoveryInterface(iface)) continue
+                for (addr in iface.interfaceAddresses) {
+                    val inetAddr = addr.address
+                    if (inetAddr is Inet4Address && isPrivateAddress(inetAddr)) {
+                        return true
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return false
+    }
+
+    private fun hasActiveApInterface(): Boolean {
         try {
             val interfaces = NetworkInterface.getNetworkInterfaces()
             while (interfaces != null && interfaces.hasMoreElements()) {
@@ -641,7 +662,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
             }
         } catch (_: Exception) {}
-
         return false
     }
 
@@ -660,7 +680,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             InetAddress.getByName(targetIpStr) as? Inet4Address
         } catch (_: Exception) { null } ?: return false
         if (!isPrivateAddress(targetAddr)) return false
-        val targetBytes = targetAddr.address
         try {
             val interfaces = NetworkInterface.getNetworkInterfaces()
             while (interfaces != null && interfaces.hasMoreElements()) {
@@ -669,20 +688,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 for (ifaceAddr in iface.interfaceAddresses) {
                     val addr = ifaceAddr.address
                     if (addr is Inet4Address && isPrivateAddress(addr)) {
-                        val prefix = ifaceAddr.networkPrefixLength.toInt()
-                        if (prefix in 8..30) {
-                            val maskInt = -1 shl (32 - prefix)
-                            val ifaceIpInt = ((addr.address[0].toInt() and 0xFF) shl 24) or
-                                             ((addr.address[1].toInt() and 0xFF) shl 16) or
-                                             ((addr.address[2].toInt() and 0xFF) shl 8) or
-                                             (addr.address[3].toInt() and 0xFF)
-                            val targetIpInt = ((targetBytes[0].toInt() and 0xFF) shl 24) or
-                                              ((targetBytes[1].toInt() and 0xFF) shl 16) or
-                                              ((targetBytes[2].toInt() and 0xFF) shl 8) or
-                                              (targetBytes[3].toInt() and 0xFF)
-                            if ((ifaceIpInt and maskInt) == (targetIpInt and maskInt)) {
-                                return true
-                            }
+                        val prefix = ifaceAddr.networkPrefixLength
+                        if (prefix in 8..30 && isIpInSubnet(targetAddr, addr, prefix)) {
+                            return true
                         }
                     }
                 }
@@ -1080,9 +1088,9 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         val safeName = sanitizeLog(device.name)
         val safeAddr = sanitizeLog(device.hostAddress)
 
-        // Strict discovery validation
-        if (device.port < 1024 || device.port > 65535) {
-            Log.w(TAG, "Rejecting discovered device: Invalid TCP port ${device.port}")
+        // Strict discovery validation: control port must be exactly CONTROL_PORT (37123)
+        if (device.port != TetherNetworkConstants.CONTROL_PORT) {
+            Log.w(TAG, "Rejecting discovered device: Invalid TCP port ${device.port}, expected ${TetherNetworkConstants.CONTROL_PORT}")
             return
         }
         if (!isValidDeviceId(device.deviceId)) {
@@ -1108,8 +1116,19 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
         }
 
-        val activeCount = getDiscoveredDevices().size
-        Log.i(TAG, "mDNS/UDP Discovered Tether device ($activeCount active): $safeName at $safeAddr:${device.port}")
+        val endpointKey = "${device.hostAddress}:${device.port}"
+        val now = System.currentTimeMillis()
+
+        // Deduplicate connection attempts: 5s backoff after failure, 3s throttle per endpoint
+        val lastFailed = recentFailedConnectionAttempts[endpointKey] ?: 0L
+        if (now - lastFailed < 5000L) {
+            return
+        }
+
+        val lastAttempt = recentDiscoveredConnectTimes[endpointKey] ?: 0L
+        if (now - lastAttempt < 3000L) {
+            return
+        }
 
         val isConnectedToTarget = ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY))
                 && (connectedHostAddress == device.hostAddress)
@@ -1123,14 +1142,14 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             return
         }
 
+        // Do not abort an ongoing connection attempt
         if ((currentState == TransportState.CONNECTING) || (currentState == TransportState.TLS_HANDSHAKE) || (currentState == TransportState.AUTHENTICATING)) {
-            if (connectedHostAddress != device.hostAddress) {
-                Log.i(TAG, "Discovered new host $safeAddr while connecting to $connectedHostAddress. Disconnecting stale connection...")
-                disconnectActiveSession("Switching to newly discovered host $safeAddr")
-            } else {
-                return
-            }
+            return
         }
+
+        recentDiscoveredConnectTimes[endpointKey] = now
+        val activeCount = getDiscoveredDevices().size
+        Log.i(TAG, "mDNS/UDP Discovered Tether device ($activeCount active): $safeName at $safeAddr:${device.port}")
 
         currentState = TransportState.HOST_FOUND
         connectToHost(device.hostAddress, device.port)
@@ -1152,6 +1171,10 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     fun resolveExpectedFingerprint(hostAddress: String): String? {
+        val pinned = securityEngine.getPinnedKeyResult(this)
+        if (pinned is PinnedKeyResult.Present) {
+            return securityEngine.computePublicKeyFingerprint(pinned.keyBytes)
+        }
         val discovered = discoveryManager.getDiscoveredDevices().firstOrNull { 
             it.hostAddress.equals(hostAddress, ignoreCase = true) || 
             (hostAddress == "127.0.0.1" && it.hostAddress.equals("localhost", ignoreCase = true)) ||
@@ -1219,6 +1242,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     is PairingResult.Authenticated -> {
                         Log.i(TAG, "Successfully authenticated with Windows host ${sanitizeLog(result.peerDeviceId)}!")
                         resetReconnectBackoff()
+                        recentFailedConnectionAttempts.remove("$hostAddress:$port")
+                        recentDiscoveredConnectTimes.remove("$hostAddress:$port")
                         getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
                             putString("saved_host_ip", hostAddress)
                         }
@@ -1294,6 +1319,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     }
                     is PairingResult.Error -> {
                         Log.e(TAG, "Pairing/Handshake error: ${sanitizeLog(result.message)}")
+                        recentFailedConnectionAttempts["$hostAddress:$port"] = System.currentTimeMillis()
                         currentState = TransportState.FAILED
                         disconnectActiveSession(result.message)
                         scheduleReconnectWithBackoff("Handshake error: ${result.message}")
@@ -1308,6 +1334,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     }
                 }
             } catch (e: Exception) {
+                recentFailedConnectionAttempts["$hostAddress:$port"] = System.currentTimeMillis()
                 synchronized(connectLock) {
                     if (connectingTransport == transport) {
                         connectingTransport = null
