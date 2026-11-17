@@ -181,7 +181,7 @@ jobs:
 
           mapfile -d '' REPORTS < <(
             find "$HISTORY" -maxdepth 1 -type f \
-              \(-iname '*.md' -o -iname '*.txt'\) \
+              \( -iname '*.md' -o -iname '*.txt' \) \
               -print0 | sort -z
           )
 
@@ -363,13 +363,13 @@ jobs:
             echo "- Audit prompt and history: validated"
             echo "- Advisory API: accessible"
             echo "- Advisory token: repository administrator verified"
-            echo "- OpenRouter API & model ($OPENROUTER_MODEL_ID): verified (max context:${{ steps.openrouter_preflight.outputs.max_context }})"
+            echo "- OpenRouter API & model ($OPENROUTER_MODEL_ID): verified (max context: ${{ steps.openrouter_preflight.outputs.max_context }})"
             echo "- Reports repository push dry-run: successful"
             echo ""
           } >> "$REPORT_PATH"
 
       - name: Preflight-only result
-        if: inputs.run_mode == 'preflight'
+        if: inputs.run_mode == 'preflight' && success()
         shell: bash
         run: |
           {
@@ -561,11 +561,11 @@ jobs:
                 "finding_id": "TETHER-YYYY-NNN",
                 "eligible_for_advisory": true,
                 "confidence": "confirmed",
-                "title": "Short advisory title",
-                "summary": "Concise summary",
-                "details": "Technical details and root cause",
-                "proof_of_concept": "Safe reproducible proof of concept",
-                "impact": "Realistic security impact",
+                "title": "Short advisory title (max 200 chars)",
+                "summary": "Concise summary of the problem and impact (max 500 chars)",
+                "details": "Technical details, root cause, and incriminated file paths/symbols",
+                "proof_of_concept": "Safe, complete reproducible proof of concept",
+                "impact": "What kind of vulnerability it is and who is impacted",
                 "severity": "critical|high|medium|low",
                 "cvss_vector_string": null,
                 "cwe_ids": ["CWE-862"],
@@ -577,7 +577,8 @@ jobs:
                     "patched_versions": null,
                     "vulnerable_functions": []
                   }
-                ]
+                ],
+                "credits": []
               }
             ]
           }
@@ -591,11 +592,20 @@ jobs:
           - Every finding must have a stable, unique finding_id.
           - Use valid JSON. No comments, trailing commas or Markdown
             outside the fenced block.
-          - Use null for genuinely unknown version information.
-          - Do not invent a package ecosystem. Use "other" for native
-            Tether application vulnerabilities.
-          - Use a CVSS vector only when you can justify every metric.
-            Otherwise use null and provide a justified severity.
+          - Fill title, summary, details, proof_of_concept, impact, severity,
+            cwe_ids, and affected_products thoroughly whenever supported by code evidence.
+          - Use null for genuinely unknown version information (vulnerable_version_range, patched_versions)
+            instead of guessing or forcing version strings.
+          - Do not invent a package ecosystem. Use "other" with name "Tether" (or the specific
+            Tether component name) for native Tether application vulnerabilities, or the exact
+            ecosystem ("pip", "npm", "nuget", "rust", "go", "maven", "actions") if a specific
+            manifest-managed component is affected.
+          - Provide a CVSS v3.1 or v4.0 vector string (e.g. "CVSS:3.1/AV:.../AC:.../PR:.../UI:.../S:.../C:.../I:.../A:...")
+            whenever you can justify every metric from the code; otherwise use null and provide
+            a justified severity ("critical", "high", "medium", or "low").
+          - Provide relevant CWE IDs (e.g. ["CWE-287", "CWE-862"]) whenever applicable.
+          - Leave credits as [] unless a specific GitHub username is explicitly documented
+            in the repository or historical reports as the finder/reporter.
           - Do not include speculative findings in the advisory array.
           - If no eligible findings exist, return an empty findings array.
 
@@ -779,6 +789,13 @@ jobs:
           set -euo pipefail
 
           if [[ "$RUN_MODE" == "preflight" ]]; then
+            if [[ "${{ steps.history.outcome }}" != "success" ]] || \
+               [[ "${{ steps.advisory_preflight.outcome }}" != "success" ]] || \
+               [[ "${{ steps.openrouter_preflight.outcome }}" != "success" ]] || \
+               [[ "${{ steps.report_write_preflight.outcome }}" != "success" ]]; then
+              echo "::error::One or more preflight checks failed or were skipped."
+              exit 1
+            fi
             echo "Preflight-only run completed."
             exit 0
           fi

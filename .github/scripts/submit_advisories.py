@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Tether Security Advisory Automation
@@ -73,6 +72,19 @@ VALID_CONFIDENCE = {
     "confirmed",
     "high",
     "high confidence",
+}
+
+VALID_CREDIT_TYPES = {
+    "analyst",
+    "coordinator",
+    "finder",
+    "other",
+    "remediation_developer",
+    "remediation_reviewer",
+    "remediation_verifier",
+    "reporter",
+    "sponsor",
+    "tool",
 }
 
 VALID_CVSS_PREFIXES = (
@@ -571,6 +583,40 @@ def validate_finding(
             "vulnerable_functions": None,
         }]
 
+    raw_credits = finding.get("credits") or []
+
+    if not isinstance(raw_credits, list):
+        raise AuditError(f"{finding_id}: credits must be an array.")
+
+    credits = []
+    seen_logins = set()
+
+    for credit in raw_credits[:10]:
+        if not isinstance(credit, dict):
+            continue
+
+        login = clean_text(credit.get("login")).lstrip("@")
+
+        if not login or not re.fullmatch(
+            r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?",
+            login,
+        ):
+            continue
+
+        if login.lower() in seen_logins:
+            continue
+
+        credit_type = clean_text(credit.get("type")).lower() or "finder"
+
+        if credit_type not in VALID_CREDIT_TYPES:
+            credit_type = "finder"
+
+        seen_logins.add(login.lower())
+        credits.append({
+            "login": login,
+            "type": credit_type,
+        })
+
     return {
         "finding_id": finding_id,
         "title": title,
@@ -582,6 +628,7 @@ def validate_finding(
         "cvss_vector_string": vector or None,
         "cwe_ids": cwe_ids,
         "products": products,
+        "credits": credits,
     }
 
 
@@ -689,7 +736,7 @@ def build_description(
 def build_payload(
     finding: dict[str, Any],
 ) -> dict[str, Any]:
-    payload = {
+    payload: dict[str, Any] = {
         "summary": finding["title"],
         "description": build_description(finding),
         "vulnerabilities": finding["products"],
@@ -698,6 +745,9 @@ def build_payload(
 
     if finding["cwe_ids"]:
         payload["cwe_ids"] = finding["cwe_ids"]
+
+    if finding["credits"]:
+        payload["credits"] = finding["credits"]
 
     # GitHub requires either severity OR cvss_vector_string, not both.
     if finding["cvss_vector_string"]:
