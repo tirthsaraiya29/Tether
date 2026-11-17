@@ -85,7 +85,7 @@ Tether employs a dual-channel network architecture for control and high-throughp
 * **Control Channel**: TCP Port `37123` (Dual-stack IPv6/IPv4). Enforces TLS 1.3 with mutual public key pinning.
 * **Discovery Channels**:
   * **mDNS**: Advertises service type `_tether._tcp.` over UDP Port `5353`.
-  * **UDP Broadcast**: Port `37124` for instant peer discovery on local subnets.
+  * **UDP Broadcast & Gateway Discovery**: Port `37124` for instant peer discovery on local subnets, directed subnet broadcasts, and default gateway/candidate client probing (supporting both standard Wi-Fi LANs and direct Android Mobile Hotspot networks without external routers).
 * **File Transfer Channel**: TCP Port `37124`. Driven by Kestrel HTTPS server with `FileTransferAuthMiddleware`, `TokenStore` short-lived token authorization, active console user profile path confinement (preventing cross-user confused deputy access), strict 4GB size limits, Win32 handle resolution to prevent symlink and reparse-point escape, resumable chunk upload validation, and public key certificate pinning (`TetherPinnedTrustManager`). Loopback `LOCAL_UI` tokens are restricted strictly to remote proxy and desktop preview endpoints.
 
 ### Frame Structure & Packet Codec
@@ -100,7 +100,7 @@ Network payloads are framed using length-prefixed encoding (`FrameCodec.cs`):
 The JSON payload contains standard routing attributes such as `type` (identifying the message opcode/command), `requestId`, and command-specific parameters.
 
 ### Pairing Handshake Lifecycle
-1. **Discovery**: Android discovers Windows workstation via mDNS or UDP broadcast.
+1. **Discovery**: Android discovers Windows workstation via mDNS, UDP broadcast, or Hotspot gateway discovery.
 2. **Session Initiation**: Android opens TCP TLS connection to Port `37123`.
 3. **Short Authentication String (SAS)**: A 6-digit numeric pairing code is displayed on `Tether.DesktopUI`.
 4. **Key Exchange & Signing**: Android sends its EC public key (`TetherIdentityKey_v1`). Windows verifies the SAS code, verifies its self-signed ECDSA P-256 identity certificate (`CN=Tether Windows Identity`), signs the handshake nonce, and stores the trusted device record in `TrustStore`.

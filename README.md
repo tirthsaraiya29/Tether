@@ -416,7 +416,7 @@ class node_phone,node_workstation toneIndigo
 - **Discovery:** mDNS and UDP broadcast.
 - **Cloud Relay:** None.
 - **BLE:** Not used as the primary command transport.
-- **Mobile Hotspot:** Unsupported.
+- **Mobile Hotspot:** Supported (transparent direct discovery and connection via Android Hotspot SoftAP without requiring a Wi-Fi router).
 
 ### Architectural Source References
 
@@ -599,8 +599,7 @@ Settings can be inspected and modified via `appsettings.json` within service dir
 
 | Error Code / Symptom | Root Cause | Resolution |
 | --- | --- | --- |
-| `HOTSPOT_UNSUPPORTED` | Mobile device running Wi-Fi tethering / AP mode. | Connect both devices as station clients on the same Wi-Fi router. |
-| `DISCOVERY_FAILED` | Multicast/mDNS packets blocked by router isolation or firewall. | Ensure Client Isolation is disabled on the router, or allow inbound UDP `37123` and `5353`. |
+| `DISCOVERY_FAILED` | Multicast/mDNS packets blocked by router isolation or firewall. | Ensure Client Isolation is disabled on the router, or allow inbound UDP `37124` and `5353`. On hotspot networks, ensure laptop is connected to phone's AP. |
 | `Connection timeout` | `Tether.CommunicationService` is stopped or TCP `37123` blocked. | Verify service status in `services.msc` and inspect Windows Firewall rules. |
 | `TLS handshake failure` | Mismatched certificates or broken pairing state. | Reset pairing on both devices and establish a new handshake. |
 | `HELPER_NOT_FOUND` | `Tether.SessionHelper.exe` missing from expected path. | Reinstall or repair the Windows package via the installer. |

@@ -87,7 +87,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [CustomMessages]
 english.InstallServiceTask=Install and configure Tether background service
-english.FirewallTask=Configure Windows Firewall rules (TCP 37123, UDP 37124, UDP 5353, TCP 37124 on Private/Domain profiles)
+english.FirewallTask=Configure Windows Firewall rules (TCP 37123, UDP 37124, UDP 5353, TCP 37124)
 english.DesktopShortcutTask=Create a desktop shortcut for Tether
 english.LaunchUITask=Launch Tether Desktop UI
 english.VaultUninstallPrompt=Tether stores encrypted credentials in HKLM\SOFTWARE\Tether.%n%nDo you want to permanently erase this stored vault data?%n%nSelect 'No' to preserve your pairing for future installations.
@@ -172,25 +172,25 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 
 ; Port 37123 TCP: Primary Control Channel
 Filename: "{sys}\netsh.exe"; \
-    Parameters: "advfirewall firewall add rule name=""{#RuleControlTcp}"" dir=in action=allow protocol=TCP localport=37123 program=""{app}\{#MyAppExeName}"" profile=private,domain enable=yes"; \
+    Parameters: "advfirewall firewall add rule name=""{#RuleControlTcp}"" dir=in action=allow protocol=TCP localport=37123 program=""{app}\{#MyAppExeName}"" profile=any enable=yes"; \
     Flags: runhidden waituntilterminated; \
     Tasks: firewall
 
 ; Port 37124 UDP: Local Broadcast Discovery
 Filename: "{sys}\netsh.exe"; \
-    Parameters: "advfirewall firewall add rule name=""{#RuleDiscoveryUdp}"" dir=in action=allow protocol=UDP localport=37124 program=""{app}\{#MyAppExeName}"" profile=private,domain enable=yes"; \
+    Parameters: "advfirewall firewall add rule name=""{#RuleDiscoveryUdp}"" dir=in action=allow protocol=UDP localport=37124 program=""{app}\{#MyAppExeName}"" profile=any enable=yes"; \
     Flags: runhidden waituntilterminated; \
     Tasks: firewall
 
 ; Port 5353 UDP: Multicast DNS (mDNS)
 Filename: "{sys}\netsh.exe"; \
-    Parameters: "advfirewall firewall add rule name=""{#RuleMdnsUdp}"" dir=in action=allow protocol=UDP localport=5353 program=""{app}\{#MyAppExeName}"" profile=private,domain enable=yes"; \
+    Parameters: "advfirewall firewall add rule name=""{#RuleMdnsUdp}"" dir=in action=allow protocol=UDP localport=5353 program=""{app}\{#MyAppExeName}"" profile=any enable=yes"; \
     Flags: runhidden waituntilterminated; \
     Tasks: firewall
 
 ; Port 37124 TCP: HTTPS File Transfer API
 Filename: "{sys}\netsh.exe"; \
-    Parameters: "advfirewall firewall add rule name=""{#RuleFileTransferTcp}"" dir=in action=allow protocol=TCP localport=37124 program=""{app}\{#MyAppExeName}"" profile=private,domain enable=yes"; \
+    Parameters: "advfirewall firewall add rule name=""{#RuleFileTransferTcp}"" dir=in action=allow protocol=TCP localport=37124 program=""{app}\{#MyAppExeName}"" profile=any enable=yes"; \
     Flags: runhidden waituntilterminated; \
     Tasks: firewall
 

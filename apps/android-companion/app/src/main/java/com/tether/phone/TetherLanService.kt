@@ -16,6 +16,10 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.Uri
+import android.net.wifi.WifiManager
+import java.net.Inet4Address
+import java.net.InetAddress
+import java.net.NetworkInterface
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
@@ -592,21 +596,120 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         }
     }
 
-    private val wifiNetworkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
-            Log.i(TAG, "Wi-Fi network AVAILABLE. Resetting reconnect backoff...")
+    private val hotspotReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action ?: return
+            Log.d(TAG, "Hotspot/Tethering state broadcast received: $action")
+            handleNetworkStateChange("Hotspot event: $action")
+        }
+    }
+
+    fun isHotspotOrLocalNetworkActive(): Boolean {
+        try {
+            val wifiMgr = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            if (wifiMgr != null) {
+                val method = wifiMgr.javaClass.getDeclaredMethod("isWifiApEnabled")
+                method.isAccessible = true
+                if (method.invoke(wifiMgr) == true) return true
+            }
+        } catch (_: Exception) {}
+
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                val iface = interfaces.nextElement()
+                if (!iface.isUp || iface.isLoopback || iface.isPointToPoint) continue
+                val name = iface.name.lowercase()
+                val isApCandidate = name.startsWith("ap") || name.startsWith("softap") ||
+                                    name.startsWith("swlan") || name.startsWith("tether") ||
+                                    name.startsWith("rndis") || (name.startsWith("wlan") && !isWifiClientConnected())
+                if (isApCandidate) {
+                    for (addr in iface.interfaceAddresses) {
+                        val inetAddr = addr.address
+                        if (inetAddr is Inet4Address && isPrivateAddress(inetAddr)) {
+                            return true
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        return false
+    }
+
+    private fun isWifiClientConnected(): Boolean {
+        return try {
+            val activeNet = connectivityManager.activeNetwork ?: return false
+            val caps = connectivityManager.getNetworkCapabilities(activeNet) ?: return false
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isIpInActiveLocalSubnet(targetIpStr: String): Boolean {
+        val targetAddr = try {
+            InetAddress.getByName(targetIpStr) as? Inet4Address
+        } catch (_: Exception) { null } ?: return false
+        val targetBytes = targetAddr.address
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                val iface = interfaces.nextElement()
+                if (!iface.isUp || iface.isLoopback) continue
+                for (ifaceAddr in iface.interfaceAddresses) {
+                    val addr = ifaceAddr.address
+                    if (addr is Inet4Address) {
+                        val prefix = ifaceAddr.networkPrefixLength.toInt()
+                        if (prefix in 8..30) {
+                            val maskInt = -1 shl (32 - prefix)
+                            val ifaceIpInt = ((addr.address[0].toInt() and 0xFF) shl 24) or
+                                             ((addr.address[1].toInt() and 0xFF) shl 16) or
+                                             ((addr.address[2].toInt() and 0xFF) shl 8) or
+                                             (addr.address[3].toInt() and 0xFF)
+                            val targetIpInt = ((targetBytes[0].toInt() and 0xFF) shl 24) or
+                                              ((targetBytes[1].toInt() and 0xFF) shl 16) or
+                                              ((targetBytes[2].toInt() and 0xFF) shl 8) or
+                                              (targetBytes[3].toInt() and 0xFF)
+                            if ((ifaceIpInt and maskInt) == (targetIpInt and maskInt)) {
+                                return true
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return false
+    }
+
+    private fun handleNetworkStateChange(trigger: String) {
+        val hasWifi = isWifiClientConnected()
+        val hasHotspot = isHotspotOrLocalNetworkActive()
+        Log.i(TAG, "Network state evaluation ($trigger): Wi-Fi client=$hasWifi, Hotspot/AP=$hasHotspot, state=$currentState")
+
+        if (hasWifi || hasHotspot) {
             resetReconnectBackoff()
-            if ((currentState == TransportState.DISCONNECTED) || (currentState == TransportState.FAILED) || (currentState == TransportState.DISCOVERING)) {
+            if (currentState == TransportState.DISCONNECTED || currentState == TransportState.FAILED || currentState == TransportState.DISCOVERING) {
                 startDiscovery()
             }
-        }
-
-        override fun onLost(network: Network) {
-            Log.w(TAG, "Wi-Fi network LOST. Tearing down transport and discovery...")
+        } else {
+            Log.w(TAG, "No local network available (both Wi-Fi client and Hotspot are inactive). Tearing down transport and discovery...")
             resetReconnectBackoff()
             discoveryManager.stopDiscovery()
             discoveryManager.stopAdvertising()
-            disconnectActiveSession("Wi-Fi lost")
+            disconnectActiveSession("No local network")
+        }
+    }
+
+    private val wifiNetworkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            Log.i(TAG, "Wi-Fi network AVAILABLE. Resetting reconnect backoff...")
+            handleNetworkStateChange("Wi-Fi network available")
+        }
+
+        override fun onLost(network: Network) {
+            Log.w(TAG, "Wi-Fi network LOST. Evaluating remaining connectivity...")
+            handleNetworkStateChange("Wi-Fi network lost")
         }
     }
 
@@ -695,6 +798,30 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
+
+        val hotspotFilter = IntentFilter().apply {
+            addAction("android.net.wifi.WIFI_AP_STATE_CHANGED")
+            addAction("android.net.conn.TETHER_STATE_CHANGED")
+        }
+        try {
+            ContextCompat.registerReceiver(
+                this,
+                hotspotReceiver,
+                hotspotFilter,
+                ContextCompat.RECEIVER_EXPORTED,
+            )
+        } catch (_: Exception) {
+            try {
+                registerReceiver(hotspotReceiver, hotspotFilter)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed registering hotspot receiver: ${e.message}")
+            }
+        }
+
+        if (isHotspotOrLocalNetworkActive() && currentState == TransportState.DISCONNECTED) {
+            Log.i(TAG, "Local AP / Hotspot active at service start. Initiating discovery...")
+            startDiscovery()
+        }
 
         lastPowerCommand = prefs.getString("last_power_command", null)
         lastPowerCommandAtMs = prefs.getLong("last_power_command_at_ms", 0L)
@@ -930,7 +1057,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
         val savedHostIp = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
             .getString("saved_host_ip", null)
-        if (!savedHostIp.isNullOrBlank()) {
+        if (!savedHostIp.isNullOrBlank() && isIpInActiveLocalSubnet(savedHostIp)) {
             Log.i(TAG, "Attempting background connection to saved target host IP: ${sanitizeLog(savedHostIp)}")
             serviceScope.launch {
                 if (currentState == TransportState.DISCOVERING) {
@@ -980,7 +1107,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         Log.e(TAG, "mDNS Discovery error: $errorCode - ${sanitizeLog(message)}")
         val savedHostIp = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
             .getString("saved_host_ip", null)
-        if (!savedHostIp.isNullOrBlank() && ((currentState == TransportState.DISCOVERING) || (currentState == TransportState.DISCONNECTED))) {
+        if (!savedHostIp.isNullOrBlank() && isIpInActiveLocalSubnet(savedHostIp) && ((currentState == TransportState.DISCOVERING) || (currentState == TransportState.DISCONNECTED))) {
             Log.i(TAG, "mDNS discovery error; attempting direct connection to saved host IP: ${sanitizeLog(savedHostIp)}")
             connectToHost(savedHostIp)
         }
@@ -2539,6 +2666,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         serviceJob.cancelChildren()
 
         try { unregisterReceiver(powerSaveReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(hotspotReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(notificationMirrorReceiver) } catch (_: Exception) {}
         try { connectivityManager.unregisterNetworkCallback(wifiNetworkCallback) } catch (_: Exception) {}
 
