@@ -1,15 +1,14 @@
-
 name: Tether Security Audit
 
 on:
   schedule:
-    # 1st and 15th of each month, 07:47 IST.
-    - cron: "17 2 1,15 * *"
+    # 15th of each month, 07:47 IST (02:17 UTC).
+    - cron: "17 2 15 * *"
 
   workflow_dispatch:
     inputs:
       run_mode:
-        description: "Run a full audit or only verify setup without using Nemotron"
+        description: "Run a full audit or only verify setup without invoking the model"
         required: true
         type: choice
         default: audit
@@ -37,9 +36,11 @@ jobs:
     timeout-minutes: 240
 
     env:
-      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       AUDIT_REPO_TOKEN: ${{ secrets.AUDIT_REPO_TOKEN }}
       TETHER_ADVISORY_TOKEN: ${{ secrets.TETHER_ADVISORY_TOKEN }}
+
+      OPENROUTER_MODEL_ID: z-ai/glm-5.3-flash
 
       AUDIT_REPOSITORY: ${{ github.repository }}
       REPORT_REPOSITORY: ${{ github.repository_owner }}/Tether-Security-Reports
@@ -68,6 +69,7 @@ jobs:
           - Run number: $GITHUB_RUN_NUMBER
           - Started: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
           - Mode: $RUN_MODE
+          - Model: openrouter/$OPENROUTER_MODEL_ID
 
           ## Status
 
@@ -89,7 +91,7 @@ jobs:
           missing=0
 
           for secret_name in \
-            OLLAMA_API_KEY \
+            OPENROUTER_API_KEY \
             AUDIT_REPO_TOKEN \
             TETHER_ADVISORY_TOKEN
           do
@@ -179,7 +181,7 @@ jobs:
 
           mapfile -d '' REPORTS < <(
             find "$HISTORY" -maxdepth 1 -type f \
-              \( -iname '*.md' -o -iname '*.txt' \) \
+              \(-iname '*.md' -o -iname '*.txt'\) \
               -print0 | sort -z
           )
 
@@ -231,75 +233,103 @@ jobs:
 
           python .github/scripts/submit_advisories.py --preflight
 
-      - name: Validate Ollama Cloud API key and credits
-        id: ollama_preflight
+      - name: Validate OpenRouter API key, credits, and model limits
+        id: openrouter_preflight
         shell: bash
         run: |
           set -euo pipefail
 
-          # GET only. This does not invoke Nemotron or generate inference tokens.
-          RESPONSE="$RUNNER_TEMP/ollama-models.json"
-
-          HTTP_CODE="$(
+          # 1. Verify API key & remaining key/account credits (GET only; zero tokens spent)
+          KEY_RESPONSE="$RUNNER_TEMP/openrouter-key.json"
+          KEY_CODE="$(
             curl --silent --show-error \
-              --output "$RESPONSE" \
+              --output "$KEY_RESPONSE" \
               --write-out "%{http_code}" \
               --connect-timeout 15 \
               --max-time 30 \
-              -H "Authorization: Bearer $OLLAMA_API_KEY" \
+              -H "Authorization: Bearer $OPENROUTER_API_KEY" \
               -H "Accept: application/json" \
-              https://ollama.com/v1/models
+              https://openrouter.ai/api/v1/key
           )"
 
-          if [[ "$HTTP_CODE" != "200" ]]; then
-            echo "::error::Ollama Cloud API preflight failed with HTTP $HTTP_CODE."
+          if [[ "$KEY_CODE" != "200" ]]; then
+            echo "::error::OpenRouter key validation failed with HTTP $KEY_CODE."
             exit 1
           fi
 
-          python - "$RESPONSE" <<'PY'
+          python - "$KEY_RESPONSE" <<'PY'
           import json
           import sys
 
           with open(sys.argv[1], encoding="utf-8") as f:
-              data = json.load(f)
+              payload = json.load(f)
 
+          data = payload.get("data")
           if not isinstance(data, dict):
-              raise SystemExit("Ollama returned an unexpected response.")
+              raise SystemExit("OpenRouter returned an unexpected /key response.")
 
-          print("Ollama Cloud API authentication succeeded.")
+          limit_remaining = data.get("limit_remaining")
+          if limit_remaining is not None:
+              print(f"OpenRouter key remaining limit: ${float(limit_remaining):.4f}")
+              if float(limit_remaining) <= 0:
+                  print("::error::OpenRouter API key remaining credit limit is $0.00.")
+                  sys.exit(1)
+          else:
+              print("OpenRouter API key authenticated (no per-key spend cap set).")
           PY
 
-          # Validate usage credit balance before spending compute
-          BALANCE_RESPONSE="$RUNNER_TEMP/ollama-balance.json"
-          BALANCE_CODE="$(
-            curl --silent \
-              --output "$BALANCE_RESPONSE" \
+          # 2. Verify model availability and resolve its exact max context window
+          MODELS_RESPONSE="$RUNNER_TEMP/openrouter-models.json"
+          MODELS_CODE="$(
+            curl --silent --show-error \
+              --output "$MODELS_RESPONSE" \
               --write-out "%{http_code}" \
               --connect-timeout 15 \
               --max-time 30 \
-              -H "Authorization: Bearer $OLLAMA_API_KEY" \
+              -H "Authorization: Bearer $OPENROUTER_API_KEY" \
               -H "Accept: application/json" \
-              https://ollama.com/api/balance || true
+              https://openrouter.ai/api/v1/models
           )"
 
-          if [[ "$BALANCE_CODE" == "200" ]]; then
-            python - "$BALANCE_RESPONSE" <<'PY'
+          if [[ "$MODELS_CODE" != "200" ]]; then
+            echo "::error::OpenRouter models listing failed with HTTP $MODELS_CODE."
+            exit 1
+          fi
+
+          python - "$MODELS_RESPONSE" "$OPENROUTER_MODEL_ID" "$GITHUB_OUTPUT" <<'PY'
           import json
           import sys
 
-          with open(sys.argv[1], encoding="utf-8") as f:
-              data = json.load(f)
+          models_path, target_id, output_path = sys.argv[1], sys.argv[2], sys.argv[3]
 
-          included = data.get("included", {}).get("balance_usd", 0)
-          purchased = data.get("purchased", {}).get("balance_usd", 0)
-          total = (included or 0) + (purchased or 0)
-          print(f"Ollama Cloud credit balance: ${total:.2f} (included: ${included or 0:.2f}, purchased: ${purchased or 0:.2f})")
+          with open(models_path, encoding="utf-8") as f:
+              payload = json.load(f)
 
-          if total <= 0:
-              print("::error::Ollama Cloud usage credit balance is $0.00. Model inference will fail. Please add usage credits or subscribe at https://ollama.com/plans")
+          models = payload.get("data")
+          if not isinstance(models, list):
+              raise SystemExit("OpenRouter returned an unexpected /models response.")
+
+          match = next((m for m in models if m.get("id") == target_id), None)
+          if not match:
+              print(f"::error::Model '{target_id}' was not found in OpenRouter's available models.")
               sys.exit(1)
+
+          context_length = int(match.get("context_length") or 200000)
+          top_provider = match.get("top_provider") or {}
+          max_output = int(
+              top_provider.get("max_completion_tokens")
+              or match.get("max_completion_tokens")
+              or 65536
+          )
+          # Ensure output budget never exceeds half of context window
+          max_output = min(max_output, max(16384, context_length // 2))
+
+          print(f"Resolved {target_id}: max_context={context_length}, max_output={max_output}")
+
+          with open(output_path, "a", encoding="utf-8") as out:
+              out.write(f"max_context={context_length}\n")
+              out.write(f"max_output={max_output}\n")
           PY
-          fi
 
       - name: Verify private report repository write access
         id: report_write_preflight
@@ -333,7 +363,7 @@ jobs:
             echo "- Audit prompt and history: validated"
             echo "- Advisory API: accessible"
             echo "- Advisory token: repository administrator verified"
-            echo "- Ollama Cloud API: authenticated"
+            echo "- OpenRouter API & model ($OPENROUTER_MODEL_ID): verified (max context:${{ steps.openrouter_preflight.outputs.max_context }})"
             echo "- Reports repository push dry-run: successful"
             echo ""
           } >> "$REPORT_PATH"
@@ -347,7 +377,7 @@ jobs:
             echo ""
             echo "All configured preflight checks passed."
             echo ""
-            echo "Nemotron was not invoked. No inference tokens were requested."
+            echo "GLM 5.3 Flash was not invoked. No inference tokens were requested."
           } >> "$REPORT_PATH"
 
       - name: Install OpenCode
@@ -372,36 +402,43 @@ jobs:
 
           opencode --version
 
-      - name: Configure read-only Nemotron agent
+      - name: Configure read-only GLM 5.3 Flash agent
         if: github.event_name == 'schedule' || inputs.run_mode == 'audit'
         shell: bash
         run: |
           set -euo pipefail
 
-          cat > opencode.json <<'JSON'
+          MAX_CONTEXT="${{ steps.openrouter_preflight.outputs.max_context }}"
+          MAX_OUTPUT="${{ steps.openrouter_preflight.outputs.max_output }}"
+
+          cat > opencode.json <<JSON
           {
-            "$schema": "https://opencode.ai/config.json",
-            "model": "ollama-cloud/nemotron-3-ultra:cloud",
+            "\$schema": "https://opencode.ai/config.json",
+            "model": "openrouter/$OPENROUTER_MODEL_ID",
             "autoupdate": false,
             "compaction": {
               "auto": true,
               "prune": false,
-              "reserved": 10000
+              "reserved": 16384
             },
             "provider": {
-              "ollama-cloud": {
+              "openrouter": {
                 "npm": "@ai-sdk/openai-compatible",
-                "name": "Ollama Cloud",
+                "name": "OpenRouter",
                 "options": {
-                  "baseURL": "https://ollama.com/v1",
-                  "apiKey": "{env:OLLAMA_API_KEY}"
+                  "baseURL": "https://openrouter.ai/api/v1",
+                  "apiKey": "{env:OPENROUTER_API_KEY}",
+                  "headers": {
+                    "HTTP-Referer": "https://github.com/$GITHUB_REPOSITORY",
+                    "X-Title": "Tether Security Audit"
+                  }
                 },
                 "models": {
-                  "nemotron-3-ultra:cloud": {
-                    "name": "Reflection Nemotron 3 Ultra",
+                  "$OPENROUTER_MODEL_ID": {
+                    "name": "GLM 5.3 Flash",
                     "limit": {
-                      "context": 1000000,
-                      "output": 65536
+                      "context": $MAX_CONTEXT,
+                      "output": $MAX_OUTPUT
                     },
                     "options": {
                       "temperature": 0.1
@@ -444,9 +481,9 @@ jobs:
 
           python -m json.tool opencode.json >/dev/null
 
-          echo "OpenCode configuration validated."
+          echo "OpenCode configuration validated (context=$MAX_CONTEXT, output=$MAX_OUTPUT)."
 
-      - name: Run independent security audit with Nemotron
+      - name: Run independent security audit with GLM 5.3 Flash
         if: github.event_name == 'schedule' || inputs.run_mode == 'audit'
         id: audit
         continue-on-error: true
@@ -455,12 +492,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          OUTPUT="$RUNNER_TEMP/nemotron-audit-output.md"
+          OUTPUT="$RUNNER_TEMP/model-audit-output.md"
           STDERR_LOG="$RUNNER_TEMP/opencode-stderr.log"
 
           TARGET_SHA="${{ steps.baseline.outputs.target_sha }}"
 
-          cat > "$RUNNER_TEMP/nemotron-task.txt" <<EOF
+          cat > "$RUNNER_TEMP/audit-task.txt" <<EOF
           Perform a complete, independent, read-only security audit of this
           checked-out Tether repository.
 
@@ -566,17 +603,17 @@ jobs:
           zero eligible advisories.
           EOF
 
-          echo "Invoking Nemotron for the full audit."
+          echo "Invoking GLM 5.3 Flash via OpenRouter for the full audit."
 
           set +e
 
           opencode run \
-            --model ollama-cloud/nemotron-3-ultra:cloud \
+            --model "openrouter/$OPENROUTER_MODEL_ID" \
             --agent security-auditor \
             --title "Tether Security Audit $GITHUB_RUN_NUMBER" \
             --file .audit-input/AUDIT_PROMPT.md \
             -- \
-            "$(cat "$RUNNER_TEMP/nemotron-task.txt")" \
+            "$(cat "$RUNNER_TEMP/audit-task.txt")" \
             > "$OUTPUT" \
             2> "$STDERR_LOG"
 
@@ -587,7 +624,7 @@ jobs:
           if [[ -s "$OUTPUT" ]]; then
             {
               echo ""
-              echo "## Nemotron Audit Output"
+              echo "## GLM 5.3 Flash Audit Output"
               echo ""
               cat "$OUTPUT"
               echo ""
@@ -596,32 +633,32 @@ jobs:
 
           if [[ -s "$STDERR_LOG" ]]; then
             echo "::group::OpenCode Diagnostics"
-            sed "s/${OLLAMA_API_KEY}/[REDACTED]/g" "$STDERR_LOG"
+            sed "s/${OPENROUTER_API_KEY}/[REDACTED]/g" "$STDERR_LOG"
             echo "::endgroup::"
             {
               echo ""
               echo "## OpenCode Diagnostics"
               echo ""
               echo '```text'
-              sed "s/${OLLAMA_API_KEY}/[REDACTED]/g" "$STDERR_LOG"
+              sed "s/${OPENROUTER_API_KEY}/[REDACTED]/g" "$STDERR_LOG"
               echo '```'
             } >> "$REPORT_PATH"
           fi
 
           if [[ "$STATUS" -ne 0 ]]; then
-            echo "::error::OpenCode/Nemotron audit failed with exit code $STATUS."
+            echo "::error::OpenCode/GLM 5.3 Flash audit failed with exit code $STATUS."
             if [[ -s "$STDERR_LOG" ]]; then
-              echo "::error::OpenCode stderr summary: $(grep -i 'error' "$STDERR_LOG" | head -n 3 | sed "s/${OLLAMA_API_KEY}/[REDACTED]/g")"
+              echo "::error::OpenCode stderr summary: $(grep -i 'error' "$STDERR_LOG" | head -n 3 | sed "s/${OPENROUTER_API_KEY}/[REDACTED]/g")"
             fi
             exit "$STATUS"
           fi
 
           if [[ ! -s "$OUTPUT" ]]; then
-            echo "::error::Nemotron returned an empty report."
+            echo "::error::GLM 5.3 Flash returned an empty report."
             exit 1
           fi
 
-          echo "Nemotron audit completed."
+          echo "GLM 5.3 Flash audit completed."
 
       - name: Extract and validate findings
         if: steps.audit.outcome == 'success'
@@ -632,7 +669,7 @@ jobs:
           set -euo pipefail
 
           python .github/scripts/submit_advisories.py \
-            --extract "$RUNNER_TEMP/nemotron-audit-output.md" \
+            --extract "$RUNNER_TEMP/model-audit-output.md" \
             --output "$RUNNER_TEMP/advisory-findings.json"
 
           echo "Findings extracted and validated."
@@ -749,7 +786,7 @@ jobs:
           FAILED=0
 
           if [[ "${{ steps.audit.outcome }}" != "success" ]]; then
-            echo "::error::The Nemotron audit did not complete successfully."
+            echo "::error::The security audit did not complete successfully."
             FAILED=1
           fi
 

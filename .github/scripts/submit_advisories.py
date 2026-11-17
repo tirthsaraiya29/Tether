@@ -9,7 +9,7 @@ Modes:
         and advisory API read access. Does not create anything.
 
     --extract INPUT --output OUTPUT
-        Extract the machine-readable findings block from Nemotron output.
+        Extract the machine-readable findings block from model output.
         This does not call any external API.
 
     --submit --input INPUT --output OUTPUT
@@ -275,7 +275,7 @@ def preflight() -> None:
         raise AuditError(
             "The advisory token does not report administrator access "
             "to the target repository. The audit is being stopped "
-            "before Nemotron runs. Verify that the token owner is a "
+            "before the audit model runs. Verify that the token owner is a "
             "repository administrator or an authorised security manager."
         )
 
@@ -319,7 +319,7 @@ def extract_json_object(text: str) -> dict[str, Any]:
 
     if marker_position < 0:
         raise AuditError(
-            "Nemotron output does not contain the required findings marker."
+            "Model output does not contain the required findings marker."
         )
 
     content = text[marker_position + len(FINDINGS_MARKER):].strip()
@@ -389,7 +389,7 @@ def extract_json_object(text: str) -> dict[str, Any]:
 
 def extract_mode(input_path: Path, output_path: Path) -> None:
     if not input_path.is_file():
-        raise AuditError(f"Nemotron output does not exist: {input_path}")
+        raise AuditError(f"Model output does not exist: {input_path}")
 
     raw = input_path.read_text(encoding="utf-8", errors="replace")
 
@@ -399,7 +399,7 @@ def extract_mode(input_path: Path, output_path: Path) -> None:
 
     if len(findings) > MAX_FINDINGS:
         raise AuditError(
-            f"Nemotron returned {len(findings)} findings. "
+            f"Model returned {len(findings)} findings. "
             f"Maximum accepted in one run is {MAX_FINDINGS}."
         )
 
