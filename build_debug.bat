@@ -170,15 +170,15 @@ netsh advfirewall firewall delete rule name="Tether Control (TCP 37123)" >nul 2>
 netsh advfirewall firewall delete rule name="Tether Discovery (UDP 5353)" >nul 2>&1
 netsh advfirewall firewall delete rule name="Tether File Transfer (TCP 37124)" >nul 2>&1
 netsh advfirewall firewall delete rule name="Tether File Transfer (UDP 37124)" >nul 2>&1
-netsh advfirewall firewall add rule name="Tether Control (TCP 37123)" dir=in action=allow program="%COMM_EXE%" protocol=TCP localport=37123 profile=any >nul
-netsh advfirewall firewall add rule name="Tether Discovery (UDP 5353)" dir=in action=allow program="%COMM_EXE%" protocol=UDP localport=5353 profile=any >nul
-netsh advfirewall firewall add rule name="Tether File Transfer (TCP 37124)" dir=in action=allow program="%COMM_EXE%" protocol=TCP localport=37124 profile=any >nul
-netsh advfirewall firewall add rule name="Tether File Transfer (UDP 37124)" dir=in action=allow program="%COMM_EXE%" protocol=UDP localport=37124 profile=any >nul
+netsh advfirewall firewall add rule name="Tether Control (TCP 37123)" dir=in action=allow program="%COMM_EXE%" protocol=TCP localport=37123 profile=any remoteip=localsubnet >nul
+netsh advfirewall firewall add rule name="Tether Discovery (UDP 5353)" dir=in action=allow program="%COMM_EXE%" protocol=UDP localport=5353 profile=any remoteip=localsubnet >nul
+netsh advfirewall firewall add rule name="Tether File Transfer (TCP 37124)" dir=in action=allow program="%COMM_EXE%" protocol=TCP localport=37124 profile=any remoteip=localsubnet >nul
+netsh advfirewall firewall add rule name="Tether File Transfer (UDP 37124)" dir=in action=allow program="%COMM_EXE%" protocol=UDP localport=37124 profile=any remoteip=localsubnet >nul
 if errorlevel 1 (
     echo [ERROR] Failed to create firewall rules. Run this script as Administrator.
     goto :error
 )
-echo [*] Firewall rules ensured (all profiles for Hotspot support).
+echo [*] Firewall rules ensured (LocalSubnet scope across all profiles).
 
 rem ----------------------------------------------------------------------------
 rem  Step 7: Start service if the active network profile is Private

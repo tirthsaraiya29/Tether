@@ -118,10 +118,10 @@ reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Crede
 
 ### 3. Add Windows Firewall Rules
 ```powershell
-netsh advfirewall firewall add rule name="Tether Control (TCP-In 37123)" dir=in action=allow protocol=TCP localport=37123
-netsh advfirewall firewall add rule name="Tether Discovery (UDP-In 37124)" dir=in action=allow protocol=UDP localport=37124
-netsh advfirewall firewall add rule name="Tether mDNS (UDP-In 5353)" dir=in action=allow protocol=UDP localport=5353
-netsh advfirewall firewall add rule name="Tether File Transfer (TCP-In 37124)" dir=in action=allow protocol=TCP localport=37124
+netsh advfirewall firewall add rule name="Tether Control (TCP-In 37123)" dir=in action=allow protocol=TCP localport=37123 profile=any remoteip=localsubnet
+netsh advfirewall firewall add rule name="Tether Discovery (UDP-In 37124)" dir=in action=allow protocol=UDP localport=37124 profile=any remoteip=localsubnet
+netsh advfirewall firewall add rule name="Tether mDNS (UDP-In 5353)" dir=in action=allow protocol=UDP localport=5353 profile=any remoteip=localsubnet
+netsh advfirewall firewall add rule name="Tether File Transfer (TCP-In 37124)" dir=in action=allow protocol=TCP localport=37124 profile=any remoteip=localsubnet
 ```
 
 ---

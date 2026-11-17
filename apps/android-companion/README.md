@@ -40,7 +40,9 @@ VPN / Port Forward  → NOT SUPPORTED
 
 ### 2. Mobile Hotspot Architecture & Gateway Discovery
 - Tether provides transparent, production-grade Android Hotspot support. When the Android phone enables mobile hotspot and the Windows laptop joins it, Windows resolves the default gateway (which is the Android phone) and sends discovery announcements directly to the gateway on UDP port `37124`.
-- The Android client dynamically monitors Wi-Fi client and AP/tether interface states, resolves local subnets, probes candidate DHCP client addresses, and receives gateway discovery packets.
+- The Android client dynamically monitors Wi-Fi client and AP/tether interface states using standard broadcast intents (`WIFI_AP_STATE_CHANGED`, `TETHER_STATE_CHANGED`) and standard `NetworkInterface` inspection (no hidden API reflection), resolves local subnets, probes candidate DHCP client addresses bounded by actual subnet masks (/16, /24, /28, /30), and receives gateway discovery packets.
+- Network isolation strictly excludes cellular (`rmnet*`, `ccmni*`), VPN (`tun*`, `tap*`, `ppp*`), virtual adapters, and CGNAT space (`100.64.0.0/10`).
+- Inbound UDP discovery strictly validates payload length (10 to 1024 bytes), source IPs (RFC 1918 private IPv4 only), device fingerprints (`^[a-zA-Z0-9_\-\.:]{1,128}$`), TCP ports (1024..65535), and enforces per-IP rate limiting (5 probes/sec). Probes only trigger rate-limited datagram responses and never spawn unsolicited outbound TCP connections or misleading pairing prompts.
 - All communications remain strictly authenticated via hardware-backed ECDSA P-256 keys and encrypted over mutual TLS 1.3. Joining the phone's hotspot never confers automatic trust.
 
 ---

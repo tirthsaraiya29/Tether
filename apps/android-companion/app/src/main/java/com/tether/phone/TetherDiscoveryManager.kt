@@ -37,20 +37,56 @@ interface TetherDiscoveryListener {
 }
 
 fun isPrivateAddress(address: InetAddress): Boolean {
-    if (address.isLoopbackAddress || address.isSiteLocalAddress || address.isLinkLocalAddress) {
-        return true
+    if (address.isLoopbackAddress || address.isAnyLocalAddress || address.isMulticastAddress) {
+        return false
     }
     if (address is Inet4Address) {
         val bytes = address.address
         val firstOctet = bytes[0].toInt() and 0xFF
         val secondOctet = bytes[1].toInt() and 0xFF
-        if ((firstOctet == 100) && ((secondOctet and 0xC0) == 0x40)) return true
+
+        // 10.0.0.0/8
+        if (firstOctet == 10) return true
+        // 172.16.0.0/12
+        if (firstOctet == 172 && (secondOctet in 16..31)) return true
+        // 192.168.0.0/16
+        if (firstOctet == 192 && secondOctet == 168) return true
+        // Link-local 169.254.0.0/16
+        if (firstOctet == 169 && secondOctet == 254) return true
+
+        // Explicitly rejects 100.64.0.0/10 (CGNAT), 127.0.0.0/8 (loopback), 0.0.0.0, 255.255.255.255, public WAN
+        return false
     } else if (address is Inet6Address) {
         val bytes = address.address
         val firstOctet = bytes[0].toInt() and 0xFF
-        if ((firstOctet and 0xFE) == 0xFC) return true
+        if ((firstOctet and 0xFE) == 0xFC) return true // ULA fc00::/7
     }
     return false
+}
+
+fun isAllowedDiscoveryInterface(iface: java.net.NetworkInterface): Boolean {
+    if (!iface.isUp || iface.isLoopback || iface.isPointToPoint) return false
+    val name = iface.name.lowercase(java.util.Locale.US)
+    if (name.startsWith("rmnet") || name.startsWith("ccmni") || name.startsWith("radio") ||
+        name.startsWith("pdp") || name.startsWith("wwan") || name.startsWith("qcom") ||
+        name.startsWith("tun") || name.startsWith("tap") || name.startsWith("ppp") ||
+        name.startsWith("p2p") || name.startsWith("dummy") || name.startsWith("docker") ||
+        name.startsWith("virbr") || name.startsWith("vboxnet") || name.startsWith("ipsec") ||
+        name.startsWith("wg") || name.startsWith("tailscale")) {
+        return false
+    }
+    return true
+}
+
+fun isValidDeviceId(id: String?): Boolean {
+    if (id.isNullOrBlank() || id.length > 128) return false
+    return id.all { c -> c.isLetterOrDigit() || c == '-' || c == '_' || c == '.' || c == ':' }
+}
+
+fun sanitizeDeviceName(name: String?): String {
+    if (name.isNullOrBlank()) return "Tether Device"
+    val filtered = name.filter { c -> c.code in 32..126 }.take(64).trim()
+    return if (filtered.isEmpty()) "Tether Device" else filtered
 }
 
 fun calculateSubnetBroadcast(addr: Inet4Address, prefixLength: Short): InetAddress? {
@@ -75,27 +111,65 @@ fun calculateSubnetBroadcast(addr: Inet4Address, prefixLength: Short): InetAddre
 fun generateSubnetCandidateIps(addr: Inet4Address, prefixLength: Short, maxCandidates: Int = 32): List<InetAddress> {
     val prefix = prefixLength.toInt()
     if (prefix !in 16..30) return emptyList()
+
     val ipBytes = addr.address
-    val myLastOctet = ipBytes[3].toInt() and 0xFF
-    val candidates = mutableListOf<InetAddress>()
+    val ipInt = ((ipBytes[0].toInt() and 0xFF) shl 24) or
+                ((ipBytes[1].toInt() and 0xFF) shl 16) or
+                ((ipBytes[2].toInt() and 0xFF) shl 8) or
+                (ipBytes[3].toInt() and 0xFF)
 
-    // Common Android Hotspot DHCP ranges (typically assigned sequentially .2..24, .100..115, .254)
-    val candidateOctets = linkedSetOf<Int>()
-    for (i in 2..24) {
-        if (i != myLastOctet) candidateOctets.add(i)
-    }
-    for (i in 100..115) {
-        if (i != myLastOctet) candidateOctets.add(i)
-    }
-    if (myLastOctet != 254) candidateOctets.add(254)
+    val mask = -1 shl (32 - prefix)
+    val networkInt = ipInt and mask
+    val bcastInt = networkInt or mask.inv()
 
-    for (lastOctet in candidateOctets.take(maxCandidates)) {
-        val targetBytes = byteArrayOf(ipBytes[0], ipBytes[1], ipBytes[2], lastOctet.toByte())
-        try {
-            candidates.add(InetAddress.getByAddress(targetBytes))
-        } catch (_: Exception) {}
+    val firstHost = networkInt + 1
+    val lastHost = bcastInt - 1
+    val totalHosts = (lastHost - firstHost + 1).coerceAtLeast(0)
+    if (totalHosts <= 0) return emptyList()
+
+    val candidateInts = linkedSetOf<Int>()
+
+    if (totalHosts <= maxCandidates) {
+        for (h in firstHost..lastHost) {
+            if (h != ipInt) {
+                candidateInts.add(h)
+            }
+        }
+    } else {
+        // Enumerate sequential DHCP range starting at firstHost
+        for (h in firstHost..(firstHost + 24)) {
+            if (h in firstHost..lastHost && h != ipInt) {
+                candidateInts.add(h)
+            }
+        }
+        // Alternate vendor DHCP pool
+        val midBase = firstHost + 99
+        for (h in midBase..(midBase + 15)) {
+            if (h in firstHost..lastHost && h != ipInt) {
+                candidateInts.add(h)
+            }
+        }
+        // Last host before broadcast
+        if (lastHost != ipInt && lastHost >= firstHost) {
+            candidateInts.add(lastHost)
+        }
     }
-    return candidates
+
+    val result = mutableListOf<InetAddress>()
+    for (cInt in candidateInts.take(maxCandidates)) {
+        if (cInt in firstHost..lastHost && cInt != ipInt && ((cInt and mask) == networkInt)) {
+            val cBytes = byteArrayOf(
+                ((cInt ushr 24) and 0xFF).toByte(),
+                ((cInt ushr 16) and 0xFF).toByte(),
+                ((cInt ushr 8) and 0xFF).toByte(),
+                (cInt and 0xFF).toByte()
+            )
+            try {
+                result.add(InetAddress.getByAddress(cBytes))
+            } catch (_: Exception) {}
+        }
+    }
+    return result
 }
 
 fun parseArpTable(): List<InetAddress> {
@@ -135,16 +209,16 @@ fun resolveAllDiscoveryTargets(): Set<InetAddress> {
         val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
         while (interfaces != null && interfaces.hasMoreElements()) {
             val networkInterface = interfaces.nextElement()
-            if (!networkInterface.isUp || networkInterface.isLoopback) continue
+            if (!isAllowedDiscoveryInterface(networkInterface)) continue
             for (interfaceAddress in networkInterface.interfaceAddresses) {
                 val addr = interfaceAddress.address
                 if (addr is Inet4Address && isPrivateAddress(addr)) {
                     val broadcast = interfaceAddress.broadcast
-                    if (broadcast != null) {
+                    if (broadcast != null && isPrivateAddress(broadcast)) {
                         targets.add(broadcast)
                     } else {
                         calculateSubnetBroadcast(addr, interfaceAddress.networkPrefixLength)?.let {
-                            targets.add(it)
+                            if (isPrivateAddress(it)) targets.add(it)
                         }
                     }
                     targets.addAll(generateSubnetCandidateIps(addr, interfaceAddress.networkPrefixLength))
@@ -434,25 +508,46 @@ class TetherDiscoveryManager(
             }.apply { start() }
 
             val buffer = ByteArray(2048)
+            val rateLimits = ConcurrentHashMap<String, Pair<Int, Long>>()
 
             while (isSearching && !Thread.currentThread().isInterrupted) {
                 try {
                     val recvPacket = DatagramPacket(buffer, buffer.size)
                     socket.receive(recvPacket)
 
+                    // Enforce payload bounds
+                    if (recvPacket.length < 10 || recvPacket.length > 1024) continue
+
+                    val senderAddr = recvPacket.address
+                    if (senderAddr !is Inet4Address || !isPrivateAddress(senderAddr) || senderAddr.isLoopbackAddress) {
+                        continue
+                    }
+
+                    val hostAddr = senderAddr.hostAddress ?: continue
+
+                    // Per-IP rate limiting (max 5 discovery packets/sec)
+                    val now = System.currentTimeMillis()
+                    val rate = rateLimits.compute(hostAddr) { _, existing ->
+                        if (existing == null || (now - existing.second) > 1000L) {
+                            Pair(1, now)
+                        } else {
+                            Pair(existing.first + 1, existing.second)
+                        }
+                    }
+                    if ((rate?.first ?: 0) > 5) continue
+
                     val responseStr = String(recvPacket.data, 0, recvPacket.length, StandardCharsets.UTF_8)
-                    val json = JSONObject(responseStr)
+                    val json = try { JSONObject(responseStr) } catch (_: Exception) { continue }
                     val type = json.optString("type", "")
 
                     if (type == "TETHER_DISCOVERY_RESPONSE") {
-                        val hostAddr = recvPacket.address.hostAddress ?: continue
-                        if (!isPrivateAddress(recvPacket.address)) continue
+                        val devId = json.optString("deviceId", "")
+                        if (!isValidDeviceId(devId) || devId == phoneId) continue
 
-                        val devId = json.optString("deviceId", hostAddr)
-                        if (devId == phoneId) continue
+                        val tcpPort = json.optInt("tcpPort", -1)
+                        if (tcpPort < 1024 || tcpPort > 65535) continue
 
-                        val devName = json.optString("deviceName", "Tether Windows PC")
-                        val tcpPort = json.optInt("tcpPort", DEFAULT_PORT)
+                        val devName = sanitizeDeviceName(json.optString("deviceName", "Tether Windows PC"))
 
                         val device = DiscoveredDevice(
                             deviceId = devId,
@@ -465,10 +560,9 @@ class TetherDiscoveryManager(
                         discoveredDevices[devId] = device
                         mainHandler.post { externalListener?.onDeviceDiscovered(device) }
                     } else if (type == "TETHER_DISCOVERY_PROBE") {
-                        val senderAddr = recvPacket.address
-                        if (!isPrivateAddress(senderAddr)) continue
                         val devId = json.optString("deviceId", "")
-                        if (devId.isNotEmpty() && devId != phoneId) {
+                        if (devId.isNotEmpty() && devId != phoneId && isValidDeviceId(devId)) {
+                            // Respond to valid incoming probe without treating the probe as a connection target
                             val respJson = JSONObject().apply {
                                 put("type", "TETHER_DISCOVERY_RESPONSE")
                                 put("deviceId", phoneId)
@@ -478,21 +572,6 @@ class TetherDiscoveryManager(
                             val respBytes = respJson.toString().toByteArray(StandardCharsets.UTF_8)
                             val respPacket = DatagramPacket(respBytes, respBytes.size, recvPacket.socketAddress)
                             try { socket.send(respPacket) } catch (_: Exception) {}
-
-                            val tcpPort = json.optInt("tcpPort", 0)
-                            if (tcpPort > 0) {
-                                val hostAddr = senderAddr.hostAddress ?: continue
-                                val devName = json.optString("deviceName", "Tether Windows PC")
-                                val device = DiscoveredDevice(
-                                    deviceId = devId,
-                                    name = devName,
-                                    hostAddress = hostAddr,
-                                    port = tcpPort,
-                                )
-                                Log.i(TAG, "UDP Probe Discovered Tether peer: $device")
-                                discoveredDevices[devId] = device
-                                mainHandler.post { externalListener?.onDeviceDiscovered(device) }
-                            }
                         }
                     }
                 } catch (_: SocketTimeoutException) {

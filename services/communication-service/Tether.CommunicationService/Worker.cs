@@ -454,7 +454,7 @@ public sealed class Worker : BackgroundService
             // HTTPS File Transfer API
             AddPortRule(RuleFileTransferTcp, "TCP", NetworkConstants.FileTransferPort, exePath);
 
-            _tetherLogger.Info($"Firewall rules synchronized: Scoped strictly to TCP {NetworkConstants.ControlPort}, UDP {NetworkConstants.DiscoveryPort}, UDP {NetworkConstants.MdnsPort}, TCP {NetworkConstants.FileTransferPort} across all profiles (Private, Domain, Public for Hotspot support).");
+            _tetherLogger.Info($"Firewall rules synchronized: Scoped strictly to TCP {NetworkConstants.ControlPort}, UDP {NetworkConstants.DiscoveryPort}, UDP {NetworkConstants.MdnsPort}, TCP {NetworkConstants.FileTransferPort} on LocalSubnet across all profiles.");
         }
         catch (Exception ex)
         {
@@ -462,10 +462,15 @@ public sealed class Worker : BackgroundService
         }
     }
 
+    internal static string BuildFirewallRuleArguments(string ruleName, string protocol, int port, string exePath)
+    {
+        return $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=allow protocol={protocol} localport={port} program=\"{exePath}\" profile=any remoteip=localsubnet enable=yes";
+    }
+
     private void AddPortRule(string ruleName, string protocol, int port, string exePath)
     {
         DeleteFirewallRule(ruleName);
-        string arguments = $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=allow protocol={protocol} localport={port} program=\"{exePath}\" profile=any enable=yes";
+        string arguments = BuildFirewallRuleArguments(ruleName, protocol, port, exePath);
         RunNetshCommand(arguments, isDelete: false);
     }
 
