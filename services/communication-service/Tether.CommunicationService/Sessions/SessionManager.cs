@@ -3,7 +3,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using Tether.CommunicationService.Capabilities;
-using Tether.CommunicationService.Devices;
+using Tether.CommunicationService.Devices;
+using Tether.CommunicationService.FileTransfer;
 using Tether.CommunicationService.Protocol;
 using Tether.CommunicationService.Transport;
 using Tether.Shared.Logging;
@@ -50,6 +51,7 @@ public sealed class SessionManager
 
     public void UnregisterSession(TetherSession session)
     {
+        FileTransferServer.CancelPendingRequestsForSession(session.SessionId);
         if (_activeSessions.TryRemove(session.SessionId, out _))
         {
             if (session.Device != null)

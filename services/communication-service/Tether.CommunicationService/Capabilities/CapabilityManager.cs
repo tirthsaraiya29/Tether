@@ -245,12 +245,6 @@ public sealed class CapabilityManager
 
 
 
-    public static IEnumerable<string> DefaultCapabilities =>
-
-        new[] { "MEDIA", "APP_LAUNCH", "FILES" };
-
-
-
     public static IEnumerable<string> ElevatedCapabilities =>
 
         new[] { "MEDIA", "APP_LAUNCH", "FILES", "POWER_ELEVATED", "WINDOWS_ADMIN", "APP_MANAGEMENT", "TERMINAL", "NOTIFICATIONS" };

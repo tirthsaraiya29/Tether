@@ -99,6 +99,16 @@ class ProductionSecurityEngine {
                     .setCertificateSubject(X500Principal("CN=TetherAndroidDevice, O=Tether, OU=Mobile"))
                     .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
                     .setKeySize(256)
+                    .setUserAuthenticationRequired(true)
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    builder.setUserAuthenticationParameters(
+                        0,
+                        KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
+                    )
+                } else {
+                    builder.setUserAuthenticationValidityDurationSeconds(-1)
+                }
 
                 if (useStrongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     builder.setIsStrongBoxBacked(true)
@@ -177,6 +187,20 @@ class ProductionSecurityEngine {
             BiometricPrompt.CryptoObject(cipher)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create CryptoObject for biometric auth: ${e.message}")
+            null
+        }
+    }
+
+    fun createSignatureCryptoObject(): BiometricPrompt.CryptoObject? {
+        return try {
+            ensureIdentityKeyPairExists()
+            val privateKey = keyStore.getKey(EC_IDENTITY_ALIAS, null) as? PrivateKey
+                ?: return null
+            val signature = Signature.getInstance("SHA256withECDSA")
+            signature.initSign(privateKey)
+            BiometricPrompt.CryptoObject(signature)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create Signature CryptoObject: ${e.message}")
             null
         }
     }

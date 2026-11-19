@@ -177,25 +177,25 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 
 ; Port 37123 TCP: Primary Control Channel
 Filename: "{sys}\netsh.exe"; \
-    Parameters: "advfirewall firewall add rule name=""{#RuleControlTcp}"" dir=in action=allow protocol=TCP localport=37123 program=""{app}\{#MyAppExeName}"" profile=any remoteip=localsubnet enable=yes"; \
+    Parameters: "advfirewall firewall add rule name=""{#RuleControlTcp}"" dir=in action=allow protocol=TCP localport=37123 program=""{app}\{#MyAppExeName}"" profile=private,domain remoteip=localsubnet enable=yes"; \
     Flags: runhidden waituntilterminated; \
     Tasks: firewall
 
 ; Port 37124 UDP: Local Broadcast Discovery
 Filename: "{sys}\netsh.exe"; \
-    Parameters: "advfirewall firewall add rule name=""{#RuleDiscoveryUdp}"" dir=in action=allow protocol=UDP localport=37124 program=""{app}\{#MyAppExeName}"" profile=any remoteip=localsubnet enable=yes"; \
+    Parameters: "advfirewall firewall add rule name=""{#RuleDiscoveryUdp}"" dir=in action=allow protocol=UDP localport=37124 program=""{app}\{#MyAppExeName}"" profile=private,domain remoteip=localsubnet enable=yes"; \
     Flags: runhidden waituntilterminated; \
     Tasks: firewall
 
 ; Port 5353 UDP: Multicast DNS (mDNS)
 Filename: "{sys}\netsh.exe"; \
-    Parameters: "advfirewall firewall add rule name=""{#RuleMdnsUdp}"" dir=in action=allow protocol=UDP localport=5353 program=""{app}\{#MyAppExeName}"" profile=any remoteip=localsubnet enable=yes"; \
+    Parameters: "advfirewall firewall add rule name=""{#RuleMdnsUdp}"" dir=in action=allow protocol=UDP localport=5353 program=""{app}\{#MyAppExeName}"" profile=private,domain remoteip=localsubnet enable=yes"; \
     Flags: runhidden waituntilterminated; \
     Tasks: firewall
 
 ; Port 37124 TCP: HTTPS File Transfer API
 Filename: "{sys}\netsh.exe"; \
-    Parameters: "advfirewall firewall add rule name=""{#RuleFileTransferTcp}"" dir=in action=allow protocol=TCP localport=37124 program=""{app}\{#MyAppExeName}"" profile=any remoteip=localsubnet enable=yes"; \
+    Parameters: "advfirewall firewall add rule name=""{#RuleFileTransferTcp}"" dir=in action=allow protocol=TCP localport=37124 program=""{app}\{#MyAppExeName}"" profile=private,domain remoteip=localsubnet enable=yes"; \
     Flags: runhidden waituntilterminated; \
     Tasks: firewall
 

@@ -128,7 +128,12 @@ class PowerEventActivity : FragmentActivity() {
     private fun triggerBiometricUnlock() {
         val executor = ContextCompat.getMainExecutor(this)
         val securityEngine = ProductionSecurityEngine()
-        val cryptoObject = securityEngine.createCryptoObjectForAuthentication()
+        val cryptoObject = securityEngine.createSignatureCryptoObject() ?: securityEngine.createCryptoObjectForAuthentication()
+        if (cryptoObject == null) {
+            Log.e(TAG, "Biometric unlock aborted: CryptoObject could not be initialized (fail-closed)")
+            finish()
+            return
+        }
 
         val biometricPrompt = BiometricPrompt(
             this,
@@ -137,8 +142,12 @@ class PowerEventActivity : FragmentActivity() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
                     val authenticatedCrypto = result.cryptoObject
-                    val cipher = authenticatedCrypto?.cipher
-                    Log.i(TAG, "Biometric authentication succeeded (cryptoCipher=${cipher != null})")
+                    if (authenticatedCrypto == null) {
+                        Log.w(TAG, "Authentication succeeded but CryptoObject is null; rejecting unlock (fail-closed)")
+                        finish()
+                        return
+                    }
+                    Log.i(TAG, "Biometric authentication succeeded with authenticated CryptoObject")
 
                     val prefs = getSharedPreferences("tether_secure_prefs", MODE_PRIVATE)
                     prefs.edit {
@@ -168,25 +177,18 @@ class PowerEventActivity : FragmentActivity() {
             },
         )
 
-        val promptBuilder = BiometricPrompt.PromptInfo.Builder()
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Unlock PC")
             .setSubtitle("Confirm biometric authentication to unlock your PC")
-        if (cryptoObject != null) {
-            promptBuilder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-            promptBuilder.setNegativeButtonText(getString(R.string.btn_abort))
-        } else {
-            promptBuilder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
-        }
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            .setNegativeButtonText(getString(R.string.btn_abort))
+            .build()
 
         try {
-            val promptInfo = promptBuilder.build()
-            if (cryptoObject != null) {
-                biometricPrompt.authenticate(promptInfo, cryptoObject)
-            } else {
-                biometricPrompt.authenticate(promptInfo)
-            }
+            biometricPrompt.authenticate(promptInfo, cryptoObject)
         } catch (e: Exception) {
             Log.e(TAG, "Failed launching BiometricPrompt: ${e.message}")
+            finish()
         }
     }
 

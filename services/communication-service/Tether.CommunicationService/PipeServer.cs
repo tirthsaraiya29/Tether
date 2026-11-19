@@ -347,6 +347,23 @@ public class PipeServer : IDisposable
                 return false;
             }
 
+            if (!string.IsNullOrEmpty(username))
+            {
+                try
+                {
+                    var account = new NTAccount(username);
+                    var sid = (SecurityIdentifier)account.Translate(typeof(SecurityIdentifier));
+                    if (!sid.Value.Equals(clientSid, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
             string targetUser = username ?? string.Empty;
             string? targetDomain = null;
 
@@ -383,15 +400,26 @@ public class PipeServer : IDisposable
             string password = Marshal.PtrToStringUni(dataOut.pbData, charCount);
 
             bool logonOk = false;
-            if (LogonUser(targetUser, targetDomain, password, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, out IntPtr tokenHandle))
+            IntPtr tokenHandle = IntPtr.Zero;
+            try
             {
-                logonOk = true;
-                CloseHandle(tokenHandle);
+                if (LogonUser(targetUser, targetDomain, password, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, out tokenHandle) ||
+                    (string.IsNullOrEmpty(targetDomain) && LogonUser(targetUser, ".", password, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, out tokenHandle)))
+                {
+                    using var tokenIdentity = new WindowsIdentity(tokenHandle);
+                    string? tokenUserSid = tokenIdentity.User?.Value;
+                    if (string.Equals(tokenUserSid, clientSid, StringComparison.OrdinalIgnoreCase))
+                    {
+                        logonOk = true;
+                    }
+                }
             }
-            else if (string.IsNullOrEmpty(targetDomain) && LogonUser(targetUser, ".", password, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, out tokenHandle))
+            finally
             {
-                logonOk = true;
-                CloseHandle(tokenHandle);
+                if (tokenHandle != IntPtr.Zero)
+                {
+                    CloseHandle(tokenHandle);
+                }
             }
 
             return logonOk;

@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
@@ -19,8 +19,10 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Sessions;
+using Tether.CommunicationService.Transport;
 using Tether.CommunicationService.Trust;
 using Tether.EventBus;
 using Tether.Shared.Events;
@@ -77,13 +79,22 @@ public class FileTransferServer : IHostedService
 
     private static readonly SemaphoreSlim _transferThrottle = new(MaxConcurrentTransfers, MaxConcurrentTransfers);
 
-    private sealed class PendingRemoteRequest
+    internal sealed class PendingRemoteRequest
     {
+        public required string RequestId { get; init; }
         public required TaskCompletionSource<string> Tcs { get; init; }
-        public string? ExpectedFingerprint { get; init; }
+        public required string ExpectedSessionId { get; init; }
+        public required string ExpectedFingerprint { get; init; }
+        public required string ExpectedOperation { get; init; }
+        public required DateTime CreatedAtUtc { get; init; }
+        public CancellationTokenRegistration CancellationTokenRegistration { get; init; }
     }
 
     private static readonly ConcurrentDictionary<string, PendingRemoteRequest> _pendingRequests = new();
+
+    internal static void RegisterPendingRequest(string requestId, PendingRemoteRequest request) => _pendingRequests[requestId] = request;
+    internal static bool HasPendingRequest(string requestId) => _pendingRequests.ContainsKey(requestId);
+    internal static void ClearPendingRequestsForTest() => _pendingRequests.Clear();
 
     private static readonly HashSet<string> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -165,23 +176,35 @@ public class FileTransferServer : IHostedService
         public uint nFileIndexLow;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FILE_DISPOSITION_INFO
+    {
+        [MarshalAs(UnmanagedType.U1)]
+        public bool DeleteFile;
+    }
+
     private const int FileRenameInfo = 3;
+    private const int FileDispositionInfo = 4;
     private const uint GENERIC_READ = 0x80000000;
     private const uint GENERIC_WRITE = 0x40000000;
     private const uint DELETE = 0x00010000;
     private const uint SYNCHRONIZE = 0x00100000;
+    private const uint FILE_LIST_DIRECTORY = 0x0001;
     private const uint FILE_SHARE_READ = 0x00000001;
     private const uint FILE_SHARE_WRITE = 0x00000002;
     private const uint FILE_SHARE_DELETE = 0x00000004;
     private const uint FILE_SHARE_NONE = 0x00000000;
     private const uint CREATE_NEW = 1;
     private const uint OPEN_EXISTING = 3;
+    private const uint FILE_ATTRIBUTE_READONLY = 0x00000001;
+    private const uint FILE_ATTRIBUTE_DIRECTORY = 0x00000010;
     private const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
     private const uint FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400;
     private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+    private const uint FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
     private const uint FILE_NAME_NORMALIZED = 0x0;
 
-    private static string? GetFinalResolvedPath(SafeFileHandle handle)
+    public static string? GetFinalResolvedPath(SafeFileHandle handle)
     {
         if (handle.IsInvalid || handle.IsClosed)
         {
@@ -190,7 +213,13 @@ public class FileTransferServer : IHostedService
 
         var sb = new StringBuilder(1024);
         uint result = GetFinalPathNameByHandle(handle, sb, (uint)sb.Capacity, FILE_NAME_NORMALIZED);
-        if (result == 0 || result >= sb.Capacity)
+        if (result >= sb.Capacity)
+        {
+            sb.EnsureCapacity((int)result + 1);
+            result = GetFinalPathNameByHandle(handle, sb, (uint)sb.Capacity, FILE_NAME_NORMALIZED);
+        }
+
+        if (result == 0)
         {
             return null;
         }
@@ -226,7 +255,7 @@ public class FileTransferServer : IHostedService
         return GetFinalResolvedPath(handle);
     }
 
-    public static bool PromoteFileHandle(SafeFileHandle handle, string destinationFullPath)
+    public static bool PromoteFileHandle(SafeFileHandle handle, string destinationFullPath, bool replaceIfExists = true)
     {
         if (handle.IsInvalid || handle.IsClosed)
         {
@@ -243,8 +272,8 @@ public class FileTransferServer : IHostedService
                 Marshal.WriteByte(buffer, i, 0);
             }
 
-            // ReplaceIfExists = TRUE (1)
-            Marshal.WriteByte(buffer, 0, 1);
+            // ReplaceIfExists (1 = true, 0 = false)
+            Marshal.WriteByte(buffer, 0, (byte)(replaceIfExists ? 1 : 0));
             // RootDirectory = IntPtr.Zero (offsets 8..15 already zero)
             // FileNameLength in bytes
             Marshal.WriteInt32(buffer, 16, nameByteLen);
@@ -259,6 +288,238 @@ public class FileTransferServer : IHostedService
         {
             Marshal.FreeHGlobal(buffer);
         }
+    }
+
+    public static bool DeleteHandle(SafeFileHandle handle)
+    {
+        if (handle.IsInvalid || handle.IsClosed)
+        {
+            return false;
+        }
+
+        var dispInfo = new FILE_DISPOSITION_INFO { DeleteFile = true };
+        int size = Marshal.SizeOf(dispInfo);
+        IntPtr ptr = Marshal.AllocHGlobal(size);
+        try
+        {
+            Marshal.StructureToPtr(dispInfo, ptr, false);
+            return SetFileInformationByHandle(handle, FileDispositionInfo, ptr, (uint)size);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(ptr);
+        }
+    }
+
+    public static bool ValidateHandleSecurity(
+        SafeFileHandle handle,
+        string? expectedRootDirectory,
+        uint? expectedVolumeSerial,
+        out string resolvedPath,
+        out uint volumeSerialNumber,
+        bool allowReparsePoint = false)
+    {
+        resolvedPath = string.Empty;
+        volumeSerialNumber = 0;
+
+        if (handle == null || handle.IsInvalid || handle.IsClosed)
+        {
+            return false;
+        }
+
+        if (!GetFileInformationByHandle(handle, out var info))
+        {
+            return false;
+        }
+
+        volumeSerialNumber = info.dwVolumeSerialNumber;
+
+        if (!allowReparsePoint && (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+        {
+            return false;
+        }
+
+        if (expectedVolumeSerial.HasValue && volumeSerialNumber != expectedVolumeSerial.Value)
+        {
+            return false;
+        }
+
+        string? finalPath = GetFinalResolvedPath(handle);
+        if (string.IsNullOrEmpty(finalPath))
+        {
+            return false;
+        }
+
+        if (finalPath.StartsWith(@"\\") || finalPath.StartsWith("//"))
+        {
+            return false;
+        }
+
+        if (IsPathInBlockedPrefix(finalPath) || IsCrossUserProfileAccess(finalPath))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(expectedRootDirectory))
+        {
+            try
+            {
+                string expectedRootWithSep = Path.GetFullPath(expectedRootDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                string finalPathWithSep = Path.GetFullPath(finalPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+                if (!finalPathWithSep.StartsWith(expectedRootWithSep, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(Path.GetFullPath(finalPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                                  Path.GetFullPath(expectedRootDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                                  StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        if (!allowReparsePoint && HasReparsePointInHierarchy(finalPath))
+        {
+            return false;
+        }
+
+        resolvedPath = finalPath;
+        return true;
+    }
+
+    public static bool DeleteDirectoryRecursiveSafe(string directoryPath, string rootBoundaryPath, uint expectedVolumeSerial)
+    {
+        string[] entries;
+        try
+        {
+            entries = Directory.GetFileSystemEntries(directoryPath);
+        }
+        catch
+        {
+            return false;
+        }
+
+        foreach (var entry in entries)
+        {
+            SafeFileHandle hChild = CreateFile(
+                entry,
+                DELETE | FILE_LIST_DIRECTORY | GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                IntPtr.Zero,
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                IntPtr.Zero);
+
+            if (hChild.IsInvalid)
+            {
+                hChild = CreateFile(
+                    entry,
+                    DELETE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    IntPtr.Zero,
+                    OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                    IntPtr.Zero);
+            }
+
+            if (hChild.IsInvalid)
+            {
+                return false;
+            }
+
+            if (!GetFileInformationByHandle(hChild, out var childInfo))
+            {
+                hChild.Dispose();
+                return false;
+            }
+
+            bool isReparse = (childInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+            bool isDir = (childInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+
+            if ((childInfo.dwFileAttributes & FILE_ATTRIBUTE_READONLY) != 0)
+            {
+                try { File.SetAttributes(entry, (FileAttributes)(childInfo.dwFileAttributes & ~FILE_ATTRIBUTE_READONLY)); } catch { }
+            }
+
+            if (isReparse)
+            {
+                if (!ValidateHandleSecurity(hChild, rootBoundaryPath, expectedVolumeSerial, out _, out _, allowReparsePoint: true))
+                {
+                    hChild.Dispose();
+                    return false;
+                }
+
+                bool deleted = DeleteHandle(hChild);
+                hChild.Dispose();
+                if (!deleted) return false;
+            }
+            else if (isDir)
+            {
+                if (!ValidateHandleSecurity(hChild, rootBoundaryPath, expectedVolumeSerial, out string childResolved, out _, allowReparsePoint: false))
+                {
+                    hChild.Dispose();
+                    return false;
+                }
+
+                hChild.Dispose();
+                if (!DeleteDirectoryRecursiveSafe(childResolved, rootBoundaryPath, expectedVolumeSerial))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                if (!ValidateHandleSecurity(hChild, rootBoundaryPath, expectedVolumeSerial, out _, out _, allowReparsePoint: false))
+                {
+                    hChild.Dispose();
+                    return false;
+                }
+
+                bool deleted = DeleteHandle(hChild);
+                hChild.Dispose();
+                if (!deleted) return false;
+            }
+        }
+
+        using var hDir = CreateFile(
+            directoryPath,
+            DELETE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            IntPtr.Zero,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            IntPtr.Zero);
+
+        if (hDir.IsInvalid)
+        {
+            return false;
+        }
+
+        if (!ValidateHandleSecurity(hDir, rootBoundaryPath, expectedVolumeSerial, out _, out _, allowReparsePoint: true))
+        {
+            return false;
+        }
+
+        return DeleteHandle(hDir);
+    }
+
+    public static bool IsValidFingerprint(string? fp)
+    {
+        if (string.IsNullOrWhiteSpace(fp)) return false;
+        fp = fp.Trim();
+        if (fp.Length == 95 && fp.Count(c => c == ':') == 31)
+        {
+            var parts = fp.Split(':');
+            return parts.Length == 32 && parts.All(p => p.Length == 2 && p.All(Uri.IsHexDigit));
+        }
+        if (fp.Length == 64 && fp.All(Uri.IsHexDigit))
+        {
+            return true;
+        }
+        return false;
     }
     #endregion
 
@@ -559,8 +820,35 @@ public class FileTransferServer : IHostedService
         }
     }
 
-    public static void HandleRemoteResponse(string type, string rawJson, string? callerFingerprint = null)
+    public static void CancelPendingRequestsForSession(string sessionId)
     {
+        if (string.IsNullOrWhiteSpace(sessionId)) return;
+
+        foreach (var kvp in _pendingRequests)
+        {
+            if (string.Equals(kvp.Value.ExpectedSessionId, sessionId, StringComparison.Ordinal))
+            {
+                if (_pendingRequests.TryRemove(kvp.Key, out var pending))
+                {
+                    try { pending.CancellationTokenRegistration.Dispose(); } catch { }
+                    pending.Tcs.TrySetException(new IOException("Device session disconnected"));
+                }
+            }
+        }
+    }
+
+    public static bool HandleRemoteResponse(string type, string rawJson, string? callerFingerprint, string? callerSessionId)
+    {
+        if (string.IsNullOrWhiteSpace(callerFingerprint) || !IsValidFingerprint(callerFingerprint))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(callerSessionId))
+        {
+            return false;
+        }
+
         string requestId = "";
         try
         {
@@ -570,20 +858,116 @@ public class FileTransferServer : IHostedService
                 requestId = reqProp.GetString() ?? "";
             }
         }
-        catch { }
-
-        if (!string.IsNullOrEmpty(requestId) && _pendingRequests.TryGetValue(requestId, out var pending))
+        catch
         {
-            if (!string.IsNullOrEmpty(pending.ExpectedFingerprint) &&
-                !string.IsNullOrEmpty(callerFingerprint) &&
-                !string.Equals(pending.ExpectedFingerprint, callerFingerprint, StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
-            pending.Tcs.TrySetResult(rawJson);
-            _pendingRequests.TryRemove(requestId, out _);
+            return false;
         }
+
+        if (string.IsNullOrWhiteSpace(requestId))
+        {
+            return false;
+        }
+
+        if (!_pendingRequests.TryGetValue(requestId, out var pending))
+        {
+            return false;
+        }
+
+        if (!string.Equals(pending.ExpectedSessionId, callerSessionId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!string.Equals(pending.ExpectedFingerprint, callerFingerprint, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        bool opMatches = pending.ExpectedOperation switch
+        {
+            "FS_LIST" => string.Equals(type, "FS_LIST_RESULT", StringComparison.OrdinalIgnoreCase),
+            "FS_SEND_FILE" => string.Equals(type, "FS_DOWNLOAD_RESULT", StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(type, "FS_TRANSFER_STATUS", StringComparison.OrdinalIgnoreCase),
+            "FS_RECEIVE_FILE" => string.Equals(type, "FS_UPLOAD_RESULT", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(type, "FS_TRANSFER_STATUS", StringComparison.OrdinalIgnoreCase),
+            _ => string.Equals(type, pending.ExpectedOperation, StringComparison.OrdinalIgnoreCase)
+        };
+
+        if (!opMatches)
+        {
+            return false;
+        }
+
+        if (!_pendingRequests.TryRemove(requestId, out var consumed))
+        {
+            return false;
+        }
+
+        try { consumed.CancellationTokenRegistration.Dispose(); } catch { }
+        consumed.Tcs.TrySetResult(rawJson);
+        return true;
+    }
+
+    private IResult? TryResolveTargetSession(
+        JsonElement root,
+        out TetherSession? targetSession,
+        out string targetFingerprint)
+    {
+        targetSession = null;
+        targetFingerprint = string.Empty;
+
+        string? targetDevice = null;
+        bool hasTargetSpecified = false;
+
+        if (root.TryGetProperty("fingerprint", out var fProp))
+        {
+            hasTargetSpecified = true;
+            targetDevice = fProp.GetString();
+            if (string.IsNullOrWhiteSpace(targetDevice) || !IsValidFingerprint(targetDevice))
+            {
+                return Results.BadRequest(new { error = "Invalid, missing, or malformed device fingerprint" });
+            }
+        }
+        else if (root.TryGetProperty("deviceId", out var dProp))
+        {
+            hasTargetSpecified = true;
+            targetDevice = dProp.GetString();
+            if (string.IsNullOrWhiteSpace(targetDevice))
+            {
+                return Results.BadRequest(new { error = "Invalid, missing, or empty deviceId" });
+            }
+        }
+
+        var pairedSessions = _sessionManager.GetActiveSessions()
+            .Where(s => s.Device != null && s.Device.TrustState == DeviceTrustState.Paired)
+            .ToList();
+
+        if (hasTargetSpecified)
+        {
+            targetSession = pairedSessions.FirstOrDefault(s =>
+                string.Equals(s.Device?.Fingerprint, targetDevice, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(s.Device?.DeviceId, targetDevice, StringComparison.OrdinalIgnoreCase));
+
+            if (targetSession?.Device == null)
+            {
+                return Results.NotFound(new { error = "No connected companion device matching target" });
+            }
+        }
+        else
+        {
+            if (pairedSessions.Count == 0)
+            {
+                return Results.NotFound(new { error = "No connected companion device available" });
+            }
+            if (pairedSessions.Count > 1)
+            {
+                return Results.BadRequest(new { error = "Ambiguous target: multiple devices connected. Explicit deviceId or fingerprint required." });
+            }
+            targetSession = pairedSessions[0];
+        }
+
+        targetFingerprint = targetSession.Device!.Fingerprint;
+        return null;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -654,7 +1038,21 @@ public class FileTransferServer : IHostedService
                     return Results.NotFound(new { error = "Directory not found or access restricted" });
                 }
 
-                var dirInfo = new DirectoryInfo(fullPath);
+                using var hDir = CreateFile(
+                    fullPath,
+                    FILE_LIST_DIRECTORY | GENERIC_READ,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    IntPtr.Zero,
+                    OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS,
+                    IntPtr.Zero);
+
+                if (hDir.IsInvalid || !ValidateHandleSecurity(hDir, null, null, out var resolvedDirPath, out _, allowReparsePoint: false))
+                {
+                    return Results.NotFound(new { error = "Directory not found or access restricted" });
+                }
+
+                var dirInfo = new DirectoryInfo(resolvedDirPath);
                 var entries = new List<object>();
 
                 foreach (var dir in dirInfo.GetDirectories().Take(2000))
@@ -719,13 +1117,34 @@ public class FileTransferServer : IHostedService
                     return Results.NotFound("File not found or access restricted");
                 }
 
-                var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-                string? resolvedPath = GetFinalResolvedPath(fs.SafeFileHandle);
-                if (resolvedPath == null || !TryGetValidPath(resolvedPath, out _))
+                var handle = CreateFile(
+                    fullPath,
+                    GENERIC_READ,
+                    FILE_SHARE_READ,
+                    IntPtr.Zero,
+                    OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS,
+                    IntPtr.Zero);
+
+                if (handle.IsInvalid)
                 {
-                    await fs.DisposeAsync();
+                    return Results.NotFound("File not found or access restricted");
+                }
+
+                if (!ValidateHandleSecurity(handle, null, null, out string resolvedPath, out _, allowReparsePoint: false))
+                {
+                    handle.Dispose();
+
                     return Results.BadRequest("Access denied: File failed target resolution or points to a restricted location");
                 }
+
+                if (GetFileInformationByHandle(handle, out var hInfo) && (hInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+                {
+                    handle.Dispose();
+                    return Results.BadRequest("Access denied: Cannot download a directory");
+                }
+
+                var fs = new FileStream(handle, FileAccess.Read, 81920, isAsync: true);
 
                 long totalBytes = fs.Length;
                 byte[] hash = await SHA512.HashDataAsync(fs, context.RequestAborted);
@@ -1134,59 +1553,96 @@ public class FileTransferServer : IHostedService
         {
             var (success, reqJson, errorResult) = await ReadBoundedJsonBodyAsync(context);
             if (!success) return errorResult!;
-            var path = "";
-            string? targetDevice = null;
+
+            string path = "";
+            JsonDocument doc;
             try
             {
-                var root = JsonDocument.Parse(reqJson!).RootElement;
-                if (root.TryGetProperty("path", out var pProp)) path = pProp.GetString() ?? "";
-                if (root.TryGetProperty("deviceId", out var dProp)) targetDevice = dProp.GetString();
-                else if (root.TryGetProperty("fingerprint", out var fProp)) targetDevice = fProp.GetString();
-            }
-            catch { }
-
-            var targetSession = _sessionManager.GetActiveSessions()
-                .FirstOrDefault(s => s.Device != null && (targetDevice == null ||
-                    string.Equals(s.Device.DeviceId, targetDevice, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(s.Device.Fingerprint, targetDevice, StringComparison.OrdinalIgnoreCase)));
-
-            if (targetSession?.Device == null)
-            {
-                return Results.Problem("No connected companion device available");
-            }
-
-            string targetFingerprint = targetSession.Device.Fingerprint;
-            string reqId = Guid.NewGuid().ToString();
-            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pendingRequests[reqId] = new PendingRemoteRequest { Tcs = tcs, ExpectedFingerprint = targetFingerprint };
-
-            try
-            {
-                bool sent = _sessionManager.SendRawFrameToDevice(targetFingerprint, JsonSerializer.Serialize(new { type = "FS_LIST", requestId = reqId, path = path }));
-                if (!sent)
+                doc = JsonDocument.Parse(reqJson!);
+                if (doc.RootElement.TryGetProperty("path", out var pProp))
                 {
-                    return Results.Problem("Failed to deliver request to target companion device");
+                    path = pProp.GetString() ?? "";
                 }
+            }
+            catch
+            {
+                return Results.BadRequest(new { error = "Invalid JSON payload" });
+            }
 
-                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(5000));
-                if (completedTask == tcs.Task)
+            using (doc)
+            {
+                var resolveError = TryResolveTargetSession(doc.RootElement, out var targetSession, out string targetFingerprint);
+                if (resolveError != null) return resolveError;
+
+                string reqId = Guid.NewGuid().ToString();
+                var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, timeoutCts.Token);
+
+                var ctr = linkedCts.Token.Register(() =>
                 {
+                    if (_pendingRequests.TryRemove(reqId, out var removed))
+                    {
+                        removed.Tcs.TrySetCanceled();
+                    }
+                });
+
+                var pending = new PendingRemoteRequest
+                {
+                    RequestId = reqId,
+                    Tcs = tcs,
+                    ExpectedSessionId = targetSession!.SessionId,
+                    ExpectedFingerprint = targetFingerprint,
+                    ExpectedOperation = "FS_LIST",
+                    CreatedAtUtc = DateTime.UtcNow,
+                    CancellationTokenRegistration = ctr
+                };
+                _pendingRequests[reqId] = pending;
+
+                try
+                {
+                    bool sent = _sessionManager.SendRawFrameToDevice(targetFingerprint, JsonSerializer.Serialize(new { type = "FS_LIST", requestId = reqId, path = path }));
+                    if (!sent)
+                    {
+                        if (_pendingRequests.TryRemove(reqId, out var removed))
+                        {
+                            try { removed.CancellationTokenRegistration.Dispose(); } catch { }
+                        }
+                        return Results.Problem("Failed to deliver request to target companion device");
+                    }
+
                     var resultJson = await tcs.Task;
                     try
                     {
                         var items = JsonDocument.Parse(resultJson).RootElement.GetProperty("items");
                         return Results.Content(items.GetRawText(), "application/json");
                     }
-                    catch { return Results.Ok(new object[0]); }
+                    catch
+                    {
+                        return Results.Ok(new object[0]);
+                    }
                 }
-                else
+                catch (OperationCanceledException)
                 {
-                    return Results.Problem("Timeout waiting for Android");
+                    return Results.StatusCode(StatusCodes.Status408RequestTimeout);
                 }
-            }
-            finally
-            {
-                _pendingRequests.TryRemove(reqId, out _);
+                catch (IOException ex) when (ex.Message.Contains("disconnected"))
+                {
+                    return Results.Problem("Target companion device disconnected", statusCode: StatusCodes.Status502BadGateway);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"Error in remote list: {ex.Message}");
+                    return Results.Problem("Remote list failed");
+                }
+                finally
+                {
+                    if (_pendingRequests.TryRemove(reqId, out var removed))
+                    {
+                        try { removed.CancellationTokenRegistration.Dispose(); } catch { }
+                    }
+                }
             }
         });
 
@@ -1194,53 +1650,86 @@ public class FileTransferServer : IHostedService
         {
             var (success, reqJson, errorResult) = await ReadBoundedJsonBodyAsync(context);
             if (!success) return errorResult!;
-            var doc = JsonDocument.Parse(reqJson!).RootElement;
-            var remotePath = doc.GetProperty("remotePath").GetString() ?? "";
-            var localDir = doc.GetProperty("localDir").GetString() ?? "";
-            string? targetDevice = null;
-            if (doc.TryGetProperty("deviceId", out var dProp)) targetDevice = dProp.GetString();
-            else if (doc.TryGetProperty("fingerprint", out var fProp)) targetDevice = fProp.GetString();
 
-            var targetSession = _sessionManager.GetActiveSessions()
-                .FirstOrDefault(s => s.Device != null && (targetDevice == null ||
-                    string.Equals(s.Device.DeviceId, targetDevice, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(s.Device.Fingerprint, targetDevice, StringComparison.OrdinalIgnoreCase)));
-
-            if (targetSession?.Device == null)
-            {
-                return Results.Problem("No connected companion device available");
-            }
-
-            string targetFingerprint = targetSession.Device.Fingerprint;
-            string reqId = Guid.NewGuid().ToString();
-            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pendingRequests[reqId] = new PendingRemoteRequest { Tcs = tcs, ExpectedFingerprint = targetFingerprint };
-
+            JsonDocument doc;
+            string remotePath = "";
+            string localDir = "";
             try
             {
-                var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(10), targetFingerprint, new[] { "FILES" });
-                var fileName = Path.GetFileName(remotePath);
-                var windowsDestPath = Path.Combine(localDir, fileName);
+                doc = JsonDocument.Parse(reqJson!);
+                if (doc.RootElement.TryGetProperty("remotePath", out var rpProp)) remotePath = rpProp.GetString() ?? "";
+                if (doc.RootElement.TryGetProperty("localDir", out var ldProp)) localDir = ldProp.GetString() ?? "";
+            }
+            catch
+            {
+                return Results.BadRequest(new { error = "Invalid JSON payload" });
+            }
 
-                bool sent = _sessionManager.SendRawFrameToDevice(targetFingerprint, JsonSerializer.Serialize(new
+            using (doc)
+            {
+                if (string.IsNullOrWhiteSpace(remotePath) || string.IsNullOrWhiteSpace(localDir))
                 {
-                    type = "FS_SEND_FILE",
-                    requestId = reqId,
-                    androidPath = remotePath,
-                    windowsDestPath = windowsDestPath,
-                    token = token
-                }));
-                if (!sent)
-                {
-                    return Results.Problem("Failed to deliver request to target companion device");
+                    return Results.BadRequest(new { error = "Missing remotePath or localDir" });
                 }
+
+                if (!TryGetValidPath(localDir, out var validLocalDir) || !Directory.Exists(validLocalDir))
+                {
+                    return Results.BadRequest(new { error = "Invalid or restricted local destination directory" });
+                }
+
+                var resolveError = TryResolveTargetSession(doc.RootElement, out var targetSession, out string targetFingerprint);
+                if (resolveError != null) return resolveError;
+
+                string reqId = Guid.NewGuid().ToString();
+                var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
                 using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, timeoutCts.Token);
 
-                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, linkedCts.Token));
-                if (completedTask == tcs.Task)
+                var ctr = linkedCts.Token.Register(() =>
                 {
+                    if (_pendingRequests.TryRemove(reqId, out var removed))
+                    {
+                        removed.Tcs.TrySetCanceled();
+                    }
+                });
+
+                var pending = new PendingRemoteRequest
+                {
+                    RequestId = reqId,
+                    Tcs = tcs,
+                    ExpectedSessionId = targetSession!.SessionId,
+                    ExpectedFingerprint = targetFingerprint,
+                    ExpectedOperation = "FS_SEND_FILE",
+                    CreatedAtUtc = DateTime.UtcNow,
+                    CancellationTokenRegistration = ctr
+                };
+                _pendingRequests[reqId] = pending;
+
+                try
+                {
+                    var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(10), targetFingerprint, new[] { "FILES" });
+                    var fileName = Path.GetFileName(remotePath);
+                    var windowsDestPath = Path.Combine(validLocalDir, fileName);
+
+                    bool sent = _sessionManager.SendRawFrameToDevice(targetFingerprint, JsonSerializer.Serialize(new
+                    {
+                        type = "FS_SEND_FILE",
+                        requestId = reqId,
+                        androidPath = remotePath,
+                        windowsDestPath = windowsDestPath,
+                        token = token
+                    }));
+
+                    if (!sent)
+                    {
+                        if (_pendingRequests.TryRemove(reqId, out var removed))
+                        {
+                            try { removed.CancellationTokenRegistration.Dispose(); } catch { }
+                        }
+                        return Results.Problem("Failed to deliver request to target companion device");
+                    }
+
                     var resultJson = await tcs.Task;
                     try
                     {
@@ -1256,21 +1745,26 @@ public class FileTransferServer : IHostedService
                         return Results.Ok();
                     }
                 }
-
-                return Results.StatusCode(StatusCodes.Status408RequestTimeout);
-            }
-            catch (OperationCanceledException)
-            {
-                return Results.StatusCode(StatusCodes.Status408RequestTimeout);
-            }
-            catch (Exception ex)
-            {
-                _logger.Error($"Error in remote download: {ex.Message}");
-                return Results.Problem("Remote download failed");
-            }
-            finally
-            {
-                _pendingRequests.TryRemove(reqId, out _);
+                catch (OperationCanceledException)
+                {
+                    return Results.StatusCode(StatusCodes.Status408RequestTimeout);
+                }
+                catch (IOException ex) when (ex.Message.Contains("disconnected"))
+                {
+                    return Results.Problem("Target companion device disconnected", statusCode: StatusCodes.Status502BadGateway);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"Error in remote download: {ex.Message}");
+                    return Results.Problem("Remote download failed");
+                }
+                finally
+                {
+                    if (_pendingRequests.TryRemove(reqId, out var removed))
+                    {
+                        try { removed.CancellationTokenRegistration.Dispose(); } catch { }
+                    }
+                }
             }
         });
 
@@ -1278,52 +1772,85 @@ public class FileTransferServer : IHostedService
         {
             var (success, reqJson, errorResult) = await ReadBoundedJsonBodyAsync(context);
             if (!success) return errorResult!;
-            var doc = JsonDocument.Parse(reqJson!).RootElement;
-            var localPath = doc.GetProperty("localPath").GetString() ?? "";
-            var remoteDir = doc.GetProperty("remoteDir").GetString() ?? "";
-            string? targetDevice = null;
-            if (doc.TryGetProperty("deviceId", out var dProp)) targetDevice = dProp.GetString();
-            else if (doc.TryGetProperty("fingerprint", out var fProp)) targetDevice = fProp.GetString();
 
-            var targetSession = _sessionManager.GetActiveSessions()
-                .FirstOrDefault(s => s.Device != null && (targetDevice == null ||
-                    string.Equals(s.Device.DeviceId, targetDevice, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(s.Device.Fingerprint, targetDevice, StringComparison.OrdinalIgnoreCase)));
-
-            if (targetSession?.Device == null)
-            {
-                return Results.Problem("No connected companion device available");
-            }
-
-            string targetFingerprint = targetSession.Device.Fingerprint;
-            string reqId = Guid.NewGuid().ToString();
-            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pendingRequests[reqId] = new PendingRemoteRequest { Tcs = tcs, ExpectedFingerprint = targetFingerprint };
-
+            JsonDocument doc;
+            string localPath = "";
+            string remoteDir = "";
             try
             {
-                var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(10), targetFingerprint, new[] { "FILES" });
-                var fileName = Path.GetFileName(localPath);
+                doc = JsonDocument.Parse(reqJson!);
+                if (doc.RootElement.TryGetProperty("localPath", out var lpProp)) localPath = lpProp.GetString() ?? "";
+                if (doc.RootElement.TryGetProperty("remoteDir", out var rdProp)) remoteDir = rdProp.GetString() ?? "";
+            }
+            catch
+            {
+                return Results.BadRequest(new { error = "Invalid JSON payload" });
+            }
 
-                bool sent = _sessionManager.SendRawFrameToDevice(targetFingerprint, JsonSerializer.Serialize(new
+            using (doc)
+            {
+                if (string.IsNullOrWhiteSpace(localPath) || string.IsNullOrWhiteSpace(remoteDir))
                 {
-                    type = "FS_RECEIVE_FILE",
-                    requestId = reqId,
-                    windowsPath = localPath,
-                    fileName = fileName,
-                    token = token
-                }));
-                if (!sent)
-                {
-                    return Results.Problem("Failed to deliver request to target companion device");
+                    return Results.BadRequest(new { error = "Missing localPath or remoteDir" });
                 }
+
+                if (!TryGetValidPath(localPath, out var validLocalPath) || !File.Exists(validLocalPath))
+                {
+                    return Results.BadRequest(new { error = "Invalid or restricted local source file" });
+                }
+
+                var resolveError = TryResolveTargetSession(doc.RootElement, out var targetSession, out string targetFingerprint);
+                if (resolveError != null) return resolveError;
+
+                string reqId = Guid.NewGuid().ToString();
+                var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
                 using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, timeoutCts.Token);
 
-                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, linkedCts.Token));
-                if (completedTask == tcs.Task)
+                var ctr = linkedCts.Token.Register(() =>
                 {
+                    if (_pendingRequests.TryRemove(reqId, out var removed))
+                    {
+                        removed.Tcs.TrySetCanceled();
+                    }
+                });
+
+                var pending = new PendingRemoteRequest
+                {
+                    RequestId = reqId,
+                    Tcs = tcs,
+                    ExpectedSessionId = targetSession!.SessionId,
+                    ExpectedFingerprint = targetFingerprint,
+                    ExpectedOperation = "FS_RECEIVE_FILE",
+                    CreatedAtUtc = DateTime.UtcNow,
+                    CancellationTokenRegistration = ctr
+                };
+                _pendingRequests[reqId] = pending;
+
+                try
+                {
+                    var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(10), targetFingerprint, new[] { "FILES" });
+                    var fileName = Path.GetFileName(validLocalPath);
+
+                    bool sent = _sessionManager.SendRawFrameToDevice(targetFingerprint, JsonSerializer.Serialize(new
+                    {
+                        type = "FS_RECEIVE_FILE",
+                        requestId = reqId,
+                        windowsPath = validLocalPath,
+                        fileName = fileName,
+                        token = token
+                    }));
+
+                    if (!sent)
+                    {
+                        if (_pendingRequests.TryRemove(reqId, out var removed))
+                        {
+                            try { removed.CancellationTokenRegistration.Dispose(); } catch { }
+                        }
+                        return Results.Problem("Failed to deliver request to target companion device");
+                    }
+
                     var resultJson = await tcs.Task;
                     try
                     {
@@ -1339,24 +1866,28 @@ public class FileTransferServer : IHostedService
                         return Results.Ok();
                     }
                 }
-
-                return Results.StatusCode(StatusCodes.Status408RequestTimeout);
-            }
-            catch (OperationCanceledException)
-            {
-                return Results.StatusCode(StatusCodes.Status408RequestTimeout);
-            }
-            catch (Exception ex)
-            {
-                _logger.Error($"Error in remote upload: {ex.Message}");
-                return Results.Problem("Remote upload failed");
-            }
-            finally
-            {
-                _pendingRequests.TryRemove(reqId, out _);
+                catch (OperationCanceledException)
+                {
+                    return Results.StatusCode(StatusCodes.Status408RequestTimeout);
+                }
+                catch (IOException ex) when (ex.Message.Contains("disconnected"))
+                {
+                    return Results.Problem("Target companion device disconnected", statusCode: StatusCodes.Status502BadGateway);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"Error in remote upload: {ex.Message}");
+                    return Results.Problem("Remote upload failed");
+                }
+                finally
+                {
+                    if (_pendingRequests.TryRemove(reqId, out var removed))
+                    {
+                        try { removed.CancellationTokenRegistration.Dispose(); } catch { }
+                    }
+                }
             }
         });
-
         // Remote Desktop Streaming Endpoint (MJPEG)
         _app.MapGet("/api/desktop/stream", async (HttpContext context, int? fps, int? quality, long? windowId) =>
         {
@@ -1498,30 +2029,75 @@ public class FileTransferServer : IHostedService
                     return Results.NotFound(new { error = "Directory not found or access restricted" });
                 }
 
+                using var hDir = CreateFile(
+                    fullPath,
+                    FILE_LIST_DIRECTORY | GENERIC_READ,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    IntPtr.Zero,
+                    OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS,
+                    IntPtr.Zero);
+
+                if (hDir.IsInvalid || !ValidateHandleSecurity(hDir, null, null, out var resolvedDirPath, out _, allowReparsePoint: false))
+                {
+                    return Results.NotFound(new { error = "Directory not found or access restricted" });
+                }
+
                 string q = query?.Trim() ?? "";
                 int limit = Math.Clamp(maxResults ?? 100, 1, 500);
                 bool isRec = recursive ?? true;
                 var results = new List<object>();
 
-                var searchOption = isRec ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-                var dirInfo = new DirectoryInfo(fullPath);
+                var dirStack = new Stack<string>();
+                dirStack.Push(resolvedDirPath);
 
-                foreach (var file in dirInfo.EnumerateFiles("*", searchOption))
+                while (dirStack.Count > 0 && results.Count < limit)
                 {
-                    if (results.Count >= limit) break;
-                    if ((file.Attributes & FileAttributes.ReparsePoint) != 0 || (file.Attributes & FileAttributes.Hidden) != 0) continue;
-                    if (IsPathInBlockedPrefix(file.FullName)) continue;
-
-                    if (string.IsNullOrEmpty(q) || file.Name.Contains(q, StringComparison.OrdinalIgnoreCase))
+                    string currentDirPath = dirStack.Pop();
+                    DirectoryInfo currentDirInfo;
+                    try
                     {
-                        results.Add(new
+                        currentDirInfo = new DirectoryInfo(currentDirPath);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        foreach (var file in currentDirInfo.EnumerateFiles())
                         {
-                            name = file.Name,
-                            path = file.FullName,
-                            isDirectory = false,
-                            size = file.Length,
-                            lastModified = (DateTimeOffset)file.LastWriteTimeUtc
-                        });
+                            if (results.Count >= limit) break;
+                            if ((file.Attributes & FileAttributes.ReparsePoint) != 0 || (file.Attributes & FileAttributes.Hidden) != 0) continue;
+                            if (IsPathInBlockedPrefix(file.FullName) || IsCrossUserProfileAccess(file.FullName)) continue;
+
+                            if (string.IsNullOrEmpty(q) || file.Name.Contains(q, StringComparison.OrdinalIgnoreCase))
+                            {
+                                results.Add(new
+                                {
+                                    name = file.Name,
+                                    path = file.FullName,
+                                    isDirectory = false,
+                                    size = file.Length,
+                                    lastModified = (DateTimeOffset)file.LastWriteTimeUtc
+                                });
+                            }
+                        }
+
+                        if (isRec)
+                        {
+                            foreach (var subDir in currentDirInfo.EnumerateDirectories())
+                            {
+                                if ((subDir.Attributes & FileAttributes.ReparsePoint) != 0 || (subDir.Attributes & FileAttributes.Hidden) != 0) continue;
+                                if (IsPathInBlockedPrefix(subDir.FullName) || IsCrossUserProfileAccess(subDir.FullName)) continue;
+                                dirStack.Push(subDir.FullName);
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Skip inaccessible subdirectories
                     }
                 }
 
@@ -1567,6 +2143,20 @@ public class FileTransferServer : IHostedService
 
             try
             {
+                using var hDstParent = CreateFile(
+                    dir,
+                    0,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    IntPtr.Zero,
+                    OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS,
+                    IntPtr.Zero);
+
+                if (hDstParent.IsInvalid || !ValidateHandleSecurity(hDstParent, null, null, out _, out uint dstVolumeSerial, allowReparsePoint: false))
+                {
+                    return Results.BadRequest(new { error = "Destination directory failed security validation" });
+                }
+
                 if (File.Exists(fullPath))
                 {
                     using var hFile = CreateFile(
@@ -1583,15 +2173,19 @@ public class FileTransferServer : IHostedService
                         return Results.Problem("Failed to open file for rename");
                     }
 
-                    string? resolved = GetFinalResolvedPath(hFile);
-                    if (resolved == null || !TryGetValidPath(resolved, out _))
+                    if (!ValidateHandleSecurity(hFile, null, null, out _, out uint srcVolumeSerial, allowReparsePoint: false))
                     {
                         return Results.BadRequest(new { error = "Target path failed final resolution or access restricted" });
                     }
 
-                    if (!PromoteFileHandle(hFile, validNewPath))
+                    if (srcVolumeSerial != dstVolumeSerial)
                     {
-                        File.Move(resolved, validNewPath);
+                        return Results.BadRequest(new { error = "Cross-volume moves are not supported for atomic handle operations" });
+                    }
+
+                    if (!PromoteFileHandle(hFile, validNewPath, replaceIfExists: true))
+                    {
+                        return Results.Problem("Atomic file rename failed");
                     }
                     return Results.Ok(new { success = true, newPath = validNewPath });
                 }
@@ -1599,7 +2193,7 @@ public class FileTransferServer : IHostedService
                 {
                     using var hDir = CreateFile(
                         fullPath,
-                        0,
+                        DELETE,
                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                         IntPtr.Zero,
                         OPEN_EXISTING,
@@ -1611,13 +2205,20 @@ public class FileTransferServer : IHostedService
                         return Results.Problem("Failed to open directory for rename");
                     }
 
-                    string? resolved = GetFinalResolvedPath(hDir);
-                    if (resolved == null || !TryGetValidPath(resolved, out _))
+                    if (!ValidateHandleSecurity(hDir, null, null, out _, out uint srcVolumeSerial, allowReparsePoint: false))
                     {
                         return Results.BadRequest(new { error = "Target directory failed final resolution or access restricted" });
                     }
 
-                    Directory.Move(resolved, validNewPath);
+                    if (srcVolumeSerial != dstVolumeSerial)
+                    {
+                        return Results.BadRequest(new { error = "Cross-volume moves are not supported for atomic handle operations" });
+                    }
+
+                    if (!PromoteFileHandle(hDir, validNewPath, replaceIfExists: false))
+                    {
+                        return Results.Problem("Atomic directory rename failed");
+                    }
                     return Results.Ok(new { success = true, newPath = validNewPath });
                 }
                 return Results.NotFound(new { error = "File or directory not found" });
@@ -1644,14 +2245,29 @@ public class FileTransferServer : IHostedService
 
             try
             {
+                string finalDst = Directory.Exists(dstPath) ? Path.Combine(dstPath, Path.GetFileName(srcPath)) : dstPath;
+                if (!TryGetValidPath(finalDst, out var validFinalDst, isUpload: true))
+                {
+                    return Results.BadRequest(new { error = "Invalid destination path" });
+                }
+
+                string dstParent = Path.GetDirectoryName(validFinalDst) ?? "";
+                using var hDstParent = CreateFile(
+                    dstParent,
+                    0,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    IntPtr.Zero,
+                    OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS,
+                    IntPtr.Zero);
+
+                if (hDstParent.IsInvalid || !ValidateHandleSecurity(hDstParent, null, null, out _, out uint dstVolumeSerial, allowReparsePoint: false))
+                {
+                    return Results.BadRequest(new { error = "Destination directory failed security validation" });
+                }
+
                 if (File.Exists(srcPath))
                 {
-                    string finalDst = Directory.Exists(dstPath) ? Path.Combine(dstPath, Path.GetFileName(srcPath)) : dstPath;
-                    if (!TryGetValidPath(finalDst, out var validFinalDst, isUpload: true))
-                    {
-                        return Results.BadRequest(new { error = "Invalid destination path" });
-                    }
-
                     using var hSrc = CreateFile(
                         srcPath,
                         GENERIC_READ | DELETE,
@@ -1666,29 +2282,27 @@ public class FileTransferServer : IHostedService
                         return Results.Problem("Failed to open source file for move");
                     }
 
-                    string? resolved = GetFinalResolvedPath(hSrc);
-                    if (resolved == null || !TryGetValidPath(resolved, out _))
+                    if (!ValidateHandleSecurity(hSrc, null, null, out _, out uint srcVolumeSerial, allowReparsePoint: false))
                     {
                         return Results.BadRequest(new { error = "Source path failed final resolution or access restricted" });
                     }
 
-                    if (!PromoteFileHandle(hSrc, validFinalDst))
+                    if (srcVolumeSerial != dstVolumeSerial)
                     {
-                        File.Move(resolved, validFinalDst);
+                        return Results.BadRequest(new { error = "Cross-volume moves are not supported for atomic handle operations" });
+                    }
+
+                    if (!PromoteFileHandle(hSrc, validFinalDst, replaceIfExists: true))
+                    {
+                        return Results.Problem("Atomic file move failed");
                     }
                     return Results.Ok(new { success = true, destination = validFinalDst });
                 }
                 else if (Directory.Exists(srcPath))
                 {
-                    string finalDst = Directory.Exists(dstPath) ? Path.Combine(dstPath, Path.GetFileName(srcPath)) : dstPath;
-                    if (!TryGetValidPath(finalDst, out var validFinalDst, isUpload: true))
-                    {
-                        return Results.BadRequest(new { error = "Invalid destination path" });
-                    }
-
                     using var hDir = CreateFile(
                         srcPath,
-                        0,
+                        DELETE,
                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                         IntPtr.Zero,
                         OPEN_EXISTING,
@@ -1700,13 +2314,20 @@ public class FileTransferServer : IHostedService
                         return Results.Problem("Failed to open source directory for move");
                     }
 
-                    string? resolved = GetFinalResolvedPath(hDir);
-                    if (resolved == null || !TryGetValidPath(resolved, out _))
+                    if (!ValidateHandleSecurity(hDir, null, null, out _, out uint srcVolumeSerial, allowReparsePoint: false))
                     {
                         return Results.BadRequest(new { error = "Source directory failed final resolution or access restricted" });
                     }
 
-                    Directory.Move(resolved, validFinalDst);
+                    if (srcVolumeSerial != dstVolumeSerial)
+                    {
+                        return Results.BadRequest(new { error = "Cross-volume moves are not supported for atomic handle operations" });
+                    }
+
+                    if (!PromoteFileHandle(hDir, validFinalDst, replaceIfExists: false))
+                    {
+                        return Results.Problem("Atomic directory move failed");
+                    }
                     return Results.Ok(new { success = true, destination = validFinalDst });
                 }
                 return Results.NotFound(new { error = "Source not found" });
@@ -1751,23 +2372,35 @@ public class FileTransferServer : IHostedService
                             return Results.Problem("Failed to open file for deletion");
                         }
 
-                        string? resolved = GetFinalResolvedPath(hFile);
-                        if (resolved == null || !TryGetValidPath(resolved, out _))
+                        if (!ValidateHandleSecurity(hFile, null, null, out string resolved, out _, allowReparsePoint: false))
                         {
                             return Results.BadRequest(new { error = "Target path failed final resolution or access restricted" });
                         }
 
-                        File.Delete(resolved);
+                        try
+                        {
+                            var attrs = File.GetAttributes(fullPath);
+                            if ((attrs & FileAttributes.ReadOnly) != 0)
+                            {
+                                File.SetAttributes(fullPath, attrs & ~FileAttributes.ReadOnly);
+                            }
+                        }
+                        catch { }
+
+                        if (!DeleteHandle(hFile))
+                        {
+                            return Results.Problem("Failed to delete file atomically via handle");
+                        }
                     }
                     else if (Directory.Exists(fullPath))
                     {
                         using var hDir = CreateFile(
                             fullPath,
-                            0,
+                            DELETE | FILE_LIST_DIRECTORY,
                             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                             IntPtr.Zero,
                             OPEN_EXISTING,
-                            FILE_FLAG_BACKUP_SEMANTICS,
+                            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
                             IntPtr.Zero);
 
                         if (hDir.IsInvalid)
@@ -1775,13 +2408,17 @@ public class FileTransferServer : IHostedService
                             return Results.Problem("Failed to open directory for deletion");
                         }
 
-                        string? resolved = GetFinalResolvedPath(hDir);
-                        if (resolved == null || !TryGetValidPath(resolved, out _))
+                        if (!ValidateHandleSecurity(hDir, null, null, out string resolvedRoot, out uint rootVolumeSerial, allowReparsePoint: false))
                         {
                             return Results.BadRequest(new { error = "Target directory failed final resolution or access restricted" });
                         }
 
-                        Directory.Delete(resolved, true);
+                        hDir.Dispose();
+
+                        if (!DeleteDirectoryRecursiveSafe(resolvedRoot, resolvedRoot, rootVolumeSerial))
+                        {
+                            return Results.Problem("Failed to safely delete directory hierarchy");
+                        }
                     }
                     else return Results.NotFound(new { error = "Item not found" });
                 }
@@ -1798,8 +2435,7 @@ public class FileTransferServer : IHostedService
 
                     if (!hObj.IsInvalid)
                     {
-                        string? resolved = GetFinalResolvedPath(hObj);
-                        if (resolved == null || !TryGetValidPath(resolved, out _))
+                        if (!ValidateHandleSecurity(hObj, null, null, out _, out _, allowReparsePoint: false))
                         {
                             return Results.BadRequest(new { error = "Target path failed final resolution or access restricted" });
                         }
@@ -1824,7 +2460,6 @@ public class FileTransferServer : IHostedService
                 return Results.Problem($"Delete failed: {ex.Message}");
             }
         });
-
         // Directory Creation
         _app.MapPost("/api/fs/mkdir", async (HttpContext context) =>
         {
@@ -1849,11 +2484,46 @@ public class FileTransferServer : IHostedService
                 return Results.BadRequest(new { error = "Invalid parent path" });
             }
 
+            using var hParent = CreateFile(
+                fullPath,
+                0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                IntPtr.Zero,
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                IntPtr.Zero);
+
+            if (hParent.IsInvalid || !ValidateHandleSecurity(hParent, null, null, out _, out _, allowReparsePoint: false))
+            {
+                return Results.BadRequest(new { error = "Parent directory failed security validation" });
+            }
+
             string newDir = Path.Combine(fullPath, req.Name);
+            if (!TryGetValidPath(newDir, out var validNewDir, isUpload: true))
+            {
+                return Results.BadRequest(new { error = "Invalid directory path or access restricted" });
+            }
+
             try
             {
-                Directory.CreateDirectory(newDir);
-                return Results.Ok(new { success = true, path = newDir });
+                Directory.CreateDirectory(validNewDir);
+
+                using var hNew = CreateFile(
+                    validNewDir,
+                    0,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    IntPtr.Zero,
+                    OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS,
+                    IntPtr.Zero);
+
+                if (hNew.IsInvalid || !ValidateHandleSecurity(hNew, fullPath, null, out _, out _, allowReparsePoint: false))
+                {
+                    try { Directory.Delete(validNewDir); } catch { }
+                    return Results.BadRequest(new { error = "Created directory failed security containment" });
+                }
+
+                return Results.Ok(new { success = true, path = validNewDir });
             }
             catch (Exception ex)
             {

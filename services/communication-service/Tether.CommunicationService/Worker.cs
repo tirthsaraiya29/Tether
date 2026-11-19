@@ -467,7 +467,7 @@ public sealed class Worker : BackgroundService
 
     internal static string BuildFirewallRuleArguments(string ruleName, string protocol, int port, string exePath)
     {
-        return $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=allow protocol={protocol} localport={port} program=\"{exePath}\" profile=any remoteip=localsubnet enable=yes";
+        return $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=allow protocol={protocol} localport={port} program=\"{exePath}\" profile=private,domain remoteip=localsubnet enable=yes";
     }
 
     private void AddPortRule(string ruleName, string protocol, int port, string exePath)

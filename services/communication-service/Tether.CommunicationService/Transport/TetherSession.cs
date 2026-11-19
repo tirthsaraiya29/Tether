@@ -563,6 +563,12 @@ public sealed class TetherSession : IDisposable
                 return false;
             }
 
+            if (!string.Equals(presentedPhoneSpkiBase64, storedPhoneSpkiBase64, StringComparison.Ordinal))
+            {
+                failureReason = "Presented SPKI does not match stored SPKI";
+                return false;
+            }
+
             // 1:1 match with TetherPairingManager.kt: buildHandshakeTranscript()
             byte[] transcript = BuildHandshakeTranscript(
                 serverNonce,

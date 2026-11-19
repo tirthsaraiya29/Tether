@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Tether.CommunicationService.Capabilities;
@@ -61,40 +62,61 @@ public class TETH_SEC_001_FilesCapabilityTests
         Assert.True(hasFiles, "Token with wildcard '*' capability must satisfy FILES requirement.");
     }
 
+    private static void AddClientProofHeaders(HttpContext context, string token, ECDsa clientKey)
+    {
+        string tsStr = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+        string pData = $"{token}:{tsStr}:";
+        byte[] sig = clientKey.SignData(Encoding.UTF8.GetBytes(pData), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        context.Request.Headers["X-Tether-Client-Proof"] = Convert.ToBase64String(sig);
+        context.Request.Headers["X-Tether-Client-Timestamp"] = tsStr;
+    }
+
     [Fact]
     public async Task FileTransferAuthMiddleware_RejectsTokenWithoutFilesCapability_With403()
     {
         var logger = new TestLogger();
         var tokenStore = new TokenStore();
-        using var cert = CreateTestCertificate(out string spki);
-        string fingerprint = TrustStore.ComputeFingerprintOrNull(spki) ?? "test-fp";
-
-        string token = tokenStore.GenerateToken(TimeSpan.FromHours(1), fingerprint, new[] { "CLIPBOARD", "NOTIFICATIONS" });
-
-        bool nextCalled = false;
-        RequestDelegate next = (ctx) =>
+        string tempDir = Path.Combine(Path.GetTempPath(), "tether_test_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
         {
-            nextCalled = true;
-            return Task.CompletedTask;
-        };
+            var trustStore = new TrustStore(logger, tempDir);
+            using var clientKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            string spki = Convert.ToBase64String(clientKey.ExportSubjectPublicKeyInfo());
+            string fingerprint = TrustStore.ComputeFingerprintOrNull(spki) ?? "test-fp";
 
-        var middleware = new FileTransferAuthMiddleware(next, tokenStore, trustStore: null, identity: null, logger: logger);
+            trustStore.AddOrUpdate("dev-1", "TestPhone", spki, new[] { "CLIPBOARD", "NOTIFICATIONS" }, "2.0");
+            string token = tokenStore.GenerateToken(TimeSpan.FromHours(1), fingerprint, new[] { "CLIPBOARD", "NOTIFICATIONS" });
 
-        var context = new DefaultHttpContext();
-        context.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.100");
-        context.Connection.ClientCertificate = cert;
-        context.Request.Headers["Authorization"] = $"Bearer {token}";
-        context.Request.Path = "/api/fs/list";
-        context.Response.Body = new MemoryStream();
+            bool nextCalled = false;
+            RequestDelegate next = (ctx) =>
+            {
+                nextCalled = true;
+                return Task.CompletedTask;
+            };
 
-        await middleware.InvokeAsync(context);
+            var middleware = new FileTransferAuthMiddleware(next, tokenStore, trustStore: trustStore, identity: null, logger: logger);
 
-        Assert.False(nextCalled, "Pipeline must NOT call next when FILES capability is missing.");
-        Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+            var context = new DefaultHttpContext();
+            context.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.100");
+            context.Request.Headers["Authorization"] = $"Bearer {token}";
+            AddClientProofHeaders(context, token, clientKey);
+            context.Request.Path = "/api/fs/list";
+            context.Response.Body = new MemoryStream();
 
-        context.Response.Body.Seek(0, SeekOrigin.Begin);
-        string responseBody = await new StreamReader(context.Response.Body).ReadToEndAsync();
-        Assert.Contains("Token lacks FILES capability", responseBody);
+            await middleware.InvokeAsync(context);
+
+            Assert.False(nextCalled, "Pipeline must NOT call next when FILES capability is missing.");
+            Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+
+            context.Response.Body.Seek(0, SeekOrigin.Begin);
+            string responseBody = await new StreamReader(context.Response.Body).ReadToEndAsync();
+            Assert.Contains("Token lacks FILES capability", responseBody);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
     }
 
     [Fact]
@@ -102,31 +124,43 @@ public class TETH_SEC_001_FilesCapabilityTests
     {
         var logger = new TestLogger();
         var tokenStore = new TokenStore();
-        using var cert = CreateTestCertificate(out string spki);
-        string fingerprint = TrustStore.ComputeFingerprintOrNull(spki) ?? "test-fp";
-
-        string token = tokenStore.GenerateToken(TimeSpan.FromHours(1), fingerprint, new[] { "FILES" });
-
-        bool nextCalled = false;
-        RequestDelegate next = (ctx) =>
+        string tempDir = Path.Combine(Path.GetTempPath(), "tether_test_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
         {
-            nextCalled = true;
-            ctx.Response.StatusCode = StatusCodes.Status200OK;
-            return Task.CompletedTask;
-        };
+            var trustStore = new TrustStore(logger, tempDir);
+            using var clientKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            string spki = Convert.ToBase64String(clientKey.ExportSubjectPublicKeyInfo());
+            string fingerprint = TrustStore.ComputeFingerprintOrNull(spki) ?? "test-fp";
 
-        var middleware = new FileTransferAuthMiddleware(next, tokenStore, trustStore: null, identity: null, logger: logger);
+            trustStore.AddOrUpdate("dev-2", "TestPhone", spki, new[] { "FILES" }, "2.0");
+            string token = tokenStore.GenerateToken(TimeSpan.FromHours(1), fingerprint, new[] { "FILES" });
 
-        var context = new DefaultHttpContext();
-        context.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.100");
-        context.Connection.ClientCertificate = cert;
-        context.Request.Headers["Authorization"] = $"Bearer {token}";
-        context.Request.Path = "/api/fs/download";
+            bool nextCalled = false;
+            RequestDelegate next = (ctx) =>
+            {
+                nextCalled = true;
+                ctx.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            };
 
-        await middleware.InvokeAsync(context);
+            var middleware = new FileTransferAuthMiddleware(next, tokenStore, trustStore: trustStore, identity: null, logger: logger);
 
-        Assert.True(nextCalled, "Pipeline must call next when token has FILES capability.");
-        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+            var context = new DefaultHttpContext();
+            context.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.100");
+            context.Request.Headers["Authorization"] = $"Bearer {token}";
+            AddClientProofHeaders(context, token, clientKey);
+            context.Request.Path = "/api/fs/download";
+
+            await middleware.InvokeAsync(context);
+
+            Assert.True(nextCalled, "Pipeline must call next when token has FILES capability.");
+            Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
     }
 
     [Fact]
@@ -134,31 +168,43 @@ public class TETH_SEC_001_FilesCapabilityTests
     {
         var logger = new TestLogger();
         var tokenStore = new TokenStore();
-        using var cert = CreateTestCertificate(out string spki);
-        string fingerprint = TrustStore.ComputeFingerprintOrNull(spki) ?? "test-fp";
-
-        string token = tokenStore.GenerateToken(TimeSpan.FromHours(1), fingerprint, new[] { "*" });
-
-        bool nextCalled = false;
-        RequestDelegate next = (ctx) =>
+        string tempDir = Path.Combine(Path.GetTempPath(), "tether_test_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
         {
-            nextCalled = true;
-            ctx.Response.StatusCode = StatusCodes.Status200OK;
-            return Task.CompletedTask;
-        };
+            var trustStore = new TrustStore(logger, tempDir);
+            using var clientKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            string spki = Convert.ToBase64String(clientKey.ExportSubjectPublicKeyInfo());
+            string fingerprint = TrustStore.ComputeFingerprintOrNull(spki) ?? "test-fp";
 
-        var middleware = new FileTransferAuthMiddleware(next, tokenStore, trustStore: null, identity: null, logger: logger);
+            trustStore.AddOrUpdate("dev-3", "TestPhone", spki, new[] { "*" }, "2.0");
+            string token = tokenStore.GenerateToken(TimeSpan.FromHours(1), fingerprint, new[] { "*" });
 
-        var context = new DefaultHttpContext();
-        context.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.100");
-        context.Connection.ClientCertificate = cert;
-        context.Request.Headers["Authorization"] = $"Bearer {token}";
-        context.Request.Path = "/api/fs/upload";
+            bool nextCalled = false;
+            RequestDelegate next = (ctx) =>
+            {
+                nextCalled = true;
+                ctx.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            };
 
-        await middleware.InvokeAsync(context);
+            var middleware = new FileTransferAuthMiddleware(next, tokenStore, trustStore: trustStore, identity: null, logger: logger);
 
-        Assert.True(nextCalled, "Pipeline must call next when token has wildcard capability.");
-        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+            var context = new DefaultHttpContext();
+            context.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.100");
+            context.Request.Headers["Authorization"] = $"Bearer {token}";
+            AddClientProofHeaders(context, token, clientKey);
+            context.Request.Path = "/api/fs/upload";
+
+            await middleware.InvokeAsync(context);
+
+            Assert.True(nextCalled, "Pipeline must call next when token has wildcard capability.");
+            Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
     }
 
     [Fact]

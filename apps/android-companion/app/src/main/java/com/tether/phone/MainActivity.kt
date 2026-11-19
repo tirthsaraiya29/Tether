@@ -468,20 +468,30 @@ class MainActivity : FragmentActivity() {
                                 onGrantAllMissingPermissions = ::grantAllCriticalPermissions,
                                 onDismissPermissionsBanner = { isPermissionsBannerDismissed.value = true },
                                 onUnlockClick = {
-                                    authenticateViaSystem(
-                                        title = getString(R.string.auth_unlock_title),
-                                        subtitle = getString(R.string.auth_unlock_subtitle),
-                                        allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL,
-                                    ) { success ->
-                                        if (success) {
-                                            runOnUiThread {
-                                                lastBiometricAuthTime = System.currentTimeMillis()
-                                                // Trigger remote unlock; app unlock is finalized upon verified CONFIRM_COMMAND response
-                                                triggerLanAction("unlock", isAuthorizedBiometric = true)
-                                            }
-                                        } else {
-                                            runOnUiThread {
-                                                Toast.makeText(this@MainActivity, getString(R.string.toast_unauthorized), Toast.LENGTH_SHORT).show()
+                                    val securityEngine = ProductionSecurityEngine()
+                                    val cryptoObject = securityEngine.createSignatureCryptoObject()
+                                        ?: securityEngine.createCryptoObjectForAuthentication()
+                                    if (cryptoObject == null) {
+                                        Log.e("TetherActivity", "Unlock aborted: CryptoObject could not be initialized (fail-closed)")
+                                        Toast.makeText(this@MainActivity, getString(R.string.toast_unauthorized), Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        authenticateViaSystem(
+                                            title = getString(R.string.auth_unlock_title),
+                                            subtitle = getString(R.string.auth_unlock_subtitle),
+                                            allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG,
+                                            cryptoObject = cryptoObject,
+                                            requireCryptoObject = true,
+                                        ) { success ->
+                                            if (success) {
+                                                runOnUiThread {
+                                                    lastBiometricAuthTime = System.currentTimeMillis()
+                                                    // Trigger remote unlock; app unlock is finalized upon verified CONFIRM_COMMAND response
+                                                    triggerLanAction("unlock", isAuthorizedBiometric = true)
+                                                }
+                                            } else {
+                                                runOnUiThread {
+                                                    Toast.makeText(this@MainActivity, getString(R.string.toast_unauthorized), Toast.LENGTH_SHORT).show()
+                                                }
                                             }
                                         }
                                     }
@@ -990,14 +1000,33 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun authenticateViaSystem(title: String, subtitle: String, allowedAuthenticators: Int, callback: (Boolean) -> Unit) {
+    private fun authenticateViaSystem(
+        title: String,
+        subtitle: String,
+        allowedAuthenticators: Int,
+        cryptoObject: BiometricPrompt.CryptoObject? = null,
+        requireCryptoObject: Boolean = false,
+        callback: (Boolean) -> Unit
+    ) {
+        if (requireCryptoObject && cryptoObject == null) {
+            Log.e("TetherActivity", "Biometric authentication aborted: CryptoObject required but null (fail-closed)")
+            callback(false)
+            return
+        }
+
         runOnUiThread {
+            val effectiveAuthenticators = if (cryptoObject != null) {
+                BiometricManager.Authenticators.BIOMETRIC_STRONG
+            } else {
+                allowedAuthenticators
+            }
+
             val promptBuilder = BiometricPrompt.PromptInfo.Builder()
                 .setTitle(title)
                 .setSubtitle(subtitle)
                 .setConfirmationRequired(false) // Accelerate biometric auth
-                .setAllowedAuthenticators(allowedAuthenticators)
-            if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
+                .setAllowedAuthenticators(effectiveAuthenticators)
+            if ((effectiveAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
                 promptBuilder.setNegativeButtonText(getString(R.string.btn_abort))
             }
 
@@ -1007,6 +1036,11 @@ class MainActivity : FragmentActivity() {
                 object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                         super.onAuthenticationSucceeded(result)
+                        if (requireCryptoObject && result.cryptoObject == null) {
+                            Log.w("TetherActivity", "Authentication succeeded but CryptoObject is null (fail-closed)")
+                            callback(false)
+                            return
+                        }
                         Log.i("TetherActivity", "Authenticated via biometric prompt.")
                         callback(true)
                     }
@@ -1019,7 +1053,18 @@ class MainActivity : FragmentActivity() {
             )
 
             val promptInfo = promptBuilder.build()
-            biometricPrompt.authenticate(promptInfo)
+            try {
+                if (cryptoObject != null) {
+                    biometricPrompt.authenticate(promptInfo, cryptoObject)
+                } else if (!requireCryptoObject) {
+                    biometricPrompt.authenticate(promptInfo)
+                } else {
+                    callback(false)
+                }
+            } catch (e: Exception) {
+                Log.e("TetherActivity", "Failed launching BiometricPrompt: ${e.message}")
+                callback(false)
+            }
         }
     }
 
