@@ -307,11 +307,23 @@ HRESULT CTetherProvider::SetSerialization(_In_ const CREDENTIAL_PROVIDER_CREDENT
 #ifdef TETHER_TEST_HARNESS
 static HKEY g_hPanicRegistryRoot = HKEY_CURRENT_USER;
 static std::wstring g_wszPanicRegistryPath = L"Software\\Tether\\TestPanicLock";
+static bool g_bSimulateInvalidAcl = false;
+static bool g_bSimulateWriteFailure = false;
 
 void CTetherProvider_SetTestRegistryRoot(HKEY hRoot, const wchar_t* subKey)
 {
     g_hPanicRegistryRoot = hRoot;
     g_wszPanicRegistryPath = (subKey != nullptr && *subKey != L'\0') ? subKey : L"Software\\Tether\\TestPanicLock";
+}
+
+void CTetherProvider_SetSimulateInvalidAcl(bool simulate)
+{
+    g_bSimulateInvalidAcl = simulate;
+}
+
+void CTetherProvider_SetSimulateWriteFailure(bool simulate)
+{
+    g_bSimulateWriteFailure = simulate;
 }
 
 static const wchar_t* _GetPanicRegistryPath()
@@ -325,6 +337,125 @@ static const wchar_t* _GetPanicRegistryPath()
     return L"SOFTWARE\\Tether\\PanicLock";
 }
 #endif
+
+static bool _VerifyRegistrySecurity(HKEY hKey)
+{
+#ifdef TETHER_TEST_HARNESS
+    if (g_bSimulateInvalidAcl)
+    {
+        return false;
+    }
+#endif
+
+    DWORD cbSD = 0;
+    LONG lRes = RegGetKeySecurity(hKey, DACL_SECURITY_INFORMATION, nullptr, &cbSD);
+    if (lRes != ERROR_SUCCESS && lRes != ERROR_INSUFFICIENT_BUFFER)
+    {
+        return false;
+    }
+
+    if (cbSD == 0)
+    {
+        return false;
+    }
+
+    std::vector<BYTE> sdBuffer(cbSD);
+    PSECURITY_DESCRIPTOR pSD = reinterpret_cast<PSECURITY_DESCRIPTOR>(sdBuffer.data());
+    lRes = RegGetKeySecurity(hKey, DACL_SECURITY_INFORMATION, pSD, &cbSD);
+    if (lRes != ERROR_SUCCESS)
+    {
+        return false;
+    }
+
+    SECURITY_DESCRIPTOR_CONTROL control = 0;
+    DWORD dwRevision = 0;
+    if (!GetSecurityDescriptorControl(pSD, &control, &dwRevision))
+    {
+        return false;
+    }
+
+#ifndef TETHER_TEST_HARNESS
+    // Strictly require protected ACL (explicit inheritance protection)
+    if ((control & SE_DACL_PROTECTED) == 0)
+    {
+        return false;
+    }
+#endif
+
+    BOOL bDaclPresent = FALSE;
+    PACL pAcl = nullptr;
+    BOOL bDaclDefaulted = FALSE;
+    if (!GetSecurityDescriptorDacl(pSD, &bDaclPresent, &pAcl, &bDaclDefaulted) || !bDaclPresent || pAcl == nullptr)
+    {
+        return false;
+    }
+
+#ifndef TETHER_TEST_HARNESS
+    BYTE sidSystemBuffer[SECURITY_MAX_SID_SIZE] = { 0 };
+    DWORD cbSidSystem = sizeof(sidSystemBuffer);
+    if (!CreateWellKnownSid(WinLocalSystemSid, nullptr, sidSystemBuffer, &cbSidSystem))
+    {
+        return false;
+    }
+    PSID pSidSystem = reinterpret_cast<PSID>(sidSystemBuffer);
+
+    BYTE sidAdminsBuffer[SECURITY_MAX_SID_SIZE] = { 0 };
+    DWORD cbSidAdmins = sizeof(sidAdminsBuffer);
+    if (!CreateWellKnownSid(WinBuiltinAdministratorsSid, nullptr, sidAdminsBuffer, &cbSidAdmins))
+    {
+        return false;
+    }
+    PSID pSidAdmins = reinterpret_cast<PSID>(sidAdminsBuffer);
+
+    bool bHasSystem = false;
+    bool bHasAdmins = false;
+
+    for (WORD i = 0; i < pAcl->AceCount; ++i)
+    {
+        LPVOID pAce = nullptr;
+        if (!GetAce(pAcl, i, &pAce) || pAce == nullptr)
+        {
+            return false;
+        }
+
+        PACE_HEADER pHeader = reinterpret_cast<PACE_HEADER>(pAce);
+        if (pHeader->AceType == ACCESS_DENIED_ACE_TYPE)
+        {
+            PACCESS_DENIED_ACE pDenied = reinterpret_cast<PACCESS_DENIED_ACE>(pAce);
+            PSID pAceSid = reinterpret_cast<PSID>(&pDenied->SidStart);
+            if (EqualSid(pAceSid, pSidSystem) || EqualSid(pAceSid, pSidAdmins))
+            {
+                return false;
+            }
+        }
+        else if (pHeader->AceType == ACCESS_ALLOWED_ACE_TYPE)
+        {
+            PACCESS_ALLOWED_ACE pAllowed = reinterpret_cast<PACCESS_ALLOWED_ACE>(pAce);
+            PSID pAceSid = reinterpret_cast<PSID>(&pAllowed->SidStart);
+            if (EqualSid(pAceSid, pSidSystem))
+            {
+                bHasSystem = true;
+            }
+            else if (EqualSid(pAceSid, pSidAdmins))
+            {
+                bHasAdmins = true;
+            }
+            else
+            {
+                // Disallow unauthorized SIDs
+                return false;
+            }
+        }
+    }
+
+    if (!bHasSystem || !bHasAdmins)
+    {
+        return false;
+    }
+#endif
+
+    return true;
+}
 
 static HRESULT _ReadPanicFilterState(
     _Out_ bool* pbPanicActive,
@@ -341,9 +472,20 @@ static HRESULT _ReadPanicFilterState(
     pHiddenProviders->clear();
 
     HKEY hKey = nullptr;
-    if (RegOpenKeyExW(g_hPanicRegistryRoot, _GetPanicRegistryPath(), 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+    LONG lRes = RegOpenKeyExW(g_hPanicRegistryRoot, _GetPanicRegistryPath(), 0, KEY_READ, &hKey);
+    if (lRes == ERROR_FILE_NOT_FOUND)
     {
         return S_OK;
+    }
+    if (lRes != ERROR_SUCCESS)
+    {
+        return HRESULT_FROM_WIN32(lRes);
+    }
+
+    if (!_VerifyRegistrySecurity(hKey))
+    {
+        RegCloseKey(hKey);
+        return E_ACCESSDENIED;
     }
 
     DWORD dwDaclVer = 0;
@@ -370,10 +512,12 @@ static HRESULT _ReadPanicFilterState(
 
     DWORD dwType = 0;
     dwSize = 0;
-    if (RegQueryValueExW(hKey, L"HiddenProviders", nullptr, &dwType, nullptr, &dwSize) == ERROR_SUCCESS && dwSize > 0 && dwType == REG_MULTI_SZ)
+    lRes = RegQueryValueExW(hKey, L"HiddenProviders", nullptr, &dwType, nullptr, &dwSize);
+    if (lRes == ERROR_SUCCESS && dwSize > 0 && dwType == REG_MULTI_SZ)
     {
         std::vector<wchar_t> buffer(dwSize / sizeof(wchar_t) + 2, 0);
-        if (RegQueryValueExW(hKey, L"HiddenProviders", nullptr, nullptr, reinterpret_cast<LPBYTE>(buffer.data()), &dwSize) == ERROR_SUCCESS)
+        lRes = RegQueryValueExW(hKey, L"HiddenProviders", nullptr, nullptr, reinterpret_cast<LPBYTE>(buffer.data()), &dwSize);
+        if (lRes == ERROR_SUCCESS)
         {
             const wchar_t* p = buffer.data();
             while (*p != L'\0')
@@ -386,6 +530,16 @@ static HRESULT _ReadPanicFilterState(
                 p += wcslen(p) + 1;
             }
         }
+        else
+        {
+            RegCloseKey(hKey);
+            return HRESULT_FROM_WIN32(lRes);
+        }
+    }
+    else if (lRes != ERROR_SUCCESS && lRes != ERROR_FILE_NOT_FOUND)
+    {
+        RegCloseKey(hKey);
+        return HRESULT_FROM_WIN32(lRes);
     }
 
     RegCloseKey(hKey);
@@ -394,16 +548,28 @@ static HRESULT _ReadPanicFilterState(
 
 static HRESULT _WriteHiddenProviders(const std::vector<GUID>& hiddenProviders)
 {
-    HKEY hKey = nullptr;
-    if (RegOpenKeyExW(g_hPanicRegistryRoot, _GetPanicRegistryPath(), 0, KEY_SET_VALUE, &hKey) != ERROR_SUCCESS)
+#ifdef TETHER_TEST_HARNESS
+    if (g_bSimulateWriteFailure)
     {
         return E_FAIL;
+    }
+#endif
+
+    HKEY hKey = nullptr;
+    LONG lRes = RegOpenKeyExW(g_hPanicRegistryRoot, _GetPanicRegistryPath(), 0, KEY_SET_VALUE, &hKey);
+    if (lRes != ERROR_SUCCESS)
+    {
+        return HRESULT_FROM_WIN32(lRes);
     }
 
     if (hiddenProviders.empty())
     {
-        RegDeleteValueW(hKey, L"HiddenProviders");
+        LONG lDel = RegDeleteValueW(hKey, L"HiddenProviders");
         RegCloseKey(hKey);
+        if (lDel != ERROR_SUCCESS && lDel != ERROR_FILE_NOT_FOUND)
+        {
+            return HRESULT_FROM_WIN32(lDel);
+        }
         return S_OK;
     }
 
@@ -420,18 +586,12 @@ static HRESULT _WriteHiddenProviders(const std::vector<GUID>& hiddenProviders)
     multiSz.push_back(L'\0');
 
     DWORD cbData = static_cast<DWORD>(multiSz.size() * sizeof(wchar_t));
-    RegSetValueExW(hKey, L"HiddenProviders", 0, REG_MULTI_SZ, reinterpret_cast<const BYTE*>(multiSz.data()), cbData);
+    LONG lSet = RegSetValueExW(hKey, L"HiddenProviders", 0, REG_MULTI_SZ, reinterpret_cast<const BYTE*>(multiSz.data()), cbData);
     RegCloseKey(hKey);
-    return S_OK;
-}
 
-static HRESULT _ClearHiddenProviders()
-{
-    HKEY hKey = nullptr;
-    if (RegOpenKeyExW(g_hPanicRegistryRoot, _GetPanicRegistryPath(), 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS)
+    if (lSet != ERROR_SUCCESS)
     {
-        RegDeleteValueW(hKey, L"HiddenProviders");
-        RegCloseKey(hKey);
+        return HRESULT_FROM_WIN32(lSet);
     }
     return S_OK;
 }
@@ -472,7 +632,7 @@ HRESULT CTetherProvider::Filter(
             // 2. Hide alternative providers that are currently allowed (TRUE) and track them.
             // 3. For providers already FALSE, keep them FALSE and do not track as hidden by Tether.
             std::vector<GUID> newlyHidden = previouslyHidden;
-            bool trackingChanged = false;
+            std::vector<DWORD> newlyHiddenIndices;
 
             for (DWORD i = 0; i < cProviders; ++i)
             {
@@ -491,6 +651,7 @@ HRESULT CTetherProvider::Filter(
                     {
                         // Provider was currently allowed. Tether explicitly hides it.
                         rgbAllow[i] = FALSE;
+                        newlyHiddenIndices.push_back(i);
 
                         bool alreadyTracked = false;
                         for (const auto& g : newlyHidden)
@@ -504,24 +665,39 @@ HRESULT CTetherProvider::Filter(
                         if (!alreadyTracked)
                         {
                             newlyHidden.push_back(rgclsidProviders[i]);
-                            trackingChanged = true;
                         }
                     }
                 }
             }
 
-            if (trackingChanged)
+            if (newlyHidden.size() > previouslyHidden.size())
             {
-                _WriteHiddenProviders(newlyHidden);
+                HRESULT hrWrite = _WriteHiddenProviders(newlyHidden);
+                if (FAILED(hrWrite))
+                {
+                    // Persistence failed: never silently report successful ownership persistence!
+                    // Revert the allow states modified during this pass so we don't hide providers
+                    // without persistent backing.
+                    for (DWORD idx : newlyHiddenIndices)
+                    {
+                        rgbAllow[idx] = TRUE;
+                    }
+                    return hrWrite;
+                }
             }
         }
         else
         {
             // Panic Lock is INACTIVE:
-            // Restore ONLY providers that Tether explicitly hid.
-            // Never unhide providers that were already hidden before Panic Lock or hidden by others.
+            // 1. Restore only providers explicitly hidden by Tether.
+            // 2. Never reverse an independently imposed filtering denial.
+            // 3. Retain records for providers absent from the current enumeration.
+            // 4. Remove an ownership record only after its restoration has been successfully completed.
+            // 5. Preserve providers originally denied before Panic Lock.
             if (!previouslyHidden.empty())
             {
+                std::vector<GUID> successfullyRestored;
+
                 for (DWORD i = 0; i < cProviders; ++i)
                 {
                     if (IsEqualGUID(rgclsidProviders[i], CLSID_TetherProvider))
@@ -544,13 +720,41 @@ HRESULT CTetherProvider::Filter(
                         {
                             // Tether explicitly hid this provider; safely restore it
                             rgbAllow[i] = TRUE;
+                            successfullyRestored.push_back(rgclsidProviders[i]);
                         }
                         // If not hidden by Tether, leave rgbAllow[i] completely untouched!
                     }
                 }
 
-                // Restoration applied; clear tracked providers to guarantee idempotency
-                _ClearHiddenProviders();
+                if (!successfullyRestored.empty())
+                {
+                    std::vector<GUID> remainingHidden;
+                    for (const auto& g : previouslyHidden)
+                    {
+                        bool restored = false;
+                        for (const auto& r : successfullyRestored)
+                        {
+                            if (IsEqualGUID(g, r))
+                            {
+                                restored = true;
+                                break;
+                            }
+                        }
+                        if (!restored)
+                        {
+                            // Retain record for providers absent from the current enumeration
+                            remainingHidden.push_back(g);
+                        }
+                    }
+
+                    // Remove ownership records only after successful restoration!
+                    HRESULT hrWrite = _WriteHiddenProviders(remainingHidden);
+                    if (FAILED(hrWrite))
+                    {
+                        // Failed to update registry: preserve recovery information!
+                        return hrWrite;
+                    }
+                }
             }
         }
 

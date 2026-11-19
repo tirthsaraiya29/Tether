@@ -54,15 +54,21 @@ public interface IPanicRestorationStore
 
 public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
 {
-    private const string BaseRegistryPath = @"SOFTWARE\Tether\PanicLock";
+    private readonly string _baseRegistryPath;
+    private readonly RegistryKey _rootKey;
     private readonly ITetherLogger _logger;
 
-    public WindowsRegistryPanicStore(ITetherLogger logger)
+    public WindowsRegistryPanicStore(
+        ITetherLogger logger,
+        RegistryKey? rootKey = null,
+        string baseRegistryPath = @"SOFTWARE\Tether\PanicLock")
     {
         _logger = logger;
+        _rootKey = rootKey ?? Registry.LocalMachine;
+        _baseRegistryPath = baseRegistryPath;
     }
 
-    private static byte[] GetOrCreateHmacKey(RegistryKey key)
+    private byte[]? GetOrCreateHmacKey(RegistryKey key, bool allowCreate)
     {
         var blob = key.GetValue("IntegrityKeyBlob") as byte[];
         if (blob != null && blob.Length > 0)
@@ -71,10 +77,21 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
             {
                 return ProtectedData.Unprotect(blob, null, DataProtectionScope.LocalMachine);
             }
-            catch
+            catch (Exception ex)
             {
-                // Key corrupted or unprotect failed, fall through to regenerate
+                _logger.Error($"WindowsRegistryPanicStore: Failed to unprotect existing HMAC key: {ex.Message}");
+                if (!allowCreate)
+                {
+                    return null;
+                }
+                throw;
             }
+        }
+
+        if (!allowCreate)
+        {
+            _logger.Error("WindowsRegistryPanicStore: IntegrityKeyBlob is missing during Load. Refusing unverified state.");
+            return null;
         }
 
         byte[] rawKey = new byte[32];
@@ -88,7 +105,13 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
     {
         try
         {
-            using var baseKey = Registry.LocalMachine.OpenSubKey(BaseRegistryPath, false);
+            if (!VerifyAccessAcl())
+            {
+                _logger.Error("WindowsRegistryPanicStore: Refusing to load state. Registry ACL verification failed.");
+                return null;
+            }
+
+            using var baseKey = _rootKey.OpenSubKey(_baseRegistryPath, false);
             if (baseKey == null)
             {
                 return null;
@@ -109,14 +132,10 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
                 return null;
             }
 
-            byte[] hmacKey;
-            try
+            byte[]? hmacKey = GetOrCreateHmacKey(baseKey, allowCreate: false);
+            if (hmacKey == null)
             {
-                hmacKey = GetOrCreateHmacKey(baseKey);
-            }
-            catch (Exception ex)
-            {
-                _logger.Error($"WindowsRegistryPanicStore: Failed to obtain DPAPI protected HMAC key: {ex.Message}");
+                _logger.Error("WindowsRegistryPanicStore: Cannot obtain valid HMAC key for verification.");
                 return null;
             }
 
@@ -130,7 +149,37 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
                 return null;
             }
 
-            return JsonSerializer.Deserialize<PanicLockSessionState>(json);
+            var state = JsonSerializer.Deserialize<PanicLockSessionState>(json);
+            if (state == null)
+            {
+                return null;
+            }
+
+            // Synchronize with HiddenProviders (REG_MULTI_SZ) recorded by the native filter
+            var hiddenStrings = baseKey.GetValue("HiddenProviders") as string[];
+            if (hiddenStrings != null && hiddenStrings.Length > 0)
+            {
+                foreach (var s in hiddenStrings)
+                {
+                    if (Guid.TryParse(s, out var guid) && guid != Guid.Empty)
+                    {
+                        string key = guid.ToString("D");
+                        if (!state.Providers.ContainsKey(key))
+                        {
+                            state.Providers[key] = new TrackedProviderState
+                            {
+                                ProviderId = guid,
+                                OriginalVisibility = true,
+                                HiddenByTether = true,
+                                CapturedAt = DateTimeOffset.UtcNow,
+                                SessionId = state.SessionId
+                            };
+                        }
+                    }
+                }
+            }
+
+            return state;
         }
         catch (Exception ex)
         {
@@ -143,33 +192,81 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
     {
         try
         {
-            var rs = new RegistrySecurity();
-            var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
-            var adminsSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
-
-            rs.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-            rs.AddAccessRule(new RegistryAccessRule(systemSid, RegistryRights.FullControl, AccessControlType.Allow));
-            rs.AddAccessRule(new RegistryAccessRule(adminsSid, RegistryRights.FullControl, AccessControlType.Allow));
-
-            using var baseKey = Registry.LocalMachine.CreateSubKey(BaseRegistryPath, RegistryKeyPermissionCheck.ReadWriteSubTree, rs);
-            if (baseKey == null)
+            RegistrySecurity? rs = null;
+            if (ReferenceEquals(_rootKey, Registry.LocalMachine))
             {
-                _logger.Error("WindowsRegistryPanicStore: Unable to create or open PanicLock registry key.");
-                throw new InvalidOperationException("Failed to open or create HKLM\\SOFTWARE\\Tether\\PanicLock key.");
+                rs = new RegistrySecurity();
+                var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+                var adminsSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+
+                rs.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                rs.AddAccessRule(new RegistryAccessRule(systemSid, RegistryRights.FullControl, AccessControlType.Allow));
+                rs.AddAccessRule(new RegistryAccessRule(adminsSid, RegistryRights.FullControl, AccessControlType.Allow));
             }
 
-            baseKey.SetAccessControl(rs);
+            using var baseKey = rs != null
+                ? _rootKey.CreateSubKey(_baseRegistryPath, RegistryKeyPermissionCheck.ReadWriteSubTree, rs)
+                : _rootKey.CreateSubKey(_baseRegistryPath, RegistryKeyPermissionCheck.ReadWriteSubTree);
+
+            if (baseKey == null)
+            {
+                _logger.Error($"WindowsRegistryPanicStore: Unable to create or open {_baseRegistryPath} registry key.");
+                throw new InvalidOperationException($"Failed to open or create {_baseRegistryPath} key.");
+            }
+
+            if (rs != null)
+            {
+                baseKey.SetAccessControl(rs);
+            }
+
             baseKey.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
             baseKey.SetValue("IsPanicActive", state.IsPanicActive ? 1 : 0, RegistryValueKind.DWord);
             baseKey.SetValue("PanicSessionId", state.SessionId ?? string.Empty, RegistryValueKind.String);
 
-            var hiddenGuids = state.Providers.Values
-                .Where(p => p.HiddenByTether && p.OriginalVisibility)
-                .Select(p => p.ProviderId.ToString("B"))
-                .ToArray();
-            baseKey.SetValue("HiddenProviders", hiddenGuids, RegistryValueKind.MultiString);
+            // Read existing HiddenProviders from registry so we NEVER overwrite or drop
+            // ownership records captured by the native filter!
+            var existingHiddenStrings = baseKey.GetValue("HiddenProviders") as string[] ?? Array.Empty<string>();
+            var combinedHidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            byte[] hmacKey = GetOrCreateHmacKey(baseKey);
+            foreach (var s in existingHiddenStrings)
+            {
+                if (Guid.TryParse(s, out var g))
+                {
+                    // Check if managed state explicitly restored this provider (HiddenByTether == false)
+                    var provState = state.GetProvider(g);
+                    if (provState != null && !provState.HiddenByTether)
+                    {
+                        // Successfully restored, do not include
+                        continue;
+                    }
+                    combinedHidden.Add(g.ToString("B"));
+                }
+            }
+
+            // Include providers from managed state that are hidden by Tether
+            foreach (var prov in state.Providers.Values)
+            {
+                if (prov.HiddenByTether && prov.OriginalVisibility)
+                {
+                    combinedHidden.Add(prov.ProviderId.ToString("B"));
+                }
+            }
+
+            if (combinedHidden.Count > 0)
+            {
+                baseKey.SetValue("HiddenProviders", combinedHidden.ToArray(), RegistryValueKind.MultiString);
+            }
+            else
+            {
+                baseKey.DeleteValue("HiddenProviders", false);
+            }
+
+            byte[]? hmacKey = GetOrCreateHmacKey(baseKey, allowCreate: true);
+            if (hmacKey == null)
+            {
+                throw new CryptographicException("Failed to obtain HMAC key for signing.");
+            }
+
             var json = JsonSerializer.Serialize(state);
 
             using var hmac = new HMACSHA256(hmacKey);
@@ -190,7 +287,7 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
     {
         try
         {
-            using var baseKey = Registry.LocalMachine.OpenSubKey(BaseRegistryPath, true);
+            using var baseKey = _rootKey.OpenSubKey(_baseRegistryPath, true);
             if (baseKey != null)
             {
                 baseKey.DeleteValue("SessionData", false);
@@ -210,7 +307,13 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
     {
         try
         {
-            using var baseKey = Registry.LocalMachine.OpenSubKey(BaseRegistryPath, RegistryKeyPermissionCheck.ReadSubTree, RegistryRights.ReadPermissions);
+            if (!ReferenceEquals(_rootKey, Registry.LocalMachine))
+            {
+                // Under test root (e.g. CurrentUser in unit test), skip LocalMachine system DACL check
+                return true;
+            }
+
+            using var baseKey = _rootKey.OpenSubKey(_baseRegistryPath, RegistryKeyPermissionCheck.ReadSubTree, RegistryRights.ReadPermissions);
             if (baseKey == null) return false;
 
             var acl = baseKey.GetAccessControl();
@@ -268,6 +371,9 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
     private bool _simulateTampering;
     private bool _simulateUnauthorizedAccess;
     private bool _simulateSaveFailure;
+    private bool _simulateKeyCorruption;
+    private bool _simulateDeleteFailure;
+    private readonly List<Guid> _simulatedHiddenProviders = new();
     private readonly byte[] _hmacKey = RandomNumberGenerator.GetBytes(32);
 
     public bool SimulateTampering
@@ -288,6 +394,23 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
         set { lock (_storeLock) _simulateSaveFailure = value; }
     }
 
+    public bool SimulateKeyCorruption
+    {
+        get { lock (_storeLock) return _simulateKeyCorruption; }
+        set { lock (_storeLock) _simulateKeyCorruption = value; }
+    }
+
+    public bool SimulateDeleteFailure
+    {
+        get { lock (_storeLock) return _simulateDeleteFailure; }
+        set { lock (_storeLock) _simulateDeleteFailure = value; }
+    }
+
+    public List<Guid> SimulatedHiddenProviders
+    {
+        get { lock (_storeLock) return _simulatedHiddenProviders; }
+    }
+
     public PanicLockSessionState? Load()
     {
         lock (_storeLock)
@@ -295,6 +418,11 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
             if (_simulateUnauthorizedAccess)
             {
                 throw new UnauthorizedAccessException("Simulated access denied by unprivileged ACL.");
+            }
+
+            if (_simulateKeyCorruption)
+            {
+                return null;
             }
 
             if (_savedState == null) return null;
@@ -308,7 +436,27 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
                 return null;
             }
 
-            return JsonSerializer.Deserialize<PanicLockSessionState>(json);
+            var loaded = JsonSerializer.Deserialize<PanicLockSessionState>(json);
+            if (loaded != null && _simulatedHiddenProviders.Count > 0)
+            {
+                foreach (var g in _simulatedHiddenProviders)
+                {
+                    string key = g.ToString("D");
+                    if (!loaded.Providers.ContainsKey(key))
+                    {
+                        loaded.Providers[key] = new TrackedProviderState
+                        {
+                            ProviderId = g,
+                            OriginalVisibility = true,
+                            HiddenByTether = true,
+                            CapturedAt = DateTimeOffset.UtcNow,
+                            SessionId = loaded.SessionId
+                        };
+                    }
+                }
+            }
+
+            return loaded;
         }
     }
 
@@ -324,6 +472,24 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
             if (_simulateUnauthorizedAccess)
             {
                 throw new UnauthorizedAccessException("Simulated access denied by unprivileged ACL.");
+            }
+
+            if (_simulateKeyCorruption)
+            {
+                throw new CryptographicException("Simulated DPAPI HMAC unprotect failure.");
+            }
+
+            // Sync with simulated hidden providers
+            foreach (var prov in state.Providers.Values)
+            {
+                if (prov.HiddenByTether && !_simulatedHiddenProviders.Contains(prov.ProviderId))
+                {
+                    _simulatedHiddenProviders.Add(prov.ProviderId);
+                }
+                else if (!prov.HiddenByTether)
+                {
+                    _simulatedHiddenProviders.Remove(prov.ProviderId);
+                }
             }
 
             var json = JsonSerializer.Serialize(state);
@@ -342,8 +508,14 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
                 throw new UnauthorizedAccessException("Simulated access denied by unprivileged ACL.");
             }
 
+            if (_simulateDeleteFailure)
+            {
+                throw new IOException("Simulated registry delete failure.");
+            }
+
             _savedState = null;
             _integrityDigest = null;
+            _simulatedHiddenProviders.Clear();
         }
     }
 

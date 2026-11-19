@@ -522,4 +522,251 @@ public class SafeCredentialProviderRestorationTests
         Assert.Null(panicManager.ActivePanicSessionId);
         Assert.False(filterManager.IsPanicActive);
     }
+
+    [Fact]
+    public void ManagedNativeStateSynchronization_NativeHiddenProvidersMergedOnLoad()
+    {
+        var store = new InMemoryPanicRestorationStore();
+
+        // 1. Initial activation from managed side
+        var manager1 = new SafeCredentialFilterManager(_logger, store);
+        manager1.ActivatePanicLock("sess-sync-1");
+
+        // 2. Simulate native filter running in LogonUI and recording ProvA
+        store.SimulatedHiddenProviders.Add(_provA);
+
+        // 3. New manager instance loads from store (service restart or re-read)
+        var manager2 = new SafeCredentialFilterManager(_logger, store);
+        var tracked = manager2.GetTrackedProviders();
+
+        Assert.True(manager2.IsPanicActive);
+        var trackA = tracked.FirstOrDefault(p => p.ProviderId == _provA);
+        Assert.NotNull(trackA);
+        Assert.True(trackA.HiddenByTether);
+        Assert.True(trackA.OriginalVisibility);
+
+        // 4. Managed manager adds ProvB and saves
+        var providers = new[] { _provA, _provB, _tetherProv };
+        var allowStates = new[] { false, true, true }; // ProvA already hidden natively, ProvB newly encountered
+        manager2.ApplyFilter(providers, allowStates);
+
+        // Both ProvA (native) and ProvB (managed) must be retained
+        Assert.Contains(_provA, store.SimulatedHiddenProviders);
+        Assert.Contains(_provB, store.SimulatedHiddenProviders);
+    }
+
+    [Fact]
+    public void UnlockAfterNativeOnlyProviderTracking_RestoresExclusivelyTetherHidden()
+    {
+        var store = new InMemoryPanicRestorationStore();
+
+        // Save session where only native filter recorded hidden providers
+        var nativeSession = new PanicLockSessionState
+        {
+            SessionId = "sess-native-only",
+            IsPanicActive = true,
+            ActivatedAt = DateTimeOffset.UtcNow
+        };
+        store.Save(nativeSession);
+        store.SimulatedHiddenProviders.Add(_provA);
+
+        // Service starts up with native-only tracking
+        var manager = new SafeCredentialFilterManager(_logger, store);
+        Assert.True(manager.IsPanicActive);
+
+        var providers = new[] { _provA, _provB, _tetherProv };
+        var allowStates = new[] { false, false, true }; // ProvA hidden by native filter, ProvB pre-hidden
+
+        // Unlock
+        manager.DeactivatePanicLock("sess-native-only");
+        Assert.False(manager.IsPanicActive);
+
+        bool restored = manager.Restore(providers, allowStates);
+        Assert.True(restored);
+
+        Assert.True(allowStates[0], "Native-tracked ProvA must be restored upon unlock");
+        Assert.False(allowStates[1], "Pre-hidden ProvB must remain hidden");
+        Assert.True(allowStates[2]);
+    }
+
+    [Fact]
+    public void RepeatedActivationDuringExistingPanicSession_IsIdempotentAndPreservesOwnership()
+    {
+        var eventBus = new Tether.EventBus.InMemoryEventBus(_logger);
+        var store = new InMemoryPanicRestorationStore();
+        var filterManager = new SafeCredentialFilterManager(_logger, store);
+        var panicManager = new PanicManager(eventBus, _logger, filterManager);
+
+        var providers = new[] { _provA, _tetherProv };
+        var allowStates = new[] { true, true };
+
+        // 1. Initial activation
+        string session1 = panicManager.TriggerPanic("session-initial", sequenceNumber: 1);
+        Assert.Equal("session-initial", session1);
+        filterManager.ApplyFilter(providers, allowStates);
+        Assert.False(allowStates[0]);
+
+        var tracked1 = filterManager.GetTrackedProviders();
+        Assert.Single(tracked1);
+        Assert.True(tracked1[0].HiddenByTether);
+
+        // 2. Repeated activation attempt during active panic
+        string session2 = panicManager.TriggerPanic("session-duplicate", sequenceNumber: 2);
+        Assert.Equal("session-initial", session2); // Must return existing session, not replace
+        Assert.Equal("session-initial", panicManager.ActivePanicSessionId);
+
+        // Calling FilterManager directly with another session must also be strictly idempotent
+        filterManager.ActivatePanicLock("session-another");
+        Assert.Equal("session-initial", filterManager.ActiveSessionId);
+
+        // Verify tracked providers were not wiped or reset
+        var tracked2 = filterManager.GetTrackedProviders();
+        Assert.Single(tracked2);
+        Assert.Equal(_provA, tracked2[0].ProviderId);
+        Assert.True(tracked2[0].HiddenByTether);
+
+        // 3. Stale sequence activation rejected
+        string staleSession = panicManager.TriggerPanic("session-stale", sequenceNumber: 1);
+        Assert.Equal("session-initial", staleSession);
+    }
+
+    [Fact]
+    public void FailedRegistryWritesAndDeletions_PreservesActivePanicStateAndRecoveryInfo()
+    {
+        var store = new InMemoryPanicRestorationStore();
+        var manager = new SafeCredentialFilterManager(_logger, store);
+
+        manager.ActivatePanicLock("sess-fail-deact");
+        Assert.True(manager.IsPanicActive);
+
+        // Simulate registry write failure during deactivation
+        store.SimulateSaveFailure = true;
+
+        Assert.Throws<System.IO.IOException>(() => manager.DeactivatePanicLock());
+
+        // CRITICAL INVARIANT: Active panic state must be preserved if persistence fails!
+        Assert.True(manager.IsPanicActive, "Panic state must remain active if deactivation cannot be persisted!");
+
+        // In PanicManager:
+        var eventBus = new Tether.EventBus.InMemoryEventBus(_logger);
+        var panicManager = new PanicManager(eventBus, _logger, manager);
+        bool unlockResult = panicManager.ClearPanic("sess-fail-deact", sequenceNumber: 5);
+        Assert.False(unlockResult);
+        Assert.Equal("sess-fail-deact", panicManager.ActivePanicSessionId);
+
+        // Remove simulated failure and complete deactivation
+        store.SimulateSaveFailure = false;
+        bool validUnlock = panicManager.ClearPanic("sess-fail-deact", sequenceNumber: 6);
+        Assert.True(validUnlock);
+        Assert.False(manager.IsPanicActive);
+        Assert.Null(panicManager.ActivePanicSessionId);
+    }
+
+    [Fact]
+    public void ProvidersAbsentDuringFirstRestorationEnumeration_RetainedUntilSubsequentRestoration()
+    {
+        var store = new InMemoryPanicRestorationStore();
+        var manager = new SafeCredentialFilterManager(_logger, store);
+
+        var allProviders = new[] { _provA, _provB, _tetherProv };
+        var allAllow = new[] { true, true, true };
+
+        manager.ActivatePanicLock("sess-partial-enum");
+        manager.ApplyFilter(allProviders, allAllow);
+
+        manager.DeactivatePanicLock("sess-partial-enum");
+
+        // Pass 1: Only ProvA is enumerated by LogonUI (ProvB is absent)
+        var pass1Providers = new[] { _provA, _tetherProv };
+        var pass1Allow = new[] { false, true };
+
+        bool r1 = manager.Restore(pass1Providers, pass1Allow);
+        Assert.True(r1);
+        Assert.True(pass1Allow[0], "ProvA must be restored in first pass");
+
+        // ProvB was absent: its ownership record must be RETAINED!
+        var trackedAfterPass1 = manager.GetTrackedProviders();
+        Assert.Single(trackedAfterPass1);
+        Assert.Equal(_provB, trackedAfterPass1[0].ProviderId);
+        Assert.True(trackedAfterPass1[0].HiddenByTether);
+
+        // Pass 2: ProvB is enumerated
+        var pass2Providers = new[] { _provB, _tetherProv };
+        var pass2Allow = new[] { false, true };
+
+        bool r2 = manager.Restore(pass2Providers, pass2Allow);
+        Assert.True(r2);
+        Assert.True(pass2Allow[0], "ProvB must be restored in second pass");
+
+        // Now all providers have been successfully restored
+        var trackedFinal = manager.GetTrackedProviders();
+        Assert.Empty(trackedFinal);
+    }
+
+    [Fact]
+    public void ThirdPartyDenialIntroducedAfterTetherHidesProvider_PreservesDenial()
+    {
+        var store = new InMemoryPanicRestorationStore();
+        var manager = new SafeCredentialFilterManager(_logger, store);
+
+        var providers = new[] { _provA, _provB, _tetherProv };
+        var allowStates = new[] { true, true, true };
+
+        // 1. Tether hides both ProvA and ProvB
+        manager.ActivatePanicLock("sess-3rdparty");
+        manager.ApplyFilter(providers, allowStates);
+        Assert.False(allowStates[0]);
+        Assert.False(allowStates[1]);
+
+        // 2. An independent filter / policy introduces a denial for ProvB AFTER Tether hid it
+        bool revoked = manager.RecordIndependentDenial(_provB);
+        Assert.True(revoked);
+
+        // 3. Unlock and restore
+        manager.DeactivatePanicLock("sess-3rdparty");
+
+        bool restored = manager.Restore(providers, allowStates);
+        Assert.True(restored);
+
+        // ProvA was restored:
+        Assert.True(allowStates[0], "ProvA must be restored");
+        // ProvB was independently denied: NEVER reverse an independently imposed filtering denial!
+        Assert.False(allowStates[1], "ProvB must remain denied after third-party denial was introduced");
+        Assert.True(allowStates[2]);
+    }
+
+    [Fact]
+    public void ServiceRestartDuringActivationAndDeactivation_PreservesSessionState()
+    {
+        var store = new InMemoryPanicRestorationStore();
+
+        // 1. Restart during active panic
+        var m1 = new SafeCredentialFilterManager(_logger, store);
+        m1.ActivatePanicLock("sess-restart-active");
+        var provs = new[] { _provA, _tetherProv };
+        var allow = new[] { true, true };
+        m1.ApplyFilter(provs, allow);
+
+        var m2 = new SafeCredentialFilterManager(_logger, store);
+        Assert.True(m2.IsPanicActive, "Must preserve active panic state across restart");
+        Assert.Equal("sess-restart-active", m2.ActiveSessionId);
+        Assert.Single(m2.GetTrackedProviders());
+
+        // 2. Restart after deactivation before restoration completed
+        m2.DeactivatePanicLock("sess-restart-active");
+        Assert.False(m2.IsPanicActive);
+
+        // Service restarts right after deactivation before LogonUI called Restore
+        var m3 = new SafeCredentialFilterManager(_logger, store);
+        Assert.False(m3.IsPanicActive);
+        Assert.Equal("sess-restart-active", m3.ActiveSessionId);
+        // Ownership records must NOT be lost on restart!
+        Assert.Single(m3.GetTrackedProviders());
+        Assert.Equal(_provA, m3.GetTrackedProviders()[0].ProviderId);
+
+        // Restoration executes in restarted instance
+        bool restored = m3.Restore(provs, allow);
+        Assert.True(restored);
+        Assert.True(allow[0]);
+    }
 }

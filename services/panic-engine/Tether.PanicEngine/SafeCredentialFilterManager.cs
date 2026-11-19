@@ -31,10 +31,17 @@ public class SafeCredentialFilterManager
             _logger.Warning($"SafeCredentialFilterManager: Error reading persistent state during initialization: {ex.Message}");
         }
 
-        if (loaded != null && loaded.IsPanicActive)
+        if (loaded != null)
         {
-            _logger.Warning($"SafeCredentialFilterManager: Resumed active Panic Lock session '{loaded.SessionId}' after restart.");
             _currentSession = loaded;
+            if (loaded.IsPanicActive)
+            {
+                _logger.Warning($"SafeCredentialFilterManager: Resumed active Panic Lock session '{loaded.SessionId}' after restart.");
+            }
+            else
+            {
+                _logger.Info($"SafeCredentialFilterManager: Loaded prior session '{loaded.SessionId}' with {loaded.Providers.Count} tracked providers.");
+            }
         }
         else
         {
@@ -72,18 +79,22 @@ public class SafeCredentialFilterManager
     {
         lock (_syncLock)
         {
-            string newSessionId = !string.IsNullOrWhiteSpace(sessionId) ? sessionId : Guid.NewGuid().ToString("D");
-
-            if (_currentSession.IsPanicActive && string.Equals(_currentSession.SessionId, newSessionId, StringComparison.OrdinalIgnoreCase))
+            // Repeated activation must be idempotent!
+            // Never replace an active session and discard its ownership records!
+            if (_currentSession.IsPanicActive)
             {
+                _logger.Info($"SafeCredentialFilterManager: Repeated activation ignored. Session '{_currentSession.SessionId}' is already active.");
                 return;
             }
+
+            string newSessionId = !string.IsNullOrWhiteSpace(sessionId) ? sessionId : Guid.NewGuid().ToString("D");
 
             var nextSession = new PanicLockSessionState
             {
                 SessionId = newSessionId,
                 IsPanicActive = true,
-                ActivatedAt = DateTimeOffset.UtcNow
+                ActivatedAt = DateTimeOffset.UtcNow,
+                Providers = new Dictionary<string, TrackedProviderState>(StringComparer.OrdinalIgnoreCase)
             };
 
             try
@@ -116,17 +127,25 @@ public class SafeCredentialFilterManager
                 return;
             }
 
-            _currentSession.IsPanicActive = false;
-            _currentSession.DeactivatedAt = DateTimeOffset.UtcNow;
+            var nextSession = new PanicLockSessionState
+            {
+                SessionId = _currentSession.SessionId,
+                IsPanicActive = false,
+                ActivatedAt = _currentSession.ActivatedAt,
+                DeactivatedAt = DateTimeOffset.UtcNow,
+                Providers = new Dictionary<string, TrackedProviderState>(_currentSession.Providers, StringComparer.OrdinalIgnoreCase)
+            };
 
             try
             {
-                _store.Save(_currentSession);
+                _store.Save(nextSession);
+                _currentSession = nextSession;
                 _logger.Info($"SafeCredentialFilterManager: Panic Lock deactivated [Session: {_currentSession.SessionId}]");
             }
             catch (Exception ex)
             {
-                _logger.Error($"SafeCredentialFilterManager: Failed to persist panic deactivation: {ex.Message}");
+                // Preserve active panic state if persistence fails!
+                _logger.Error($"SafeCredentialFilterManager: Failed to persist panic deactivation: {ex.Message}. Preserving active panic state.");
                 throw;
             }
         }
@@ -148,6 +167,7 @@ public class SafeCredentialFilterManager
             }
 
             bool changed = false;
+            var workingProviders = new Dictionary<string, TrackedProviderState>(_currentSession.Providers, StringComparer.OrdinalIgnoreCase);
 
             for (int i = 0; i < providers.Length; i++)
             {
@@ -160,9 +180,8 @@ public class SafeCredentialFilterManager
                     continue;
                 }
 
-                var existing = _currentSession.GetProvider(pid);
-
-                if (existing != null)
+                string key = pid.ToString("D");
+                if (workingProviders.TryGetValue(key, out var existing))
                 {
                     // Already captured in this session (e.g. LogonUI re-enumeration)
                     allowStates[i] = false;
@@ -180,7 +199,7 @@ public class SafeCredentialFilterManager
                         SessionId = _currentSession.SessionId
                     };
 
-                    _currentSession.SetProvider(tracked);
+                    workingProviders[key] = tracked;
                     allowStates[i] = false;
                     changed = true;
                 }
@@ -188,9 +207,19 @@ public class SafeCredentialFilterManager
 
             if (changed)
             {
+                var nextSession = new PanicLockSessionState
+                {
+                    SessionId = _currentSession.SessionId,
+                    IsPanicActive = _currentSession.IsPanicActive,
+                    ActivatedAt = _currentSession.ActivatedAt,
+                    DeactivatedAt = _currentSession.DeactivatedAt,
+                    Providers = workingProviders
+                };
+
                 try
                 {
-                    _store.Save(_currentSession);
+                    _store.Save(nextSession);
+                    _currentSession = nextSession;
                 }
                 catch (Exception ex)
                 {
@@ -224,6 +253,7 @@ public class SafeCredentialFilterManager
             }
 
             bool stateModified = false;
+            var workingProviders = new Dictionary<string, TrackedProviderState>(_currentSession.Providers, StringComparer.OrdinalIgnoreCase);
 
             for (int i = 0; i < providers.Length; i++)
             {
@@ -235,29 +265,41 @@ public class SafeCredentialFilterManager
                     continue;
                 }
 
-                var tracked = _currentSession.GetProvider(pid);
-
-                if (tracked != null)
+                string key = pid.ToString("D");
+                if (workingProviders.TryGetValue(key, out var tracked))
                 {
                     if (tracked.HiddenByTether && tracked.OriginalVisibility)
                     {
+                        // Tether explicitly hid this provider; safely restore it
                         allowStates[i] = true;
-                        _currentSession.SetProvider(tracked with { HiddenByTether = false });
+                        // Remove ownership record only after restoration has been successfully completed
+                        workingProviders.Remove(key);
                         stateModified = true;
                     }
-                    else if (!tracked.OriginalVisibility)
+                    else if (!tracked.OriginalVisibility || !tracked.HiddenByTether)
                     {
-                        // Never unhide providers that were already hidden before Panic Lock
+                        // Never reverse an independently imposed filtering denial (pre-hidden or third-party denial)
                         allowStates[i] = false;
                     }
                 }
+                // Providers absent from current enumeration are retained in workingProviders!
             }
 
             if (stateModified)
             {
+                var nextSession = new PanicLockSessionState
+                {
+                    SessionId = _currentSession.SessionId,
+                    IsPanicActive = _currentSession.IsPanicActive,
+                    ActivatedAt = _currentSession.ActivatedAt,
+                    DeactivatedAt = _currentSession.DeactivatedAt,
+                    Providers = workingProviders
+                };
+
                 try
                 {
-                    _store.Save(_currentSession);
+                    _store.Save(nextSession);
+                    _currentSession = nextSession;
                 }
                 catch (Exception ex)
                 {
@@ -275,6 +317,37 @@ public class SafeCredentialFilterManager
         lock (_syncLock)
         {
             return _currentSession.Providers.Values.ToList();
+        }
+    }
+
+    public bool RecordIndependentDenial(Guid providerId)
+    {
+        lock (_syncLock)
+        {
+            string key = providerId.ToString("D");
+            if (_currentSession.Providers.TryGetValue(key, out var existing))
+            {
+                var updated = existing with { HiddenByTether = false, OriginalVisibility = false };
+                var nextProviders = new Dictionary<string, TrackedProviderState>(_currentSession.Providers, StringComparer.OrdinalIgnoreCase)
+                {
+                    [key] = updated
+                };
+
+                var nextSession = new PanicLockSessionState
+                {
+                    SessionId = _currentSession.SessionId,
+                    IsPanicActive = _currentSession.IsPanicActive,
+                    ActivatedAt = _currentSession.ActivatedAt,
+                    DeactivatedAt = _currentSession.DeactivatedAt,
+                    Providers = nextProviders
+                };
+
+                _store.Save(nextSession);
+                _currentSession = nextSession;
+                _logger.Info($"SafeCredentialFilterManager: Recorded independent denial for provider {providerId}. Tether ownership revoked.");
+                return true;
+            }
+            return false;
         }
     }
 }

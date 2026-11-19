@@ -65,6 +65,25 @@ public class PanicManager
     {
         lock (_stateLock)
         {
+            if (sequenceNumber > 0 && sequenceNumber <= _lastSequenceNumber)
+            {
+                _logger.Warning($"PanicManager: TriggerPanic rejected. Stale event sequence ({sequenceNumber} <= {_lastSequenceNumber}).");
+                return _activePanicSessionId ?? _filterManager.ActiveSessionId ?? string.Empty;
+            }
+
+            // Repeated activation is idempotent!
+            // Never replace an active session and discard its ownership records!
+            if (_activePanicSessionId != null || _filterManager.IsPanicActive)
+            {
+                string existingSession = _activePanicSessionId ?? _filterManager.ActiveSessionId;
+                _logger.Info($"PanicManager: Repeated activation ignored. Session '{existingSession}' is already active.");
+                if (sequenceNumber > _lastSequenceNumber)
+                {
+                    _lastSequenceNumber = sequenceNumber;
+                }
+                return existingSession;
+            }
+
             string sessionId = !string.IsNullOrWhiteSpace(customSessionId)
                 ? customSessionId
                 : Guid.NewGuid().ToString("D");
@@ -100,27 +119,37 @@ public class PanicManager
                 return false;
             }
 
-            if (_activePanicSessionId == null)
+            string? activeSession = _activePanicSessionId ?? (_filterManager.IsPanicActive ? _filterManager.ActiveSessionId : null);
+            if (activeSession == null)
             {
                 _logger.Warning($"PanicManager: ClearPanic rejected. No active panic session to clear (received: {sessionId}).");
                 return false;
             }
 
-            if (!string.Equals(_activePanicSessionId, sessionId, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(activeSession, sessionId, StringComparison.OrdinalIgnoreCase))
             {
-                _logger.Warning($"PanicManager: ClearPanic rejected. Session mismatch (active: {_activePanicSessionId}, received: {sessionId}).");
+                _logger.Warning($"PanicManager: ClearPanic rejected. Session mismatch (active: {activeSession}, received: {sessionId}).");
                 return false;
             }
 
-            if (sequenceNumber > 0 && sequenceNumber < _lastSequenceNumber)
+            if (sequenceNumber > 0 && sequenceNumber <= _lastSequenceNumber)
             {
-                _logger.Warning($"PanicManager: ClearPanic rejected. Stale event sequence ({sequenceNumber} < {_lastSequenceNumber}).");
+                _logger.Warning($"PanicManager: ClearPanic rejected. Stale event sequence ({sequenceNumber} <= {_lastSequenceNumber}).");
                 return false;
             }
 
             _logger.Info($"PanicManager: Clearing Panic Lock for session {sessionId}...");
 
-            _filterManager.DeactivatePanicLock(sessionId);
+            try
+            {
+                _filterManager.DeactivatePanicLock(sessionId);
+            }
+            catch (Exception ex)
+            {
+                // Preserve the active panic state if persistence fails!
+                _logger.Error($"PanicManager: Failed to persist panic deactivation: {ex.Message}. Preserving active panic session.");
+                return false;
+            }
 
             _activePanicSessionId = null;
             _lastSequenceNumber = sequenceNumber;
