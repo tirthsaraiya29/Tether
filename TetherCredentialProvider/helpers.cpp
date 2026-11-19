@@ -1,9 +1,12 @@
 #include "helpers.h"
 #include <intsafe.h>
+#include <vector>
+#include <bcrypt.h>
 
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "secur32.lib")
 #pragma comment(lib, "credui.lib")
+#pragma comment(lib, "bcrypt.lib")
 
 //
 // Copies the field descriptor pointed to by rcpfd into a buffer allocated
@@ -697,4 +700,145 @@ HRESULT SplitDomainAndUsername(PCWSTR pszQualifiedUserName,
     if (SUCCEEDED(hr))
         hr = SHStrDupW(pszQualifiedUserName, ppszUsername);
     return hr;
+}
+
+void WriteDebugLog(const wchar_t* format, ...)
+{
+    wchar_t buf[1024];
+    va_list args;
+    va_start(args, format);
+    vswprintf_s(buf, sizeof(buf) / sizeof(wchar_t), format, args);
+    va_end(args);
+    OutputDebugStringW(buf);
+    OutputDebugStringW(L"\n");
+
+    WCHAR szPath[MAX_PATH];
+    DWORD dwEnvLen = GetEnvironmentVariableW(L"ProgramData", szPath, MAX_PATH);
+    if (dwEnvLen > 0 && dwEnvLen < MAX_PATH)
+    {
+        PathAppendW(szPath, L"Tether");
+        CreateDirectoryW(szPath, NULL);
+        PathAppendW(szPath, L"logs");
+        CreateDirectoryW(szPath, NULL);
+        PathAppendW(szPath, L"credential-provider.log");
+
+        HANDLE hFile = CreateFileW(szPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hFile != INVALID_HANDLE_VALUE)
+        {
+            LARGE_INTEGER fileSize;
+            if (GetFileSizeEx(hFile, &fileSize) && fileSize.QuadPart > 5 * 1024 * 1024)
+            {
+                CloseHandle(hFile);
+                hFile = CreateFileW(szPath, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            }
+
+            if (hFile != INVALID_HANDLE_VALUE)
+            {
+                SYSTEMTIME st;
+                GetLocalTime(&st);
+                char line[2048];
+                int n = sprintf_s(line, "[%04u-%02u-%02u %02u:%02u:%02u.%03u] %ls\r\n",
+                                  st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, buf);
+                if (n > 0)
+                {
+                    DWORD written = 0;
+                    WriteFile(hFile, line, (DWORD)n, &written, NULL);
+                }
+                CloseHandle(hFile);
+            }
+        }
+    }
+}
+
+bool VerifyMasterCredentialPBKDF2(_In_ PCWSTR pszEnteredCredential, _In_reads_bytes_(cbPayload) const BYTE* pbPayload, _In_ DWORD cbPayload, _In_ DWORD dwExpectedType)
+{
+    if (pszEnteredCredential == nullptr || pbPayload == nullptr || cbPayload < 59)
+    {
+        return false;
+    }
+
+    if (pbPayload[0] != 'T' || pbPayload[1] != 'M' || pbPayload[2] != 'A' || pbPayload[3] != 'P')
+    {
+        return false;
+    }
+
+    BYTE bType = pbPayload[4];
+    if (dwExpectedType != 0 && bType != static_cast<BYTE>(dwExpectedType))
+    {
+        return false;
+    }
+
+    BYTE bSaltLen = pbPayload[5];
+    if (bSaltLen != 16 || cbPayload < static_cast<DWORD>(6 + bSaltLen + 4 + 1 + 32))
+    {
+        return false;
+    }
+
+    const BYTE* pbSalt = pbPayload + 6;
+    DWORD dwIterations = *reinterpret_cast<const DWORD*>(pbPayload + 6 + bSaltLen);
+    if (dwIterations < 1000 || dwIterations > 2000000)
+    {
+        return false;
+    }
+
+    BYTE bHashLen = pbPayload[6 + bSaltLen + 4];
+    if (bHashLen != 32)
+    {
+        return false;
+    }
+
+    const BYTE* pbStoredHash = pbPayload + 6 + bSaltLen + 4 + 1;
+
+    int cbUtf8 = WideCharToMultiByte(CP_UTF8, 0, pszEnteredCredential, -1, nullptr, 0, nullptr, nullptr);
+    if (cbUtf8 <= 1)
+    {
+        return false;
+    }
+
+    std::vector<char> utf8Buffer(cbUtf8);
+    if (WideCharToMultiByte(CP_UTF8, 0, pszEnteredCredential, -1, utf8Buffer.data(), cbUtf8, nullptr, nullptr) == 0)
+    {
+        return false;
+    }
+    DWORD dwPasswordLen = static_cast<DWORD>(cbUtf8 - 1);
+
+    BCRYPT_ALG_HANDLE hAlg = nullptr;
+    NTSTATUS status = BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM, nullptr, BCRYPT_ALG_HANDLE_HMAC_FLAG);
+    if (!BCRYPT_SUCCESS(status))
+    {
+        SecureZeroMemory(utf8Buffer.data(), cbUtf8);
+        return false;
+    }
+
+    BYTE derivedKey[32] = { 0 };
+    status = BCryptDeriveKeyPBKDF2(
+        hAlg,
+        reinterpret_cast<PUCHAR>(utf8Buffer.data()),
+        dwPasswordLen,
+        const_cast<PUCHAR>(pbSalt),
+        bSaltLen,
+        dwIterations,
+        derivedKey,
+        sizeof(derivedKey),
+        0
+    );
+
+    BCryptCloseAlgorithmProvider(hAlg, 0);
+    SecureZeroMemory(utf8Buffer.data(), cbUtf8);
+
+    if (!BCRYPT_SUCCESS(status))
+    {
+        SecureZeroMemory(derivedKey, sizeof(derivedKey));
+        return false;
+    }
+
+    int diff = 0;
+    for (DWORD i = 0; i < 32; ++i)
+    {
+        diff |= (derivedKey[i] ^ pbStoredHash[i]);
+    }
+    SecureZeroMemory(derivedKey, sizeof(derivedKey));
+
+    return (diff == 0);
 }

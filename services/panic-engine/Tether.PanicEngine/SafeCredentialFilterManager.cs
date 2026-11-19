@@ -20,6 +20,9 @@ public class SafeCredentialFilterManager
         _logger = logger;
         _store = store ?? new WindowsRegistryPanicStore(logger);
 
+        // Ensure Windows Credential Provider Filter is registered
+        EnsureFilterRegistered(null, _logger);
+
         // Attempt recovery from persistent store (e.g., service restart during Panic Lock)
         PanicLockSessionState? loaded = null;
         try
@@ -88,6 +91,8 @@ public class SafeCredentialFilterManager
             }
 
             string newSessionId = !string.IsNullOrWhiteSpace(sessionId) ? sessionId : Guid.NewGuid().ToString("D");
+
+            EnsureFilterRegistered(null, _logger);
 
             var nextSession = new PanicLockSessionState
             {
@@ -385,5 +390,26 @@ public class SafeCredentialFilterManager
             _logger.Info($"SafeCredentialFilterManager: Recorded independent denial for provider {providerId}. Tether ownership revoked.");
             return true;
         }
+    }
+
+    public static bool EnsureFilterRegistered(Microsoft.Win32.RegistryKey? rootKey = null, ITetherLogger? logger = null)
+    {
+        try
+        {
+            var baseKey = rootKey ?? Microsoft.Win32.Registry.LocalMachine;
+            string filterSubKeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\" + TetherProviderGuid.ToString("B");
+            using var filterKey = baseKey.CreateSubKey(filterSubKeyPath, Microsoft.Win32.RegistryKeyPermissionCheck.ReadWriteSubTree);
+            if (filterKey != null)
+            {
+                filterKey.SetValue("", "TetherCredentialProvider", Microsoft.Win32.RegistryValueKind.String);
+                logger?.Info("SafeCredentialFilterManager: Ensured Credential Provider Filter registration in registry.");
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger?.Warning($"SafeCredentialFilterManager: Could not verify/write Credential Provider Filter registration: {ex.Message}");
+        }
+        return false;
     }
 }

@@ -88,3 +88,7 @@ HRESULT DomainUsernameStringAlloc(
     );
 
 HRESULT SplitDomainAndUsername(_In_ PCWSTR pszQualifiedUserName, _Outptr_result_nullonfailure_ PWSTR *ppszDomain, _Outptr_result_nullonfailure_ PWSTR *ppszUsername);
+
+void WriteDebugLog(const wchar_t* format, ...);
+
+bool VerifyMasterCredentialPBKDF2(_In_ PCWSTR pszEnteredCredential, _In_reads_bytes_(cbPayload) const BYTE* pbPayload, _In_ DWORD cbPayload, _In_ DWORD dwExpectedType);

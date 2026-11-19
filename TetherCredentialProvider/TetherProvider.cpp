@@ -515,18 +515,21 @@ static HRESULT _ReadPanicFilterState(
     }
 
     HKEY hKey = nullptr;
-    LONG lRes = RegOpenKeyExW(g_hPanicRegistryRoot, _GetPanicRegistryPath(), 0, KEY_READ, &hKey);
+    LONG lRes = RegOpenKeyExW(g_hPanicRegistryRoot, _GetPanicRegistryPath(), 0, KEY_READ | KEY_WOW64_64KEY, &hKey);
     if (lRes == ERROR_FILE_NOT_FOUND)
     {
+        WriteDebugLog(L"CTetherProvider::_ReadPanicFilterState: PanicLock key not found (normal non-panic state).");
         return S_OK;
     }
     if (lRes != ERROR_SUCCESS)
     {
+        WriteDebugLog(L"CTetherProvider::_ReadPanicFilterState: RegOpenKeyExW failed with %ld", lRes);
         return HRESULT_FROM_WIN32(lRes);
     }
 
     if (!_VerifyRegistrySecurity(hKey))
     {
+        WriteDebugLog(L"CTetherProvider::_ReadPanicFilterState: _VerifyRegistrySecurity rejected key ACL (E_ACCESSDENIED)");
         RegCloseKey(hKey);
         return E_ACCESSDENIED;
     }
@@ -537,6 +540,7 @@ static HRESULT _ReadPanicFilterState(
     lRes = RegQueryValueExW(hKey, L"VaultDaclVersion", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwDaclVer), &dwSize);
     if (lRes != ERROR_SUCCESS || dwType != REG_DWORD || dwSize != sizeof(DWORD) || dwDaclVer < 2)
     {
+        WriteDebugLog(L"CTetherProvider::_ReadPanicFilterState: Missing or invalid VaultDaclVersion (lRes=%ld, type=%u, ver=%u)", lRes, dwType, dwDaclVer);
         RegCloseKey(hKey);
         return E_FAIL;
     }
@@ -546,6 +550,7 @@ static HRESULT _ReadPanicFilterState(
     lRes = RegQueryValueExW(hKey, L"IsPanicActive", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwPanicActive), &dwSize);
     if (lRes != ERROR_SUCCESS || dwType != REG_DWORD || dwSize != sizeof(DWORD))
     {
+        WriteDebugLog(L"CTetherProvider::_ReadPanicFilterState: Missing or invalid IsPanicActive (lRes=%ld, type=%u)", lRes, dwType);
         RegCloseKey(hKey);
         return E_FAIL;
     }
@@ -556,6 +561,7 @@ static HRESULT _ReadPanicFilterState(
     lRes = RegQueryValueExW(hKey, L"PanicSessionId", nullptr, &dwType, reinterpret_cast<LPBYTE>(szSessionId), &dwSize);
     if (lRes != ERROR_SUCCESS || dwType != REG_SZ || dwSize <= sizeof(wchar_t) || szSessionId[0] == L'\0')
     {
+        WriteDebugLog(L"CTetherProvider::_ReadPanicFilterState: Missing or invalid PanicSessionId (lRes=%ld, type=%u)", lRes, dwType);
         RegCloseKey(hKey);
         return E_FAIL;
     }
@@ -660,9 +666,10 @@ static HRESULT _WriteHiddenProviders(const std::vector<GUID>& hiddenProviders)
 #endif
 
     HKEY hKey = nullptr;
-    LONG lRes = RegOpenKeyExW(g_hPanicRegistryRoot, _GetPanicRegistryPath(), 0, KEY_SET_VALUE, &hKey);
+    LONG lRes = RegOpenKeyExW(g_hPanicRegistryRoot, _GetPanicRegistryPath(), 0, KEY_SET_VALUE | KEY_WOW64_64KEY, &hKey);
     if (lRes != ERROR_SUCCESS)
     {
+        WriteDebugLog(L"CTetherProvider::_WriteHiddenProviders: RegOpenKeyExW failed with %ld", lRes);
         return HRESULT_FROM_WIN32(lRes);
     }
 
@@ -714,8 +721,11 @@ HRESULT CTetherProvider::Filter(
 
         if (rgclsidProviders == nullptr || rgbAllow == nullptr || cProviders == 0)
         {
+            WriteDebugLog(L"CTetherProvider::Filter: Null arguments or 0 providers (scenario=%u, cProviders=%u)", cpus, cProviders);
             return S_OK;
         }
+
+        WriteDebugLog(L"CTetherProvider::Filter: Invoked (scenario=%u, flags=0x%08X, cProviders=%u)", cpus, dwFlags, cProviders);
 
         bool bPanicActive = false;
         std::wstring sessionId;
@@ -725,11 +735,15 @@ HRESULT CTetherProvider::Filter(
         HRESULT hr = _ReadPanicFilterState(&bPanicActive, &sessionId, &previouslyHidden, &independentlyDenied);
         if (FAILED(hr))
         {
+            WriteDebugLog(L"CTetherProvider::Filter: Failed to read PanicLock state (hr=0x%08X). Failing closed, preserving allow states.", hr);
             // Fail closed: missing, malformed, inaccessible or inconsistent panic state
             // must NEVER trigger provider restoration!
             // Preserve incoming allow states without modification.
             return hr;
         }
+
+        WriteDebugLog(L"CTetherProvider::Filter: State read ok. bPanicActive=%d, session='%ls', prevHidden=%zu, indepDenied=%zu",
+            bPanicActive ? 1 : 0, sessionId.c_str(), previouslyHidden.size(), independentlyDenied.size());
 
         if (bPanicActive)
         {
@@ -743,22 +757,28 @@ HRESULT CTetherProvider::Filter(
 
             for (DWORD i = 0; i < cProviders; ++i)
             {
+                wchar_t szGuid[64] = { 0 };
+                StringFromGUID2(rgclsidProviders[i], szGuid, ARRAYSIZE(szGuid));
+
                 if (IsEqualGUID(rgclsidProviders[i], CLSID_TetherProvider))
                 {
                     // Preserve incoming rgbAllow[i] decision. If already FALSE, leave FALSE.
                     // Do not force rgbAllow[i] = TRUE over another filter's denial.
+                    WriteDebugLog(L"CTetherProvider::Filter [PANIC ACTIVE]: Preserving Tether provider [%u] %ls allow=%d", i, szGuid, rgbAllow[i]);
                 }
                 else
                 {
                     if (rgbAllow[i] == FALSE)
                     {
                         // Already denied before Tether touched it. Keep FALSE and do not claim ownership.
+                        WriteDebugLog(L"CTetherProvider::Filter [PANIC ACTIVE]: Provider [%u] %ls already denied (allow=0), preserving denial", i, szGuid);
                     }
                     else
                     {
                         // Provider was currently allowed. Tether explicitly hides it.
                         rgbAllow[i] = FALSE;
                         newlyHiddenIndices.push_back(i);
+                        WriteDebugLog(L"CTetherProvider::Filter [PANIC ACTIVE]: Hiding alternative provider [%u] %ls (allow=1 -> allow=0)", i, szGuid);
 
                         bool alreadyTracked = false;
                         for (const auto& g : newlyHidden)
@@ -782,6 +802,7 @@ HRESULT CTetherProvider::Filter(
                 HRESULT hrWrite = _WriteHiddenProviders(newlyHidden);
                 if (FAILED(hrWrite))
                 {
+                    WriteDebugLog(L"CTetherProvider::Filter [PANIC ACTIVE]: Failed to persist hidden providers (hr=0x%08X), reverting allow states", hrWrite);
                     // Persistence failed: never silently report successful ownership persistence!
                     // Revert the allow states modified during this pass so we don't hide providers
                     // without persistent backing.
@@ -808,9 +829,13 @@ HRESULT CTetherProvider::Filter(
 
                 for (DWORD i = 0; i < cProviders; ++i)
                 {
+                    wchar_t szGuid[64] = { 0 };
+                    StringFromGUID2(rgclsidProviders[i], szGuid, ARRAYSIZE(szGuid));
+
                     if (IsEqualGUID(rgclsidProviders[i], CLSID_TetherProvider))
                     {
                         // Preserve incoming decision
+                        WriteDebugLog(L"CTetherProvider::Filter [RESTORE]: Tether provider [%u] %ls preserved allow=%d", i, szGuid, rgbAllow[i]);
                     }
                     else
                     {
@@ -841,6 +866,8 @@ HRESULT CTetherProvider::Filter(
                             if (isIndependentlyDenied || rgbAllow[i] == FALSE)
                             {
                                 rgbAllow[i] = FALSE;
+                                WriteDebugLog(L"CTetherProvider::Filter [RESTORE]: Provider [%u] %ls has independent denial (isIndep=%d, incoming=%d), keeping allow=0",
+                                    i, szGuid, isIndependentlyDenied ? 1 : 0, rgbAllow[i]);
                                 // NOT added to successfullyRestored: retain ownership record until demonstrably restored
                             }
                             else
@@ -848,9 +875,13 @@ HRESULT CTetherProvider::Filter(
                                 // Clean restoration: Tether hid it and no independent denial exists
                                 rgbAllow[i] = TRUE;
                                 successfullyRestored.push_back(rgclsidProviders[i]);
+                                WriteDebugLog(L"CTetherProvider::Filter [RESTORE]: Clean restoration of provider [%u] %ls (allow=0 -> allow=1)", i, szGuid);
                             }
                         }
-                        // If not hidden by Tether, leave rgbAllow[i] completely untouched!
+                        else
+                        {
+                            WriteDebugLog(L"CTetherProvider::Filter [RESTORE]: Provider [%u] %ls not hidden by Tether, leaving untouched (allow=%d)", i, szGuid, rgbAllow[i]);
+                        }
                     }
                 }
 
@@ -879,6 +910,7 @@ HRESULT CTetherProvider::Filter(
                     HRESULT hrWrite = _WriteHiddenProviders(remainingHidden);
                     if (FAILED(hrWrite))
                     {
+                        WriteDebugLog(L"CTetherProvider::Filter [RESTORE]: Failed to update remaining hidden providers in registry (hr=0x%08X)", hrWrite);
                         // Failed to update registry: preserve recovery information!
                         return hrWrite;
                     }
@@ -886,6 +918,7 @@ HRESULT CTetherProvider::Filter(
             }
         }
 
+        WriteDebugLog(L"CTetherProvider::Filter: Completed successfully.");
         return S_OK;
     }
     catch (...)

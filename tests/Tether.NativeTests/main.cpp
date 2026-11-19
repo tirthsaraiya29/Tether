@@ -10,6 +10,10 @@
 
 #include "../../TetherCredentialProvider/guid.h"
 #include "../../TetherCredentialProvider/TetherProvider.h"
+#include "../../TetherCredentialProvider/helpers.h"
+#include "../../TetherCredentialProvider/TetherCredential.h"
+#include <bcrypt.h>
+#pragma comment(lib, "bcrypt.lib")
 
 HINSTANCE g_hinst = nullptr;
 void DllAddRef() {}
@@ -644,6 +648,78 @@ static void Test_IndependentDenial_PreservedDuringRestore()
     pFilter->Release();
 }
 
+static std::vector<BYTE> CreateTestMasterAuthPayload(const wchar_t* credential, DWORD type, DWORD iterations = 1000)
+{
+    std::vector<BYTE> payload(59, 0);
+    payload[0] = 'T'; payload[1] = 'M'; payload[2] = 'A'; payload[3] = 'P';
+    payload[4] = static_cast<BYTE>(type);
+    payload[5] = 16;
+    for (int i = 0; i < 16; ++i) payload[6 + i] = static_cast<BYTE>(i + 42);
+    *reinterpret_cast<DWORD*>(&payload[22]) = iterations;
+    payload[26] = 32;
+
+    int cbUtf8 = WideCharToMultiByte(CP_UTF8, 0, credential, -1, nullptr, 0, nullptr, nullptr);
+    std::vector<char> utf8(cbUtf8);
+    WideCharToMultiByte(CP_UTF8, 0, credential, -1, utf8.data(), cbUtf8, nullptr, nullptr);
+
+    BCRYPT_ALG_HANDLE hAlg = nullptr;
+    NTSTATUS st = BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM, nullptr, BCRYPT_ALG_HANDLE_HMAC_FLAG);
+    TEST_ASSERT(BCRYPT_SUCCESS(st));
+    st = BCryptDeriveKeyPBKDF2(hAlg, reinterpret_cast<PUCHAR>(utf8.data()), cbUtf8 - 1, payload.data() + 6, 16, iterations, payload.data() + 27, 32, 0);
+    TEST_ASSERT(BCRYPT_SUCCESS(st));
+    BCryptCloseAlgorithmProvider(hAlg, 0);
+    return payload;
+}
+
+static void Test_VerifyMasterCredentialPBKDF2_Validation()
+{
+    auto pinPayload = CreateTestMasterAuthPayload(L"98421376", TAM_MASTER_PIN);
+    TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"98421376", pinPayload.data(), static_cast<DWORD>(pinPayload.size()), TAM_MASTER_PIN) == true);
+    TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"98421377", pinPayload.data(), static_cast<DWORD>(pinPayload.size()), TAM_MASTER_PIN) == false);
+
+    auto pwdPayload = CreateTestMasterAuthPayload(L"P@ssw0rd!Secure2026", TAM_MASTER_PASSWORD);
+    TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"P@ssw0rd!Secure2026", pwdPayload.data(), static_cast<DWORD>(pwdPayload.size()), TAM_MASTER_PASSWORD) == true);
+    TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"P@ssw0rd!Secure2027", pwdPayload.data(), static_cast<DWORD>(pwdPayload.size()), TAM_MASTER_PASSWORD) == false);
+
+    TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"98421376", pinPayload.data(), static_cast<DWORD>(pinPayload.size()), TAM_MASTER_PASSWORD) == false);
+
+    auto corrupted = pinPayload;
+    corrupted[0] = 'X';
+    TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"98421376", corrupted.data(), static_cast<DWORD>(corrupted.size()), TAM_MASTER_PIN) == false);
+    TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"98421376", pinPayload.data(), 58, TAM_MASTER_PIN) == false);
+    TEST_ASSERT(VerifyMasterCredentialPBKDF2(nullptr, pinPayload.data(), static_cast<DWORD>(pinPayload.size()), TAM_MASTER_PIN) == false);
+}
+
+static void Test_CredentialProvider_ComboBox_And_FieldSwitching()
+{
+    CTetherCredential* pCred = new CTetherCredential();
+    TEST_ASSERT(pCred != nullptr);
+
+    DWORD itemCount = 0;
+    DWORD selectedItem = 99;
+    HRESULT hr = pCred->GetComboBoxValueCount(SFI_METHOD_COMBOBOX, &itemCount, &selectedItem);
+    TEST_ASSERT(SUCCEEDED(hr));
+    TEST_ASSERT(itemCount == 1);
+    TEST_ASSERT(selectedItem == 0);
+
+    PWSTR pszItem = nullptr;
+    hr = pCred->GetComboBoxValueAt(SFI_METHOD_COMBOBOX, 0, &pszItem);
+    TEST_ASSERT(SUCCEEDED(hr) && pszItem != nullptr);
+    TEST_ASSERT(wcscmp(pszItem, L"Unlock via Phone App") == 0);
+    CoTaskMemFree(pszItem);
+
+    hr = pCred->GetComboBoxValueAt(SFI_METHOD_COMBOBOX, 1, &pszItem);
+    TEST_ASSERT(FAILED(hr));
+
+    hr = pCred->SetComboBoxSelectedValue(SFI_METHOD_COMBOBOX, 5);
+    TEST_ASSERT(FAILED(hr));
+
+    hr = pCred->SetComboBoxSelectedValue(SFI_METHOD_COMBOBOX, 0);
+    TEST_ASSERT(SUCCEEDED(hr));
+
+    pCred->Release();
+}
+
 int main()
 {
     std::cout << "========================================" << std::endl;
@@ -669,6 +745,8 @@ int main()
     RunTest("ProvidersAbsentDuringFirstRestorationEnumeration", Test_ProvidersAbsentDuringFirstRestorationEnumeration);
     RunTest("ThirdPartyDenialIntroducedAfterTetherHidesProvider", Test_ThirdPartyDenialIntroducedAfterTetherHidesProvider);
     RunTest("IndependentDenial_PreservedDuringRestore", Test_IndependentDenial_PreservedDuringRestore);
+    RunTest("VerifyMasterCredentialPBKDF2_Validation", Test_VerifyMasterCredentialPBKDF2_Validation);
+    RunTest("CredentialProvider_ComboBox_And_FieldSwitching", Test_CredentialProvider_ComboBox_And_FieldSwitching);
 
     std::cout << "========================================" << std::endl;
     std::cout << " All Native Tests Passed Successfully!" << std::endl;

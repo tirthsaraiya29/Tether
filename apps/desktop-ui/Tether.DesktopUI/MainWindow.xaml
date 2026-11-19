@@ -1839,6 +1839,150 @@
 
                         </Border>
 
+                        <!-- 3B. Master PIN / Password Card -->
+                        <Border x:Name="CardMasterAuth"
+                                Style="{StaticResource GlassPanel}"
+                                Margin="0,14,0,0">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,6">
+                                    <StackPanel>
+                                        <TextBlock Text="SECURITY FALLBACK"
+                                                   Style="{StaticResource SectionEyebrowTextStyle}"/>
+                                        <TextBlock Text="Master Authentication"
+                                                   Style="{StaticResource CardTitleTextStyle}"/>
+                                    </StackPanel>
+                                    <Border Style="{StaticResource BadgePillBorderStyle}"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Top">
+                                        <TextBlock x:Name="TxtMasterAuthBadge"
+                                                   Text="DISABLED"
+                                                   FontFamily="{StaticResource MonoFontFamily}"
+                                                   FontSize="9.5"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                                    </Border>
+                                </Grid>
+
+                                <TextBlock Text="Configure a local Master PIN or Password to unlock this PC with the Tether Credential Provider even if your phone is away or offline."
+                                           FontFamily="{StaticResource FluentFontFamily}"
+                                           FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Margin="0,0,0,14"
+                                           TextWrapping="Wrap"/>
+
+                                <!-- Method selector dropdown -->
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Authentication Mode"
+                                               FontFamily="{StaticResource FluentFontFamily}"
+                                               FontSize="12"
+                                               Foreground="{StaticResource TextPrimaryBrush}"
+                                               VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="CmbMasterAuthMethod"
+                                              Grid.Column="2"
+                                              Height="34"
+                                              SelectedIndex="0"
+                                              SelectionChanged="CmbMasterAuthMethod_SelectionChanged">
+                                        <ComboBoxItem Content="Disabled"/>
+                                        <ComboBoxItem Content="Master PIN (Min 8 Digits)"/>
+                                        <ComboBoxItem Content="Master Password (Min 8 Chars)"/>
+                                    </ComboBox>
+                                </Grid>
+
+                                <!-- Credential Entry Panel -->
+                                <StackPanel x:Name="PnlMasterCredentialInputs" Visibility="Collapsed">
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="10"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock x:Name="LblMasterCred"
+                                                       Text="New Credential"
+                                                       FontFamily="{StaticResource FluentFontFamily}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       Margin="0,0,0,4"/>
+                                            <PasswordBox x:Name="TxtMasterPassword"
+                                                         Height="36"
+                                                         VerticalContentAlignment="Center"
+                                                         PasswordChanged="TxtMasterPassword_PasswordChanged"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="Confirm Credential"
+                                                       FontFamily="{StaticResource FluentFontFamily}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       Margin="0,0,0,4"/>
+                                            <PasswordBox x:Name="TxtMasterPasswordConfirm"
+                                                         Height="36"
+                                                         VerticalContentAlignment="Center"
+                                                         PasswordChanged="TxtMasterPassword_PasswordChanged"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <!-- Strength Meter & Feedback -->
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border x:Name="PillMasterStrength"
+                                                Style="{StaticResource NeutralBadgePillStyle}"
+                                                Padding="8,3"
+                                                VerticalAlignment="Center">
+                                            <TextBlock x:Name="TxtMasterStrengthBadge"
+                                                       Text="NONE"
+                                                       FontFamily="{StaticResource MonoFontFamily}"
+                                                       FontSize="9"
+                                                       FontWeight="Bold"
+                                                       Foreground="{StaticResource TextMutedBrush}"/>
+                                        </Border>
+                                        <TextBlock x:Name="TxtMasterStrengthFeedback"
+                                                   Grid.Column="2"
+                                                   Text="Requires minimum 8 characters with non-predictable patterns."
+                                                   FontFamily="{StaticResource FluentFontFamily}"
+                                                   FontSize="11"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center"
+                                                   TextWrapping="Wrap"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- Action Buttons -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Button x:Name="BtnSaveMasterAuth"
+                                            Grid.Column="2"
+                                            Style="{StaticResource AccentButton}"
+                                            Height="36"
+                                            Padding="18,0"
+                                            Click="BtnSaveMasterAuth_Click">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="&#xE8D7;"
+                                                       FontFamily="{StaticResource IconFontFamily}"
+                                                       FontSize="12.5"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,8,0"/>
+                                            <TextBlock x:Name="TxtSaveMasterAuthLabel"
+                                                       Text="Save Configuration"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
                         <!-- 4. Paired Devices Card -->
 
                         <Border x:Name="CardPairedDevices"
@@ -2219,96 +2363,110 @@
 
 
 
-                            <!-- Terminal List -->
-
+                            <!-- Live Alerts Feed & Temporary Notifications -->
                             <Border Grid.Row="1"
-
                                     Background="{StaticResource TerminalBackgroundBrush}"
-
                                     BorderBrush="{StaticResource TerminalBorderBrush}"
-
                                     BorderThickness="1"
-
                                     CornerRadius="8"
+                                    Padding="8">
+                                <Grid>
+                                    <!-- Empty state when no live alerts active -->
+                                    <StackPanel x:Name="PnlNoNotifications"
+                                                VerticalAlignment="Center"
+                                                HorizontalAlignment="Center"
+                                                Visibility="Visible">
+                                        <Border Width="44" Height="44"
+                                                CornerRadius="22"
+                                                Background="#0D38BDF8"
+                                                BorderBrush="#2638BDF8"
+                                                BorderThickness="1"
+                                                HorizontalAlignment="Center"
+                                                Margin="0,0,0,10">
+                                            <TextBlock Text="&#xE890;"
+                                                       FontFamily="{StaticResource IconFontFamily}"
+                                                       FontSize="18"
+                                                       Foreground="{StaticResource TextAccentBrush}"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock Text="Live System Notifications"
+                                                   FontFamily="{StaticResource FluentFontFamily}"
+                                                   FontSize="12.5"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                   HorizontalAlignment="Center"
+                                                   Margin="0,0,0,3"/>
+                                        <TextBlock Text="Real-time session alerts and security notices appear here automatically."
+                                                   FontFamily="{StaticResource FluentFontFamily}"
+                                                   FontSize="11"
+                                                   Foreground="{StaticResource TextMutedBrush}"
+                                                   HorizontalAlignment="Center"
+                                                   TextWrapping="Wrap"
+                                                   TextAlignment="Center"
+                                                   MaxWidth="240"/>
+                                    </StackPanel>
 
-                                    Padding="6">
-
-                                <ListBox x:Name="TerminalList"
-
-                                         Background="Transparent"
-
-                                         BorderThickness="0"
-
-                                         VirtualizingPanel.IsVirtualizing="True"
-
-                                         VirtualizingPanel.VirtualizationMode="Recycling"
-
-                                         VirtualizingPanel.ScrollUnit="Pixel"
-
-                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-
-                                    <ListBox.ItemContainerStyle>
-
-                                        <Style TargetType="ListBoxItem">
-
-                                            <Setter Property="Padding" Value="8,3.5"/>
-
-                                            <Setter Property="Background" Value="Transparent"/>
-
-                                            <Setter Property="BorderThickness" Value="0,0,0,1"/>
-
-                                            <Setter Property="BorderBrush" Value="#08FFFFFF"/>
-
-                                            <Setter Property="Focusable" Value="False"/>
-
-                                            <Setter Property="Template">
-
-                                                <Setter.Value>
-
-                                                    <ControlTemplate TargetType="ListBoxItem">
-
-                                                        <Border Background="{TemplateBinding Background}"
-
-                                                                BorderBrush="{TemplateBinding BorderBrush}"
-
-                                                                BorderThickness="{TemplateBinding BorderThickness}"
-
-                                                                Padding="{TemplateBinding Padding}">
-
-                                                            <ContentPresenter/>
-
-                                                        </Border>
-
-                                                    </ControlTemplate>
-
-                                                </Setter.Value>
-
-                                            </Setter>
-
-                                        </Style>
-
-                                    </ListBox.ItemContainerStyle>
-
-                                    <ListBox.ItemTemplate>
-
-                                        <DataTemplate>
-
-                                            <TextBlock Text="{Binding}"
-
-                                                       FontFamily="{StaticResource MonoFontFamily}"
-
-                                                       FontSize="11.5"
-
-                                                       Foreground="#E2E8F0"
-
-                                                       TextWrapping="Wrap"/>
-
-                                        </DataTemplate>
-
-                                    </ListBox.ItemTemplate>
-
-                                </ListBox>
-
+                                    <!-- Active Notifications feed (stacked toasts) -->
+                                    <ScrollViewer x:Name="NotificationScrollViewer"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <ItemsControl x:Name="NotificationItemsControl">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Margin="0,0,0,8"
+                                                            CornerRadius="8"
+                                                            Background="{Binding BackgroundBrush}"
+                                                            BorderBrush="{Binding BorderBrush}"
+                                                            BorderThickness="1"
+                                                            Padding="12,10">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="32"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <Border Grid.Column="0"
+                                                                    Width="26" Height="26"
+                                                                    CornerRadius="13"
+                                                                    Background="{Binding BadgeBackgroundBrush}"
+                                                                    BorderBrush="{Binding BorderBrush}"
+                                                                    BorderThickness="1"
+                                                                    HorizontalAlignment="Left"
+                                                                    VerticalAlignment="Top">
+                                                                <TextBlock Text="{Binding Icon}"
+                                                                           FontFamily="{StaticResource IconFontFamily}"
+                                                                           FontSize="11"
+                                                                           Foreground="{Binding AccentBrush}"
+                                                                           HorizontalAlignment="Center"
+                                                                           VerticalAlignment="Center"/>
+                                                            </Border>
+                                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,8,0">
+                                                                <TextBlock Text="{Binding Title}"
+                                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                                           FontSize="12"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                                                           Margin="0,0,0,2"/>
+                                                                <TextBlock Text="{Binding Message}"
+                                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                                           FontSize="11"
+                                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                                           TextWrapping="Wrap"/>
+                                                            </StackPanel>
+                                                            <TextBlock Grid.Column="2"
+                                                                       Text="{Binding FormattedTime}"
+                                                                       FontFamily="{StaticResource MonoFontFamily}"
+                                                                       FontSize="9.5"
+                                                                       Foreground="{StaticResource TextMutedBrush}"
+                                                                       VerticalAlignment="Top"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Grid>
                             </Border>
 
                         </Grid>

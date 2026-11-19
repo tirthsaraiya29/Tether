@@ -27,6 +27,8 @@ using System.Windows.Threading;
 using Tether.Shared.Events;
 using Tether.Shared.IPC;
 using Tether.Shared.Network;
+using Tether.Shared.Security;
+using ValidationResult = Tether.Shared.Security.ValidationResult;
 
 namespace Tether.DesktopUI
 {
@@ -162,6 +164,7 @@ namespace Tether.DesktopUI
         }
 
         private readonly ObservableCollection<string> _terminalLogs = new();
+        private readonly ObservableCollection<DesktopNotification> _activeNotifications = new();
         private PipeSecurity? _cachedPipeSecurity;
 
         private readonly CancellationTokenSource _closingCts = new();
@@ -366,7 +369,9 @@ namespace Tether.DesktopUI
         public MainWindow()
         {
             InitializeComponent();
-            TerminalList.ItemsSource = _terminalLogs;
+            if (NotificationItemsControl != null) NotificationItemsControl.ItemsSource = _activeNotifications;
+            UpdateNotificationVisibility();
+            LoadMasterAuthConfig();
             if (PairedDevicesList != null) PairedDevicesList.ItemsSource = PairedDevices;
             UpdatePairedUi();
 
@@ -1147,6 +1152,34 @@ namespace Tether.DesktopUI
             DispatchServiceBusPipe(syncEvent);
         }
 
+        private void ShowNotification(string title, string message, NotificationType type = NotificationType.Info)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                var notif = new DesktopNotification(title, message, type);
+                _activeNotifications.Insert(0, notif);
+                UpdateNotificationVisibility();
+
+                // Auto-dismiss after 2.5 seconds (~2500ms)
+                var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2500) };
+                timer.Tick += (s, e) =>
+                {
+                    timer.Stop();
+                    _activeNotifications.Remove(notif);
+                    UpdateNotificationVisibility();
+                };
+                timer.Start();
+            });
+        }
+
+        private void UpdateNotificationVisibility()
+        {
+            if (PnlNoNotifications != null)
+            {
+                PnlNoNotifications.Visibility = _activeNotifications.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
         private void LogTerminal(string message)
         {
             string entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
@@ -1162,23 +1195,53 @@ namespace Tether.DesktopUI
                 TxtLogCount.Text = $"{_terminalLogs.Count} / {MaxTerminalEntries}";
             }
 
-            if (TerminalList.Items.Count > 0)
+            // Derive semantic styling and category matching Android verification styling
+            NotificationType type = NotificationType.Info;
+            string title = "Session";
+            if (message.Contains("error", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("declined", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("corrupted", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("incorrect", StringComparison.OrdinalIgnoreCase))
             {
-                TerminalList.ScrollIntoView(TerminalList.Items[^1]);
+                type = NotificationType.Error;
+                title = "Security Alert";
             }
+            else if (message.Contains("warning", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("degraded", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("disconnected", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("retrying", StringComparison.OrdinalIgnoreCase))
+            {
+                type = NotificationType.Warning;
+                title = "Status Warning";
+            }
+            else if (message.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("saved", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("ready", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("unlocked", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("sent", StringComparison.OrdinalIgnoreCase) ||
+                     message.Contains("downloaded", StringComparison.OrdinalIgnoreCase))
+            {
+                type = NotificationType.Success;
+                title = "Verification Success";
+            }
+
+            ShowNotification(title, message, type);
         }
 
         private void BtnClearLogs_Click(object sender, RoutedEventArgs e)
         {
             _terminalLogs.Clear();
-            LogTerminal("Log cleared.");
+            _activeNotifications.Clear();
+            UpdateNotificationVisibility();
+            ShowNotification("Notice", "Activity log cleared.", NotificationType.Info);
         }
 
         private void BtnCopyLogs_Click(object sender, RoutedEventArgs e)
         {
             if (_terminalLogs.Count == 0) return;
             Clipboard.SetText(string.Join(Environment.NewLine, _terminalLogs));
-            LogTerminal("Log copied to clipboard.");
+            ShowNotification("Success", "Activity log copied to clipboard.", NotificationType.Success);
         }
 
         private async void DispatchServiceBusPipe(TetherEvent evt)
@@ -1409,6 +1472,205 @@ namespace Tether.DesktopUI
             {
                 e.Handled = true;
                 BtnCommitVault_Click(sender, e);
+            }
+        }
+
+        private void LoadMasterAuthConfig()
+        {
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", false);
+                if (key != null)
+                {
+                    object? val = key.GetValue("MasterAuthType");
+                    if (val is int authType)
+                    {
+                        if (authType == (int)MasterAuthType.Pin)
+                        {
+                            if (CmbMasterAuthMethod != null) CmbMasterAuthMethod.SelectedIndex = 1;
+                            if (TxtMasterAuthBadge != null)
+                            {
+                                TxtMasterAuthBadge.Text = "ACTIVE: PIN";
+                                TxtMasterAuthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
+                            }
+                            return;
+                        }
+                        else if (authType == (int)MasterAuthType.Password)
+                        {
+                            if (CmbMasterAuthMethod != null) CmbMasterAuthMethod.SelectedIndex = 2;
+                            if (TxtMasterAuthBadge != null)
+                            {
+                                TxtMasterAuthBadge.Text = "ACTIVE: PASSWORD";
+                                TxtMasterAuthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
+                            }
+                            return;
+                        }
+                    }
+                }
+                if (CmbMasterAuthMethod != null) CmbMasterAuthMethod.SelectedIndex = 0;
+                if (TxtMasterAuthBadge != null)
+                {
+                    TxtMasterAuthBadge.Text = "DISABLED";
+                    TxtMasterAuthBadge.Foreground = (Brush)FindResource("TextSecondaryBrush");
+                }
+            }
+            catch
+            {
+                if (CmbMasterAuthMethod != null) CmbMasterAuthMethod.SelectedIndex = 0;
+            }
+        }
+
+        private void CmbMasterAuthMethod_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (PnlMasterCredentialInputs == null) return;
+
+            int selected = CmbMasterAuthMethod.SelectedIndex;
+            if (selected == 1) // PIN
+            {
+                PnlMasterCredentialInputs.Visibility = Visibility.Visible;
+                if (LblMasterCred != null) LblMasterCred.Text = "New Master PIN (min 8 digits)";
+                if (TxtSaveMasterAuthLabel != null) TxtSaveMasterAuthLabel.Text = "Save Master PIN";
+                TxtMasterPassword_PasswordChanged(this, new RoutedEventArgs());
+            }
+            else if (selected == 2) // Password
+            {
+                PnlMasterCredentialInputs.Visibility = Visibility.Visible;
+                if (LblMasterCred != null) LblMasterCred.Text = "New Master Password (min 8 chars)";
+                if (TxtSaveMasterAuthLabel != null) TxtSaveMasterAuthLabel.Text = "Save Master Password";
+                TxtMasterPassword_PasswordChanged(this, new RoutedEventArgs());
+            }
+            else // Disabled
+            {
+                PnlMasterCredentialInputs.Visibility = Visibility.Collapsed;
+                if (TxtSaveMasterAuthLabel != null) TxtSaveMasterAuthLabel.Text = "Disable Master Auth";
+            }
+        }
+
+        private void TxtMasterPassword_PasswordChanged(object sender, RoutedEventArgs e)
+        {
+            if (TxtMasterStrengthBadge == null || TxtMasterStrengthFeedback == null || PillMasterStrength == null || TxtMasterPassword == null) return;
+
+            string password = TxtMasterPassword.Password;
+            if (string.IsNullOrEmpty(password))
+            {
+                TxtMasterStrengthBadge.Text = "EMPTY";
+                TxtMasterStrengthBadge.Foreground = (Brush)FindResource("TextMutedBrush");
+                TxtMasterStrengthFeedback.Text = "Requires minimum 8 characters with non-predictable patterns.";
+                return;
+            }
+
+            int mode = CmbMasterAuthMethod != null ? CmbMasterAuthMethod.SelectedIndex : 0;
+            ValidationResult res = mode == 1
+                ? MasterCredentialValidator.ValidatePin(password)
+                : MasterCredentialValidator.ValidatePassword(password);
+
+            switch (res.Strength)
+            {
+                case CredentialStrength.Strong:
+                    TxtMasterStrengthBadge.Text = "STRONG";
+                    TxtMasterStrengthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
+                    break;
+                case CredentialStrength.Fair:
+                    TxtMasterStrengthBadge.Text = "FAIR";
+                    TxtMasterStrengthBadge.Foreground = (Brush)FindResource("StatusDegradedBrush");
+                    break;
+                case CredentialStrength.Weak:
+                    TxtMasterStrengthBadge.Text = "WEAK";
+                    TxtMasterStrengthBadge.Foreground = (Brush)FindResource("StatusCriticalBrush");
+                    break;
+                default:
+                    TxtMasterStrengthBadge.Text = "VERY WEAK";
+                    TxtMasterStrengthBadge.Foreground = (Brush)FindResource("StatusCriticalBrush");
+                    break;
+            }
+
+            TxtMasterStrengthFeedback.Text = res.FeedbackMessage;
+        }
+
+        private void BtnSaveMasterAuth_Click(object sender, RoutedEventArgs e)
+        {
+            int mode = CmbMasterAuthMethod != null ? CmbMasterAuthMethod.SelectedIndex : 0;
+            if (mode == 0) // Disable
+            {
+                if (IsElevated)
+                {
+                    MasterCredentialStore.DisableMasterAuth();
+                }
+                else
+                {
+                    if (!RunElevatedSelf("--commit-master-auth 0 none"))
+                    {
+                        ShowNotification("Error", "Administrator approval was declined.", NotificationType.Error);
+                        return;
+                    }
+                }
+                if (TxtMasterAuthBadge != null)
+                {
+                    TxtMasterAuthBadge.Text = "DISABLED";
+                    TxtMasterAuthBadge.Foreground = (Brush)FindResource("TextSecondaryBrush");
+                }
+                ShowNotification("Security", "Master authentication disabled.", NotificationType.Info);
+                return;
+            }
+
+            if (TxtMasterPassword == null || TxtMasterPasswordConfirm == null) return;
+
+            string credential = TxtMasterPassword.Password;
+            string confirm = TxtMasterPasswordConfirm.Password;
+
+            if (string.IsNullOrEmpty(credential))
+            {
+                ShowNotification("Input Required", "Please enter a credential.", NotificationType.Warning);
+                return;
+            }
+
+            MasterAuthType type = mode == 1 ? MasterAuthType.Pin : MasterAuthType.Password;
+            ValidationResult valResult = type == MasterAuthType.Pin
+                ? MasterCredentialValidator.ValidatePin(credential)
+                : MasterCredentialValidator.ValidatePassword(credential);
+
+            if (!valResult.IsValid)
+            {
+                ShowNotification("Security Validation", valResult.FeedbackMessage, NotificationType.Error);
+                return;
+            }
+
+            if (!string.Equals(credential, confirm, StringComparison.Ordinal))
+            {
+                ShowNotification("Validation Error", "The credential confirmation does not match.", NotificationType.Error);
+                return;
+            }
+
+            try
+            {
+                byte[] protectedPayload = MasterCredentialStore.CreatePayload(credential, type);
+                string hex = Convert.ToHexString(protectedPayload);
+
+                if (IsElevated)
+                {
+                    MasterCredentialStore.SaveMasterAuth(protectedPayload, type);
+                }
+                else
+                {
+                    if (!RunElevatedSelf($"--commit-master-auth {(uint)type} {hex}"))
+                    {
+                        ShowNotification("Error", "Administrator approval was declined. Master authentication not saved.", NotificationType.Error);
+                        return;
+                    }
+                }
+
+                TxtMasterPassword.Clear();
+                TxtMasterPasswordConfirm.Clear();
+                if (TxtMasterAuthBadge != null)
+                {
+                    TxtMasterAuthBadge.Text = type == MasterAuthType.Pin ? "ACTIVE: PIN" : "ACTIVE: PASSWORD";
+                    TxtMasterAuthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
+                }
+                ShowNotification("Success", $"Master {type} configured and saved securely.", NotificationType.Success);
+            }
+            catch (Exception ex)
+            {
+                ShowNotification("Error", $"Could not save master authentication: {ex.Message}", NotificationType.Error);
             }
         }
 

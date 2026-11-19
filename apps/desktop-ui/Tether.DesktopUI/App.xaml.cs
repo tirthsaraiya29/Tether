@@ -92,6 +92,50 @@ namespace Tether.DesktopUI
                 return;
             }
 
+            if (e.Args.Length > 0 && e.Args[0].Equals("--commit-master-auth", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    uint authType = e.Args.Length > 1 ? uint.Parse(e.Args[1]) : 0;
+                    byte[]? payload = (e.Args.Length > 2 && !e.Args[2].Equals("none", StringComparison.OrdinalIgnoreCase))
+                        ? Convert.FromHexString(e.Args[2].Trim())
+                        : null;
+
+                    using var rootKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
+                    rootKey?.SetValue("VaultDaclVersion", 2, Microsoft.Win32.RegistryValueKind.DWord);
+
+                    var rs = new System.Security.AccessControl.RegistrySecurity();
+                    var systemSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
+                    var adminsSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
+
+                    rs.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                    rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(systemSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+                    rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(adminsSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+
+                    using var secretsKey = rootKey?.CreateSubKey("Secrets", Microsoft.Win32.RegistryKeyPermissionCheck.ReadWriteSubTree, rs);
+                    if (secretsKey != null)
+                    {
+                        secretsKey.SetAccessControl(rs);
+                        if (authType == 0 || payload == null || payload.Length == 0)
+                        {
+                            secretsKey.SetValue("MasterAuthType", 0, Microsoft.Win32.RegistryValueKind.DWord);
+                            try { secretsKey.DeleteValue("MasterAuthPayload", false); } catch { }
+                        }
+                        else
+                        {
+                            secretsKey.SetValue("MasterAuthType", (int)authType, Microsoft.Win32.RegistryValueKind.DWord);
+                            secretsKey.SetValue("MasterAuthPayload", payload, Microsoft.Win32.RegistryValueKind.Binary);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed writing master authentication secret: {ex.Message}", "Tether Master Auth Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                Environment.Exit(0);
+                return;
+            }
+
             _singleInstanceMutex = new Mutex(true, MutexName, out bool isNewInstance);
 
             if (!isNewInstance)

@@ -99,7 +99,10 @@ CTetherCredential::CTetherCredential() :
     _hWaitApp(nullptr),
     _pCooldownTimer(nullptr),
     _pStatusTimer(nullptr),
-    _isValid(true)
+    _isValid(true),
+    _dwMasterAuthType(TAM_PHONE_APP),
+    _availableMethods({ TAM_PHONE_APP }),
+    _dwSelectedMethodIndex(0)
 {
     InitializeCriticalSection(&_csCredentialEvents);
     DllAddRef();
@@ -199,8 +202,8 @@ HRESULT CTetherCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
         hr = FieldDescriptorCopy(rgcpfd[i], &_rgCredProvFieldDescriptors[i]);
     }
 
-    _rgFieldStatePairs[SFI_METHOD_COMBOBOX].cpfs = CPFS_HIDDEN;
-    _rgFieldStatePairs[SFI_PASSWORD].cpfs = CPFS_HIDDEN;
+    _LoadMasterAuthConfiguration();
+
     _rgFieldStatePairs[SFI_METHOD_LABEL].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
     _rgFieldStatePairs[SFI_SUBMIT_BUTTON].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
     _rgFieldStatePairs[SFI_LOGONSTATUS_TEXT].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
@@ -455,8 +458,9 @@ HRESULT CTetherCredential::GetComboBoxValueCount(DWORD dwFieldID, DWORD* pcItems
     {
         if (dwFieldID == SFI_METHOD_COMBOBOX)
         {
-            *pcItems = 1;
-            *pdwSelectedItem = 0;
+            if (!pcItems || !pdwSelectedItem) return E_POINTER;
+            *pcItems = static_cast<DWORD>(_availableMethods.size());
+            *pdwSelectedItem = _dwSelectedMethodIndex;
             return S_OK;
         }
         return E_INVALIDARG;
@@ -471,8 +475,15 @@ HRESULT CTetherCredential::GetComboBoxValueAt(DWORD dwFieldID, DWORD dwItem, PWS
 {
     try
     {
-        if (dwFieldID == SFI_METHOD_COMBOBOX && dwItem == 0)
-            return SHStrDupW(L"Unlock via Phone App", ppwszItem);
+        if (dwFieldID == SFI_METHOD_COMBOBOX && dwItem < _availableMethods.size())
+        {
+            DWORD method = _availableMethods[dwItem];
+            if (method < ARRAYSIZE(s_rgUnlockMethodStrings))
+            {
+                return SHStrDupW(s_rgUnlockMethodStrings[method], ppwszItem);
+            }
+            return E_FAIL;
+        }
         return E_INVALIDARG;
     }
     catch (...)
@@ -481,13 +492,75 @@ HRESULT CTetherCredential::GetComboBoxValueAt(DWORD dwFieldID, DWORD dwItem, PWS
     }
 }
 
-HRESULT CTetherCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD)
+HRESULT CTetherCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD dwSelectedItem)
 {
     try
     {
         if (dwFieldID == SFI_METHOD_COMBOBOX)
         {
-            g_dwSelectedMethod.store(0);
+            if (dwSelectedItem >= _availableMethods.size())
+            {
+                return E_INVALIDARG;
+            }
+
+            _dwSelectedMethodIndex = dwSelectedItem;
+            DWORD method = _availableMethods[dwSelectedItem];
+            g_dwSelectedMethod.store(method);
+
+            ICredentialProviderCredentialEvents* pEvents = _GetCredentialEventsSafe();
+
+            if (method == TAM_PHONE_APP)
+            {
+                _rgFieldStatePairs[SFI_PASSWORD].cpfs = CPFS_HIDDEN;
+                _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = _fPhoneConnected.load() ? CPFS_DISPLAY_IN_SELECTED_TILE : CPFS_HIDDEN;
+                _rgFieldStatePairs[SFI_SERVICE_ACTION_BUTTON].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
+
+                CoTaskMemFree(_rgFieldStrings[SFI_METHOD_LABEL]);
+                _rgFieldStrings[SFI_METHOD_LABEL] = nullptr;
+                SHStrDupW(L"Open the Tether app on your phone and tap 'Unlock PC'", &_rgFieldStrings[SFI_METHOD_LABEL]);
+
+                if (pEvents)
+                {
+                    pEvents->SetFieldState(this, SFI_PASSWORD, CPFS_HIDDEN);
+                    pEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs);
+                    pEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+                    pEvents->SetFieldString(this, SFI_METHOD_LABEL, _rgFieldStrings[SFI_METHOD_LABEL]);
+                    pEvents->SetFieldComboBoxSelectedItem(this, SFI_METHOD_COMBOBOX, dwSelectedItem);
+                }
+            }
+            else
+            {
+                _rgFieldStatePairs[SFI_PASSWORD].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
+                _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_HIDDEN;
+                _rgFieldStatePairs[SFI_SERVICE_ACTION_BUTTON].cpfs = CPFS_HIDDEN;
+
+                CoTaskMemFree(_rgFieldStrings[SFI_METHOD_LABEL]);
+                _rgFieldStrings[SFI_METHOD_LABEL] = nullptr;
+                if (method == TAM_MASTER_PIN)
+                {
+                    SHStrDupW(L"Enter Master PIN to unlock PC", &_rgFieldStrings[SFI_METHOD_LABEL]);
+                }
+                else
+                {
+                    SHStrDupW(L"Enter Master Password to unlock PC", &_rgFieldStrings[SFI_METHOD_LABEL]);
+                }
+
+                if (pEvents)
+                {
+                    pEvents->SetFieldState(this, SFI_PASSWORD, CPFS_DISPLAY_IN_SELECTED_TILE);
+                    pEvents->SetFieldInteractiveState(this, SFI_PASSWORD, CPFIS_FOCUSED);
+                    pEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_HIDDEN);
+                    pEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_HIDDEN);
+                    pEvents->SetFieldString(this, SFI_METHOD_LABEL, _rgFieldStrings[SFI_METHOD_LABEL]);
+                    pEvents->SetFieldComboBoxSelectedItem(this, SFI_METHOD_COMBOBOX, dwSelectedItem);
+                }
+            }
+
+            if (pEvents)
+            {
+                pEvents->Release();
+            }
+
             return S_OK;
         }
         return E_INVALIDARG;
@@ -693,6 +766,49 @@ bool CTetherCredential::_IsEncryptedPasswordBlobPresent()
     return (res == ERROR_SUCCESS && dwType == REG_BINARY);
 }
 
+void CTetherCredential::_LoadMasterAuthConfiguration()
+{
+    _availableMethods.clear();
+    _availableMethods.push_back(TAM_PHONE_APP);
+    _dwSelectedMethodIndex = 0;
+    _dwMasterAuthType = TAM_PHONE_APP;
+
+    HKEY hRoot = nullptr;
+    DWORD dwVaultDaclVer = 0;
+    DWORD dwVerSize = sizeof(dwVaultDaclVer);
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ | KEY_WOW64_64KEY, &hRoot) == ERROR_SUCCESS)
+    {
+        RegQueryValueExW(hRoot, L"VaultDaclVersion", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwVaultDaclVer), &dwVerSize);
+        RegCloseKey(hRoot);
+    }
+    if (dwVaultDaclVer < 2)
+    {
+        WriteDebugLog(L"_LoadMasterAuthConfiguration: Insecure vault DACL version (%u), skipping master auth.", dwVaultDaclVer);
+        return;
+    }
+
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ | KEY_WOW64_64KEY, &hKey) == ERROR_SUCCESS)
+    {
+        DWORD dwType = 0;
+        DWORD dwTypeSize = sizeof(dwType);
+        if (RegQueryValueExW(hKey, L"MasterAuthType", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwType), &dwTypeSize) == ERROR_SUCCESS)
+        {
+            if (dwType == TAM_MASTER_PIN || dwType == TAM_MASTER_PASSWORD)
+            {
+                DWORD dwPayloadSize = 0;
+                if (RegQueryValueExW(hKey, L"MasterAuthPayload", nullptr, nullptr, nullptr, &dwPayloadSize) == ERROR_SUCCESS && dwPayloadSize >= 59)
+                {
+                    _dwMasterAuthType = dwType;
+                    _availableMethods.push_back(dwType);
+                    WriteDebugLog(L"_LoadMasterAuthConfiguration: Registered master auth method %u. Total methods=%u", dwType, (DWORD)_availableMethods.size());
+                }
+            }
+        }
+        RegCloseKey(hKey);
+    }
+}
+
 HRESULT CTetherCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
     CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
     PWSTR* ppwszOptionalStatusText,
@@ -721,8 +837,8 @@ HRESULT CTetherCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
     HKEY hKeyVault = nullptr;
     WCHAR szTargetSid[128] = { 0 };
     DWORD dwTargetSidLen = sizeof(szTargetSid);
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ, &hKeyVault) == ERROR_SUCCESS ||
-        RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKeyVault) == ERROR_SUCCESS)
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ | KEY_WOW64_64KEY, &hKeyVault) == ERROR_SUCCESS ||
+        RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ | KEY_WOW64_64KEY, &hKeyVault) == ERROR_SUCCESS)
     {
         RegQueryValueExW(hKeyVault, L"TargetUserSid", nullptr, nullptr, (LPBYTE)szTargetSid, &dwTargetSidLen);
         RegCloseKey(hKeyVault);
@@ -735,6 +851,126 @@ HRESULT CTetherCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
         return S_FALSE; // Not for this user; preserve trigger flag for targeted user tile
     }
     CoTaskMemFree(pszCurrentTileSid);
+
+    DWORD selectedMethod = g_dwSelectedMethod.load();
+    if (selectedMethod == TAM_MASTER_PIN || selectedMethod == TAM_MASTER_PASSWORD)
+    {
+        // 1. Rate limiting check
+        HKEY hKeyParams = nullptr;
+        DWORD failedAttempts = 0;
+        ULONGLONG lockoutUntil = 0;
+        if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, nullptr, 0,
+            KEY_READ | KEY_WRITE | KEY_WOW64_64KEY, nullptr, &hKeyParams, nullptr) == ERROR_SUCCESS)
+        {
+            DWORD dwSize = sizeof(failedAttempts);
+            RegQueryValueExW(hKeyParams, L"MasterAuthFailedAttempts", nullptr, nullptr, reinterpret_cast<LPBYTE>(&failedAttempts), &dwSize);
+            dwSize = sizeof(lockoutUntil);
+            RegQueryValueExW(hKeyParams, L"MasterAuthLockoutUntil", nullptr, nullptr, reinterpret_cast<LPBYTE>(&lockoutUntil), &dwSize);
+        }
+
+        FILETIME ftNow;
+        GetSystemTimeAsFileTime(&ftNow);
+        ULONGLONG now = (((ULONGLONG)ftNow.dwHighDateTime) << 32) | ftNow.dwLowDateTime;
+
+        if (now < lockoutUntil)
+        {
+            DWORD secRemaining = static_cast<DWORD>((lockoutUntil - now + 9999999ULL) / 10000000ULL);
+            WCHAR szRateLimitMsg[128];
+            swprintf_s(szRateLimitMsg, L"Too many incorrect attempts. Please wait %u seconds.", secRemaining);
+            SHStrDupW(szRateLimitMsg, ppwszOptionalStatusText);
+            *pcpsiOptionalStatusIcon = CPSI_ERROR;
+            if (hKeyParams) RegCloseKey(hKeyParams);
+            return S_FALSE;
+        }
+
+        // 2. Validate user input
+        PCWSTR pszEntered = _rgFieldStrings[SFI_PASSWORD];
+        if (!pszEntered || pszEntered[0] == L'\0')
+        {
+            SHStrDupW(selectedMethod == TAM_MASTER_PIN ? L"Please enter your Master PIN." : L"Please enter your Master Password.", ppwszOptionalStatusText);
+            *pcpsiOptionalStatusIcon = CPSI_WARNING;
+            if (hKeyParams) RegCloseKey(hKeyParams);
+            return S_FALSE;
+        }
+
+        // 3. Read and unprotect MasterAuthPayload from Secrets
+        bool verified = false;
+        HKEY hKeySecrets = nullptr;
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ | KEY_WOW64_64KEY, &hKeySecrets) == ERROR_SUCCESS)
+        {
+            BYTE encryptedPayload[4096];
+            DWORD dwEncSize = sizeof(encryptedPayload);
+            DWORD dwType = 0;
+            if (RegQueryValueExW(hKeySecrets, L"MasterAuthPayload", nullptr, &dwType, encryptedPayload, &dwEncSize) == ERROR_SUCCESS)
+            {
+                DATA_BLOB dataIn = { dwEncSize, encryptedPayload };
+                DATA_BLOB dataOut = { 0 };
+                BYTE entropyBytes[] = "Tether_System_Bound_Vault_v1";
+                DATA_BLOB entropyBlob = { sizeof(entropyBytes) - 1, entropyBytes };
+
+                if (CryptUnprotectData(&dataIn, nullptr, &entropyBlob, nullptr, nullptr,
+                    CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, &dataOut))
+                {
+                    verified = VerifyMasterCredentialPBKDF2(pszEntered, dataOut.pbData, dataOut.cbData, selectedMethod);
+                    SecureZeroMemory(dataOut.pbData, dataOut.cbData);
+                    LocalFree(dataOut.pbData);
+                }
+                SecureZeroMemory(encryptedPayload, sizeof(encryptedPayload));
+            }
+            RegCloseKey(hKeySecrets);
+        }
+
+        // Wipe entered credential string in-place
+        if (_rgFieldStrings[SFI_PASSWORD])
+        {
+            SecureZeroMemory(_rgFieldStrings[SFI_PASSWORD], wcslen(_rgFieldStrings[SFI_PASSWORD]) * sizeof(WCHAR));
+            CoTaskMemFree(_rgFieldStrings[SFI_PASSWORD]);
+            _rgFieldStrings[SFI_PASSWORD] = nullptr;
+            SHStrDupW(L"", &_rgFieldStrings[SFI_PASSWORD]);
+        }
+
+        if (!verified)
+        {
+            failedAttempts++;
+            DWORD delaySeconds = (failedAttempts >= 5) ? 30 : ((failedAttempts == 4) ? 15 : ((failedAttempts == 3) ? 5 : ((failedAttempts == 2) ? 3 : 1)));
+            lockoutUntil = now + (static_cast<ULONGLONG>(delaySeconds) * 10000000ULL);
+
+            if (hKeyParams)
+            {
+                RegSetValueExW(hKeyParams, L"MasterAuthFailedAttempts", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&failedAttempts), sizeof(failedAttempts));
+                RegSetValueExW(hKeyParams, L"MasterAuthLockoutUntil", 0, REG_QWORD, reinterpret_cast<const BYTE*>(&lockoutUntil), sizeof(lockoutUntil));
+                RegCloseKey(hKeyParams);
+            }
+
+            WriteDebugLog(L"GetSerialization: Master credential verification failed (attempt #%u, lockout %u s).", failedAttempts, delaySeconds);
+            SHStrDupW(selectedMethod == TAM_MASTER_PIN ? L"Incorrect Master PIN." : L"Incorrect Master Password.", ppwszOptionalStatusText);
+            *pcpsiOptionalStatusIcon = CPSI_ERROR;
+            return S_FALSE;
+        }
+
+        // Reset rate-limiting state on success
+        failedAttempts = 0;
+        lockoutUntil = 0;
+        if (hKeyParams)
+        {
+            RegSetValueExW(hKeyParams, L"MasterAuthFailedAttempts", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&failedAttempts), sizeof(failedAttempts));
+            RegSetValueExW(hKeyParams, L"MasterAuthLockoutUntil", 0, REG_QWORD, reinterpret_cast<const BYTE*>(&lockoutUntil), sizeof(lockoutUntil));
+            RegCloseKey(hKeyParams);
+        }
+
+        WriteDebugLog(L"GetSerialization: Master credential successfully verified. Unlocking session...");
+        HRESULT hr = _GetStoredPasswordAndPack(pcpgsr, pcpcs);
+        if (SUCCEEDED(hr) && *pcpgsr == CPGSR_RETURN_CREDENTIAL_FINISHED)
+        {
+            WriteDebugLog(L"GetSerialization: Successfully packaged stored credentials via master auth.");
+            return S_OK;
+        }
+
+        WriteDebugLog(L"GetSerialization: Failed to unpack stored credentials (hr=0x%08X).", hr);
+        SHStrDupW(L"Failed to unlock: Stored Windows logon credentials missing or corrupted.", ppwszOptionalStatusText);
+        *pcpsiOptionalStatusIcon = CPSI_ERROR;
+        return S_FALSE;
+    }
 
     bool isTriggered = _fInstancePhoneAppTriggered.exchange(false) || g_fPhoneAppTriggered.load();
     if (!isTriggered)
@@ -855,6 +1091,8 @@ void CTetherCredential::_CheckStatusAndRefreshUi()
     ICredentialProviderCredentialEvents* pEvents = _GetCredentialEventsSafe();
     if (!pEvents) return;
 
+    DWORD currentMethod = g_dwSelectedMethod.load();
+
     if (statusChanged)
     {
         if (!isServiceRunning)
@@ -864,7 +1102,10 @@ void CTetherCredential::_CheckStatusAndRefreshUi()
             SHStrDupW(L"Start Tether Service", &_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
             pEvents->SetFieldString(this, SFI_SERVICE_ACTION_BUTTON, L"Start Tether Service");
             pEvents->SetFieldInteractiveState(this, SFI_SERVICE_ACTION_BUTTON, CPFIS_NONE);
-            pEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+            if (currentMethod == TAM_PHONE_APP)
+            {
+                pEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+            }
 
             _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_HIDDEN;
             pEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_HIDDEN);
@@ -876,7 +1117,10 @@ void CTetherCredential::_CheckStatusAndRefreshUi()
             SHStrDupW(L"Restart Tether Service", &_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
             pEvents->SetFieldString(this, SFI_SERVICE_ACTION_BUTTON, L"Restart Tether Service");
             pEvents->SetFieldInteractiveState(this, SFI_SERVICE_ACTION_BUTTON, CPFIS_NONE);
-            pEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+            if (currentMethod == TAM_PHONE_APP)
+            {
+                pEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+            }
 
             _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_HIDDEN;
             pEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_HIDDEN);
@@ -888,14 +1132,16 @@ void CTetherCredential::_CheckStatusAndRefreshUi()
             SHStrDupW(L"Restart Tether Service", &_rgFieldStrings[SFI_SERVICE_ACTION_BUTTON]);
             pEvents->SetFieldString(this, SFI_SERVICE_ACTION_BUTTON, L"Restart Tether Service");
             pEvents->SetFieldInteractiveState(this, SFI_SERVICE_ACTION_BUTTON, CPFIS_NONE);
-            pEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
-
-            _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
-            pEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+            if (currentMethod == TAM_PHONE_APP)
+            {
+                pEvents->SetFieldState(this, SFI_SERVICE_ACTION_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+                _rgFieldStatePairs[SFI_UNLOCK_PROMPT_BUTTON].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
+                pEvents->SetFieldState(this, SFI_UNLOCK_PROMPT_BUTTON, CPFS_DISPLAY_IN_SELECTED_TILE);
+            }
         }
     }
 
-    if (isServiceRunning && isPhoneConnected)
+    if (currentMethod == TAM_PHONE_APP && isServiceRunning && isPhoneConnected)
     {
         long long nowMs = GetTickCount64();
         long long endMs = _promptCooldownEndMs.load(std::memory_order_acquire);
@@ -1261,56 +1507,5 @@ void CTetherCredential::_StartBackgroundIPCListeners()
         RegisterWaitForSingleObject(&_hWaitApp, _hAppEvent,
             CTetherCredential::_OnAppEventSignaled, this,
             INFINITE, WT_EXECUTEDEFAULT);
-    }
-}
-
-void WriteDebugLog(const wchar_t* format, ...)
-{
-    wchar_t buf[1024];
-    va_list args;
-    va_start(args, format);
-    vswprintf_s(buf, sizeof(buf) / sizeof(wchar_t), format, args);
-    va_end(args);
-    OutputDebugStringW(buf);
-    OutputDebugStringW(L"\n");
-
-    // Persistent file logging to %ProgramData%\Tether\logs\credential-provider.log
-    WCHAR szPath[MAX_PATH];
-    DWORD dwEnvLen = GetEnvironmentVariableW(L"ProgramData", szPath, MAX_PATH);
-    if (dwEnvLen > 0 && dwEnvLen < MAX_PATH)
-    {
-        PathAppendW(szPath, L"Tether");
-        CreateDirectoryW(szPath, NULL);
-        PathAppendW(szPath, L"logs");
-        CreateDirectoryW(szPath, NULL);
-        PathAppendW(szPath, L"credential-provider.log");
-
-        HANDLE hFile = CreateFileW(szPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                   NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-        if (hFile != INVALID_HANDLE_VALUE)
-        {
-            // Limit log file size to ~5 MB
-            LARGE_INTEGER fileSize;
-            if (GetFileSizeEx(hFile, &fileSize) && fileSize.QuadPart > 5 * 1024 * 1024)
-            {
-                CloseHandle(hFile);
-                hFile = CreateFileW(szPath, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-            }
-
-            if (hFile != INVALID_HANDLE_VALUE)
-            {
-                SYSTEMTIME st;
-                GetLocalTime(&st);
-                char line[2048];
-                int n = sprintf_s(line, "[%04u-%02u-%02u %02u:%02u:%02u.%03u] %ls\r\n",
-                                  st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, buf);
-                if (n > 0)
-                {
-                    DWORD written = 0;
-                    WriteFile(hFile, line, (DWORD)n, &written, NULL);
-                }
-                CloseHandle(hFile);
-            }
-        }
     }
 }

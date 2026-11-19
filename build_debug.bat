@@ -155,11 +155,12 @@ if errorlevel 1 (
     goto :error
 )
 reg import "%ROOT_DIR%\TetherCredentialProvider\register.reg" >nul 2>&1
+reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}" /ve /t REG_SZ /d "TetherCredentialProvider" /f >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Failed to register Credential Provider. Run this script as Administrator.
     goto :error
 )
-echo [*] Credential Provider copied and registered.
+echo [*] Credential Provider and Filter copied and registered.
 
 rem ----------------------------------------------------------------------------
 rem  Step 6: Ensure firewall rules for the Debug CommunicationService binary

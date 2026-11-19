@@ -114,6 +114,9 @@ reg.exe add "HKLM\SOFTWARE\Classes\CLSID\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}\
 
 # Register with Windows Credential Providers
 reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}" /ve /t REG_SZ /d "TetherCredentialProvider" /f
+
+# Register with Windows Credential Provider Filters
+reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}" /ve /t REG_SZ /d "TetherCredentialProvider" /f
 ```
 
 ### 3. Add Windows Firewall Rules
