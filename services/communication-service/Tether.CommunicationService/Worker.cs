@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Tether.CommunicationService.Capabilities;
+using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.Discovery;
 using Tether.CommunicationService.Ipc;
 using Tether.CommunicationService.Power;
@@ -45,6 +46,7 @@ public sealed class Worker : BackgroundService
     private readonly UdpDiscovery _udpDiscovery;
     private readonly WindowsIdentity _identity;
     private readonly SessionManager _sessionManager;
+    private readonly DeviceManager _deviceManager;
     private readonly PowerEventWatcher _powerWatcher;
     private readonly PowerEventNotifier _powerNotifier;
     private readonly TrustStore _trustStore;
@@ -58,6 +60,7 @@ public sealed class Worker : BackgroundService
         UdpDiscovery udpDiscovery,
         WindowsIdentity identity,
         SessionManager sessionManager,
+        DeviceManager deviceManager,
         PowerEventWatcher powerWatcher,
         PowerEventNotifier powerNotifier,
         TrustStateManager trustStateManager,
@@ -74,6 +77,7 @@ public sealed class Worker : BackgroundService
         _udpDiscovery = udpDiscovery;
         _identity = identity;
         _sessionManager = sessionManager;
+        _deviceManager = deviceManager;
         _powerWatcher = powerWatcher;
         _powerNotifier = powerNotifier;
         _trustStore = trustStore;
@@ -155,8 +159,9 @@ public sealed class Worker : BackgroundService
                     if (!string.IsNullOrEmpty(fingerprint))
                     {
                         _trustStore.Remove(fingerprint);
+                        _deviceManager.RemoveDevice(fingerprint);
                         _sessionManager.DisconnectDevice(fingerprint, "Unpaired by user");
-                        _tetherLogger.Info($"Device with fingerprint {fingerprint} was removed from TrustStore and disconnected.");
+                        _tetherLogger.Info($"Device with fingerprint {fingerprint} was removed from TrustStore, DeviceManager and disconnected.");
                         PublishPairedDevicesList(eventBus);
                     }
                 }
