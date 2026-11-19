@@ -1558,9 +1558,6 @@ namespace Tether.DesktopUI
                             ? "Local PIN fallback unlock is enabled. You can unlock this PC with your PIN if your phone is away or offline."
                             : "Local Password fallback unlock is enabled. You can unlock this PC with your password if your phone is away or offline.";
 
-                    if (TxtResetFallbackCredLabel != null)
-                        TxtResetFallbackCredLabel.Text = "Reset Password";
-
                     if (TxtForgotFallbackCredLabel != null)
                         TxtForgotFallbackCredLabel.Text = "Forgot Password";
 
@@ -1589,19 +1586,6 @@ namespace Tether.DesktopUI
             {
                 if (CmbFallbackAuthMethod != null) CmbFallbackAuthMethod.SelectedIndex = 0;
             }
-        }
-
-        private void BtnResetFallbackCred_Click(object sender, RoutedEventArgs e)
-        {
-            if (PnlFallbackActiveSummary != null) PnlFallbackActiveSummary.Visibility = Visibility.Collapsed;
-            if (PnlForgotPasswordRecovery != null) PnlForgotPasswordRecovery.Visibility = Visibility.Collapsed;
-            if (PnlFallbackConfig != null) PnlFallbackConfig.Visibility = Visibility.Visible;
-            if (PnlFallbackCredentialInputs != null) PnlFallbackCredentialInputs.Visibility = Visibility.Visible;
-            if (BtnCancelFallbackReset != null) BtnCancelFallbackReset.Visibility = Visibility.Visible;
-
-            TxtFallbackPassword?.Clear();
-            TxtFallbackPasswordConfirm?.Clear();
-            TxtFallbackPassword?.Focus();
         }
 
         private void BtnCancelFallbackReset_Click(object sender, RoutedEventArgs e)
@@ -1790,7 +1774,7 @@ namespace Tether.DesktopUI
             TxtFallbackPassword?.Focus();
 
             ShowNotification("Identity Verified", "Phone command and Windows password confirmed. You may now enter a new Fallback Password.", NotificationType.Success);
-            LogTerminal("Fallback password reset unlocked via phone and Windows password verification.");
+            LogTerminal("Fallback password recovery unlocked via phone and Windows password verification.");
         }
 
         private void CmbFallbackAuthMethod_SelectionChanged(object sender, SelectionChangedEventArgs e)

@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 #include <cstdlib>
+#include <new>
 
 #include "../../TetherCredentialProvider/guid.h"
 #include "../../TetherCredentialProvider/TetherProvider.h"
@@ -695,7 +696,7 @@ static void Test_VerifyFallbackCredentialPBKDF2_Validation()
 
 static void Test_CredentialProvider_ComboBox_And_FieldSwitching()
 {
-    CTetherCredential* pCred = new CTetherCredential();
+    CTetherCredential* pCred = new (std::nothrow) CTetherCredential();
     TEST_ASSERT(pCred != nullptr);
 
     DWORD itemCount = 0;

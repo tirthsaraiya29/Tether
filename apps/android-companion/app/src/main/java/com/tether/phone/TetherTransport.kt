@@ -223,8 +223,9 @@ class TetherTlsTransport(
             sslSock.useClientMode = true
 
             val sslParams = sslSock.sslParameters
-            sslParams.endpointIdentificationAlgorithm = "HTTPS"
+            sslParams.setEndpointIdentificationAlgorithm("HTTPS")
             sslSock.sslParameters = sslParams
+            sslSock.setSSLParameters(sslParams)
 
             sslSock.enabledProtocols = arrayOf("TLSv1.3")
 

@@ -1921,8 +1921,7 @@
                                             <Button x:Name="BtnForgotFallbackCred"
                                                     Style="{StaticResource StandardButton}"
                                                     Height="34"
-                                                    Padding="14,0"
-                                                    Margin="0,0,10,0"
+                                                    Padding="16,0"
                                                     Click="BtnForgotFallbackCred_Click">
                                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                                     <TextBlock Text="&#xE897;"
@@ -1932,23 +1931,6 @@
                                                                Margin="0,0,7,0"/>
                                                     <TextBlock x:Name="TxtForgotFallbackCredLabel"
                                                                Text="Forgot Password"
-                                                               VerticalAlignment="Center"/>
-                                                </StackPanel>
-                                            </Button>
-
-                                            <Button x:Name="BtnResetFallbackCred"
-                                                    Style="{StaticResource AccentButton}"
-                                                    Height="34"
-                                                    Padding="16,0"
-                                                    Click="BtnResetFallbackCred_Click">
-                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                                    <TextBlock Text="&#xE70F;"
-                                                               FontFamily="{StaticResource IconFontFamily}"
-                                                               FontSize="12"
-                                                               VerticalAlignment="Center"
-                                                               Margin="0,0,7,0"/>
-                                                    <TextBlock x:Name="TxtResetFallbackCredLabel"
-                                                               Text="Reset Password"
                                                                VerticalAlignment="Center"/>
                                                 </StackPanel>
                                             </Button>
@@ -1969,10 +1951,10 @@
                                         <TextBlock Text="IDENTITY RECOVERY"
                                                    Style="{StaticResource SectionEyebrowTextStyle}"
                                                    Foreground="{StaticResource SystemAccentBrush}"/>
-                                        <TextBlock Text="Reset Forgotten Fallback Credential"
+                                        <TextBlock Text="Recover Forgotten Credential"
                                                    Style="{StaticResource CardTitleTextStyle}"
                                                    Margin="0,0,0,4"/>
-                                        <TextBlock Text="Both security verifications below are mandatory to reset your fallback credential."
+                                        <TextBlock Text="Both security verifications below are mandatory to recover your fallback credential."
                                                    FontFamily="{StaticResource FluentFontFamily}"
                                                    FontSize="11.5"
                                                    Foreground="{StaticResource TextSecondaryBrush}"
@@ -2102,7 +2084,7 @@
                                                                FontSize="12.5"
                                                                VerticalAlignment="Center"
                                                                Margin="0,0,8,0"/>
-                                                    <TextBlock Text="Verify &amp; Unlock Reset"
+                                                    <TextBlock Text="Verify &amp; Unlock"
                                                                VerticalAlignment="Center"/>
                                                 </StackPanel>
                                             </Button>
