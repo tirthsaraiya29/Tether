@@ -673,7 +673,14 @@ public sealed class TetherSession : IDisposable
 
                 if (frameBytes.Length >= 1 && frameBytes[0] == PacketTypeInputEvent)
                 {
-                    _inputForwarder.Forward(frameBytes);
+                    if (Device != null && CapabilityManager.HasCapability(Device.Capabilities, "INPUT"))
+                    {
+                        _inputForwarder.Forward(frameBytes);
+                    }
+                    else
+                    {
+                        _logger.Warning($"TetherSession [{SessionId}]: Dropped 0x05 input frame from device '{Device?.DisplayName}' lacking INPUT capability.");
+                    }
                     continue;
                 }
 

@@ -87,7 +87,7 @@ static HBITMAP CreateFallbackLogoBitmap(int cx, int cy)
     return hbmp;
 }
 
-CSampleCredential::CSampleCredential() :
+CTetherCredential::CTetherCredential() :
     _cRef(1),
     _pCredProvCredentialEvents(nullptr),
     _pszUserSid(nullptr),
@@ -108,7 +108,7 @@ CSampleCredential::CSampleCredential() :
     ZeroMemory(_rgFieldStrings, sizeof(_rgFieldStrings));
 }
 
-CSampleCredential::~CSampleCredential()
+CTetherCredential::~CTetherCredential()
 {
     _isValid.store(false);
 
@@ -164,7 +164,7 @@ CSampleCredential::~CSampleCredential()
     DllRelease();
 }
 
-ICredentialProviderCredentialEvents* CSampleCredential::_GetCredentialEventsSafe()
+ICredentialProviderCredentialEvents* CTetherCredential::_GetCredentialEventsSafe()
 {
     ICredentialProviderCredentialEvents* pEvents = nullptr;
     EnterCriticalSection(&_csCredentialEvents);
@@ -177,7 +177,7 @@ ICredentialProviderCredentialEvents* CSampleCredential::_GetCredentialEventsSafe
     return pEvents;
 }
 
-HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
+HRESULT CTetherCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* rgcpfd,
     const FIELD_STATE_PAIR* rgfsp,
     ICredentialProviderUser* pcpUser)
@@ -280,7 +280,7 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
 
     _StartBackgroundIPCListeners();
 
-    _pStatusTimer = CreateThreadpoolTimer(CSampleCredential::_OnStatusTimerFired, this, nullptr);
+    _pStatusTimer = CreateThreadpoolTimer(CTetherCredential::_OnStatusTimerFired, this, nullptr);
     if (_pStatusTimer)
     {
         LONG64 due100ns = -15000000LL; // 1500ms
@@ -291,7 +291,7 @@ HRESULT CSampleCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     return hr;
 }
 
-HRESULT CSampleCredential::Advise(ICredentialProviderCredentialEvents* pcpce)
+HRESULT CTetherCredential::Advise(ICredentialProviderCredentialEvents* pcpce)
 {
     try
     {
@@ -315,7 +315,7 @@ HRESULT CSampleCredential::Advise(ICredentialProviderCredentialEvents* pcpce)
     }
 }
 
-HRESULT CSampleCredential::UnAdvise()
+HRESULT CTetherCredential::UnAdvise()
 {
     try
     {
@@ -335,7 +335,7 @@ HRESULT CSampleCredential::UnAdvise()
     }
 }
 
-HRESULT CSampleCredential::SetSelected(BOOL* pbAutoLogon)
+HRESULT CTetherCredential::SetSelected(BOOL* pbAutoLogon)
 {
     try
     {
@@ -348,12 +348,12 @@ HRESULT CSampleCredential::SetSelected(BOOL* pbAutoLogon)
     }
 }
 
-HRESULT CSampleCredential::SetDeselected()
+HRESULT CTetherCredential::SetDeselected()
 {
     return S_OK;
 }
 
-HRESULT CSampleCredential::GetFieldState(DWORD dwFieldID,
+HRESULT CTetherCredential::GetFieldState(DWORD dwFieldID,
     CREDENTIAL_PROVIDER_FIELD_STATE* pcpfs,
     CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE* pcpfis)
 {
@@ -373,7 +373,7 @@ HRESULT CSampleCredential::GetFieldState(DWORD dwFieldID,
     }
 }
 
-HRESULT CSampleCredential::GetStringValue(DWORD dwFieldID, PWSTR* ppwsz)
+HRESULT CTetherCredential::GetStringValue(DWORD dwFieldID, PWSTR* ppwsz)
 {
     try
     {
@@ -387,7 +387,7 @@ HRESULT CSampleCredential::GetStringValue(DWORD dwFieldID, PWSTR* ppwsz)
     }
 }
 
-HRESULT CSampleCredential::GetBitmapValue(DWORD dwFieldID, HBITMAP* phbmp)
+HRESULT CTetherCredential::GetBitmapValue(DWORD dwFieldID, HBITMAP* phbmp)
 {
     try
     {
@@ -410,7 +410,7 @@ HRESULT CSampleCredential::GetBitmapValue(DWORD dwFieldID, HBITMAP* phbmp)
     }
 }
 
-HRESULT CSampleCredential::GetSubmitButtonValue(DWORD dwFieldID, DWORD* pdwAdjacentTo)
+HRESULT CTetherCredential::GetSubmitButtonValue(DWORD dwFieldID, DWORD* pdwAdjacentTo)
 {
     try
     {
@@ -427,7 +427,7 @@ HRESULT CSampleCredential::GetSubmitButtonValue(DWORD dwFieldID, DWORD* pdwAdjac
     }
 }
 
-HRESULT CSampleCredential::SetStringValue(DWORD dwFieldID, PCWSTR pwz)
+HRESULT CTetherCredential::SetStringValue(DWORD dwFieldID, PCWSTR pwz)
 {
     try
     {
@@ -446,10 +446,10 @@ HRESULT CSampleCredential::SetStringValue(DWORD dwFieldID, PCWSTR pwz)
     }
 }
 
-HRESULT CSampleCredential::GetCheckboxValue(DWORD, BOOL*, PWSTR*) { return E_INVALIDARG; }
-HRESULT CSampleCredential::SetCheckboxValue(DWORD, BOOL) { return E_INVALIDARG; }
+HRESULT CTetherCredential::GetCheckboxValue(DWORD, BOOL*, PWSTR*) { return E_INVALIDARG; }
+HRESULT CTetherCredential::SetCheckboxValue(DWORD, BOOL) { return E_INVALIDARG; }
 
-HRESULT CSampleCredential::GetComboBoxValueCount(DWORD dwFieldID, DWORD* pcItems, DWORD* pdwSelectedItem)
+HRESULT CTetherCredential::GetComboBoxValueCount(DWORD dwFieldID, DWORD* pcItems, DWORD* pdwSelectedItem)
 {
     try
     {
@@ -467,7 +467,7 @@ HRESULT CSampleCredential::GetComboBoxValueCount(DWORD dwFieldID, DWORD* pcItems
     }
 }
 
-HRESULT CSampleCredential::GetComboBoxValueAt(DWORD dwFieldID, DWORD dwItem, PWSTR* ppwszItem)
+HRESULT CTetherCredential::GetComboBoxValueAt(DWORD dwFieldID, DWORD dwItem, PWSTR* ppwszItem)
 {
     try
     {
@@ -481,7 +481,7 @@ HRESULT CSampleCredential::GetComboBoxValueAt(DWORD dwFieldID, DWORD dwItem, PWS
     }
 }
 
-HRESULT CSampleCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD)
+HRESULT CTetherCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD)
 {
     try
     {
@@ -498,7 +498,7 @@ HRESULT CSampleCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD)
     }
 }
 
-HRESULT CSampleCredential::_PackActualPasswordCredential(
+HRESULT CTetherCredential::_PackActualPasswordCredential(
     CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
     CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
     PCWSTR pszPassword)
@@ -583,7 +583,7 @@ HRESULT CSampleCredential::_PackActualPasswordCredential(
                     if (SUCCEEDED(hr))
                     {
                         pcpcs->ulAuthenticationPackage = ulAuthPackage;
-                        pcpcs->clsidCredentialProvider = CLSID_CSample;
+                        pcpcs->clsidCredentialProvider = CLSID_TetherProvider;
                         *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
                         hr = S_OK;
                     }
@@ -597,15 +597,28 @@ HRESULT CSampleCredential::_PackActualPasswordCredential(
     return hr;
 }
 
-HRESULT CSampleCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
+HRESULT CTetherCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
     CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs)
 {
     HRESULT hr = E_FAIL;
-    HKEY hKey = nullptr;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+
+    // Verify VaultDaclVersion == 2 before accessing Secrets
+    HKEY hRoot = nullptr;
+    DWORD dwVaultDaclVer = 0;
+    DWORD dwVerSize = sizeof(dwVaultDaclVer);
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hRoot) == ERROR_SUCCESS)
     {
-        RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hKey);
+        RegQueryValueExW(hRoot, L"VaultDaclVersion", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwVaultDaclVer), &dwVerSize);
+        RegCloseKey(hRoot);
     }
+    if (dwVaultDaclVer < 2)
+    {
+        WriteDebugLog(L"CTetherCredential::_GetStoredPasswordAndPack: Rejected insecure or legacy vault (VaultDaclVersion < 2).");
+        return E_ACCESSDENIED;
+    }
+
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
 
     if (hKey != nullptr)
     {
@@ -652,31 +665,35 @@ HRESULT CSampleCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SER
     return hr;
 }
 
-bool CSampleCredential::_IsEncryptedPasswordBlobPresent()
+bool CTetherCredential::_IsEncryptedPasswordBlobPresent()
 {
-    const wchar_t* subKeys[] =
+    HKEY hRoot = nullptr;
+    DWORD dwVaultDaclVer = 0;
+    DWORD dwVerSize = sizeof(dwVaultDaclVer);
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hRoot) == ERROR_SUCCESS)
     {
-        L"SOFTWARE\\Tether\\CredentialProvider\\Secrets",
-        L"SOFTWARE\\Tether\\CredentialProvider"
-    };
-
-    for (const wchar_t* subKey : subKeys)
-    {
-        HKEY hKey = nullptr;
-        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, subKey, 0, KEY_READ, &hKey) != ERROR_SUCCESS)
-            continue;
-
-        DWORD dwType = 0;
-        LONG res = RegQueryValueExW(hKey, L"EncryptedPassword", nullptr, &dwType, nullptr, nullptr);
-        RegCloseKey(hKey);
-
-        if (res == ERROR_SUCCESS && dwType == REG_BINARY)
-            return true;
+        RegQueryValueExW(hRoot, L"VaultDaclVersion", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwVaultDaclVer), &dwVerSize);
+        RegCloseKey(hRoot);
     }
-    return false;
+    if (dwVaultDaclVer < 2)
+    {
+        return false;
+    }
+
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+    {
+        return false;
+    }
+
+    DWORD dwType = 0;
+    LONG res = RegQueryValueExW(hKey, L"EncryptedPassword", nullptr, &dwType, nullptr, nullptr);
+    RegCloseKey(hKey);
+
+    return (res == ERROR_SUCCESS && dwType == REG_BINARY);
 }
 
-HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
+HRESULT CTetherCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
     CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
     PWSTR* ppwszOptionalStatusText,
     CREDENTIAL_PROVIDER_STATUS_ICON* pcpsiOptionalStatusIcon)
@@ -749,7 +766,7 @@ HRESULT CSampleCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
     }
 }
 
-HRESULT CSampleCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatus,
+HRESULT CTetherCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatus,
     PWSTR* ppwszOptionalStatusText,
     CREDENTIAL_PROVIDER_STATUS_ICON* pcpsiOptionalStatusIcon)
 {
@@ -776,7 +793,7 @@ HRESULT CSampleCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatu
     }
 }
 
-HRESULT CSampleCredential::GetUserSid(PWSTR* ppszSid)
+HRESULT CTetherCredential::GetUserSid(PWSTR* ppszSid)
 {
     if (!ppszSid) return E_POINTER;
     *ppszSid = nullptr;
@@ -789,7 +806,7 @@ HRESULT CSampleCredential::GetUserSid(PWSTR* ppszSid)
     return E_FAIL;
 }
 
-void CSampleCredential::_CheckStatusAndRefreshUi()
+void CTetherCredential::_CheckStatusAndRefreshUi()
 {
     if (!_isValid.load() || _fServiceActionInProgress.load()) return;
 
@@ -895,11 +912,11 @@ void CSampleCredential::_CheckStatusAndRefreshUi()
     pEvents->Release();
 }
 
-void CSampleCredential::_PerformServiceActionAsync()
+void CTetherCredential::_PerformServiceActionAsync()
 {
     struct ActionContext
     {
-        CSampleCredential* pThis;
+        CTetherCredential* pThis;
     };
 
     auto* ctx = new (std::nothrow) ActionContext{ this };
@@ -912,7 +929,7 @@ void CSampleCredential::_PerformServiceActionAsync()
         auto* c = reinterpret_cast<ActionContext*>(param);
         if (c)
         {
-            CSampleCredential* pThis = c->pThis;
+            CTetherCredential* pThis = c->pThis;
             try
             {
                 if (pThis && pThis->_isValid.load())
@@ -989,14 +1006,14 @@ void CSampleCredential::_PerformServiceActionAsync()
     }
 }
 
-void CALLBACK CSampleCredential::_OnStatusTimerFired(PTP_CALLBACK_INSTANCE, PVOID lpParameter, PTP_TIMER)
+void CALLBACK CTetherCredential::_OnStatusTimerFired(PTP_CALLBACK_INSTANCE, PVOID lpParameter, PTP_TIMER)
 {
-    CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lpParameter);
+    CTetherCredential* pThis = reinterpret_cast<CTetherCredential*>(lpParameter);
     if (!pThis || !pThis->_isValid.load()) return;
     pThis->_CheckStatusAndRefreshUi();
 }
 
-HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
+HRESULT CTetherCredential::CommandLinkClicked(DWORD dwFieldID)
 {
     try
     {
@@ -1093,7 +1110,7 @@ HRESULT CSampleCredential::CommandLinkClicked(DWORD dwFieldID)
     }
 }
 
-void CSampleCredential::_SetStatusText(PCWSTR pszStatus)
+void CTetherCredential::_SetStatusText(PCWSTR pszStatus)
 {
     if (!pszStatus) return;
 
@@ -1114,7 +1131,7 @@ void CSampleCredential::_SetStatusText(PCWSTR pszStatus)
     }
 }
 
-void CSampleCredential::_BeginUnlockPromptCooldown()
+void CTetherCredential::_BeginUnlockPromptCooldown()
 {
     _promptCooldownEndMs.store(GetTickCount64() + c_promptCooldownSeconds * 1000LL, std::memory_order_release);
 
@@ -1129,7 +1146,7 @@ void CSampleCredential::_BeginUnlockPromptCooldown()
     _SetStatusText(statusText);
 
     if (!_pCooldownTimer)
-        _pCooldownTimer = CreateThreadpoolTimer(CSampleCredential::_OnCooldownTimerFired, this, nullptr);
+        _pCooldownTimer = CreateThreadpoolTimer(CTetherCredential::_OnCooldownTimerFired, this, nullptr);
     if (_pCooldownTimer)
     {
         LONG64 due100ns = -10000000LL;
@@ -1138,14 +1155,14 @@ void CSampleCredential::_BeginUnlockPromptCooldown()
     }
 }
 
-void CALLBACK CSampleCredential::_OnCooldownTimerFired(PTP_CALLBACK_INSTANCE, PVOID lpParameter, PTP_TIMER)
+void CALLBACK CTetherCredential::_OnCooldownTimerFired(PTP_CALLBACK_INSTANCE, PVOID lpParameter, PTP_TIMER)
 {
-    CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lpParameter);
+    CTetherCredential* pThis = reinterpret_cast<CTetherCredential*>(lpParameter);
     if (!pThis || !pThis->_isValid.load()) return;
     pThis->_OnCooldownTick();
 }
 
-void CSampleCredential::_OnCooldownTick()
+void CTetherCredential::_OnCooldownTick()
 {
     long long nowMs = GetTickCount64();
     long long endMs = _promptCooldownEndMs.load(std::memory_order_acquire);
@@ -1173,7 +1190,7 @@ void CSampleCredential::_OnCooldownTick()
     _SetStatusText(statusText);
 }
 
-HRESULT CSampleCredential::GetFieldOptions(DWORD dwFieldID, CREDENTIAL_PROVIDER_CREDENTIAL_FIELD_OPTIONS* pcpcfo)
+HRESULT CTetherCredential::GetFieldOptions(DWORD dwFieldID, CREDENTIAL_PROVIDER_CREDENTIAL_FIELD_OPTIONS* pcpcfo)
 {
     try
     {
@@ -1186,12 +1203,12 @@ HRESULT CSampleCredential::GetFieldOptions(DWORD dwFieldID, CREDENTIAL_PROVIDER_
     }
 }
 
-void CALLBACK CSampleCredential::_OnAppEventSignaled(PVOID lpParameter, BOOLEAN)
+void CALLBACK CTetherCredential::_OnAppEventSignaled(PVOID lpParameter, BOOLEAN)
 {
-    CSampleCredential* pThis = reinterpret_cast<CSampleCredential*>(lpParameter);
+    CTetherCredential* pThis = reinterpret_cast<CTetherCredential*>(lpParameter);
     if (!pThis || !pThis->_isValid.load()) return;
 
-    WriteDebugLog(L"CSampleCredential::_OnAppEventSignaled for instance %p", pThis);
+    WriteDebugLog(L"CTetherCredential::_OnAppEventSignaled for instance %p", pThis);
     pThis->_fInstancePhoneAppTriggered.store(true);
     pThis->_fInstanceAutoLogonReady.store(true);
     g_fPhoneAppTriggered.store(true);
@@ -1204,7 +1221,7 @@ void CALLBACK CSampleCredential::_OnAppEventSignaled(PVOID lpParameter, BOOLEAN)
     }
 }
 
-void CSampleCredential::_StartBackgroundIPCListeners()
+void CTetherCredential::_StartBackgroundIPCListeners()
 {
     _hAppEvent = OpenEventW(SYNCHRONIZE | EVENT_MODIFY_STATE | READ_CONTROL, FALSE, L"Global\\TetherPhoneAppUnlocked");
     if (_hAppEvent)
@@ -1242,7 +1259,7 @@ void CSampleCredential::_StartBackgroundIPCListeners()
     if (_hAppEvent)
     {
         RegisterWaitForSingleObject(&_hWaitApp, _hAppEvent,
-            CSampleCredential::_OnAppEventSignaled, this,
+            CTetherCredential::_OnAppEventSignaled, this,
             INFINITE, WT_EXECUTEDEFAULT);
     }
 }

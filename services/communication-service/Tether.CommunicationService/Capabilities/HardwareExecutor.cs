@@ -259,6 +259,7 @@ public static class HardwareExecutor
 
                 case "lock":
                 case "lock_now":
+                case "panic":
                     ResetUnlockEvent(@"Global\TetherPhoneAppUnlocked", logger);
                     bool locked = LockWorkStation();
                     if (!locked)

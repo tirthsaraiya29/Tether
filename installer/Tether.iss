@@ -138,6 +138,11 @@ Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\
     ValueType: string; ValueName: ""; ValueData: "{#MyCredProvName}"; \
     Flags: uninsdeletekey
 
+; 3. Windows Logon Credential Provider Filter
+Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{#MyCredProvGuid}"; \
+    ValueType: string; ValueName: ""; ValueData: "{#MyCredProvName}"; \
+    Flags: uninsdeletekey
+
 ; 4. Encrypted configuration and secure pairing store
 Root: HKLM64; Subkey: "SOFTWARE\{#MyAppName}"; Flags: createvalueifdoesntexist
 

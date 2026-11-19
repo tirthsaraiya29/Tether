@@ -207,7 +207,7 @@ public class FileTransferAuthMiddleware
 
                             if (validProof)
                             {
-                                if (_tokenStore.ValidateToken(token, pairedPhone.Fingerprint) || _tokenStore.ValidateToken(token))
+                                if (_tokenStore.ValidateToken(token, pairedPhone.Fingerprint))
                                 {
                                     var reqPath = context.Request.Path.Value ?? "";
                                     string normalizedReqPath = "/" + reqPath.Trim('/').ToLowerInvariant();

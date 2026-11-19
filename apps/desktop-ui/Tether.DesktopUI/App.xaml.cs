@@ -64,11 +64,24 @@ namespace Tether.DesktopUI
                     if (!string.IsNullOrEmpty(hex))
                     {
                         byte[] payload = Convert.FromHexString(hex.Trim());
-                        using var secretsKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true);
-                        secretsKey?.SetValue("EncryptedPassword", payload, Microsoft.Win32.RegistryValueKind.Binary);
 
                         using var rootKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
                         rootKey?.SetValue("VaultDaclVersion", 2, Microsoft.Win32.RegistryValueKind.DWord);
+
+                        var rs = new System.Security.AccessControl.RegistrySecurity();
+                        var systemSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
+                        var adminsSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
+
+                        rs.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                        rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(systemSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+                        rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(adminsSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+
+                        using var secretsKey = rootKey?.CreateSubKey("Secrets", Microsoft.Win32.RegistryKeyPermissionCheck.ReadWriteSubTree, rs);
+                        if (secretsKey != null)
+                        {
+                            secretsKey.SetAccessControl(rs);
+                            secretsKey.SetValue("EncryptedPassword", payload, Microsoft.Win32.RegistryValueKind.Binary);
+                        }
                     }
                 }
                 catch (Exception ex)

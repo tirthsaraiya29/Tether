@@ -2,7 +2,7 @@
 #pragma once
 #include "helpers.h"
 
-enum SAMPLE_FIELD_ID
+enum TETHER_FIELD_ID
 {
     SFI_TILEIMAGE = 0,
     SFI_LABEL = 1,
@@ -16,6 +16,7 @@ enum SAMPLE_FIELD_ID
     SFI_SERVICE_ACTION_BUTTON = 9,
     SFI_NUM_FIELDS = 10
 };
+typedef TETHER_FIELD_ID SAMPLE_FIELD_ID;
 
 struct FIELD_STATE_PAIR
 {

@@ -10,8 +10,9 @@
 
 #include "TetherCredential.h"
 
-class CSampleProvider : public ICredentialProvider,
-    public ICredentialProviderSetUserArray
+class CTetherProvider : public ICredentialProvider,
+    public ICredentialProviderSetUserArray,
+    public ICredentialProviderFilter
 {
 public:
     // IUnknown
@@ -34,14 +35,15 @@ public:
     {
         static const QITAB qit[] =
         {
-            QITABENT(CSampleProvider, ICredentialProvider),
-            QITABENT(CSampleProvider, ICredentialProviderSetUserArray),
+            QITABENT(CTetherProvider, ICredentialProvider),
+            QITABENT(CTetherProvider, ICredentialProviderSetUserArray),
+            QITABENT(CTetherProvider, ICredentialProviderFilter),
             {0},
         };
         return QISearch(this, qit, riid, ppv);
     }
 
-    // Declaration only - the body resides exclusively in CSampleProvider.cpp
+    // Declaration only - the body resides exclusively in TetherProvider.cpp
     HRESULT SignalCredentialsChanged();
 
 public:
@@ -62,11 +64,24 @@ public:
 
     IFACEMETHODIMP SetUserArray(_In_ ICredentialProviderUserArray* users);
 
+    // ICredentialProviderFilter
+    IFACEMETHODIMP Filter(
+        _In_ CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
+        _In_ DWORD dwFlags,
+        _In_reads_(cProviders) GUID* rgclsidProviders,
+        _Inout_updates_(cProviders) BOOL* rgbAllow,
+        _In_ DWORD cProviders);
+
+    IFACEMETHODIMP UpdateRemoteCredential(
+        _In_ CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION const* pcpcsIn,
+        _Out_ CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcsOut);
+
+    friend HRESULT CTetherProvider_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
     friend HRESULT CSample_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
 
 protected:
-    CSampleProvider();
-    __override ~CSampleProvider();
+    CTetherProvider();
+    virtual ~CTetherProvider();
 
 private:
     void _ReleaseEnumeratedCredentials();
@@ -77,7 +92,7 @@ private:
 
 private:
     std::atomic<long>                       _cRef;
-    std::vector<CSampleCredential*>         _credentials;
+    std::vector<CTetherCredential*>         _credentials;
     bool                                    _fRecreateEnumeratedCredentials;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO      _cpus;
     ICredentialProviderUserArray*           _pCredProviderUserArray;
@@ -88,3 +103,5 @@ private:
     UINT_PTR                                _upAdviseContext;
     DWORD                                   _dwUpToDateCredentialsCount;
 };
+
+typedef CTetherProvider CSampleProvider;

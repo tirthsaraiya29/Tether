@@ -551,6 +551,33 @@ public sealed class PacketRouter
             })
         });
 
+        if (cmdLower == "panic")
+        {
+            _eventBus.Publish(new TetherEvent
+            {
+                EventType = TetherEventType.PANIC_TRIGGERED,
+                Source = "PacketRouter",
+                PayloadJson = JsonSerializer.Serialize(new
+                {
+                    TriggeredBy = device.DisplayName,
+                    DeviceId = device.DeviceId
+                })
+            });
+        }
+        else if (cmdLower == "unlock")
+        {
+            _eventBus.Publish(new TetherEvent
+            {
+                EventType = TetherEventType.PANIC_CLEARED,
+                Source = "PacketRouter",
+                PayloadJson = JsonSerializer.Serialize(new
+                {
+                    UnlockedBy = device.DisplayName,
+                    DeviceId = device.DeviceId
+                })
+            });
+        }
+
         if (cmdLower.StartsWith("volume_") || cmdLower.StartsWith("set_volume:") || cmdLower.StartsWith("vol_") ||
             cmdLower.StartsWith("brightness_") || cmdLower.StartsWith("set_brightness:") || cmdLower.StartsWith("bright_") ||
             cmd.Command.Equals("volume_get", StringComparison.OrdinalIgnoreCase) ||

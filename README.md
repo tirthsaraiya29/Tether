@@ -115,6 +115,7 @@ Download prebuilt binaries directly from the official releases:
 - **Workstation Locking:** Requests immediate workstation locking through the configured command path.
 - **Trust Revocation:** Invalidates active trust relationships and associated session state.
 - **Emergency Command Dispatch:** Dedicated workflow for high-priority security events.
+- **Safe Credential Provider Restoration:** Safely captures pre-filter visibility states and idempotently restores exclusively Tether-hidden credential providers upon panic unlock, never unhiding third-party or system providers that were already hidden.
 
 ### Continuous Trust Validation
 

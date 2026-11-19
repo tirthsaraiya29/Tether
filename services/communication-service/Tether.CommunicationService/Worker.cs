@@ -18,6 +18,7 @@ using Tether.Shared.Events;
 using Tether.Shared.Logging;
 using Tether.Shared.Network;
 using Tether.TrustEngine;
+using Tether.PanicEngine;
 
 namespace Tether.CommunicationService;
 
@@ -62,7 +63,8 @@ public sealed class Worker : BackgroundService
         TrustStateManager trustStateManager,
         IpcEventRelay ipcEventRelay,
         IEventBus eventBus,
-        TrustStore trustStore)
+        TrustStore trustStore,
+        PanicManager panicManager)
     {
         _logger = logger;
         _tetherLogger = tetherLogger;
@@ -75,7 +77,7 @@ public sealed class Worker : BackgroundService
         _powerWatcher = powerWatcher;
         _powerNotifier = powerNotifier;
         _trustStore = trustStore;
-        _ = trustStateManager; _ = ipcEventRelay;
+        _ = trustStateManager; _ = ipcEventRelay; _ = panicManager;
 
         eventBus.Subscribe(evt =>
         {

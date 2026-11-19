@@ -20,6 +20,7 @@ using Tether.CommunicationService.Trust;
 using Tether.EventBus;
 using Tether.Shared.Logging;
 using Tether.TrustEngine;
+using Tether.PanicEngine;
 
 var builder = Host.CreateDefaultBuilder(args);
 
@@ -69,6 +70,8 @@ var host = builder
         services.AddHostedService<SessionHelperDaemon>();
 
         services.AddSingleton<TrustStateManager>();
+        services.AddSingleton<SafeCredentialFilterManager>();
+        services.AddSingleton<PanicManager>();
 
         services.AddSingleton<PipeServer>();
         services.AddSingleton<IpcEventRelay>();

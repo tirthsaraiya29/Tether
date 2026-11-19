@@ -1,6 +1,7 @@
 package com.tether.phone.ui.screens
 
 import android.content.BroadcastReceiver
+import java.util.Locale
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -444,7 +445,7 @@ fun TelemetryTabContent(telemetry: AdminTelemetry, specs: HardwareSpecs) {
                     val usedRamGb = ((telemetry.totalRamMb - telemetry.availRamMb) / 1024.0).coerceAtLeast(0.0)
                     val totalRamGb = (telemetry.totalRamMb / 1024.0).coerceAtLeast(0.0)
                     Text(
-                        String.format("%.1f GB used of %.1f GB", usedRamGb, totalRamGb),
+                        String.format(Locale.US, "%.1f GB used of %.1f GB", usedRamGb, totalRamGb),
                         color = TextSecondary,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -479,7 +480,7 @@ fun TelemetryTabContent(telemetry: AdminTelemetry, specs: HardwareSpecs) {
                                     Text("Graphics Processing Unit (GPU)", color = TextMuted, style = MaterialTheme.typography.labelSmall)
                                     Text(gpuName, color = TextPrimary, fontWeight = FontWeight.SemiBold)
                                     if (gpuVram > 0) {
-                                        Text("${gpuVram} MB VRAM (${String.format("%.1f", gpuVram / 1024.0)} GB)", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                                        Text("${gpuVram} MB VRAM (${String.format(Locale.US, "%.1f", gpuVram / 1024.0)} GB)", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
                             }
@@ -536,7 +537,7 @@ fun TelemetryTabContent(telemetry: AdminTelemetry, specs: HardwareSpecs) {
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        String.format("%.1f GB free of %.1f GB", disk.freeGb, disk.totalGb),
+                        String.format(Locale.US, "%.1f GB free of %.1f GB", disk.freeGb, disk.totalGb),
                         color = TextMuted,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -677,11 +678,11 @@ fun HardwareTabContent(
                         }
                         Column {
                             Text("Full Charge", color = TextMuted, style = MaterialTheme.typography.labelSmall)
-                            Text(String.format("%.0f mWh", batteryHealth.fullChargeCapacityMwh), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(String.format(Locale.US, "%.0f mWh", batteryHealth.fullChargeCapacityMwh), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
                         Column {
                             Text("Design Cap", color = TextMuted, style = MaterialTheme.typography.labelSmall)
-                            Text(String.format("%.0f mWh", batteryHealth.designCapacityMwh), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(String.format(Locale.US, "%.0f mWh", batteryHealth.designCapacityMwh), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
                     }
                 }
@@ -731,8 +732,8 @@ fun HardwareTabContent(
                         if (batteryReport.chemistry.isNotBlank()) SpecRow("Chemistry", batteryReport.chemistry)
                         SpecRow("Health", "${batteryReport.healthPercent}%")
                         SpecRow("Cycle Count", "${batteryReport.cycleCount}")
-                        SpecRow("Design Capacity", String.format("%.0f mWh", batteryReport.designCapacityMwh))
-                        SpecRow("Full Charge Capacity", String.format("%.0f mWh", batteryReport.fullChargeCapacityMwh))
+                        SpecRow("Design Capacity", String.format(Locale.US, "%.0f mWh", batteryReport.designCapacityMwh))
+                        SpecRow("Full Charge Capacity", String.format(Locale.US, "%.0f mWh", batteryReport.fullChargeCapacityMwh))
                         if (batteryReport.reportTimestamp.isNotBlank()) {
                             SpecRow("Report Time", batteryReport.reportTimestamp)
                         }

@@ -5,7 +5,7 @@
 #include "TetherCredentialGlobals.h"
 #include "guid.h"
 
-CSampleProvider::CSampleProvider() :
+CTetherProvider::CTetherProvider() :
     _cRef(1),
     _pCredProviderUserArray(nullptr),
     _fRecreateEnumeratedCredentials(false),
@@ -18,7 +18,7 @@ CSampleProvider::CSampleProvider() :
     DllAddRef();
 }
 
-CSampleProvider::~CSampleProvider()
+CTetherProvider::~CTetherProvider()
 {
     _ReleaseEnumeratedCredentials();
     EnterCriticalSection(&_csEvents);
@@ -37,7 +37,7 @@ CSampleProvider::~CSampleProvider()
     DllRelease();
 }
 
-HRESULT CSampleProvider::SetUsageScenario(
+HRESULT CTetherProvider::SetUsageScenario(
     _In_ CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     _In_ DWORD dwFlags)
 {
@@ -76,7 +76,7 @@ HRESULT CSampleProvider::SetUsageScenario(
     }
 }
 
-HRESULT CSampleProvider::GetFieldDescriptorCount(_Out_ DWORD* pdwCount)
+HRESULT CTetherProvider::GetFieldDescriptorCount(_Out_ DWORD* pdwCount)
 {
     try
     {
@@ -93,7 +93,7 @@ HRESULT CSampleProvider::GetFieldDescriptorCount(_Out_ DWORD* pdwCount)
     }
 }
 
-HRESULT CSampleProvider::GetFieldDescriptorAt(
+HRESULT CTetherProvider::GetFieldDescriptorAt(
     _In_ DWORD dwIndex,
     _Outptr_result_nullonfailure_ CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR** ppcpfd)
 {
@@ -119,7 +119,7 @@ HRESULT CSampleProvider::GetFieldDescriptorAt(
     }
 }
 
-HRESULT CSampleProvider::GetCredentialCount(_Out_ DWORD* pdwCount,
+HRESULT CTetherProvider::GetCredentialCount(_Out_ DWORD* pdwCount,
     _Out_ DWORD* pdwDefault,
     _Out_ BOOL* pbAutoLogonWithDefault)
 {
@@ -190,7 +190,7 @@ HRESULT CSampleProvider::GetCredentialCount(_Out_ DWORD* pdwCount,
     }
 }
 
-HRESULT CSampleProvider::GetCredentialAt(
+HRESULT CTetherProvider::GetCredentialAt(
     _In_ DWORD dwIndex,
     _Outptr_result_nullonfailure_ ICredentialProviderCredential** ppcpc)
 {
@@ -215,7 +215,7 @@ HRESULT CSampleProvider::GetCredentialAt(
     }
 }
 
-HRESULT CSampleProvider::SetUserArray(_In_ ICredentialProviderUserArray* users)
+HRESULT CTetherProvider::SetUserArray(_In_ ICredentialProviderUserArray* users)
 {
     try
     {
@@ -239,7 +239,7 @@ HRESULT CSampleProvider::SetUserArray(_In_ ICredentialProviderUserArray* users)
     }
 }
 
-HRESULT CSampleProvider::Advise(_In_ ICredentialProviderEvents* pcpe, _In_ UINT_PTR upAdviseContext)
+HRESULT CTetherProvider::Advise(_In_ ICredentialProviderEvents* pcpe, _In_ UINT_PTR upAdviseContext)
 {
     try
     {
@@ -267,7 +267,7 @@ HRESULT CSampleProvider::Advise(_In_ ICredentialProviderEvents* pcpe, _In_ UINT_
     }
 }
 
-HRESULT CSampleProvider::UnAdvise()
+HRESULT CTetherProvider::UnAdvise()
 {
     try
     {
@@ -287,7 +287,7 @@ HRESULT CSampleProvider::UnAdvise()
     }
 }
 
-HRESULT CSampleProvider::SetSerialization(_In_ const CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs)
+HRESULT CTetherProvider::SetSerialization(_In_ const CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs)
 {
     try
     {
@@ -300,7 +300,86 @@ HRESULT CSampleProvider::SetSerialization(_In_ const CREDENTIAL_PROVIDER_CREDENT
     }
 }
 
-HRESULT CSampleProvider::SignalCredentialsChanged()
+HRESULT CTetherProvider::Filter(
+    _In_ CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
+    _In_ DWORD dwFlags,
+    _In_reads_(cProviders) GUID* rgclsidProviders,
+    _Inout_updates_(cProviders) BOOL* rgbAllow,
+    _In_ DWORD cProviders)
+{
+    try
+    {
+        UNREFERENCED_PARAMETER(cpus);
+        UNREFERENCED_PARAMETER(dwFlags);
+
+        if (rgclsidProviders == nullptr || rgbAllow == nullptr || cProviders == 0)
+        {
+            return S_OK;
+        }
+
+        // Query the Panic Lock registry state from HKLM\SOFTWARE\Tether\PanicLock
+        HKEY hKey = nullptr;
+        DWORD dwPanicActive = 0;
+        DWORD dwSize = sizeof(dwPanicActive);
+        bool bPanicActive = false;
+
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\PanicLock", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+        {
+            if (RegQueryValueExW(hKey, L"IsPanicActive", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwPanicActive), &dwSize) == ERROR_SUCCESS)
+            {
+                bPanicActive = (dwPanicActive != 0);
+            }
+            RegCloseKey(hKey);
+        }
+
+        if (!bPanicActive)
+        {
+            // Outside Panic Lock, preserve existing Credential Provider filtering behaviour
+            return S_OK;
+        }
+
+        // Panic Lock is active: filter out alternative Credential Providers while preserving Tether
+        for (DWORD i = 0; i < cProviders; ++i)
+        {
+            if (IsEqualGUID(rgclsidProviders[i], CLSID_TetherProvider))
+            {
+                rgbAllow[i] = TRUE;
+            }
+            else
+            {
+                rgbAllow[i] = FALSE;
+            }
+        }
+
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
+}
+
+HRESULT CTetherProvider::UpdateRemoteCredential(
+    _In_ CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION const* pcpcsIn,
+    _Out_ CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcsOut)
+{
+    try
+    {
+        UNREFERENCED_PARAMETER(pcpcsIn);
+        if (pcpcsOut == nullptr)
+        {
+            return E_POINTER;
+        }
+        *pcpcsOut = {};
+        return E_NOTIMPL;
+    }
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
+}
+
+HRESULT CTetherProvider::SignalCredentialsChanged()
 {
     ICredentialProviderEvents* pEvents = nullptr;
     UINT_PTR upContext = 0;
@@ -323,7 +402,7 @@ HRESULT CSampleProvider::SignalCredentialsChanged()
     return S_FALSE;
 }
 
-void CSampleProvider::_ReleaseEnumeratedCredentials()
+void CTetherProvider::_ReleaseEnumeratedCredentials()
 {
     for (auto* pCred : _credentials)
     {
@@ -335,7 +414,7 @@ void CSampleProvider::_ReleaseEnumeratedCredentials()
     _credentials.clear();
 }
 
-HRESULT CSampleProvider::_EnumerateCredentials()
+HRESULT CTetherProvider::_EnumerateCredentials()
 {
     _ReleaseEnumeratedCredentials();
 
@@ -350,7 +429,7 @@ HRESULT CSampleProvider::_EnumerateCredentials()
                 ICredentialProviderUser* pCredUser = nullptr;
                 if (SUCCEEDED(_pCredProviderUserArray->GetAt(i, &pCredUser)) && pCredUser != nullptr)
                 {
-                    CSampleCredential* pCredential = new(std::nothrow) CSampleCredential();
+                    CTetherCredential* pCredential = new(std::nothrow) CTetherCredential();
                     if (pCredential != nullptr)
                     {
                         pCredential->SetProvider(this);
@@ -372,7 +451,7 @@ HRESULT CSampleProvider::_EnumerateCredentials()
     return S_OK;
 }
 
-HRESULT CSample_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv)
+HRESULT CTetherProvider_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv)
 {
     if (ppv == nullptr)
     {
@@ -381,7 +460,7 @@ HRESULT CSample_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv)
     *ppv = nullptr;
 
     HRESULT hr = E_OUTOFMEMORY;
-    CSampleProvider* pProvider = new(std::nothrow) CSampleProvider();
+    CTetherProvider* pProvider = new(std::nothrow) CTetherProvider();
 
     if (pProvider != nullptr)
     {
@@ -390,4 +469,9 @@ HRESULT CSample_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv)
     }
 
     return hr;
+}
+
+HRESULT CSample_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv)
+{
+    return CTetherProvider_CreateInstance(riid, ppv);
 }

@@ -10,9 +10,10 @@
 #include "resource.h"
 #include "TetherCredentialGlobals.h"
 
-class CSampleProvider;
+class CTetherProvider;
+typedef CTetherProvider CSampleProvider;
 
-class CSampleCredential : public ICredentialProviderCredential2,
+class CTetherCredential : public ICredentialProviderCredential2,
     public ICredentialProviderCredentialWithFieldOptions
 {
 public:
@@ -26,15 +27,15 @@ public:
     IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv)
     {
         static const QITAB qit[] = {
-            QITABENT(CSampleCredential, ICredentialProviderCredential),
-            QITABENT(CSampleCredential, ICredentialProviderCredential2),
-            QITABENT(CSampleCredential, ICredentialProviderCredentialWithFieldOptions),
+            QITABENT(CTetherCredential, ICredentialProviderCredential),
+            QITABENT(CTetherCredential, ICredentialProviderCredential2),
+            QITABENT(CTetherCredential, ICredentialProviderCredentialWithFieldOptions),
             {0},
         };
         return QISearch(this, qit, riid, ppv);
     }
 
-    void SetProvider(CSampleProvider* pProvider) { _pProvider = pProvider; }
+    void SetProvider(CTetherProvider* pProvider) { _pProvider = pProvider; }
 
     IFACEMETHODIMP Advise(ICredentialProviderCredentialEvents* pcpce);
     IFACEMETHODIMP UnAdvise();
@@ -68,10 +69,10 @@ public:
         const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* rgcpfd,
         const FIELD_STATE_PAIR* rgfsp,
         ICredentialProviderUser* pcpUser);
-    CSampleCredential();
+    CTetherCredential();
 
 private:
-    virtual ~CSampleCredential();
+    virtual ~CTetherCredential();
 
     void _StartBackgroundIPCListeners();
     static void CALLBACK _OnAppEventSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
@@ -104,7 +105,7 @@ private:
     ICredentialProviderCredentialEvents*    _pCredProvCredentialEvents;
 
     bool                                    _fIsLocalUser;
-    CSampleProvider*                        _pProvider;
+    CTetherProvider*                        _pProvider;
 
     HANDLE                                  _hAppEvent{ nullptr };
     HANDLE                                  _hWaitApp{ nullptr };

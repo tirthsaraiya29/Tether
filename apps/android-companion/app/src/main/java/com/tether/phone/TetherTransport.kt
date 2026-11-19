@@ -1,5 +1,6 @@
 package com.tether.phone
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
 import java.io.DataInputStream
@@ -36,6 +37,7 @@ interface TetherTransport {
     fun getPeerIdentityFingerprint(): String?
 }
 
+@SuppressLint("CustomX509TrustManager")
 class TetherTransportTrustManager(
     private val context: Context? = null,
     private val securityEngine: ProductionSecurityEngine,

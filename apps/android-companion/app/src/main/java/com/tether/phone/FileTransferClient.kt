@@ -1,5 +1,6 @@
 package com.tether.phone
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +38,7 @@ data class FileNode(
     val path: String
 )
 
+@SuppressLint("CustomX509TrustManager")
 class TetherPinnedTrustManager(
     private val context: Context?,
     private val overridePinnedKey: ByteArray? = null

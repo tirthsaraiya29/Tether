@@ -1,5 +1,7 @@
 package com.tether.phone
 
+import android.annotation.SuppressLint
+
 import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -366,8 +368,8 @@ class MainActivity : FragmentActivity() {
         }
         val cachedMetrics = LaptopStateCache.getMetrics(applicationContext)
         if (cachedMetrics != null) {
-            volumeLevel.value = cachedMetrics.first
-            brightnessLevel.value = cachedMetrics.second
+            volumeLevel.intValue = cachedMetrics.first
+            brightnessLevel.intValue = cachedMetrics.second
         }
 
         lifecycleScope.launch(Dispatchers.IO) {
@@ -923,6 +925,7 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    @SuppressLint("BatteryLife")
     private fun requestBatteryOptimizationExemption() {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {

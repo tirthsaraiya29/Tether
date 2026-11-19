@@ -30,6 +30,7 @@ Tether is designed to defend against network eavesdropping, local workstation ta
 | **Local Registry Secret Theft** | Unprivileged local malware reading stored credentials. | Credentials stored in `HKLM\SOFTWARE\Tether\Secrets` with `VaultDaclVersion=2` DACL restriction and encrypted via **DPAPI** using system-bound entropy (`Tether_System_Bound_Vault_v1`). |
 | **Compromised Mobile Device** | Rooted Android device or malware attempting unauthorized unlock. | `DeviceIntegrityRegistry` performs hardware root checks (`su` binary, `test-keys`), audits developer options, and mandates **BiometricPrompt** cryptographic challenge. |
 | **Credential Provider Exception Crashing** | Malicious input causing logon UI crashes in Winlogon. | Native C++ COM interface methods (`ICredentialProvider`, `ICredentialProviderCredential2`) catch all exceptions, log diagnostic errors, and clear secrets via `SecureZeroMemory()`. |
+| **Credential Provider Restoration Tampering** | Rogue local processes or race conditions unhiding unauthorized or filtered third-party providers upon panic unlock. | `SafeCredentialFilterManager` captures pre-filter visibility, persists tracked states under `HKLM\SOFTWARE\Tether\State\CredentialFilter` (restricted to LocalSystem/Admin), and restores exclusively Tether-hidden providers while leaving pre-hidden providers suppressed. |
 
 ---
 
@@ -152,6 +153,16 @@ A native C++ Win32 COM DLL registered in `HKLM\SOFTWARE\Microsoft\Windows\Curren
 * Enumerates a custom logon tile on the Windows logon/unlock screen.
 * Listens on secure global synchronization events (`Global\TetherPhoneAppUnlocked`, `Global\TetherUnlockPromptRequested`), verifying LocalSystem and Builtin Administrators object ownership and enforcing strict SDDL DACLs to prevent pre-creation spoofing.
 * When an authenticated unlock command is received from the paired Android device, the provider decrypts the DPAPI-protected user credentials, populates `KERB_INTERACTIVE_UNLOCK_LOGON` structures, and serializes the credential to Winlogon for seamless desktop unlock.
+
+### 4.6 Panic Subsystem & Safe Credential Provider Restoration (`Tether.PanicEngine`)
+The panic engine handles emergency lockdown and safe restoration:
+* **`PanicManager.cs`**: Orchestrates workstation panic lockdown (locking session, muting audio, blanking displays) and initiates safe credential provider filtering.
+* **`SafeCredentialFilterManager.cs`**: Implements Microsoft `ICredentialProviderFilter` lifecycle semantics:
+  * Captures pre-filter visibility state of all enumerated providers before applying lockdown filters.
+  * Tracks ownership of filtered tiles: only providers that were initially visible and explicitly suppressed by Tether are flagged for restoration.
+  * Never unhides providers that were already suppressed by the user, Windows, or third-party group policies.
+  * Persists tracking records across LogonUI re-enumeration, service restarts, and concurrent requests via atomic registry state under `HKLM\SOFTWARE\Tether\State\CredentialFilter` protected with strict LocalSystem/Administrator DACLs.
+  * Guarantees idempotent restoration during repeated unlock attempts or abnormal session terminations.
 
 ---
 

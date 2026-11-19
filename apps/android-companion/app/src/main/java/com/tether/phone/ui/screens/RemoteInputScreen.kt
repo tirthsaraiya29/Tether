@@ -1,6 +1,7 @@
 package com.tether.phone.ui.screens
 
 import androidx.compose.foundation.Canvas
+import java.util.Locale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -815,7 +816,7 @@ fun SensitivityBottomSheet(
 
             // Scroll Sensitivity
             Text(
-                text = "Scroll Speed: ${String.format("%.1f", inputEngine.scrollSensitivity)}x",
+                text = "Scroll Speed: ${String.format(Locale.US, "%.1f", inputEngine.scrollSensitivity)}x",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextPrimary
             )
@@ -835,7 +836,7 @@ fun SensitivityBottomSheet(
 
             // Air Mouse Sensitivity
             Text(
-                text = "Air Mouse Sensitivity: ${String.format("%.1f", inputEngine.airMouseSensitivity)}x",
+                text = "Air Mouse Sensitivity: ${String.format(Locale.US, "%.1f", inputEngine.airMouseSensitivity)}x",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextPrimary
             )

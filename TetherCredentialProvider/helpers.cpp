@@ -92,7 +92,7 @@ HRESULT FieldDescriptorCopy(
 // This function is intended for serializing a credential in GetSerialization only.
 // Note that this function just makes a copy of the string pointer. It DOES NOT ALLOCATE storage!
 // Be very, very sure that this is what you want, because it probably isn't outside of the
-// exact GetSerialization call where the sample uses it.
+// exact GetSerialization call where Tether uses it.
 //
 HRESULT UnicodeStringInitWithString(
     _In_ PWSTR pwz,
