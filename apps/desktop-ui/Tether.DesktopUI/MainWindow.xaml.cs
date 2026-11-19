@@ -371,7 +371,7 @@ namespace Tether.DesktopUI
             InitializeComponent();
             if (NotificationItemsControl != null) NotificationItemsControl.ItemsSource = _activeNotifications;
             UpdateNotificationVisibility();
-            LoadMasterAuthConfig();
+            LoadFallbackAuthConfig();
             if (PairedDevicesList != null) PairedDevicesList.ItemsSource = PairedDevices;
             UpdatePairedUi();
 
@@ -1475,148 +1475,148 @@ namespace Tether.DesktopUI
             }
         }
 
-        private void LoadMasterAuthConfig()
+        private void LoadFallbackAuthConfig()
         {
             try
             {
                 using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", false);
                 if (key != null)
                 {
-                    object? val = key.GetValue("MasterAuthType");
+                    object? val = key.GetValue("FallbackAuthType") ?? key.GetValue("MasterAuthType");
                     if (val is int authType)
                     {
-                        if (authType == (int)MasterAuthType.Pin)
+                        if (authType == (int)FallbackAuthType.Pin)
                         {
-                            if (CmbMasterAuthMethod != null) CmbMasterAuthMethod.SelectedIndex = 1;
-                            if (TxtMasterAuthBadge != null)
+                            if (CmbFallbackAuthMethod != null) CmbFallbackAuthMethod.SelectedIndex = 1;
+                            if (TxtFallbackAuthBadge != null)
                             {
-                                TxtMasterAuthBadge.Text = "ACTIVE: PIN";
-                                TxtMasterAuthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
+                                TxtFallbackAuthBadge.Text = "ACTIVE: PIN";
+                                TxtFallbackAuthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
                             }
                             return;
                         }
-                        else if (authType == (int)MasterAuthType.Password)
+                        else if (authType == (int)FallbackAuthType.Password)
                         {
-                            if (CmbMasterAuthMethod != null) CmbMasterAuthMethod.SelectedIndex = 2;
-                            if (TxtMasterAuthBadge != null)
+                            if (CmbFallbackAuthMethod != null) CmbFallbackAuthMethod.SelectedIndex = 2;
+                            if (TxtFallbackAuthBadge != null)
                             {
-                                TxtMasterAuthBadge.Text = "ACTIVE: PASSWORD";
-                                TxtMasterAuthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
+                                TxtFallbackAuthBadge.Text = "ACTIVE: PASSWORD";
+                                TxtFallbackAuthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
                             }
                             return;
                         }
                     }
                 }
-                if (CmbMasterAuthMethod != null) CmbMasterAuthMethod.SelectedIndex = 0;
-                if (TxtMasterAuthBadge != null)
+                if (CmbFallbackAuthMethod != null) CmbFallbackAuthMethod.SelectedIndex = 0;
+                if (TxtFallbackAuthBadge != null)
                 {
-                    TxtMasterAuthBadge.Text = "DISABLED";
-                    TxtMasterAuthBadge.Foreground = (Brush)FindResource("TextSecondaryBrush");
+                    TxtFallbackAuthBadge.Text = "DISABLED";
+                    TxtFallbackAuthBadge.Foreground = (Brush)FindResource("TextSecondaryBrush");
                 }
             }
             catch
             {
-                if (CmbMasterAuthMethod != null) CmbMasterAuthMethod.SelectedIndex = 0;
+                if (CmbFallbackAuthMethod != null) CmbFallbackAuthMethod.SelectedIndex = 0;
             }
         }
 
-        private void CmbMasterAuthMethod_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void CmbFallbackAuthMethod_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (PnlMasterCredentialInputs == null) return;
+            if (PnlFallbackCredentialInputs == null) return;
 
-            int selected = CmbMasterAuthMethod.SelectedIndex;
+            int selected = CmbFallbackAuthMethod.SelectedIndex;
             if (selected == 1) // PIN
             {
-                PnlMasterCredentialInputs.Visibility = Visibility.Visible;
-                if (LblMasterCred != null) LblMasterCred.Text = "New Master PIN (min 8 digits)";
-                if (TxtSaveMasterAuthLabel != null) TxtSaveMasterAuthLabel.Text = "Save Master PIN";
-                TxtMasterPassword_PasswordChanged(this, new RoutedEventArgs());
+                PnlFallbackCredentialInputs.Visibility = Visibility.Visible;
+                if (LblFallbackCred != null) LblFallbackCred.Text = "New Fallback PIN (min 8 digits)";
+                if (TxtSaveFallbackAuthLabel != null) TxtSaveFallbackAuthLabel.Text = "Save Fallback PIN";
+                TxtFallbackPassword_PasswordChanged(this, new RoutedEventArgs());
             }
             else if (selected == 2) // Password
             {
-                PnlMasterCredentialInputs.Visibility = Visibility.Visible;
-                if (LblMasterCred != null) LblMasterCred.Text = "New Master Password (min 8 chars)";
-                if (TxtSaveMasterAuthLabel != null) TxtSaveMasterAuthLabel.Text = "Save Master Password";
-                TxtMasterPassword_PasswordChanged(this, new RoutedEventArgs());
+                PnlFallbackCredentialInputs.Visibility = Visibility.Visible;
+                if (LblFallbackCred != null) LblFallbackCred.Text = "New Fallback Password (min 8 chars)";
+                if (TxtSaveFallbackAuthLabel != null) TxtSaveFallbackAuthLabel.Text = "Save Fallback Password";
+                TxtFallbackPassword_PasswordChanged(this, new RoutedEventArgs());
             }
             else // Disabled
             {
-                PnlMasterCredentialInputs.Visibility = Visibility.Collapsed;
-                if (TxtSaveMasterAuthLabel != null) TxtSaveMasterAuthLabel.Text = "Disable Master Auth";
+                PnlFallbackCredentialInputs.Visibility = Visibility.Collapsed;
+                if (TxtSaveFallbackAuthLabel != null) TxtSaveFallbackAuthLabel.Text = "Disable Fallback Auth";
             }
         }
 
-        private void TxtMasterPassword_PasswordChanged(object sender, RoutedEventArgs e)
+        private void TxtFallbackPassword_PasswordChanged(object sender, RoutedEventArgs e)
         {
-            if (TxtMasterStrengthBadge == null || TxtMasterStrengthFeedback == null || PillMasterStrength == null || TxtMasterPassword == null) return;
+            if (TxtFallbackStrengthBadge == null || TxtFallbackStrengthFeedback == null || PillFallbackStrength == null || TxtFallbackPassword == null) return;
 
-            string password = TxtMasterPassword.Password;
+            string password = TxtFallbackPassword.Password;
             if (string.IsNullOrEmpty(password))
             {
-                TxtMasterStrengthBadge.Text = "EMPTY";
-                TxtMasterStrengthBadge.Foreground = (Brush)FindResource("TextMutedBrush");
-                TxtMasterStrengthFeedback.Text = "Requires minimum 8 characters with non-predictable patterns.";
+                TxtFallbackStrengthBadge.Text = "EMPTY";
+                TxtFallbackStrengthBadge.Foreground = (Brush)FindResource("TextMutedBrush");
+                TxtFallbackStrengthFeedback.Text = "Requires minimum 8 characters with non-predictable patterns.";
                 return;
             }
 
-            int mode = CmbMasterAuthMethod != null ? CmbMasterAuthMethod.SelectedIndex : 0;
+            int mode = CmbFallbackAuthMethod != null ? CmbFallbackAuthMethod.SelectedIndex : 0;
             ValidationResult res = mode == 1
-                ? MasterCredentialValidator.ValidatePin(password)
-                : MasterCredentialValidator.ValidatePassword(password);
+                ? FallbackCredentialValidator.ValidatePin(password)
+                : FallbackCredentialValidator.ValidatePassword(password);
 
             switch (res.Strength)
             {
                 case CredentialStrength.Strong:
-                    TxtMasterStrengthBadge.Text = "STRONG";
-                    TxtMasterStrengthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
+                    TxtFallbackStrengthBadge.Text = "STRONG";
+                    TxtFallbackStrengthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
                     break;
                 case CredentialStrength.Fair:
-                    TxtMasterStrengthBadge.Text = "FAIR";
-                    TxtMasterStrengthBadge.Foreground = (Brush)FindResource("StatusDegradedBrush");
+                    TxtFallbackStrengthBadge.Text = "FAIR";
+                    TxtFallbackStrengthBadge.Foreground = (Brush)FindResource("StatusDegradedBrush");
                     break;
                 case CredentialStrength.Weak:
-                    TxtMasterStrengthBadge.Text = "WEAK";
-                    TxtMasterStrengthBadge.Foreground = (Brush)FindResource("StatusCriticalBrush");
+                    TxtFallbackStrengthBadge.Text = "WEAK";
+                    TxtFallbackStrengthBadge.Foreground = (Brush)FindResource("StatusCriticalBrush");
                     break;
                 default:
-                    TxtMasterStrengthBadge.Text = "VERY WEAK";
-                    TxtMasterStrengthBadge.Foreground = (Brush)FindResource("StatusCriticalBrush");
+                    TxtFallbackStrengthBadge.Text = "VERY WEAK";
+                    TxtFallbackStrengthBadge.Foreground = (Brush)FindResource("StatusCriticalBrush");
                     break;
             }
 
-            TxtMasterStrengthFeedback.Text = res.FeedbackMessage;
+            TxtFallbackStrengthFeedback.Text = res.FeedbackMessage;
         }
 
-        private void BtnSaveMasterAuth_Click(object sender, RoutedEventArgs e)
+        private void BtnSaveFallbackAuth_Click(object sender, RoutedEventArgs e)
         {
-            int mode = CmbMasterAuthMethod != null ? CmbMasterAuthMethod.SelectedIndex : 0;
+            int mode = CmbFallbackAuthMethod != null ? CmbFallbackAuthMethod.SelectedIndex : 0;
             if (mode == 0) // Disable
             {
                 if (IsElevated)
                 {
-                    MasterCredentialStore.DisableMasterAuth();
+                    FallbackCredentialStore.DisableFallbackAuth();
                 }
                 else
                 {
-                    if (!RunElevatedSelf("--commit-master-auth 0 none"))
+                    if (!RunElevatedSelf("--commit-fallback-auth 0 none"))
                     {
                         ShowNotification("Error", "Administrator approval was declined.", NotificationType.Error);
                         return;
                     }
                 }
-                if (TxtMasterAuthBadge != null)
+                if (TxtFallbackAuthBadge != null)
                 {
-                    TxtMasterAuthBadge.Text = "DISABLED";
-                    TxtMasterAuthBadge.Foreground = (Brush)FindResource("TextSecondaryBrush");
+                    TxtFallbackAuthBadge.Text = "DISABLED";
+                    TxtFallbackAuthBadge.Foreground = (Brush)FindResource("TextSecondaryBrush");
                 }
-                ShowNotification("Security", "Master authentication disabled.", NotificationType.Info);
+                ShowNotification("Security", "Fallback authentication disabled.", NotificationType.Info);
                 return;
             }
 
-            if (TxtMasterPassword == null || TxtMasterPasswordConfirm == null) return;
+            if (TxtFallbackPassword == null || TxtFallbackPasswordConfirm == null) return;
 
-            string credential = TxtMasterPassword.Password;
-            string confirm = TxtMasterPasswordConfirm.Password;
+            string credential = TxtFallbackPassword.Password;
+            string confirm = TxtFallbackPasswordConfirm.Password;
 
             if (string.IsNullOrEmpty(credential))
             {
@@ -1624,10 +1624,10 @@ namespace Tether.DesktopUI
                 return;
             }
 
-            MasterAuthType type = mode == 1 ? MasterAuthType.Pin : MasterAuthType.Password;
-            ValidationResult valResult = type == MasterAuthType.Pin
-                ? MasterCredentialValidator.ValidatePin(credential)
-                : MasterCredentialValidator.ValidatePassword(credential);
+            FallbackAuthType type = mode == 1 ? FallbackAuthType.Pin : FallbackAuthType.Password;
+            ValidationResult valResult = type == FallbackAuthType.Pin
+                ? FallbackCredentialValidator.ValidatePin(credential)
+                : FallbackCredentialValidator.ValidatePassword(credential);
 
             if (!valResult.IsValid)
             {
@@ -1643,34 +1643,34 @@ namespace Tether.DesktopUI
 
             try
             {
-                byte[] protectedPayload = MasterCredentialStore.CreatePayload(credential, type);
+                byte[] protectedPayload = FallbackCredentialStore.CreatePayload(credential, type);
                 string hex = Convert.ToHexString(protectedPayload);
 
                 if (IsElevated)
                 {
-                    MasterCredentialStore.SaveMasterAuth(protectedPayload, type);
+                    FallbackCredentialStore.SaveFallbackAuth(protectedPayload, type);
                 }
                 else
                 {
-                    if (!RunElevatedSelf($"--commit-master-auth {(uint)type} {hex}"))
+                    if (!RunElevatedSelf($"--commit-fallback-auth {(uint)type} {hex}"))
                     {
-                        ShowNotification("Error", "Administrator approval was declined. Master authentication not saved.", NotificationType.Error);
+                        ShowNotification("Error", "Administrator approval was declined. Fallback authentication not saved.", NotificationType.Error);
                         return;
                     }
                 }
 
-                TxtMasterPassword.Clear();
-                TxtMasterPasswordConfirm.Clear();
-                if (TxtMasterAuthBadge != null)
+                TxtFallbackPassword.Clear();
+                TxtFallbackPasswordConfirm.Clear();
+                if (TxtFallbackAuthBadge != null)
                 {
-                    TxtMasterAuthBadge.Text = type == MasterAuthType.Pin ? "ACTIVE: PIN" : "ACTIVE: PASSWORD";
-                    TxtMasterAuthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
+                    TxtFallbackAuthBadge.Text = type == FallbackAuthType.Pin ? "ACTIVE: PIN" : "ACTIVE: PASSWORD";
+                    TxtFallbackAuthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
                 }
-                ShowNotification("Success", $"Master {type} configured and saved securely.", NotificationType.Success);
+                ShowNotification("Success", $"Fallback {type} configured and saved securely.", NotificationType.Success);
             }
             catch (Exception ex)
             {
-                ShowNotification("Error", $"Could not save master authentication: {ex.Message}", NotificationType.Error);
+                ShowNotification("Error", $"Could not save fallback authentication: {ex.Message}", NotificationType.Error);
             }
         }
 

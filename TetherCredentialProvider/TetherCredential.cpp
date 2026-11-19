@@ -100,7 +100,7 @@ CTetherCredential::CTetherCredential() :
     _pCooldownTimer(nullptr),
     _pStatusTimer(nullptr),
     _isValid(true),
-    _dwMasterAuthType(TAM_PHONE_APP),
+    _dwFallbackAuthType(TAM_PHONE_APP),
     _availableMethods({ TAM_PHONE_APP }),
     _dwSelectedMethodIndex(0)
 {
@@ -202,7 +202,7 @@ HRESULT CTetherCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
         hr = FieldDescriptorCopy(rgcpfd[i], &_rgCredProvFieldDescriptors[i]);
     }
 
-    _LoadMasterAuthConfiguration();
+    _LoadFallbackAuthConfiguration();
 
     _rgFieldStatePairs[SFI_METHOD_LABEL].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
     _rgFieldStatePairs[SFI_SUBMIT_BUTTON].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
@@ -536,13 +536,13 @@ HRESULT CTetherCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD dwSel
 
                 CoTaskMemFree(_rgFieldStrings[SFI_METHOD_LABEL]);
                 _rgFieldStrings[SFI_METHOD_LABEL] = nullptr;
-                if (method == TAM_MASTER_PIN)
+                if (method == TAM_FALLBACK_PIN)
                 {
-                    SHStrDupW(L"Enter Master PIN to unlock PC", &_rgFieldStrings[SFI_METHOD_LABEL]);
+                    SHStrDupW(L"Enter Fallback PIN to unlock PC", &_rgFieldStrings[SFI_METHOD_LABEL]);
                 }
                 else
                 {
-                    SHStrDupW(L"Enter Master Password to unlock PC", &_rgFieldStrings[SFI_METHOD_LABEL]);
+                    SHStrDupW(L"Enter Fallback Password to unlock PC", &_rgFieldStrings[SFI_METHOD_LABEL]);
                 }
 
                 if (pEvents)
@@ -766,12 +766,12 @@ bool CTetherCredential::_IsEncryptedPasswordBlobPresent()
     return (res == ERROR_SUCCESS && dwType == REG_BINARY);
 }
 
-void CTetherCredential::_LoadMasterAuthConfiguration()
+void CTetherCredential::_LoadFallbackAuthConfiguration()
 {
     _availableMethods.clear();
     _availableMethods.push_back(TAM_PHONE_APP);
     _dwSelectedMethodIndex = 0;
-    _dwMasterAuthType = TAM_PHONE_APP;
+    _dwFallbackAuthType = TAM_PHONE_APP;
 
     HKEY hRoot = nullptr;
     DWORD dwVaultDaclVer = 0;
@@ -783,7 +783,7 @@ void CTetherCredential::_LoadMasterAuthConfiguration()
     }
     if (dwVaultDaclVer < 2)
     {
-        WriteDebugLog(L"_LoadMasterAuthConfiguration: Insecure vault DACL version (%u), skipping master auth.", dwVaultDaclVer);
+        WriteDebugLog(L"_LoadFallbackAuthConfiguration: Insecure vault DACL version (%u), skipping fallback auth.", dwVaultDaclVer);
         return;
     }
 
@@ -792,17 +792,28 @@ void CTetherCredential::_LoadMasterAuthConfiguration()
     {
         DWORD dwType = 0;
         DWORD dwTypeSize = sizeof(dwType);
-        if (RegQueryValueExW(hKey, L"MasterAuthType", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwType), &dwTypeSize) == ERROR_SUCCESS)
+        // Check FallbackAuthType first, fallback to MasterAuthType
+        if (RegQueryValueExW(hKey, L"FallbackAuthType", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwType), &dwTypeSize) != ERROR_SUCCESS ||
+            (dwType != TAM_FALLBACK_PIN && dwType != TAM_FALLBACK_PASSWORD))
         {
-            if (dwType == TAM_MASTER_PIN || dwType == TAM_MASTER_PASSWORD)
+            dwTypeSize = sizeof(dwType);
+            RegQueryValueExW(hKey, L"MasterAuthType", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwType), &dwTypeSize);
+        }
+
+        if (dwType == TAM_FALLBACK_PIN || dwType == TAM_FALLBACK_PASSWORD)
+        {
+            DWORD dwPayloadSize = 0;
+            // Check FallbackAuthPayload first, fallback to MasterAuthPayload
+            if (RegQueryValueExW(hKey, L"FallbackAuthPayload", nullptr, nullptr, nullptr, &dwPayloadSize) != ERROR_SUCCESS || dwPayloadSize < 59)
             {
-                DWORD dwPayloadSize = 0;
-                if (RegQueryValueExW(hKey, L"MasterAuthPayload", nullptr, nullptr, nullptr, &dwPayloadSize) == ERROR_SUCCESS && dwPayloadSize >= 59)
-                {
-                    _dwMasterAuthType = dwType;
-                    _availableMethods.push_back(dwType);
-                    WriteDebugLog(L"_LoadMasterAuthConfiguration: Registered master auth method %u. Total methods=%u", dwType, (DWORD)_availableMethods.size());
-                }
+                RegQueryValueExW(hKey, L"MasterAuthPayload", nullptr, nullptr, nullptr, &dwPayloadSize);
+            }
+
+            if (dwPayloadSize >= 59)
+            {
+                _dwFallbackAuthType = dwType;
+                _availableMethods.push_back(dwType);
+                WriteDebugLog(L"_LoadFallbackAuthConfiguration: Registered fallback auth method %u. Total methods=%u", dwType, (DWORD)_availableMethods.size());
             }
         }
         RegCloseKey(hKey);
@@ -853,7 +864,7 @@ HRESULT CTetherCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
     CoTaskMemFree(pszCurrentTileSid);
 
     DWORD selectedMethod = g_dwSelectedMethod.load();
-    if (selectedMethod == TAM_MASTER_PIN || selectedMethod == TAM_MASTER_PASSWORD)
+    if (selectedMethod == TAM_FALLBACK_PIN || selectedMethod == TAM_FALLBACK_PASSWORD)
     {
         // 1. Rate limiting check
         HKEY hKeyParams = nullptr;
@@ -863,9 +874,17 @@ HRESULT CTetherCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
             KEY_READ | KEY_WRITE | KEY_WOW64_64KEY, nullptr, &hKeyParams, nullptr) == ERROR_SUCCESS)
         {
             DWORD dwSize = sizeof(failedAttempts);
-            RegQueryValueExW(hKeyParams, L"MasterAuthFailedAttempts", nullptr, nullptr, reinterpret_cast<LPBYTE>(&failedAttempts), &dwSize);
+            if (RegQueryValueExW(hKeyParams, L"FallbackAuthFailedAttempts", nullptr, nullptr, reinterpret_cast<LPBYTE>(&failedAttempts), &dwSize) != ERROR_SUCCESS)
+            {
+                dwSize = sizeof(failedAttempts);
+                RegQueryValueExW(hKeyParams, L"MasterAuthFailedAttempts", nullptr, nullptr, reinterpret_cast<LPBYTE>(&failedAttempts), &dwSize);
+            }
             dwSize = sizeof(lockoutUntil);
-            RegQueryValueExW(hKeyParams, L"MasterAuthLockoutUntil", nullptr, nullptr, reinterpret_cast<LPBYTE>(&lockoutUntil), &dwSize);
+            if (RegQueryValueExW(hKeyParams, L"FallbackAuthLockoutUntil", nullptr, nullptr, reinterpret_cast<LPBYTE>(&lockoutUntil), &dwSize) != ERROR_SUCCESS)
+            {
+                dwSize = sizeof(lockoutUntil);
+                RegQueryValueExW(hKeyParams, L"MasterAuthLockoutUntil", nullptr, nullptr, reinterpret_cast<LPBYTE>(&lockoutUntil), &dwSize);
+            }
         }
 
         FILETIME ftNow;
@@ -887,13 +906,13 @@ HRESULT CTetherCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
         PCWSTR pszEntered = _rgFieldStrings[SFI_PASSWORD];
         if (!pszEntered || pszEntered[0] == L'\0')
         {
-            SHStrDupW(selectedMethod == TAM_MASTER_PIN ? L"Please enter your Master PIN." : L"Please enter your Master Password.", ppwszOptionalStatusText);
+            SHStrDupW(selectedMethod == TAM_FALLBACK_PIN ? L"Please enter your Fallback PIN." : L"Please enter your Fallback Password.", ppwszOptionalStatusText);
             *pcpsiOptionalStatusIcon = CPSI_WARNING;
             if (hKeyParams) RegCloseKey(hKeyParams);
             return S_FALSE;
         }
 
-        // 3. Read and unprotect MasterAuthPayload from Secrets
+        // 3. Read and unprotect FallbackAuthPayload from Secrets
         bool verified = false;
         HKEY hKeySecrets = nullptr;
         if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ | KEY_WOW64_64KEY, &hKeySecrets) == ERROR_SUCCESS)
@@ -901,7 +920,14 @@ HRESULT CTetherCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
             BYTE encryptedPayload[4096];
             DWORD dwEncSize = sizeof(encryptedPayload);
             DWORD dwType = 0;
-            if (RegQueryValueExW(hKeySecrets, L"MasterAuthPayload", nullptr, &dwType, encryptedPayload, &dwEncSize) == ERROR_SUCCESS)
+            // Try FallbackAuthPayload first, then MasterAuthPayload
+            if (RegQueryValueExW(hKeySecrets, L"FallbackAuthPayload", nullptr, &dwType, encryptedPayload, &dwEncSize) != ERROR_SUCCESS)
+            {
+                dwEncSize = sizeof(encryptedPayload);
+                RegQueryValueExW(hKeySecrets, L"MasterAuthPayload", nullptr, &dwType, encryptedPayload, &dwEncSize);
+            }
+
+            if (dwEncSize > 0)
             {
                 DATA_BLOB dataIn = { dwEncSize, encryptedPayload };
                 DATA_BLOB dataOut = { 0 };
@@ -911,7 +937,7 @@ HRESULT CTetherCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
                 if (CryptUnprotectData(&dataIn, nullptr, &entropyBlob, nullptr, nullptr,
                     CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, &dataOut))
                 {
-                    verified = VerifyMasterCredentialPBKDF2(pszEntered, dataOut.pbData, dataOut.cbData, selectedMethod);
+                    verified = VerifyFallbackCredentialPBKDF2(pszEntered, dataOut.pbData, dataOut.cbData, selectedMethod);
                     SecureZeroMemory(dataOut.pbData, dataOut.cbData);
                     LocalFree(dataOut.pbData);
                 }
@@ -937,13 +963,15 @@ HRESULT CTetherCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
 
             if (hKeyParams)
             {
+                RegSetValueExW(hKeyParams, L"FallbackAuthFailedAttempts", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&failedAttempts), sizeof(failedAttempts));
+                RegSetValueExW(hKeyParams, L"FallbackAuthLockoutUntil", 0, REG_QWORD, reinterpret_cast<const BYTE*>(&lockoutUntil), sizeof(lockoutUntil));
                 RegSetValueExW(hKeyParams, L"MasterAuthFailedAttempts", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&failedAttempts), sizeof(failedAttempts));
                 RegSetValueExW(hKeyParams, L"MasterAuthLockoutUntil", 0, REG_QWORD, reinterpret_cast<const BYTE*>(&lockoutUntil), sizeof(lockoutUntil));
                 RegCloseKey(hKeyParams);
             }
 
-            WriteDebugLog(L"GetSerialization: Master credential verification failed (attempt #%u, lockout %u s).", failedAttempts, delaySeconds);
-            SHStrDupW(selectedMethod == TAM_MASTER_PIN ? L"Incorrect Master PIN." : L"Incorrect Master Password.", ppwszOptionalStatusText);
+            WriteDebugLog(L"GetSerialization: Fallback credential verification failed (attempt #%u, lockout %u s).", failedAttempts, delaySeconds);
+            SHStrDupW(selectedMethod == TAM_FALLBACK_PIN ? L"Incorrect Fallback PIN." : L"Incorrect Fallback Password.", ppwszOptionalStatusText);
             *pcpsiOptionalStatusIcon = CPSI_ERROR;
             return S_FALSE;
         }
@@ -953,16 +981,18 @@ HRESULT CTetherCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATIO
         lockoutUntil = 0;
         if (hKeyParams)
         {
+            RegSetValueExW(hKeyParams, L"FallbackAuthFailedAttempts", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&failedAttempts), sizeof(failedAttempts));
+            RegSetValueExW(hKeyParams, L"FallbackAuthLockoutUntil", 0, REG_QWORD, reinterpret_cast<const BYTE*>(&lockoutUntil), sizeof(lockoutUntil));
             RegSetValueExW(hKeyParams, L"MasterAuthFailedAttempts", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&failedAttempts), sizeof(failedAttempts));
             RegSetValueExW(hKeyParams, L"MasterAuthLockoutUntil", 0, REG_QWORD, reinterpret_cast<const BYTE*>(&lockoutUntil), sizeof(lockoutUntil));
             RegCloseKey(hKeyParams);
         }
 
-        WriteDebugLog(L"GetSerialization: Master credential successfully verified. Unlocking session...");
+        WriteDebugLog(L"GetSerialization: Fallback credential successfully verified. Unlocking session...");
         HRESULT hr = _GetStoredPasswordAndPack(pcpgsr, pcpcs);
         if (SUCCEEDED(hr) && *pcpgsr == CPGSR_RETURN_CREDENTIAL_FINISHED)
         {
-            WriteDebugLog(L"GetSerialization: Successfully packaged stored credentials via master auth.");
+            WriteDebugLog(L"GetSerialization: Successfully packaged stored credentials via fallback auth.");
             return S_OK;
         }
 

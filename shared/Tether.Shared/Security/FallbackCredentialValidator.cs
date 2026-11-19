@@ -21,7 +21,7 @@ public sealed record ValidationResult(
     string FeedbackMessage
 );
 
-public static class MasterCredentialValidator
+public static class FallbackCredentialValidator
 {
     public const int MinimumLength = 8;
 
@@ -260,4 +260,12 @@ public static class MasterCredentialValidator
 
         return new ValidationResult(true, strength, feedback);
     }
+}
+
+// Backward compatibility forwarder
+public static class MasterCredentialValidator
+{
+    public const int MinimumLength = FallbackCredentialValidator.MinimumLength;
+    public static ValidationResult ValidatePin(string? pin) => FallbackCredentialValidator.ValidatePin(pin);
+    public static ValidationResult ValidatePassword(string? password) => FallbackCredentialValidator.ValidatePassword(password);
 }

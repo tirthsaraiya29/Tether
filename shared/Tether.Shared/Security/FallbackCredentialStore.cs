@@ -7,6 +7,14 @@ using Microsoft.Win32;
 
 namespace Tether.Shared.Security;
 
+public enum FallbackAuthType : uint
+{
+    None = 0,
+    Pin = 1,
+    Password = 2
+}
+
+// Backward compatibility alias
 public enum MasterAuthType : uint
 {
     None = 0,
@@ -15,14 +23,14 @@ public enum MasterAuthType : uint
 }
 
 [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-public static class MasterCredentialStore
+public static class FallbackCredentialStore
 {
     public const string SecretSubKey = @"SOFTWARE\Tether\CredentialProvider\Secrets";
     public const string RootSubKey = @"SOFTWARE\Tether\CredentialProvider";
     public static readonly byte[] SystemBoundEntropy = "Tether_System_Bound_Vault_v1"u8.ToArray();
-    public static readonly byte[] Magic = "TMAP"u8.ToArray(); // Tether Master Auth Payload
+    public static readonly byte[] Magic = "TMAP"u8.ToArray(); // Tether Mode Auth Payload
 
-    public static byte[] CreatePayload(string credential, MasterAuthType type)
+    public static byte[] CreatePayload(string credential, FallbackAuthType type)
     {
         byte[] salt = RandomNumberGenerator.GetBytes(16);
         const int iterations = 100_000;
@@ -67,7 +75,7 @@ public static class MasterCredentialStore
         return protectedBlob;
     }
 
-    public static bool VerifyPayload(string credential, byte[] protectedPayload, MasterAuthType expectedType)
+    public static bool VerifyPayload(string credential, byte[] protectedPayload, FallbackAuthType expectedType)
     {
         byte[]? raw = null;
         try
@@ -82,7 +90,7 @@ public static class MasterCredentialStore
             if (!raw.AsSpan(0, 4).SequenceEqual(Magic)) return false;
 
             byte type = raw[4];
-            if (expectedType != MasterAuthType.None && type != (byte)expectedType) return false;
+            if (expectedType != FallbackAuthType.None && type != (byte)expectedType) return false;
 
             byte saltLen = raw[5];
             if (saltLen != 16) return false;
@@ -121,12 +129,18 @@ public static class MasterCredentialStore
         }
     }
 
-    public static void SaveMasterAuth(byte[] protectedPayload, MasterAuthType type, RegistryKey? rootKey = null)
+    public static void SaveFallbackAuth(byte[] protectedPayload, FallbackAuthType type, RegistryKey? rootKey = null)
     {
         var hklm = rootKey ?? Registry.LocalMachine;
         using var secretsKey = hklm.CreateSubKey(SecretSubKey, true);
         if (secretsKey != null)
         {
+            secretsKey.SetValue("FallbackAuthType", (int)type, RegistryValueKind.DWord);
+            secretsKey.SetValue("FallbackAuthPayload", protectedPayload, RegistryValueKind.Binary);
+            secretsKey.SetValue("FallbackAuthFailedAttempts", 0, RegistryValueKind.DWord);
+            secretsKey.SetValue("FallbackAuthLockoutUntil", 0L, RegistryValueKind.QWord);
+
+            // Maintain compatibility keys during migration
             secretsKey.SetValue("MasterAuthType", (int)type, RegistryValueKind.DWord);
             secretsKey.SetValue("MasterAuthPayload", protectedPayload, RegistryValueKind.Binary);
             secretsKey.SetValue("MasterAuthFailedAttempts", 0, RegistryValueKind.DWord);
@@ -134,12 +148,17 @@ public static class MasterCredentialStore
         }
     }
 
-    public static void DisableMasterAuth(RegistryKey? rootKey = null)
+    public static void DisableFallbackAuth(RegistryKey? rootKey = null)
     {
         var hklm = rootKey ?? Registry.LocalMachine;
         using var secretsKey = hklm.CreateSubKey(SecretSubKey, true);
         if (secretsKey != null)
         {
+            secretsKey.SetValue("FallbackAuthType", 0, RegistryValueKind.DWord);
+            try { secretsKey.DeleteValue("FallbackAuthPayload", false); } catch { }
+            secretsKey.SetValue("FallbackAuthFailedAttempts", 0, RegistryValueKind.DWord);
+            secretsKey.SetValue("FallbackAuthLockoutUntil", 0L, RegistryValueKind.QWord);
+
             secretsKey.SetValue("MasterAuthType", 0, RegistryValueKind.DWord);
             try { secretsKey.DeleteValue("MasterAuthPayload", false); } catch { }
             secretsKey.SetValue("MasterAuthFailedAttempts", 0, RegistryValueKind.DWord);
@@ -147,16 +166,39 @@ public static class MasterCredentialStore
         }
     }
 
-    public static (MasterAuthType Type, byte[]? Payload) LoadMasterAuth(RegistryKey? rootKey = null)
+    public static (FallbackAuthType Type, byte[]? Payload) LoadFallbackAuth(RegistryKey? rootKey = null)
     {
         var hklm = rootKey ?? Registry.LocalMachine;
         using var secretsKey = hklm.OpenSubKey(SecretSubKey, false);
-        if (secretsKey == null) return (MasterAuthType.None, null);
+        if (secretsKey == null) return (FallbackAuthType.None, null);
 
-        var typeObj = secretsKey.GetValue("MasterAuthType");
+        var typeObj = secretsKey.GetValue("FallbackAuthType") ?? secretsKey.GetValue("MasterAuthType");
         int typeVal = typeObj is int i ? i : 0;
-        var payloadObj = secretsKey.GetValue("MasterAuthPayload") as byte[];
+        var payloadObj = (secretsKey.GetValue("FallbackAuthPayload") ?? secretsKey.GetValue("MasterAuthPayload")) as byte[];
 
-        return ((MasterAuthType)typeVal, payloadObj);
+        return ((FallbackAuthType)typeVal, payloadObj);
+    }
+}
+
+// Forwarding helper for any legacy callers
+[System.Runtime.Versioning.SupportedOSPlatform("windows")]
+public static class MasterCredentialStore
+{
+    public static byte[] CreatePayload(string credential, MasterAuthType type) =>
+        FallbackCredentialStore.CreatePayload(credential, (FallbackAuthType)type);
+
+    public static bool VerifyPayload(string credential, byte[] protectedPayload, MasterAuthType expectedType) =>
+        FallbackCredentialStore.VerifyPayload(credential, protectedPayload, (FallbackAuthType)expectedType);
+
+    public static void SaveMasterAuth(byte[] protectedPayload, MasterAuthType type, RegistryKey? rootKey = null) =>
+        FallbackCredentialStore.SaveFallbackAuth(protectedPayload, (FallbackAuthType)type, rootKey);
+
+    public static void DisableMasterAuth(RegistryKey? rootKey = null) =>
+        FallbackCredentialStore.DisableFallbackAuth(rootKey);
+
+    public static (MasterAuthType Type, byte[]? Payload) LoadMasterAuth(RegistryKey? rootKey = null)
+    {
+        var (t, p) = FallbackCredentialStore.LoadFallbackAuth(rootKey);
+        return ((MasterAuthType)t, p);
     }
 }

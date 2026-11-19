@@ -92,7 +92,7 @@ namespace Tether.DesktopUI
                 return;
             }
 
-            if (e.Args.Length > 0 && e.Args[0].Equals("--commit-master-auth", StringComparison.OrdinalIgnoreCase))
+            if (e.Args.Length > 0 && (e.Args[0].Equals("--commit-fallback-auth", StringComparison.OrdinalIgnoreCase) || e.Args[0].Equals("--commit-master-auth", StringComparison.OrdinalIgnoreCase)))
             {
                 try
                 {
@@ -118,11 +118,15 @@ namespace Tether.DesktopUI
                         secretsKey.SetAccessControl(rs);
                         if (authType == 0 || payload == null || payload.Length == 0)
                         {
+                            secretsKey.SetValue("FallbackAuthType", 0, Microsoft.Win32.RegistryValueKind.DWord);
+                            try { secretsKey.DeleteValue("FallbackAuthPayload", false); } catch { }
                             secretsKey.SetValue("MasterAuthType", 0, Microsoft.Win32.RegistryValueKind.DWord);
                             try { secretsKey.DeleteValue("MasterAuthPayload", false); } catch { }
                         }
                         else
                         {
+                            secretsKey.SetValue("FallbackAuthType", (int)authType, Microsoft.Win32.RegistryValueKind.DWord);
+                            secretsKey.SetValue("FallbackAuthPayload", payload, Microsoft.Win32.RegistryValueKind.Binary);
                             secretsKey.SetValue("MasterAuthType", (int)authType, Microsoft.Win32.RegistryValueKind.DWord);
                             secretsKey.SetValue("MasterAuthPayload", payload, Microsoft.Win32.RegistryValueKind.Binary);
                         }
@@ -130,7 +134,7 @@ namespace Tether.DesktopUI
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Failed writing master authentication secret: {ex.Message}", "Tether Master Auth Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show($"Failed writing fallback authentication secret: {ex.Message}", "Tether Fallback Auth Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
                 Environment.Exit(0);
                 return;

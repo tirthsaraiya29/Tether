@@ -1839,8 +1839,8 @@
 
                         </Border>
 
-                        <!-- 3B. Master PIN / Password Card -->
-                        <Border x:Name="CardMasterAuth"
+                        <!-- 3B. Fallback PIN / Password Card -->
+                        <Border x:Name="CardFallbackAuth"
                                 Style="{StaticResource GlassPanel}"
                                 Margin="0,14,0,0">
                             <StackPanel>
@@ -1848,13 +1848,13 @@
                                     <StackPanel>
                                         <TextBlock Text="SECURITY FALLBACK"
                                                    Style="{StaticResource SectionEyebrowTextStyle}"/>
-                                        <TextBlock Text="Master Authentication"
+                                        <TextBlock Text="Fallback Authentication"
                                                    Style="{StaticResource CardTitleTextStyle}"/>
                                     </StackPanel>
                                     <Border Style="{StaticResource BadgePillBorderStyle}"
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Top">
-                                        <TextBlock x:Name="TxtMasterAuthBadge"
+                                        <TextBlock x:Name="TxtFallbackAuthBadge"
                                                    Text="DISABLED"
                                                    FontFamily="{StaticResource MonoFontFamily}"
                                                    FontSize="9.5"
@@ -1863,7 +1863,7 @@
                                     </Border>
                                 </Grid>
 
-                                <TextBlock Text="Configure a local Master PIN or Password to unlock this PC with the Tether Credential Provider even if your phone is away or offline."
+                                <TextBlock Text="Configure a local Fallback PIN or Password to unlock this PC with the Tether Credential Provider even if your phone is away or offline."
                                            FontFamily="{StaticResource FluentFontFamily}"
                                            FontSize="12"
                                            Foreground="{StaticResource TextSecondaryBrush}"
@@ -1882,19 +1882,19 @@
                                                FontSize="12"
                                                Foreground="{StaticResource TextPrimaryBrush}"
                                                VerticalAlignment="Center"/>
-                                    <ComboBox x:Name="CmbMasterAuthMethod"
+                                    <ComboBox x:Name="CmbFallbackAuthMethod"
                                               Grid.Column="2"
                                               Height="34"
                                               SelectedIndex="0"
-                                              SelectionChanged="CmbMasterAuthMethod_SelectionChanged">
+                                              SelectionChanged="CmbFallbackAuthMethod_SelectionChanged">
                                         <ComboBoxItem Content="Disabled"/>
-                                        <ComboBoxItem Content="Master PIN (Min 8 Digits)"/>
-                                        <ComboBoxItem Content="Master Password (Min 8 Chars)"/>
+                                        <ComboBoxItem Content="Fallback PIN (Min 8 Digits)"/>
+                                        <ComboBoxItem Content="Fallback Password (Min 8 Chars)"/>
                                     </ComboBox>
                                 </Grid>
 
                                 <!-- Credential Entry Panel -->
-                                <StackPanel x:Name="PnlMasterCredentialInputs" Visibility="Collapsed">
+                                <StackPanel x:Name="PnlFallbackCredentialInputs" Visibility="Collapsed">
                                     <Grid Margin="0,0,0,10">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
@@ -1902,16 +1902,16 @@
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0">
-                                            <TextBlock x:Name="LblMasterCred"
+                                            <TextBlock x:Name="LblFallbackCred"
                                                        Text="New Credential"
                                                        FontFamily="{StaticResource FluentFontFamily}"
                                                        FontSize="11"
                                                        Foreground="{StaticResource TextSecondaryBrush}"
                                                        Margin="0,0,0,4"/>
-                                            <PasswordBox x:Name="TxtMasterPassword"
+                                            <PasswordBox x:Name="TxtFallbackPassword"
                                                          Height="36"
                                                          VerticalContentAlignment="Center"
-                                                         PasswordChanged="TxtMasterPassword_PasswordChanged"/>
+                                                         PasswordChanged="TxtFallbackPassword_PasswordChanged"/>
                                         </StackPanel>
                                         <StackPanel Grid.Column="2">
                                             <TextBlock Text="Confirm Credential"
@@ -1919,10 +1919,10 @@
                                                        FontSize="11"
                                                        Foreground="{StaticResource TextSecondaryBrush}"
                                                        Margin="0,0,0,4"/>
-                                            <PasswordBox x:Name="TxtMasterPasswordConfirm"
+                                            <PasswordBox x:Name="TxtFallbackPasswordConfirm"
                                                          Height="36"
                                                          VerticalContentAlignment="Center"
-                                                         PasswordChanged="TxtMasterPassword_PasswordChanged"/>
+                                                         PasswordChanged="TxtFallbackPassword_PasswordChanged"/>
                                         </StackPanel>
                                     </Grid>
 
@@ -1933,18 +1933,18 @@
                                             <ColumnDefinition Width="8"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <Border x:Name="PillMasterStrength"
+                                        <Border x:Name="PillFallbackStrength"
                                                 Style="{StaticResource NeutralBadgePillStyle}"
                                                 Padding="8,3"
                                                 VerticalAlignment="Center">
-                                            <TextBlock x:Name="TxtMasterStrengthBadge"
+                                            <TextBlock x:Name="TxtFallbackStrengthBadge"
                                                        Text="NONE"
                                                        FontFamily="{StaticResource MonoFontFamily}"
                                                        FontSize="9"
                                                        FontWeight="Bold"
                                                        Foreground="{StaticResource TextMutedBrush}"/>
                                         </Border>
-                                        <TextBlock x:Name="TxtMasterStrengthFeedback"
+                                        <TextBlock x:Name="TxtFallbackStrengthFeedback"
                                                    Grid.Column="2"
                                                    Text="Requires minimum 8 characters with non-predictable patterns."
                                                    FontFamily="{StaticResource FluentFontFamily}"
@@ -1962,19 +1962,19 @@
                                         <ColumnDefinition Width="10"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <Button x:Name="BtnSaveMasterAuth"
+                                    <Button x:Name="BtnSaveFallbackAuth"
                                             Grid.Column="2"
                                             Style="{StaticResource AccentButton}"
                                             Height="36"
                                             Padding="18,0"
-                                            Click="BtnSaveMasterAuth_Click">
+                                            Click="BtnSaveFallbackAuth_Click">
                                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                             <TextBlock Text="&#xE8D7;"
                                                        FontFamily="{StaticResource IconFontFamily}"
                                                        FontSize="12.5"
                                                        VerticalAlignment="Center"
                                                        Margin="0,0,8,0"/>
-                                            <TextBlock x:Name="TxtSaveMasterAuthLabel"
+                                            <TextBlock x:Name="TxtSaveFallbackAuthLabel"
                                                        Text="Save Configuration"
                                                        VerticalAlignment="Center"/>
                                         </StackPanel>

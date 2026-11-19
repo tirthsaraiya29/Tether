@@ -751,7 +751,7 @@ void WriteDebugLog(const wchar_t* format, ...)
     }
 }
 
-bool VerifyMasterCredentialPBKDF2(_In_ PCWSTR pszEnteredCredential, _In_reads_bytes_(cbPayload) const BYTE* pbPayload, _In_ DWORD cbPayload, _In_ DWORD dwExpectedType)
+bool VerifyFallbackCredentialPBKDF2(_In_ PCWSTR pszEnteredCredential, _In_reads_bytes_(cbPayload) const BYTE* pbPayload, _In_ DWORD cbPayload, _In_ DWORD dwExpectedType)
 {
     if (pszEnteredCredential == nullptr || pbPayload == nullptr || cbPayload < 59)
     {

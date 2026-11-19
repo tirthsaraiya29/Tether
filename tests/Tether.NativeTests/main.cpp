@@ -648,7 +648,7 @@ static void Test_IndependentDenial_PreservedDuringRestore()
     pFilter->Release();
 }
 
-static std::vector<BYTE> CreateTestMasterAuthPayload(const wchar_t* credential, DWORD type, DWORD iterations = 1000)
+static std::vector<BYTE> CreateTestFallbackAuthPayload(const wchar_t* credential, DWORD type, DWORD iterations = 1000)
 {
     std::vector<BYTE> payload(59, 0);
     payload[0] = 'T'; payload[1] = 'M'; payload[2] = 'A'; payload[3] = 'P';
@@ -671,23 +671,26 @@ static std::vector<BYTE> CreateTestMasterAuthPayload(const wchar_t* credential, 
     return payload;
 }
 
-static void Test_VerifyMasterCredentialPBKDF2_Validation()
+static void Test_VerifyFallbackCredentialPBKDF2_Validation()
 {
-    auto pinPayload = CreateTestMasterAuthPayload(L"98421376", TAM_MASTER_PIN);
+    auto pinPayload = CreateTestFallbackAuthPayload(L"98421376", TAM_FALLBACK_PIN);
+    TEST_ASSERT(VerifyFallbackCredentialPBKDF2(L"98421376", pinPayload.data(), static_cast<DWORD>(pinPayload.size()), TAM_FALLBACK_PIN) == true);
+    TEST_ASSERT(VerifyFallbackCredentialPBKDF2(L"98421377", pinPayload.data(), static_cast<DWORD>(pinPayload.size()), TAM_FALLBACK_PIN) == false);
+
+    // Verify backward compatibility wrapper
     TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"98421376", pinPayload.data(), static_cast<DWORD>(pinPayload.size()), TAM_MASTER_PIN) == true);
-    TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"98421377", pinPayload.data(), static_cast<DWORD>(pinPayload.size()), TAM_MASTER_PIN) == false);
 
-    auto pwdPayload = CreateTestMasterAuthPayload(L"P@ssw0rd!Secure2026", TAM_MASTER_PASSWORD);
-    TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"P@ssw0rd!Secure2026", pwdPayload.data(), static_cast<DWORD>(pwdPayload.size()), TAM_MASTER_PASSWORD) == true);
-    TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"P@ssw0rd!Secure2027", pwdPayload.data(), static_cast<DWORD>(pwdPayload.size()), TAM_MASTER_PASSWORD) == false);
+    auto pwdPayload = CreateTestFallbackAuthPayload(L"P@ssw0rd!Secure2026", TAM_FALLBACK_PASSWORD);
+    TEST_ASSERT(VerifyFallbackCredentialPBKDF2(L"P@ssw0rd!Secure2026", pwdPayload.data(), static_cast<DWORD>(pwdPayload.size()), TAM_FALLBACK_PASSWORD) == true);
+    TEST_ASSERT(VerifyFallbackCredentialPBKDF2(L"P@ssw0rd!Secure2027", pwdPayload.data(), static_cast<DWORD>(pwdPayload.size()), TAM_FALLBACK_PASSWORD) == false);
 
-    TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"98421376", pinPayload.data(), static_cast<DWORD>(pinPayload.size()), TAM_MASTER_PASSWORD) == false);
+    TEST_ASSERT(VerifyFallbackCredentialPBKDF2(L"98421376", pinPayload.data(), static_cast<DWORD>(pinPayload.size()), TAM_FALLBACK_PASSWORD) == false);
 
     auto corrupted = pinPayload;
     corrupted[0] = 'X';
-    TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"98421376", corrupted.data(), static_cast<DWORD>(corrupted.size()), TAM_MASTER_PIN) == false);
-    TEST_ASSERT(VerifyMasterCredentialPBKDF2(L"98421376", pinPayload.data(), 58, TAM_MASTER_PIN) == false);
-    TEST_ASSERT(VerifyMasterCredentialPBKDF2(nullptr, pinPayload.data(), static_cast<DWORD>(pinPayload.size()), TAM_MASTER_PIN) == false);
+    TEST_ASSERT(VerifyFallbackCredentialPBKDF2(L"98421376", corrupted.data(), static_cast<DWORD>(corrupted.size()), TAM_FALLBACK_PIN) == false);
+    TEST_ASSERT(VerifyFallbackCredentialPBKDF2(L"98421376", pinPayload.data(), 58, TAM_FALLBACK_PIN) == false);
+    TEST_ASSERT(VerifyFallbackCredentialPBKDF2(nullptr, pinPayload.data(), static_cast<DWORD>(pinPayload.size()), TAM_FALLBACK_PIN) == false);
 }
 
 static void Test_CredentialProvider_ComboBox_And_FieldSwitching()
@@ -745,7 +748,7 @@ int main()
     RunTest("ProvidersAbsentDuringFirstRestorationEnumeration", Test_ProvidersAbsentDuringFirstRestorationEnumeration);
     RunTest("ThirdPartyDenialIntroducedAfterTetherHidesProvider", Test_ThirdPartyDenialIntroducedAfterTetherHidesProvider);
     RunTest("IndependentDenial_PreservedDuringRestore", Test_IndependentDenial_PreservedDuringRestore);
-    RunTest("VerifyMasterCredentialPBKDF2_Validation", Test_VerifyMasterCredentialPBKDF2_Validation);
+    RunTest("VerifyFallbackCredentialPBKDF2_Validation", Test_VerifyFallbackCredentialPBKDF2_Validation);
     RunTest("CredentialProvider_ComboBox_And_FieldSwitching", Test_CredentialProvider_ComboBox_And_FieldSwitching);
 
     std::cout << "========================================" << std::endl;

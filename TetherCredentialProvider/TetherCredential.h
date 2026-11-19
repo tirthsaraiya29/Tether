@@ -91,7 +91,7 @@ private:
     HRESULT _GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
         CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs);
     bool _IsEncryptedPasswordBlobPresent();
-    void _LoadMasterAuthConfiguration();
+    void _LoadFallbackAuthConfiguration();
 
 private:
     std::atomic<long>                       _cRef;
@@ -124,7 +124,7 @@ private:
     std::atomic<bool>                       _prevPhoneConnected{ false };
     std::atomic<bool>                       _fServiceActionInProgress{ false };
 
-    DWORD                                   _dwMasterAuthType{ 0 };
+    DWORD                                   _dwFallbackAuthType{ 0 };
     std::vector<DWORD>                      _availableMethods;
     DWORD                                   _dwSelectedMethodIndex{ 0 };
 };

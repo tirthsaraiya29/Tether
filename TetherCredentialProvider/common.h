@@ -21,8 +21,10 @@ typedef TETHER_FIELD_ID SAMPLE_FIELD_ID;
 enum TETHER_AUTH_METHOD
 {
     TAM_PHONE_APP = 0,
-    TAM_MASTER_PIN = 1,
-    TAM_MASTER_PASSWORD = 2
+    TAM_FALLBACK_PIN = 1,
+    TAM_FALLBACK_PASSWORD = 2,
+    TAM_MASTER_PIN = 1, // Backward compatibility alias
+    TAM_MASTER_PASSWORD = 2 // Backward compatibility alias
 };
 
 struct FIELD_STATE_PAIR
@@ -52,7 +54,7 @@ static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgCredProvFieldDescriptors[]
     { SFI_LARGE_TEXT,       CPFT_LARGE_TEXT,    const_cast<PWSTR>(L"Tether Link") },
     { SFI_METHOD_LABEL,     CPFT_SMALL_TEXT,    const_cast<PWSTR>(L"Open the Tether app on your phone and tap 'Unlock PC'") },
     { SFI_METHOD_COMBOBOX,  CPFT_COMBOBOX,      const_cast<PWSTR>(L"Authentication Method") },
-    { SFI_PASSWORD,         CPFT_PASSWORD_TEXT, const_cast<PWSTR>(L"Enter Master PIN or Password") },
+    { SFI_PASSWORD,         CPFT_PASSWORD_TEXT, const_cast<PWSTR>(L"Enter Fallback PIN or Password") },
     { SFI_SUBMIT_BUTTON,    CPFT_SUBMIT_BUTTON, const_cast<PWSTR>(L"Unlock") },
     { SFI_LOGONSTATUS_TEXT, CPFT_SMALL_TEXT,    const_cast<PWSTR>(L"Status Context") },
     { SFI_UNLOCK_PROMPT_BUTTON, CPFT_COMMAND_LINK, const_cast<PWSTR>(L"Send unlock prompt to phone") },
@@ -62,6 +64,6 @@ static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgCredProvFieldDescriptors[]
 static const PWSTR s_rgUnlockMethodStrings[] =
 {
     const_cast<PWSTR>(L"Unlock via Phone App"),
-    const_cast<PWSTR>(L"Master PIN"),
-    const_cast<PWSTR>(L"Master Password"),
+    const_cast<PWSTR>(L"Fallback PIN"),
+    const_cast<PWSTR>(L"Fallback Password"),
 };
