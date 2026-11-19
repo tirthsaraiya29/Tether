@@ -422,4 +422,104 @@ public class SafeCredentialProviderRestorationTests
         Assert.False(allowStates[1]);
         Assert.True(allowStates[2]);
     }
+
+    [Fact]
+    public void Filter_IncomingDenialOnTetherProvider_IsNeverReversed_ByFilterOrRestore()
+    {
+        var store = new InMemoryPanicRestorationStore();
+        var manager = new SafeCredentialFilterManager(_logger, store);
+
+        var providers = new[] { _provA, _tetherProv };
+        var allowStates = new[] { true, false }; // Tether provider already denied by another filter or policy
+
+        manager.ActivatePanicLock("session-tether-denied");
+        manager.ApplyFilter(providers, allowStates);
+
+        // Tether provider denial must be preserved!
+        Assert.False(allowStates[0], "Alternative provider hidden during panic");
+        Assert.False(allowStates[1], "Existing denial of Tether provider must NEVER be reversed");
+
+        manager.DeactivatePanicLock("session-tether-denied");
+        bool restored = manager.Restore(providers, allowStates);
+        Assert.True(restored);
+
+        Assert.True(allowStates[0], "Alternative provider restored");
+        Assert.False(allowStates[1], "Tether provider denial remains strictly preserved after restore");
+    }
+
+    [Fact]
+    public void Filter_MultipleCooperatingFilters_PreservesAllPriorDenials()
+    {
+        var store = new InMemoryPanicRestorationStore();
+        var manager = new SafeCredentialFilterManager(_logger, store);
+
+        var providers = new[] { _provA, _provB, _provC, _tetherProv };
+        // Suppose Filter 1 already denied ProvB and TetherProv
+        var allowStates = new[] { true, false, true, false };
+
+        manager.ActivatePanicLock("session-cooperating-filters");
+        manager.ApplyFilter(providers, allowStates);
+
+        // ProvA and ProvC should be hidden by Tether; ProvB and TetherProv remain denied
+        Assert.False(allowStates[0]);
+        Assert.False(allowStates[1]);
+        Assert.False(allowStates[2]);
+        Assert.False(allowStates[3]);
+
+        manager.DeactivatePanicLock("session-cooperating-filters");
+        bool restored = manager.Restore(providers, allowStates);
+        Assert.True(restored);
+
+        // ProvA and ProvC restored (since Tether hid them and they were originally allowed)
+        Assert.True(allowStates[0]);
+        Assert.False(allowStates[1], "ProvB was denied by prior filter and must remain denied");
+        Assert.True(allowStates[2]);
+        Assert.False(allowStates[3], "TetherProv was denied by prior filter and must remain denied");
+    }
+
+    [Fact]
+    public void PanicManager_Lifecycle_SessionAwareTransitions_RejectMismatchedOrStaleEvents()
+    {
+        var eventBus = new Tether.EventBus.InMemoryEventBus(_logger);
+        var store = new InMemoryPanicRestorationStore();
+        var filterManager = new SafeCredentialFilterManager(_logger, store);
+        var panicManager = new PanicManager(eventBus, _logger, filterManager);
+
+        // 1. Trigger panic with specific session
+        string activeSession = panicManager.TriggerPanic("session-abc", sequenceNumber: 10);
+        Assert.Equal("session-abc", activeSession);
+        Assert.True(filterManager.IsPanicActive);
+        Assert.Equal("session-abc", panicManager.ActivePanicSessionId);
+
+        // 2. Attempt unlock with wrong session ID -> must be rejected
+        bool wrongUnlock = panicManager.ClearPanic("session-wrong", sequenceNumber: 11);
+        Assert.False(wrongUnlock);
+        Assert.True(filterManager.IsPanicActive, "Panic must remain active after mismatched session unlock attempt");
+
+        // 3. Attempt unlock with stale sequence number -> must be rejected
+        bool staleUnlock = panicManager.ClearPanic("session-abc", sequenceNumber: 5);
+        Assert.False(staleUnlock);
+        Assert.True(filterManager.IsPanicActive, "Panic must remain active after stale sequence unlock attempt");
+
+        // 4. Correct unlock with matching session and valid sequence number -> success
+        bool validUnlock = panicManager.ClearPanic("session-abc", sequenceNumber: 12);
+        Assert.True(validUnlock);
+        Assert.False(filterManager.IsPanicActive);
+        Assert.Null(panicManager.ActivePanicSessionId);
+    }
+
+    [Fact]
+    public void PanicManager_PersistenceFailure_AbortsActivationAndPropagatesException()
+    {
+        var eventBus = new Tether.EventBus.InMemoryEventBus(_logger);
+        var store = new InMemoryPanicRestorationStore();
+        store.SimulateSaveFailure = true; // Simulate write failure
+
+        var filterManager = new SafeCredentialFilterManager(_logger, store);
+        var panicManager = new PanicManager(eventBus, _logger, filterManager);
+
+        Assert.Throws<System.IO.IOException>(() => panicManager.TriggerPanic("fail-session"));
+        Assert.Null(panicManager.ActivePanicSessionId);
+        Assert.False(filterManager.IsPanicActive);
+    }
 }

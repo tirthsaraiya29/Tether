@@ -55,12 +55,33 @@ public interface IPanicRestorationStore
 public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
 {
     private const string BaseRegistryPath = @"SOFTWARE\Tether\PanicLock";
-    private static readonly byte[] SystemBoundEntropy = Encoding.UTF8.GetBytes("Tether_System_Bound_Vault_v1");
     private readonly ITetherLogger _logger;
 
     public WindowsRegistryPanicStore(ITetherLogger logger)
     {
         _logger = logger;
+    }
+
+    private static byte[] GetOrCreateHmacKey(RegistryKey key)
+    {
+        var blob = key.GetValue("IntegrityKeyBlob") as byte[];
+        if (blob != null && blob.Length > 0)
+        {
+            try
+            {
+                return ProtectedData.Unprotect(blob, null, DataProtectionScope.LocalMachine);
+            }
+            catch
+            {
+                // Key corrupted or unprotect failed, fall through to regenerate
+            }
+        }
+
+        byte[] rawKey = new byte[32];
+        RandomNumberGenerator.Fill(rawKey);
+        byte[] protectedBlob = ProtectedData.Protect(rawKey, null, DataProtectionScope.LocalMachine);
+        key.SetValue("IntegrityKeyBlob", protectedBlob, RegistryValueKind.Binary);
+        return rawKey;
     }
 
     public PanicLockSessionState? Load()
@@ -73,6 +94,13 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
                 return null;
             }
 
+            var daclVerObj = baseKey.GetValue("VaultDaclVersion");
+            if (daclVerObj is not int daclVer || daclVer < 2)
+            {
+                _logger.Error("WindowsRegistryPanicStore: Refusing to load state. VaultDaclVersion is missing or outdated.");
+                return null;
+            }
+
             var json = baseKey.GetValue("SessionData") as string;
             var storedDigest = baseKey.GetValue("IntegrityDigest") as byte[];
 
@@ -81,9 +109,21 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
                 return null;
             }
 
-            // Verify payload integrity using system-bound HMAC
-            using var hmac = new HMACSHA256(SystemBoundEntropy);
+            byte[] hmacKey;
+            try
+            {
+                hmacKey = GetOrCreateHmacKey(baseKey);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"WindowsRegistryPanicStore: Failed to obtain DPAPI protected HMAC key: {ex.Message}");
+                return null;
+            }
+
+            using var hmac = new HMACSHA256(hmacKey);
             var computedDigest = hmac.ComputeHash(Encoding.UTF8.GetBytes(json));
+            CryptographicOperations.ZeroMemory(hmacKey);
+
             if (!CryptographicOperations.FixedTimeEquals(storedDigest, computedDigest))
             {
                 _logger.Error("WindowsRegistryPanicStore: Tampering detected! Stored integrity digest does not match.");
@@ -115,16 +155,26 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
             if (baseKey == null)
             {
                 _logger.Error("WindowsRegistryPanicStore: Unable to create or open PanicLock registry key.");
-                return;
+                throw new InvalidOperationException("Failed to open or create HKLM\\SOFTWARE\\Tether\\PanicLock key.");
             }
 
             baseKey.SetAccessControl(rs);
             baseKey.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
             baseKey.SetValue("IsPanicActive", state.IsPanicActive ? 1 : 0, RegistryValueKind.DWord);
+            baseKey.SetValue("PanicSessionId", state.SessionId ?? string.Empty, RegistryValueKind.String);
 
+            var hiddenGuids = state.Providers.Values
+                .Where(p => p.HiddenByTether && p.OriginalVisibility)
+                .Select(p => p.ProviderId.ToString("B"))
+                .ToArray();
+            baseKey.SetValue("HiddenProviders", hiddenGuids, RegistryValueKind.MultiString);
+
+            byte[] hmacKey = GetOrCreateHmacKey(baseKey);
             var json = JsonSerializer.Serialize(state);
-            using var hmac = new HMACSHA256(SystemBoundEntropy);
+
+            using var hmac = new HMACSHA256(hmacKey);
             var digest = hmac.ComputeHash(Encoding.UTF8.GetBytes(json));
+            CryptographicOperations.ZeroMemory(hmacKey);
 
             baseKey.SetValue("SessionData", json, RegistryValueKind.String);
             baseKey.SetValue("IntegrityDigest", digest, RegistryValueKind.Binary);
@@ -145,6 +195,8 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
             {
                 baseKey.DeleteValue("SessionData", false);
                 baseKey.DeleteValue("IntegrityDigest", false);
+                baseKey.DeleteValue("HiddenProviders", false);
+                baseKey.DeleteValue("PanicSessionId", false);
                 baseKey.SetValue("IsPanicActive", 0, RegistryValueKind.DWord);
             }
         }
@@ -159,14 +211,47 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
         try
         {
             using var baseKey = Registry.LocalMachine.OpenSubKey(BaseRegistryPath, RegistryKeyPermissionCheck.ReadSubTree, RegistryRights.ReadPermissions);
-            if (baseKey == null) return true;
+            if (baseKey == null) return false;
 
             var acl = baseKey.GetAccessControl();
-            if (acl.AreAccessRulesProtected)
+            if (!acl.AreAccessRulesProtected) return false;
+
+            var rules = acl.GetAccessRules(includeExplicit: true, includeInherited: false, typeof(SecurityIdentifier));
+            if (rules.Count == 0) return false;
+
+            var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            var adminsSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+
+            bool hasSystem = false;
+            bool hasAdmins = false;
+
+            foreach (RegistryAccessRule rule in rules)
             {
-                return true;
+                if (rule.AccessControlType == AccessControlType.Deny)
+                {
+                    if (rule.IdentityReference == systemSid || rule.IdentityReference == adminsSid)
+                    {
+                        return false;
+                    }
+                }
+                else if (rule.AccessControlType == AccessControlType.Allow)
+                {
+                    if (rule.IdentityReference == systemSid)
+                    {
+                        hasSystem = true;
+                    }
+                    else if (rule.IdentityReference == adminsSid)
+                    {
+                        hasAdmins = true;
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
             }
-            return false;
+
+            return hasSystem && hasAdmins;
         }
         catch
         {
@@ -182,7 +267,8 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
     private byte[]? _integrityDigest;
     private bool _simulateTampering;
     private bool _simulateUnauthorizedAccess;
-    private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("Tether_System_Bound_Vault_v1");
+    private bool _simulateSaveFailure;
+    private readonly byte[] _hmacKey = RandomNumberGenerator.GetBytes(32);
 
     public bool SimulateTampering
     {
@@ -194,6 +280,12 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
     {
         get { lock (_storeLock) return _simulateUnauthorizedAccess; }
         set { lock (_storeLock) _simulateUnauthorizedAccess = value; }
+    }
+
+    public bool SimulateSaveFailure
+    {
+        get { lock (_storeLock) return _simulateSaveFailure; }
+        set { lock (_storeLock) _simulateSaveFailure = value; }
     }
 
     public PanicLockSessionState? Load()
@@ -208,7 +300,7 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
             if (_savedState == null) return null;
 
             var json = JsonSerializer.Serialize(_savedState);
-            using var hmac = new HMACSHA256(Entropy);
+            using var hmac = new HMACSHA256(_hmacKey);
             var computed = hmac.ComputeHash(Encoding.UTF8.GetBytes(json));
 
             if (_simulateTampering || _integrityDigest == null || !CryptographicOperations.FixedTimeEquals(_integrityDigest, computed))
@@ -224,13 +316,18 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
     {
         lock (_storeLock)
         {
+            if (_simulateSaveFailure)
+            {
+                throw new IOException("Simulated disk or registry write failure during panic save.");
+            }
+
             if (_simulateUnauthorizedAccess)
             {
                 throw new UnauthorizedAccessException("Simulated access denied by unprivileged ACL.");
             }
 
             var json = JsonSerializer.Serialize(state);
-            using var hmac = new HMACSHA256(Entropy);
+            using var hmac = new HMACSHA256(_hmacKey);
             _integrityDigest = hmac.ComputeHash(Encoding.UTF8.GetBytes(json));
             _savedState = JsonSerializer.Deserialize<PanicLockSessionState>(json);
         }

@@ -11,6 +11,7 @@ using Tether.CommunicationService.Transport;
 using Tether.EventBus;
 using Tether.Shared.Events;
 using Tether.Shared.Logging;
+using Tether.PanicEngine;
 
 namespace Tether.CommunicationService.Protocol;
 
@@ -23,6 +24,7 @@ public sealed class PacketRouter
     private readonly InputForwarder _inputForwarder;
     private readonly WindowsAdminManager _adminManager;
     private readonly SessionManager _sessionManager;
+    private readonly PanicManager _panicManager;
 
     public PacketRouter(
         ITetherLogger logger,
@@ -31,7 +33,8 @@ public sealed class PacketRouter
         TokenStore tokenStore,
         InputForwarder inputForwarder,
         WindowsAdminManager adminManager,
-        SessionManager sessionManager)
+        SessionManager sessionManager,
+        PanicManager? panicManager = null)
     {
         _logger = logger;
         _capabilityManager = capabilityManager;
@@ -40,6 +43,7 @@ public sealed class PacketRouter
         _inputForwarder = inputForwarder;
         _adminManager = adminManager;
         _sessionManager = sessionManager;
+        _panicManager = panicManager ?? new PanicManager(eventBus, logger);
 
         // Relay events from SessionHelper (Windows desktop) to connected phone sessions
         _inputForwarder.OnHelperEventReceived += rawJson =>
@@ -553,29 +557,18 @@ public sealed class PacketRouter
 
         if (cmdLower == "panic")
         {
-            _eventBus.Publish(new TetherEvent
-            {
-                EventType = TetherEventType.PANIC_TRIGGERED,
-                Source = "PacketRouter",
-                PayloadJson = JsonSerializer.Serialize(new
-                {
-                    TriggeredBy = device.DisplayName,
-                    DeviceId = device.DeviceId
-                })
-            });
+            long.TryParse(cmd.RequestId, out long seq);
+            string panicSessionId = _panicManager.TriggerPanic(sequenceNumber: seq);
+            _logger.Warning($"PacketRouter: Triggered panic lock with session {panicSessionId}");
         }
         else if (cmdLower == "unlock")
         {
-            _eventBus.Publish(new TetherEvent
+            if (_panicManager.ActivePanicSessionId != null)
             {
-                EventType = TetherEventType.PANIC_CLEARED,
-                Source = "PacketRouter",
-                PayloadJson = JsonSerializer.Serialize(new
-                {
-                    UnlockedBy = device.DisplayName,
-                    DeviceId = device.DeviceId
-                })
-            });
+                long.TryParse(cmd.RequestId, out long seq);
+                _panicManager.ClearPanic(_panicManager.ActivePanicSessionId, sequenceNumber: seq);
+                _logger.Info("PacketRouter: Cleared panic lock upon workstation unlock.");
+            }
         }
 
         if (cmdLower.StartsWith("volume_") || cmdLower.StartsWith("set_volume:") || cmdLower.StartsWith("vol_") ||

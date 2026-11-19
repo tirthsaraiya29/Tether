@@ -10,6 +10,9 @@
 
 #include "TetherCredential.h"
 
+HRESULT CTetherProvider_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
+HRESULT CSample_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
+
 class CTetherProvider : public ICredentialProvider,
     public ICredentialProviderSetUserArray,
     public ICredentialProviderFilter
@@ -78,6 +81,10 @@ public:
 
     friend HRESULT CTetherProvider_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
     friend HRESULT CSample_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
+
+#ifdef TETHER_TEST_HARNESS
+    friend void CTetherProvider_SetTestRegistryRoot(HKEY hRoot, const wchar_t* subKey);
+#endif
 
 protected:
     CTetherProvider();

@@ -1,5 +1,9 @@
 #include <initguid.h>
+#include <cguid.h>
+#include <string>
+#include <vector>
 #include <new>
+#include <combaseapi.h>
 #include "TetherProvider.h"
 #include "TetherCredential.h"
 #include "TetherCredentialGlobals.h"
@@ -300,6 +304,138 @@ HRESULT CTetherProvider::SetSerialization(_In_ const CREDENTIAL_PROVIDER_CREDENT
     }
 }
 
+#ifdef TETHER_TEST_HARNESS
+static HKEY g_hPanicRegistryRoot = HKEY_CURRENT_USER;
+static std::wstring g_wszPanicRegistryPath = L"Software\\Tether\\TestPanicLock";
+
+void CTetherProvider_SetTestRegistryRoot(HKEY hRoot, const wchar_t* subKey)
+{
+    g_hPanicRegistryRoot = hRoot;
+    g_wszPanicRegistryPath = (subKey != nullptr && *subKey != L'\0') ? subKey : L"Software\\Tether\\TestPanicLock";
+}
+
+static const wchar_t* _GetPanicRegistryPath()
+{
+    return g_wszPanicRegistryPath.c_str();
+}
+#else
+static const HKEY g_hPanicRegistryRoot = HKEY_LOCAL_MACHINE;
+static const wchar_t* _GetPanicRegistryPath()
+{
+    return L"SOFTWARE\\Tether\\PanicLock";
+}
+#endif
+
+static HRESULT _ReadPanicFilterState(
+    _Out_ bool* pbPanicActive,
+    _Out_ std::wstring* pSessionId,
+    _Out_ std::vector<GUID>* pHiddenProviders)
+{
+    if (pbPanicActive == nullptr || pSessionId == nullptr || pHiddenProviders == nullptr)
+    {
+        return E_POINTER;
+    }
+
+    *pbPanicActive = false;
+    pSessionId->clear();
+    pHiddenProviders->clear();
+
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(g_hPanicRegistryRoot, _GetPanicRegistryPath(), 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+    {
+        return S_OK;
+    }
+
+    DWORD dwDaclVer = 0;
+    DWORD dwSize = sizeof(dwDaclVer);
+    if (RegQueryValueExW(hKey, L"VaultDaclVersion", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwDaclVer), &dwSize) != ERROR_SUCCESS || dwDaclVer < 2)
+    {
+        RegCloseKey(hKey);
+        return E_ACCESSDENIED;
+    }
+
+    DWORD dwPanicActive = 0;
+    dwSize = sizeof(dwPanicActive);
+    if (RegQueryValueExW(hKey, L"IsPanicActive", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwPanicActive), &dwSize) == ERROR_SUCCESS)
+    {
+        *pbPanicActive = (dwPanicActive != 0);
+    }
+
+    wchar_t szSessionId[128] = { 0 };
+    dwSize = sizeof(szSessionId);
+    if (RegQueryValueExW(hKey, L"PanicSessionId", nullptr, nullptr, reinterpret_cast<LPBYTE>(szSessionId), &dwSize) == ERROR_SUCCESS)
+    {
+        *pSessionId = szSessionId;
+    }
+
+    DWORD dwType = 0;
+    dwSize = 0;
+    if (RegQueryValueExW(hKey, L"HiddenProviders", nullptr, &dwType, nullptr, &dwSize) == ERROR_SUCCESS && dwSize > 0 && dwType == REG_MULTI_SZ)
+    {
+        std::vector<wchar_t> buffer(dwSize / sizeof(wchar_t) + 2, 0);
+        if (RegQueryValueExW(hKey, L"HiddenProviders", nullptr, nullptr, reinterpret_cast<LPBYTE>(buffer.data()), &dwSize) == ERROR_SUCCESS)
+        {
+            const wchar_t* p = buffer.data();
+            while (*p != L'\0')
+            {
+                GUID guid = GUID_NULL;
+                if (SUCCEEDED(IIDFromString(p, &guid)) && !IsEqualGUID(guid, GUID_NULL))
+                {
+                    pHiddenProviders->push_back(guid);
+                }
+                p += wcslen(p) + 1;
+            }
+        }
+    }
+
+    RegCloseKey(hKey);
+    return S_OK;
+}
+
+static HRESULT _WriteHiddenProviders(const std::vector<GUID>& hiddenProviders)
+{
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(g_hPanicRegistryRoot, _GetPanicRegistryPath(), 0, KEY_SET_VALUE, &hKey) != ERROR_SUCCESS)
+    {
+        return E_FAIL;
+    }
+
+    if (hiddenProviders.empty())
+    {
+        RegDeleteValueW(hKey, L"HiddenProviders");
+        RegCloseKey(hKey);
+        return S_OK;
+    }
+
+    std::vector<wchar_t> multiSz;
+    for (const auto& g : hiddenProviders)
+    {
+        wchar_t szGuid[64] = { 0 };
+        if (StringFromGUID2(g, szGuid, ARRAYSIZE(szGuid)) > 0)
+        {
+            size_t len = wcslen(szGuid);
+            multiSz.insert(multiSz.end(), szGuid, szGuid + len + 1);
+        }
+    }
+    multiSz.push_back(L'\0');
+
+    DWORD cbData = static_cast<DWORD>(multiSz.size() * sizeof(wchar_t));
+    RegSetValueExW(hKey, L"HiddenProviders", 0, REG_MULTI_SZ, reinterpret_cast<const BYTE*>(multiSz.data()), cbData);
+    RegCloseKey(hKey);
+    return S_OK;
+}
+
+static HRESULT _ClearHiddenProviders()
+{
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(g_hPanicRegistryRoot, _GetPanicRegistryPath(), 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS)
+    {
+        RegDeleteValueW(hKey, L"HiddenProviders");
+        RegCloseKey(hKey);
+    }
+    return S_OK;
+}
+
 HRESULT CTetherProvider::Filter(
     _In_ CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     _In_ DWORD dwFlags,
@@ -317,37 +453,104 @@ HRESULT CTetherProvider::Filter(
             return S_OK;
         }
 
-        // Query the Panic Lock registry state from HKLM\SOFTWARE\Tether\PanicLock
-        HKEY hKey = nullptr;
-        DWORD dwPanicActive = 0;
-        DWORD dwSize = sizeof(dwPanicActive);
         bool bPanicActive = false;
+        std::wstring sessionId;
+        std::vector<GUID> previouslyHidden;
 
-        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\PanicLock", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+        HRESULT hr = _ReadPanicFilterState(&bPanicActive, &sessionId, &previouslyHidden);
+        if (FAILED(hr))
         {
-            if (RegQueryValueExW(hKey, L"IsPanicActive", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwPanicActive), &dwSize) == ERROR_SUCCESS)
-            {
-                bPanicActive = (dwPanicActive != 0);
-            }
-            RegCloseKey(hKey);
-        }
-
-        if (!bPanicActive)
-        {
-            // Outside Panic Lock, preserve existing Credential Provider filtering behaviour
+            // Fail safely: if state or DACL cannot be validated, preserve incoming allow states
             return S_OK;
         }
 
-        // Panic Lock is active: filter out alternative Credential Providers while preserving Tether
-        for (DWORD i = 0; i < cProviders; ++i)
+        if (bPanicActive)
         {
-            if (IsEqualGUID(rgclsidProviders[i], CLSID_TetherProvider))
+            // Panic Lock is ACTIVE:
+            // 1. Preserve any incoming FALSE decision: if a provider (including Tether's own)
+            //    was already denied (FALSE), it must remain FALSE (never override another filter).
+            // 2. Hide alternative providers that are currently allowed (TRUE) and track them.
+            // 3. For providers already FALSE, keep them FALSE and do not track as hidden by Tether.
+            std::vector<GUID> newlyHidden = previouslyHidden;
+            bool trackingChanged = false;
+
+            for (DWORD i = 0; i < cProviders; ++i)
             {
-                rgbAllow[i] = TRUE;
+                if (IsEqualGUID(rgclsidProviders[i], CLSID_TetherProvider))
+                {
+                    // Preserve incoming rgbAllow[i] decision. If already FALSE, leave FALSE.
+                    // Do not force rgbAllow[i] = TRUE over another filter's denial.
+                }
+                else
+                {
+                    if (rgbAllow[i] == FALSE)
+                    {
+                        // Already denied before Tether touched it. Keep FALSE and do not claim ownership.
+                    }
+                    else
+                    {
+                        // Provider was currently allowed. Tether explicitly hides it.
+                        rgbAllow[i] = FALSE;
+
+                        bool alreadyTracked = false;
+                        for (const auto& g : newlyHidden)
+                        {
+                            if (IsEqualGUID(g, rgclsidProviders[i]))
+                            {
+                                alreadyTracked = true;
+                                break;
+                            }
+                        }
+                        if (!alreadyTracked)
+                        {
+                            newlyHidden.push_back(rgclsidProviders[i]);
+                            trackingChanged = true;
+                        }
+                    }
+                }
             }
-            else
+
+            if (trackingChanged)
             {
-                rgbAllow[i] = FALSE;
+                _WriteHiddenProviders(newlyHidden);
+            }
+        }
+        else
+        {
+            // Panic Lock is INACTIVE:
+            // Restore ONLY providers that Tether explicitly hid.
+            // Never unhide providers that were already hidden before Panic Lock or hidden by others.
+            if (!previouslyHidden.empty())
+            {
+                for (DWORD i = 0; i < cProviders; ++i)
+                {
+                    if (IsEqualGUID(rgclsidProviders[i], CLSID_TetherProvider))
+                    {
+                        // Preserve incoming decision
+                    }
+                    else
+                    {
+                        bool wasHiddenByTether = false;
+                        for (const auto& g : previouslyHidden)
+                        {
+                            if (IsEqualGUID(g, rgclsidProviders[i]))
+                            {
+                                wasHiddenByTether = true;
+                                break;
+                            }
+                        }
+
+                        if (wasHiddenByTether)
+                        {
+                            // Tether explicitly hid this provider; safely restore it
+                            rgbAllow[i] = TRUE;
+                        }
+                        // If not hidden by Tether, leave rgbAllow[i] completely untouched!
+                    }
+                }
+
+                // Restoration applied; clear tracked providers to guarantee idempotency
+                _ClearHiddenProviders();
             }
         }
 

@@ -72,15 +72,14 @@ public class SafeCredentialFilterManager
     {
         lock (_syncLock)
         {
-            string newSessionId = !string.IsNullOrWhiteSpace(sessionId) ? sessionId : Guid.NewGuid().ToString("N");
+            string newSessionId = !string.IsNullOrWhiteSpace(sessionId) ? sessionId : Guid.NewGuid().ToString("D");
 
-            // If already active with the same session, keep existing tracking
-            if (_currentSession.IsPanicActive && _currentSession.SessionId == newSessionId)
+            if (_currentSession.IsPanicActive && string.Equals(_currentSession.SessionId, newSessionId, StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
 
-            _currentSession = new PanicLockSessionState
+            var nextSession = new PanicLockSessionState
             {
                 SessionId = newSessionId,
                 IsPanicActive = true,
@@ -89,22 +88,31 @@ public class SafeCredentialFilterManager
 
             try
             {
-                _store.Save(_currentSession);
+                _store.Save(nextSession);
+                _currentSession = nextSession;
                 _logger.Warning($"SafeCredentialFilterManager: Panic Lock activated [Session: {newSessionId}]");
             }
             catch (Exception ex)
             {
-                _logger.Error($"SafeCredentialFilterManager: Failed to save panic activation: {ex.Message}");
+                _logger.Error($"SafeCredentialFilterManager: Failed to persist panic activation: {ex.Message}");
+                throw;
             }
         }
     }
 
-    public void DeactivatePanicLock()
+    public void DeactivatePanicLock(string? sessionId = null)
     {
         lock (_syncLock)
         {
             if (!_currentSession.IsPanicActive)
             {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(sessionId) &&
+                !string.Equals(_currentSession.SessionId, sessionId, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.Warning($"SafeCredentialFilterManager: Rejecting deactivation with mismatched session ID (active: {_currentSession.SessionId}, given: {sessionId})");
                 return;
             }
 
@@ -119,6 +127,7 @@ public class SafeCredentialFilterManager
             catch (Exception ex)
             {
                 _logger.Error($"SafeCredentialFilterManager: Failed to persist panic deactivation: {ex.Message}");
+                throw;
             }
         }
     }
@@ -133,7 +142,6 @@ public class SafeCredentialFilterManager
 
         lock (_syncLock)
         {
-            // Requirement 4: Preserve existing Credential Provider filtering behaviour outside Panic Lock.
             if (!_currentSession.IsPanicActive)
             {
                 return;
@@ -147,23 +155,20 @@ public class SafeCredentialFilterManager
 
                 if (pid == TetherProviderGuid)
                 {
-                    // Tether's provider must remain available for unlock
-                    allowStates[i] = true;
+                    // Preserve incoming decision. If another filter or system policy denied Tether,
+                    // never override another component's denial.
                     continue;
                 }
 
-                // Check existing tracking in the current panic session
                 var existing = _currentSession.GetProvider(pid);
 
                 if (existing != null)
                 {
                     // Already captured in this session (e.g. LogonUI re-enumeration)
-                    // Maintain filtering decision
                     allowStates[i] = false;
                 }
                 else
                 {
-                    // First time encountering this provider in the current session
                     bool initiallyVisible = allowStates[i];
 
                     var tracked = new TrackedProviderState
@@ -190,6 +195,7 @@ public class SafeCredentialFilterManager
                 catch (Exception ex)
                 {
                     _logger.Error($"SafeCredentialFilterManager: Failed to save tracking state after filter: {ex.Message}");
+                    throw;
                 }
             }
         }
@@ -205,14 +211,12 @@ public class SafeCredentialFilterManager
 
         lock (_syncLock)
         {
-            // Requirement 9: Do not weaken Panic Lock authentication or introduce a bypass through restoration
             if (_currentSession.IsPanicActive)
             {
                 _logger.Warning("SafeCredentialFilterManager: Restoration rejected while Panic Lock is still active.");
                 return false;
             }
 
-            // Requirement 8: Fail safely if ownership or original state cannot be established reliably
             if (string.IsNullOrEmpty(_currentSession.SessionId))
             {
                 _logger.Warning("SafeCredentialFilterManager: No active or prior session to restore from.");
@@ -227,7 +231,7 @@ public class SafeCredentialFilterManager
 
                 if (pid == TetherProviderGuid)
                 {
-                    allowStates[i] = true;
+                    // Preserve incoming decision. Never override another filter's denial.
                     continue;
                 }
 
@@ -235,23 +239,18 @@ public class SafeCredentialFilterManager
 
                 if (tracked != null)
                 {
-                    // Requirement 1 & 2: Restore only providers that Tether explicitly hid
                     if (tracked.HiddenByTether && tracked.OriginalVisibility)
                     {
                         allowStates[i] = true;
-
-                        // Mark as restored so subsequent calls are idempotent
                         _currentSession.SetProvider(tracked with { HiddenByTether = false });
                         stateModified = true;
                     }
                     else if (!tracked.OriginalVisibility)
                     {
-                        // Requirement 3: Never unhide providers that were already hidden before Panic Lock
+                        // Never unhide providers that were already hidden before Panic Lock
                         allowStates[i] = false;
                     }
-                    // If already restored (OriginalVisibility == true && !HiddenByTether), leave allowStates[i] untouched
                 }
-                // If not tracked by Tether, leave incoming allowStates[i] strictly untouched!
             }
 
             if (stateModified)
@@ -263,6 +262,7 @@ public class SafeCredentialFilterManager
                 catch (Exception ex)
                 {
                     _logger.Error($"SafeCredentialFilterManager: Failed to save updated session after restore: {ex.Message}");
+                    throw;
                 }
             }
 

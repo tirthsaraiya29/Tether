@@ -46,5 +46,7 @@ namespace Tether.Shared.Events
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
         public string? Source { get; set; }
         public string? PayloadJson { get; set; }
+        public string? SessionId { get; set; }
+        public long SequenceNumber { get; set; }
     }
 }
