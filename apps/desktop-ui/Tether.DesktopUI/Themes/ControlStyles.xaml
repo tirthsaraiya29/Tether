@@ -194,6 +194,9 @@
     <!-- Default Implicit Button Style -->
     <Style TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}"/>
 
+    <!-- Standard Explicit Button Style -->
+    <Style x:Key="StandardButton" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}"/>
+
     <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
         <Setter Property="Background" Value="{StaticResource AccentGradientBrush}"/>
         <Setter Property="Foreground" Value="{StaticResource TextOnAccentBrush}"/>
