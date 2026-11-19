@@ -1160,7 +1160,7 @@
                             </Grid.RowDefinitions>
 
                             <Border Grid.Row="0" Grid.RowSpan="2" Width="36" Height="36" CornerRadius="8" Background="{StaticResource AccentPillBackgroundBrush}" Margin="0,0,12,0" VerticalAlignment="Center">
-                                <TextBlock x:Name="IconTransferDirection" Text="&#xE898;" FontFamily="{StaticResource IconFontFamily}" FontSize="16" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="IconTransferDirection" Text="&#xE898;" FontFamily="{StaticResource IconFontFamily}" FontSize="16" Foreground="{StaticResource SystemAccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
 
                             <StackPanel Grid.Column="1" Grid.Row="0" VerticalAlignment="Center">
@@ -1173,7 +1173,7 @@
                                 <Button x:Name="BtnDismissTransferProgress" Content="&#xE711;" FontFamily="{StaticResource IconFontFamily}" Style="{StaticResource StandardButton}" Width="28" Height="28" Padding="0" Visibility="Collapsed" Click="BtnDismissTransferProgress_Click"/>
                             </StackPanel>
 
-                            <ProgressBar x:Name="ProgressFileTransfer" Grid.Row="1" Grid.Column="1" Height="5" Margin="0,8,12,0" Minimum="0" Maximum="100" Value="0" Foreground="{StaticResource AccentBrush}"/>
+                            <ProgressBar x:Name="ProgressFileTransfer" Grid.Row="1" Grid.Column="1" Height="5" Margin="0,8,12,0" Minimum="0" Maximum="100" Value="0" Foreground="{StaticResource SystemAccentBrush}"/>
                         </Grid>
                     </Border>
 

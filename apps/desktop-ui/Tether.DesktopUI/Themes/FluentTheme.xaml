@@ -63,6 +63,7 @@
     <!-- ACCENT & SEMANTIC STATUS BRUSHES                                      -->
     <!-- ===================================================================== -->
     <SolidColorBrush x:Key="SystemAccentBrush" Color="{StaticResource AccentPrimaryColor}" po:Freeze="True"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentPrimaryColor}" po:Freeze="True"/>
     <SolidColorBrush x:Key="StatusHealthyBrush" Color="{StaticResource StatusHealthyColor}" po:Freeze="True"/>
     <SolidColorBrush x:Key="StatusDegradedBrush" Color="{StaticResource StatusDegradedColor}" po:Freeze="True"/>
     <SolidColorBrush x:Key="StatusCriticalBrush" Color="{StaticResource StatusCriticalColor}" po:Freeze="True"/>
