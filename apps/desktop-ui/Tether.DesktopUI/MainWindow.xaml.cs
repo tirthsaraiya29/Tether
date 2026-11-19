@@ -1559,10 +1559,10 @@ namespace Tether.DesktopUI
                             : "Local Password fallback unlock is enabled. You can unlock this PC with your password if your phone is away or offline.";
 
                     if (TxtResetFallbackCredLabel != null)
-                        TxtResetFallbackCredLabel.Text = authType == (int)FallbackAuthType.Pin ? "Reset PIN" : "Reset Password";
+                        TxtResetFallbackCredLabel.Text = "Reset Password";
 
                     if (TxtForgotFallbackCredLabel != null)
-                        TxtForgotFallbackCredLabel.Text = authType == (int)FallbackAuthType.Pin ? "Forgot PIN" : "Forgot Password";
+                        TxtForgotFallbackCredLabel.Text = "Forgot Password";
 
                     if (CmbFallbackAuthMethod != null) CmbFallbackAuthMethod.SelectedIndex = authType;
                     return;
@@ -1789,7 +1789,7 @@ namespace Tether.DesktopUI
             TxtFallbackPasswordConfirm?.Clear();
             TxtFallbackPassword?.Focus();
 
-            ShowNotification("Identity Verified", "Phone command and Windows password confirmed. You may now enter a new Fallback PIN or Password.", NotificationType.Success);
+            ShowNotification("Identity Verified", "Phone command and Windows password confirmed. You may now enter a new Fallback Password.", NotificationType.Success);
             LogTerminal("Fallback password reset unlocked via phone and Windows password verification.");
         }
 
