@@ -563,6 +563,13 @@ public sealed class PacketRouter
         }
         else if (cmdLower == "unlock")
         {
+            _eventBus.Publish(new TetherEvent
+            {
+                EventType = TetherEventType.PHONE_UNLOCKED,
+                Source = "PacketRouter",
+                PayloadJson = JsonSerializer.Serialize(new { command = "unlock" })
+            });
+
             if (_panicManager.ActivePanicSessionId != null)
             {
                 long.TryParse(cmd.RequestId, out long seq);

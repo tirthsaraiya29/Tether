@@ -83,6 +83,7 @@ public sealed class Worker : BackgroundService
         {
             if (evt.EventType == TetherEventType.TELEMETRY_SYNC_REQUESTED)
             {
+                SyncFallbackAuthRegistry();
                 PublishPairedDevicesList(eventBus);
                 if (_sessionManager.ActiveSessionCount > 0)
                 {
@@ -535,5 +536,31 @@ public sealed class Worker : BackgroundService
         _tcpServer.Stop();
         _pipeServer.Dispose();
         await base.StopAsync(cancellationToken);
+    }
+
+    private void SyncFallbackAuthRegistry()
+    {
+        try
+        {
+            using var baseKey = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64);
+            using var secretsKey = baseKey.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", false);
+            if (secretsKey != null)
+            {
+                var val = secretsKey.GetValue("FallbackAuthType") ?? secretsKey.GetValue("MasterAuthType");
+                if (val is int authType)
+                {
+                    using var rootKey = baseKey.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
+                    if (rootKey != null)
+                    {
+                        rootKey.SetValue("FallbackAuthType", authType, Microsoft.Win32.RegistryValueKind.DWord);
+                        rootKey.SetValue("MasterAuthType", authType, Microsoft.Win32.RegistryValueKind.DWord);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed synchronizing FallbackAuthType registry value.");
+        }
     }
 }

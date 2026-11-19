@@ -132,6 +132,13 @@ public static class FallbackCredentialStore
     public static void SaveFallbackAuth(byte[] protectedPayload, FallbackAuthType type, RegistryKey? rootKey = null)
     {
         var hklm = rootKey ?? Registry.LocalMachine;
+        using var cpKey = hklm.CreateSubKey(RootSubKey, true);
+        if (cpKey != null)
+        {
+            cpKey.SetValue("FallbackAuthType", (int)type, RegistryValueKind.DWord);
+            cpKey.SetValue("MasterAuthType", (int)type, RegistryValueKind.DWord);
+        }
+
         using var secretsKey = hklm.CreateSubKey(SecretSubKey, true);
         if (secretsKey != null)
         {
@@ -151,6 +158,13 @@ public static class FallbackCredentialStore
     public static void DisableFallbackAuth(RegistryKey? rootKey = null)
     {
         var hklm = rootKey ?? Registry.LocalMachine;
+        using var cpKey = hklm.CreateSubKey(RootSubKey, true);
+        if (cpKey != null)
+        {
+            cpKey.SetValue("FallbackAuthType", 0, RegistryValueKind.DWord);
+            cpKey.SetValue("MasterAuthType", 0, RegistryValueKind.DWord);
+        }
+
         using var secretsKey = hklm.CreateSubKey(SecretSubKey, true);
         if (secretsKey != null)
         {
@@ -169,11 +183,21 @@ public static class FallbackCredentialStore
     public static (FallbackAuthType Type, byte[]? Payload) LoadFallbackAuth(RegistryKey? rootKey = null)
     {
         var hklm = rootKey ?? Registry.LocalMachine;
-        using var secretsKey = hklm.OpenSubKey(SecretSubKey, false);
-        if (secretsKey == null) return (FallbackAuthType.None, null);
+        int typeVal = 0;
+        using (var cpKey = hklm.OpenSubKey(RootSubKey, false))
+        {
+            var typeObj = cpKey?.GetValue("FallbackAuthType") ?? cpKey?.GetValue("MasterAuthType");
+            if (typeObj is int i) typeVal = i;
+        }
 
-        var typeObj = secretsKey.GetValue("FallbackAuthType") ?? secretsKey.GetValue("MasterAuthType");
-        int typeVal = typeObj is int i ? i : 0;
+        using var secretsKey = hklm.OpenSubKey(SecretSubKey, false);
+        if (secretsKey == null) return ((FallbackAuthType)typeVal, null);
+
+        if (typeVal == 0)
+        {
+            var typeObj = secretsKey.GetValue("FallbackAuthType") ?? secretsKey.GetValue("MasterAuthType");
+            if (typeObj is int i) typeVal = i;
+        }
         var payloadObj = (secretsKey.GetValue("FallbackAuthPayload") ?? secretsKey.GetValue("MasterAuthPayload")) as byte[];
 
         return ((FallbackAuthType)typeVal, payloadObj);

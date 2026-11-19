@@ -103,6 +103,8 @@ namespace Tether.DesktopUI
 
                     using var rootKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
                     rootKey?.SetValue("VaultDaclVersion", 2, Microsoft.Win32.RegistryValueKind.DWord);
+                    rootKey?.SetValue("FallbackAuthType", (int)authType, Microsoft.Win32.RegistryValueKind.DWord);
+                    rootKey?.SetValue("MasterAuthType", (int)authType, Microsoft.Win32.RegistryValueKind.DWord);
 
                     var rs = new System.Security.AccessControl.RegistrySecurity();
                     var systemSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.LocalSystemSid, null);

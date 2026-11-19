@@ -172,6 +172,8 @@ namespace Tether.DesktopUI
         private bool _isListening = true;
         private DispatcherTimer? _syncTimer;
         private DispatcherTimer? _telemetryDebounceTimer;
+        private DispatcherTimer? _phoneUnlockPollTimer;
+        private bool _phoneUnlockConfirmed = false;
         private bool _isInternalSliderChange = false;
         private bool _isClosingAnimated = false;
         private uint _cachedBrightness = 50;
@@ -680,6 +682,12 @@ namespace Tether.DesktopUI
                     IndicatorNode.Fill = criticalBrush;
                     IndicatorHalo.Fill = GetFluentBrush("CriticalHaloBrush", Color.FromArgb(90, 244, 63, 94));
                     LogTerminal("Phone disconnected.");
+                    break;
+
+                case TetherEventType.PHONE_UNLOCKED:
+                    _phoneUnlockConfirmed = true;
+                    UpdateForgotPhoneUi(true);
+                    LogTerminal("Phone unlock command confirmed.");
                     break;
 
                 case TetherEventType.PAIRING_REQUESTED:
@@ -1479,45 +1487,310 @@ namespace Tether.DesktopUI
         {
             try
             {
-                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", false);
-                if (key != null)
+                int authType = 0;
+
+                // 1. Check system-wide root config key (accessible by all users)
+                try
                 {
-                    object? val = key.GetValue("FallbackAuthType") ?? key.GetValue("MasterAuthType");
-                    if (val is int authType)
+                    using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+                    using var rootKey = baseKey.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider", false);
+                    if (rootKey != null)
                     {
-                        if (authType == (int)FallbackAuthType.Pin)
-                        {
-                            if (CmbFallbackAuthMethod != null) CmbFallbackAuthMethod.SelectedIndex = 1;
-                            if (TxtFallbackAuthBadge != null)
-                            {
-                                TxtFallbackAuthBadge.Text = "ACTIVE: PIN";
-                                TxtFallbackAuthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
-                            }
-                            return;
-                        }
-                        else if (authType == (int)FallbackAuthType.Password)
-                        {
-                            if (CmbFallbackAuthMethod != null) CmbFallbackAuthMethod.SelectedIndex = 2;
-                            if (TxtFallbackAuthBadge != null)
-                            {
-                                TxtFallbackAuthBadge.Text = "ACTIVE: PASSWORD";
-                                TxtFallbackAuthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
-                            }
-                            return;
-                        }
+                        var val = rootKey.GetValue("FallbackAuthType") ?? rootKey.GetValue("MasterAuthType");
+                        if (val is int i && (i == 1 || i == 2)) authType = i;
                     }
                 }
-                if (CmbFallbackAuthMethod != null) CmbFallbackAuthMethod.SelectedIndex = 0;
+                catch { }
+
+                // 2. Check current user hive (accessible without UAC)
+                if (authType == 0)
+                {
+                    try
+                    {
+                        using var hkcu = Registry.CurrentUser.OpenSubKey(@"Software\Tether", false);
+                        if (hkcu != null)
+                        {
+                            var val = hkcu.GetValue("FallbackAuthType") ?? hkcu.GetValue("MasterAuthType");
+                            if (val is int i && (i == 1 || i == 2)) authType = i;
+                        }
+                    }
+                    catch { }
+                }
+
+                // 3. Check secrets key if running elevated
+                if (authType == 0)
+                {
+                    try
+                    {
+                        using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+                        using var secretsKey = baseKey.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", false);
+                        if (secretsKey != null)
+                        {
+                            var val = secretsKey.GetValue("FallbackAuthType") ?? secretsKey.GetValue("MasterAuthType");
+                            if (val is int i && (i == 1 || i == 2)) authType = i;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (authType == (int)FallbackAuthType.Pin || authType == (int)FallbackAuthType.Password)
+                {
+                    string modeStr = authType == (int)FallbackAuthType.Pin ? "PIN" : "PASSWORD";
+                    if (TxtFallbackAuthBadge != null)
+                    {
+                        TxtFallbackAuthBadge.Text = $"✔ ACTIVE: {modeStr}";
+                        TxtFallbackAuthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
+                    }
+                    if (PillFallbackAuthBadge != null)
+                    {
+                        PillFallbackAuthBadge.BorderBrush = (Brush)FindResource("StatusHealthyBrush");
+                    }
+                    if (PnlFallbackActiveSummary != null) PnlFallbackActiveSummary.Visibility = Visibility.Visible;
+                    if (PnlFallbackConfig != null) PnlFallbackConfig.Visibility = Visibility.Collapsed;
+                    if (PnlForgotPasswordRecovery != null) PnlForgotPasswordRecovery.Visibility = Visibility.Collapsed;
+                    if (BtnCancelFallbackReset != null) BtnCancelFallbackReset.Visibility = Visibility.Visible;
+
+                    if (TxtFallbackActiveTitle != null)
+                        TxtFallbackActiveTitle.Text = authType == (int)FallbackAuthType.Pin ? "Fallback PIN Protected" : "Fallback Password Protected";
+
+                    if (TxtFallbackActiveDesc != null)
+                        TxtFallbackActiveDesc.Text = authType == (int)FallbackAuthType.Pin
+                            ? "Local PIN fallback unlock is enabled. You can unlock this PC with your PIN if your phone is away or offline."
+                            : "Local Password fallback unlock is enabled. You can unlock this PC with your password if your phone is away or offline.";
+
+                    if (TxtResetFallbackCredLabel != null)
+                        TxtResetFallbackCredLabel.Text = authType == (int)FallbackAuthType.Pin ? "Reset PIN" : "Reset Password";
+
+                    if (TxtForgotFallbackCredLabel != null)
+                        TxtForgotFallbackCredLabel.Text = authType == (int)FallbackAuthType.Pin ? "Forgot PIN" : "Forgot Password";
+
+                    if (CmbFallbackAuthMethod != null) CmbFallbackAuthMethod.SelectedIndex = authType;
+                    return;
+                }
+
+                // Disabled / Not configured
                 if (TxtFallbackAuthBadge != null)
                 {
                     TxtFallbackAuthBadge.Text = "DISABLED";
                     TxtFallbackAuthBadge.Foreground = (Brush)FindResource("TextSecondaryBrush");
                 }
+                if (PillFallbackAuthBadge != null)
+                {
+                    PillFallbackAuthBadge.BorderBrush = (Brush)FindResource("TextMutedBrush");
+                }
+                if (PnlFallbackActiveSummary != null) PnlFallbackActiveSummary.Visibility = Visibility.Collapsed;
+                if (PnlFallbackConfig != null) PnlFallbackConfig.Visibility = Visibility.Visible;
+                if (PnlFallbackCredentialInputs != null) PnlFallbackCredentialInputs.Visibility = Visibility.Collapsed;
+                if (PnlForgotPasswordRecovery != null) PnlForgotPasswordRecovery.Visibility = Visibility.Collapsed;
+                if (BtnCancelFallbackReset != null) BtnCancelFallbackReset.Visibility = Visibility.Collapsed;
+                if (CmbFallbackAuthMethod != null) CmbFallbackAuthMethod.SelectedIndex = 0;
             }
             catch
             {
                 if (CmbFallbackAuthMethod != null) CmbFallbackAuthMethod.SelectedIndex = 0;
             }
+        }
+
+        private void BtnResetFallbackCred_Click(object sender, RoutedEventArgs e)
+        {
+            if (PnlFallbackActiveSummary != null) PnlFallbackActiveSummary.Visibility = Visibility.Collapsed;
+            if (PnlForgotPasswordRecovery != null) PnlForgotPasswordRecovery.Visibility = Visibility.Collapsed;
+            if (PnlFallbackConfig != null) PnlFallbackConfig.Visibility = Visibility.Visible;
+            if (PnlFallbackCredentialInputs != null) PnlFallbackCredentialInputs.Visibility = Visibility.Visible;
+            if (BtnCancelFallbackReset != null) BtnCancelFallbackReset.Visibility = Visibility.Visible;
+
+            TxtFallbackPassword?.Clear();
+            TxtFallbackPasswordConfirm?.Clear();
+            TxtFallbackPassword?.Focus();
+        }
+
+        private void BtnCancelFallbackReset_Click(object sender, RoutedEventArgs e)
+        {
+            TxtFallbackPassword?.Clear();
+            TxtFallbackPasswordConfirm?.Clear();
+            LoadFallbackAuthConfig();
+        }
+
+        private void BtnForgotFallbackCred_Click(object sender, RoutedEventArgs e)
+        {
+            if (PnlFallbackActiveSummary != null) PnlFallbackActiveSummary.Visibility = Visibility.Collapsed;
+            if (PnlFallbackConfig != null) PnlFallbackConfig.Visibility = Visibility.Collapsed;
+            if (PnlForgotPasswordRecovery != null) PnlForgotPasswordRecovery.Visibility = Visibility.Visible;
+
+            _phoneUnlockConfirmed = false;
+            CheckPhoneUnlockSignal();
+
+            TxtForgotWindowsPassword?.Clear();
+            if (TxtForgotWindowsError != null) TxtForgotWindowsError.Visibility = Visibility.Collapsed;
+            TxtForgotWindowsPassword?.Focus();
+
+            StartPhoneUnlockPoll();
+        }
+
+        private void BtnCancelForgotRecovery_Click(object sender, RoutedEventArgs e)
+        {
+            StopPhoneUnlockPoll();
+            TxtForgotWindowsPassword?.Clear();
+            if (TxtForgotWindowsError != null) TxtForgotWindowsError.Visibility = Visibility.Collapsed;
+            LoadFallbackAuthConfig();
+        }
+
+        private void StartPhoneUnlockPoll()
+        {
+            StopPhoneUnlockPoll();
+            _phoneUnlockPollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _phoneUnlockPollTimer.Tick += (s, e) =>
+            {
+                if (PnlForgotPasswordRecovery == null || PnlForgotPasswordRecovery.Visibility != Visibility.Visible)
+                {
+                    StopPhoneUnlockPoll();
+                    return;
+                }
+                CheckPhoneUnlockSignal();
+            };
+            _phoneUnlockPollTimer.Start();
+        }
+
+        private void StopPhoneUnlockPoll()
+        {
+            if (_phoneUnlockPollTimer != null)
+            {
+                _phoneUnlockPollTimer.Stop();
+                _phoneUnlockPollTimer = null;
+            }
+        }
+
+        private bool CheckPhoneUnlockSignal()
+        {
+            if (_phoneUnlockConfirmed)
+            {
+                UpdateForgotPhoneUi(true);
+                return true;
+            }
+
+            try
+            {
+                using var evt = EventWaitHandle.OpenExisting(@"Global\TetherPhoneAppUnlocked");
+                if (evt.WaitOne(0))
+                {
+                    _phoneUnlockConfirmed = true;
+                    UpdateForgotPhoneUi(true);
+                    return true;
+                }
+            }
+            catch { }
+
+            UpdateForgotPhoneUi(false);
+            return false;
+        }
+
+        private void UpdateForgotPhoneUi(bool confirmed)
+        {
+            if (TxtForgotPhoneStatus == null) return;
+            if (confirmed)
+            {
+                TxtForgotPhoneStatus.Text = "✔ CONFIRMED";
+                TxtForgotPhoneStatus.Foreground = (Brush)FindResource("StatusHealthyBrush");
+                if (PillForgotPhoneStatus != null)
+                    PillForgotPhoneStatus.BorderBrush = (Brush)FindResource("StatusHealthyBrush");
+            }
+            else
+            {
+                TxtForgotPhoneStatus.Text = "WAITING FOR UNLOCK...";
+                TxtForgotPhoneStatus.Foreground = (Brush)FindResource("StatusDegradedBrush");
+                if (PillForgotPhoneStatus != null)
+                    PillForgotPhoneStatus.BorderBrush = (Brush)FindResource("StatusDegradedBrush");
+            }
+        }
+
+        private void TxtForgotWindowsPassword_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter)
+            {
+                e.Handled = true;
+                BtnVerifyForgotRecovery_Click(sender, e);
+            }
+        }
+
+        private void BtnVerifyForgotRecovery_Click(object sender, RoutedEventArgs e)
+        {
+            if (TxtForgotWindowsError != null) TxtForgotWindowsError.Visibility = Visibility.Collapsed;
+
+            // 1. Verification Requirement 1: Phone must send unlock command
+            if (!CheckPhoneUnlockSignal())
+            {
+                if (TxtForgotWindowsError != null)
+                {
+                    TxtForgotWindowsError.Text = "Phone unlock confirmation required. Please open the Tether app on your phone and tap 'Unlock PC'.";
+                    TxtForgotWindowsError.Visibility = Visibility.Visible;
+                }
+                ShowNotification("Phone Confirmation Required", "Please open the Tether app on your phone and tap 'Unlock PC' to verify device authorization.", NotificationType.Warning);
+                return;
+            }
+
+            // 2. Verification Requirement 2: Registered Windows password
+            if (TxtForgotWindowsPassword == null || TxtForgotWindowsPassword.SecurePassword.Length == 0)
+            {
+                if (TxtForgotWindowsError != null)
+                {
+                    TxtForgotWindowsError.Text = "Please enter your registered Windows password.";
+                    TxtForgotWindowsError.Visibility = Visibility.Visible;
+                }
+                return;
+            }
+
+            IntPtr unmanagedPasswordPtr = IntPtr.Zero;
+            bool winPwdOk = false;
+            try
+            {
+                unmanagedPasswordPtr = Marshal.SecureStringToGlobalAllocUnicode(TxtForgotWindowsPassword.SecurePassword);
+                string pwdStr = Marshal.PtrToStringUni(unmanagedPasswordPtr) ?? "";
+
+                if (LogonUser(Environment.UserName, Environment.UserDomainName, pwdStr, 2, 0, out IntPtr token))
+                {
+                    winPwdOk = true;
+                    CloseHandle(token);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"LogonUser failed during recovery: {ex.Message}");
+            }
+            finally
+            {
+                if (unmanagedPasswordPtr != IntPtr.Zero)
+                {
+                    Marshal.ZeroFreeGlobalAllocUnicode(unmanagedPasswordPtr);
+                }
+            }
+
+            if (!winPwdOk)
+            {
+                if (TxtForgotWindowsError != null)
+                {
+                    TxtForgotWindowsError.Text = "Incorrect Windows password. Please enter the valid Windows password for this PC.";
+                    TxtForgotWindowsError.Visibility = Visibility.Visible;
+                }
+                ShowNotification("Verification Failed", "Incorrect Windows password.", NotificationType.Error);
+                return;
+            }
+
+            // Both requirements successfully met!
+            StopPhoneUnlockPoll();
+            TxtForgotWindowsPassword?.Clear();
+            if (TxtForgotWindowsError != null) TxtForgotWindowsError.Visibility = Visibility.Collapsed;
+
+            if (PnlForgotPasswordRecovery != null) PnlForgotPasswordRecovery.Visibility = Visibility.Collapsed;
+            if (PnlFallbackConfig != null) PnlFallbackConfig.Visibility = Visibility.Visible;
+            if (PnlFallbackCredentialInputs != null) PnlFallbackCredentialInputs.Visibility = Visibility.Visible;
+            if (BtnCancelFallbackReset != null) BtnCancelFallbackReset.Visibility = Visibility.Visible;
+
+            TxtFallbackPassword?.Clear();
+            TxtFallbackPasswordConfirm?.Clear();
+            TxtFallbackPassword?.Focus();
+
+            ShowNotification("Identity Verified", "Phone command and Windows password confirmed. You may now enter a new Fallback PIN or Password.", NotificationType.Success);
+            LogTerminal("Fallback password reset unlocked via phone and Windows password verification.");
         }
 
         private void CmbFallbackAuthMethod_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1592,6 +1865,14 @@ namespace Tether.DesktopUI
             int mode = CmbFallbackAuthMethod != null ? CmbFallbackAuthMethod.SelectedIndex : 0;
             if (mode == 0) // Disable
             {
+                try
+                {
+                    using var hkcu = Registry.CurrentUser.CreateSubKey(@"Software\Tether", true);
+                    hkcu?.SetValue("FallbackAuthType", 0, RegistryValueKind.DWord);
+                    hkcu?.SetValue("MasterAuthType", 0, RegistryValueKind.DWord);
+                }
+                catch { }
+
                 if (IsElevated)
                 {
                     FallbackCredentialStore.DisableFallbackAuth();
@@ -1604,11 +1885,7 @@ namespace Tether.DesktopUI
                         return;
                     }
                 }
-                if (TxtFallbackAuthBadge != null)
-                {
-                    TxtFallbackAuthBadge.Text = "DISABLED";
-                    TxtFallbackAuthBadge.Foreground = (Brush)FindResource("TextSecondaryBrush");
-                }
+                LoadFallbackAuthConfig();
                 ShowNotification("Security", "Fallback authentication disabled.", NotificationType.Info);
                 return;
             }
@@ -1646,6 +1923,14 @@ namespace Tether.DesktopUI
                 byte[] protectedPayload = FallbackCredentialStore.CreatePayload(credential, type);
                 string hex = Convert.ToHexString(protectedPayload);
 
+                try
+                {
+                    using var hkcu = Registry.CurrentUser.CreateSubKey(@"Software\Tether", true);
+                    hkcu?.SetValue("FallbackAuthType", (int)type, RegistryValueKind.DWord);
+                    hkcu?.SetValue("MasterAuthType", (int)type, RegistryValueKind.DWord);
+                }
+                catch { }
+
                 if (IsElevated)
                 {
                     FallbackCredentialStore.SaveFallbackAuth(protectedPayload, type);
@@ -1661,11 +1946,7 @@ namespace Tether.DesktopUI
 
                 TxtFallbackPassword.Clear();
                 TxtFallbackPasswordConfirm.Clear();
-                if (TxtFallbackAuthBadge != null)
-                {
-                    TxtFallbackAuthBadge.Text = type == FallbackAuthType.Pin ? "ACTIVE: PIN" : "ACTIVE: PASSWORD";
-                    TxtFallbackAuthBadge.Foreground = (Brush)FindResource("StatusHealthyBrush");
-                }
+                LoadFallbackAuthConfig();
                 ShowNotification("Success", $"Fallback {type} configured and saved securely.", NotificationType.Success);
             }
             catch (Exception ex)

@@ -1851,7 +1851,8 @@
                                         <TextBlock Text="Fallback Authentication"
                                                    Style="{StaticResource CardTitleTextStyle}"/>
                                     </StackPanel>
-                                    <Border Style="{StaticResource BadgePillBorderStyle}"
+                                    <Border x:Name="PillFallbackAuthBadge"
+                                            Style="{StaticResource BadgePillBorderStyle}"
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Top">
                                         <TextBlock x:Name="TxtFallbackAuthBadge"
@@ -1870,116 +1871,369 @@
                                            Margin="0,0,0,14"
                                            TextWrapping="Wrap"/>
 
-                                <!-- Method selector dropdown -->
-                                <Grid Margin="0,0,0,12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="12"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Authentication Mode"
-                                               FontFamily="{StaticResource FluentFontFamily}"
-                                               FontSize="12"
-                                               Foreground="{StaticResource TextPrimaryBrush}"
-                                               VerticalAlignment="Center"/>
-                                    <ComboBox x:Name="CmbFallbackAuthMethod"
-                                              Grid.Column="2"
-                                              Height="34"
-                                              SelectedIndex="0"
-                                              SelectionChanged="CmbFallbackAuthMethod_SelectionChanged">
-                                        <ComboBoxItem Content="Disabled"/>
-                                        <ComboBoxItem Content="Fallback PIN (Min 8 Digits)"/>
-                                        <ComboBoxItem Content="Fallback Password (Min 8 Chars)"/>
-                                    </ComboBox>
-                                </Grid>
+                                <!-- 1. Active Configured Status Summary Panel -->
+                                <Border x:Name="PnlFallbackActiveSummary"
+                                        Visibility="Collapsed"
+                                        Background="#0A38BDF8"
+                                        BorderBrush="#3038BDF8"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="14,12"
+                                        Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <Grid Margin="0,0,0,12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="12"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0"
+                                                    Width="36" Height="36"
+                                                    CornerRadius="18"
+                                                    Background="#1510B981"
+                                                    BorderBrush="#4010B981"
+                                                    BorderThickness="1">
+                                                <TextBlock Text="&#xE73E;"
+                                                           FontFamily="{StaticResource IconFontFamily}"
+                                                           FontSize="16"
+                                                           Foreground="{StaticResource StatusHealthyBrush}"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                                <TextBlock x:Name="TxtFallbackActiveTitle"
+                                                           Text="Fallback Credential Active"
+                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                           FontSize="13"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                <TextBlock x:Name="TxtFallbackActiveDesc"
+                                                           Text="Local workstation fallback unlock is enabled and protected."
+                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                           FontSize="11.5"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           Margin="0,2,0,0"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Grid>
 
-                                <!-- Credential Entry Panel -->
-                                <StackPanel x:Name="PnlFallbackCredentialInputs" Visibility="Collapsed">
-                                    <Grid Margin="0,0,0,10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="10"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0">
-                                            <TextBlock x:Name="LblFallbackCred"
-                                                       Text="New Credential"
-                                                       FontFamily="{StaticResource FluentFontFamily}"
-                                                       FontSize="11"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                                       Margin="0,0,0,4"/>
-                                            <PasswordBox x:Name="TxtFallbackPassword"
-                                                         Height="36"
-                                                         VerticalContentAlignment="Center"
-                                                         PasswordChanged="TxtFallbackPassword_PasswordChanged"/>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="2">
-                                            <TextBlock Text="Confirm Credential"
-                                                       FontFamily="{StaticResource FluentFontFamily}"
-                                                       FontSize="11"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                                       Margin="0,0,0,4"/>
-                                            <PasswordBox x:Name="TxtFallbackPasswordConfirm"
-                                                         Height="36"
-                                                         VerticalContentAlignment="Center"
-                                                         PasswordChanged="TxtFallbackPassword_PasswordChanged"/>
-                                        </StackPanel>
-                                    </Grid>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                            <Button x:Name="BtnForgotFallbackCred"
+                                                    Style="{StaticResource StandardButton}"
+                                                    Height="34"
+                                                    Padding="14,0"
+                                                    Margin="0,0,10,0"
+                                                    Click="BtnForgotFallbackCred_Click">
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <TextBlock Text="&#xE897;"
+                                                               FontFamily="{StaticResource IconFontFamily}"
+                                                               FontSize="12"
+                                                               VerticalAlignment="Center"
+                                                               Margin="0,0,7,0"/>
+                                                    <TextBlock x:Name="TxtForgotFallbackCredLabel"
+                                                               Text="Forgot Password"
+                                                               VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
 
-                                    <!-- Strength Meter & Feedback -->
+                                            <Button x:Name="BtnResetFallbackCred"
+                                                    Style="{StaticResource AccentButton}"
+                                                    Height="34"
+                                                    Padding="16,0"
+                                                    Click="BtnResetFallbackCred_Click">
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <TextBlock Text="&#xE70F;"
+                                                               FontFamily="{StaticResource IconFontFamily}"
+                                                               FontSize="12"
+                                                               VerticalAlignment="Center"
+                                                               Margin="0,0,7,0"/>
+                                                    <TextBlock x:Name="TxtResetFallbackCredLabel"
+                                                               Text="Reset Password"
+                                                               VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- 2. Forgot Password Recovery Flow Panel -->
+                                <Border x:Name="PnlForgotPasswordRecovery"
+                                        Visibility="Collapsed"
+                                        Background="#0F172A"
+                                        BorderBrush="{StaticResource SystemAccentBrush}"
+                                        BorderThickness="1.5"
+                                        CornerRadius="8"
+                                        Padding="14,14"
+                                        Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <TextBlock Text="IDENTITY RECOVERY"
+                                                   Style="{StaticResource SectionEyebrowTextStyle}"
+                                                   Foreground="{StaticResource SystemAccentBrush}"/>
+                                        <TextBlock Text="Reset Forgotten Fallback Credential"
+                                                   Style="{StaticResource CardTitleTextStyle}"
+                                                   Margin="0,0,0,4"/>
+                                        <TextBlock Text="Both security verifications below are mandatory to reset your fallback credential."
+                                                   FontFamily="{StaticResource FluentFontFamily}"
+                                                   FontSize="11.5"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   Margin="0,0,0,14"
+                                                   TextWrapping="Wrap"/>
+
+                                        <!-- Requirement 1: Phone Unlock Confirmation -->
+                                        <Border Background="#0D1524"
+                                                BorderBrush="#1F293D"
+                                                BorderThickness="1"
+                                                CornerRadius="7"
+                                                Padding="12,10"
+                                                Margin="0,0,0,10">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="10"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0"
+                                                           Text="&#xE8EA;"
+                                                           FontFamily="{StaticResource IconFontFamily}"
+                                                           FontSize="18"
+                                                           Foreground="{StaticResource SystemAccentBrush}"
+                                                           VerticalAlignment="Center"/>
+                                                <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                                    <TextBlock Text="1. Phone Unlock Command"
+                                                               FontFamily="{StaticResource FluentFontFamily}"
+                                                               FontSize="12"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                    <TextBlock Text="Open the Tether app on your phone and tap 'Unlock PC'."
+                                                               FontFamily="{StaticResource FluentFontFamily}"
+                                                               FontSize="11"
+                                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                                               Margin="0,2,0,0"/>
+                                                </StackPanel>
+                                                <Border x:Name="PillForgotPhoneStatus"
+                                                        Grid.Column="3"
+                                                        Style="{StaticResource BadgePillBorderStyle}"
+                                                        VerticalAlignment="Center"
+                                                        Padding="8,3">
+                                                    <TextBlock x:Name="TxtForgotPhoneStatus"
+                                                               Text="WAITING FOR UNLOCK..."
+                                                               FontFamily="{StaticResource MonoFontFamily}"
+                                                               FontSize="9"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{StaticResource StatusDegradedBrush}"/>
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+
+                                        <!-- Requirement 2: Registered Windows Password -->
+                                        <Border Background="#0D1524"
+                                                BorderBrush="#1F293D"
+                                                BorderThickness="1"
+                                                CornerRadius="7"
+                                                Padding="12,10"
+                                                Margin="0,0,0,12">
+                                            <StackPanel>
+                                                <Grid Margin="0,0,0,6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="10"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0"
+                                                               Text="&#xE72E;"
+                                                               FontFamily="{StaticResource IconFontFamily}"
+                                                               FontSize="18"
+                                                               Foreground="{StaticResource SystemAccentBrush}"
+                                                               VerticalAlignment="Center"/>
+                                                    <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                                        <TextBlock Text="2. Registered Windows Password"
+                                                                   FontFamily="{StaticResource FluentFontFamily}"
+                                                                   FontSize="12"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                        <TextBlock Text="Enter your Windows account password to verify device authorization."
+                                                                   FontFamily="{StaticResource FluentFontFamily}"
+                                                                   FontSize="11"
+                                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                                   Margin="0,2,0,0"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                                <PasswordBox x:Name="TxtForgotWindowsPassword"
+                                                             Height="36"
+                                                             VerticalContentAlignment="Center"
+                                                             KeyDown="TxtForgotWindowsPassword_KeyDown"/>
+                                                <TextBlock x:Name="TxtForgotWindowsError"
+                                                           Foreground="{StaticResource StatusCriticalBrush}"
+                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                           FontSize="11"
+                                                           Margin="0,4,0,0"
+                                                           Visibility="Collapsed"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- Recovery Action Buttons -->
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="10"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button x:Name="BtnCancelForgotRecovery"
+                                                    Grid.Column="0"
+                                                    Style="{StaticResource StandardButton}"
+                                                    HorizontalAlignment="Left"
+                                                    Height="36"
+                                                    Padding="16,0"
+                                                    Click="BtnCancelForgotRecovery_Click">
+                                                <TextBlock Text="Cancel" VerticalAlignment="Center"/>
+                                            </Button>
+
+                                            <Button x:Name="BtnVerifyForgotRecovery"
+                                                    Grid.Column="2"
+                                                    Style="{StaticResource AccentButton}"
+                                                    Height="36"
+                                                    Padding="18,0"
+                                                    Click="BtnVerifyForgotRecovery_Click">
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                    <TextBlock Text="&#xE73E;"
+                                                               FontFamily="{StaticResource IconFontFamily}"
+                                                               FontSize="12.5"
+                                                               VerticalAlignment="Center"
+                                                               Margin="0,0,8,0"/>
+                                                    <TextBlock Text="Verify &amp; Unlock Reset"
+                                                               VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- 3. Fallback Configuration & Entry Panel (Shown when editing or disabled) -->
+                                <StackPanel x:Name="PnlFallbackConfig">
+                                    <!-- Method selector dropdown -->
                                     <Grid Margin="0,0,0,12">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="12"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <Border x:Name="PillFallbackStrength"
-                                                Style="{StaticResource NeutralBadgePillStyle}"
-                                                Padding="8,3"
-                                                VerticalAlignment="Center">
-                                            <TextBlock x:Name="TxtFallbackStrengthBadge"
-                                                       Text="NONE"
-                                                       FontFamily="{StaticResource MonoFontFamily}"
-                                                       FontSize="9"
-                                                       FontWeight="Bold"
-                                                       Foreground="{StaticResource TextMutedBrush}"/>
-                                        </Border>
-                                        <TextBlock x:Name="TxtFallbackStrengthFeedback"
-                                                   Grid.Column="2"
-                                                   Text="Requires minimum 8 characters with non-predictable patterns."
+                                        <TextBlock Text="Authentication Mode"
                                                    FontFamily="{StaticResource FluentFontFamily}"
-                                                   FontSize="11"
-                                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                                   VerticalAlignment="Center"
-                                                   TextWrapping="Wrap"/>
+                                                   FontSize="12"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                   VerticalAlignment="Center"/>
+                                        <ComboBox x:Name="CmbFallbackAuthMethod"
+                                                  Grid.Column="2"
+                                                  Height="34"
+                                                  SelectedIndex="0"
+                                                  SelectionChanged="CmbFallbackAuthMethod_SelectionChanged">
+                                            <ComboBoxItem Content="Disabled"/>
+                                            <ComboBoxItem Content="Fallback PIN (Min 8 Digits)"/>
+                                            <ComboBoxItem Content="Fallback Password (Min 8 Chars)"/>
+                                        </ComboBox>
+                                    </Grid>
+
+                                    <!-- Credential Entry Panel -->
+                                    <StackPanel x:Name="PnlFallbackCredentialInputs" Visibility="Collapsed">
+                                        <Grid Margin="0,0,0,10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="10"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock x:Name="LblFallbackCred"
+                                                           Text="New Credential"
+                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                           FontSize="11"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           Margin="0,0,0,4"/>
+                                                <PasswordBox x:Name="TxtFallbackPassword"
+                                                             Height="36"
+                                                             VerticalContentAlignment="Center"
+                                                             PasswordChanged="TxtFallbackPassword_PasswordChanged"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock Text="Confirm Credential"
+                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                           FontSize="11"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           Margin="0,0,0,4"/>
+                                                <PasswordBox x:Name="TxtFallbackPasswordConfirm"
+                                                             Height="36"
+                                                             VerticalContentAlignment="Center"
+                                                             PasswordChanged="TxtFallbackPassword_PasswordChanged"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <!-- Strength Meter & Feedback -->
+                                        <Grid Margin="0,0,0,12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="8"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border x:Name="PillFallbackStrength"
+                                                    Style="{StaticResource NeutralBadgePillStyle}"
+                                                    Padding="8,3"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock x:Name="TxtFallbackStrengthBadge"
+                                                           Text="NONE"
+                                                           FontFamily="{StaticResource MonoFontFamily}"
+                                                           FontSize="9"
+                                                           FontWeight="Bold"
+                                                           Foreground="{StaticResource TextMutedBrush}"/>
+                                            </Border>
+                                            <TextBlock x:Name="TxtFallbackStrengthFeedback"
+                                                       Grid.Column="2"
+                                                       Text="Requires minimum 8 characters with non-predictable patterns."
+                                                       FontFamily="{StaticResource FluentFontFamily}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       VerticalAlignment="Center"
+                                                       TextWrapping="Wrap"/>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <!-- Action Buttons -->
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Button x:Name="BtnCancelFallbackReset"
+                                                Grid.Column="0"
+                                                Style="{StaticResource StandardButton}"
+                                                Height="36"
+                                                Padding="16,0"
+                                                Visibility="Collapsed"
+                                                Click="BtnCancelFallbackReset_Click">
+                                            <TextBlock Text="Cancel" VerticalAlignment="Center"/>
+                                        </Button>
+
+                                        <Button x:Name="BtnSaveFallbackAuth"
+                                                Grid.Column="2"
+                                                Style="{StaticResource AccentButton}"
+                                                Height="36"
+                                                Padding="18,0"
+                                                Click="BtnSaveFallbackAuth_Click">
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                <TextBlock Text="&#xE8D7;"
+                                                           FontFamily="{StaticResource IconFontFamily}"
+                                                           FontSize="12.5"
+                                                           VerticalAlignment="Center"
+                                                           Margin="0,0,8,0"/>
+                                                <TextBlock x:Name="TxtSaveFallbackAuthLabel"
+                                                           Text="Save Configuration"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
                                     </Grid>
                                 </StackPanel>
-
-                                <!-- Action Buttons -->
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="10"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <Button x:Name="BtnSaveFallbackAuth"
-                                            Grid.Column="2"
-                                            Style="{StaticResource AccentButton}"
-                                            Height="36"
-                                            Padding="18,0"
-                                            Click="BtnSaveFallbackAuth_Click">
-                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                            <TextBlock Text="&#xE8D7;"
-                                                       FontFamily="{StaticResource IconFontFamily}"
-                                                       FontSize="12.5"
-                                                       VerticalAlignment="Center"
-                                                       Margin="0,0,8,0"/>
-                                            <TextBlock x:Name="TxtSaveFallbackAuthLabel"
-                                                       Text="Save Configuration"
-                                                       VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                    </Button>
-                                </Grid>
                             </StackPanel>
                         </Border>
 
