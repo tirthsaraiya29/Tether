@@ -16,6 +16,7 @@ public sealed record TrackedProviderState
     public Guid ProviderId { get; init; }
     public bool OriginalVisibility { get; init; }
     public bool HiddenByTether { get; init; }
+    public bool IndependentlyDenied { get; init; }
     public DateTimeOffset CapturedAt { get; init; }
     public string SessionId { get; init; } = string.Empty;
 }
@@ -27,6 +28,8 @@ public sealed class PanicLockSessionState
     public DateTimeOffset ActivatedAt { get; set; }
     public DateTimeOffset? DeactivatedAt { get; set; }
     public Dictionary<string, TrackedProviderState> Providers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> RestoredProviders { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> IndependentlyDeniedProviders { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public TrackedProviderState? GetProvider(Guid id)
     {
@@ -124,6 +127,13 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
                 return null;
             }
 
+            var panicActiveObj = baseKey.GetValue("IsPanicActive");
+            if (panicActiveObj is not int)
+            {
+                _logger.Error("WindowsRegistryPanicStore: Refusing to load state. IsPanicActive is missing or wrong type.");
+                return null;
+            }
+
             var json = baseKey.GetValue("SessionData") as string;
             var storedDigest = baseKey.GetValue("IntegrityDigest") as byte[];
 
@@ -164,6 +174,10 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
                     if (Guid.TryParse(s, out var guid) && guid != Guid.Empty)
                     {
                         string key = guid.ToString("D");
+                        if (state.RestoredProviders.Contains(key) || state.IndependentlyDeniedProviders.Contains(key))
+                        {
+                            continue;
+                        }
                         if (!state.Providers.ContainsKey(key))
                         {
                             state.Providers[key] = new TrackedProviderState
@@ -175,6 +189,19 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
                                 SessionId = state.SessionId
                             };
                         }
+                    }
+                }
+            }
+
+            // Synchronize with IndependentlyDeniedProviders (REG_MULTI_SZ)
+            var deniedStrings = baseKey.GetValue("IndependentlyDeniedProviders") as string[];
+            if (deniedStrings != null && deniedStrings.Length > 0)
+            {
+                foreach (var s in deniedStrings)
+                {
+                    if (Guid.TryParse(s, out var guid) && guid != Guid.Empty)
+                    {
+                        state.IndependentlyDeniedProviders.Add(guid.ToString("D"));
                     }
                 }
             }
@@ -220,7 +247,6 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
             }
 
             baseKey.SetValue("VaultDaclVersion", 2, RegistryValueKind.DWord);
-            baseKey.SetValue("IsPanicActive", state.IsPanicActive ? 1 : 0, RegistryValueKind.DWord);
             baseKey.SetValue("PanicSessionId", state.SessionId ?? string.Empty, RegistryValueKind.String);
 
             // Read existing HiddenProviders from registry so we NEVER overwrite or drop
@@ -232,11 +258,16 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
             {
                 if (Guid.TryParse(s, out var g))
                 {
-                    // Check if managed state explicitly restored this provider (HiddenByTether == false)
-                    var provState = state.GetProvider(g);
-                    if (provState != null && !provState.HiddenByTether)
+                    string gKey = g.ToString("D");
+                    if (state.RestoredProviders.Contains(gKey) || state.IndependentlyDeniedProviders.Contains(gKey))
                     {
-                        // Successfully restored, do not include
+                        // Successfully restored or independently denied: do NOT resurrect!
+                        continue;
+                    }
+                    var provState = state.GetProvider(g);
+                    if (provState != null && (!provState.HiddenByTether || provState.IndependentlyDenied))
+                    {
+                        // Explicitly restored or denied in managed state: do not include
                         continue;
                     }
                     combinedHidden.Add(g.ToString("B"));
@@ -246,7 +277,12 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
             // Include providers from managed state that are hidden by Tether
             foreach (var prov in state.Providers.Values)
             {
-                if (prov.HiddenByTether && prov.OriginalVisibility)
+                string pKey = prov.ProviderId.ToString("D");
+                if (state.RestoredProviders.Contains(pKey) || state.IndependentlyDeniedProviders.Contains(pKey))
+                {
+                    continue;
+                }
+                if (prov.HiddenByTether && prov.OriginalVisibility && !prov.IndependentlyDenied)
                 {
                     combinedHidden.Add(prov.ProviderId.ToString("B"));
                 }
@@ -259,6 +295,32 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
             else
             {
                 baseKey.DeleteValue("HiddenProviders", false);
+            }
+
+            // Write IndependentlyDeniedProviders
+            var combinedDenied = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var d in state.IndependentlyDeniedProviders)
+            {
+                if (Guid.TryParse(d, out var dg))
+                {
+                    combinedDenied.Add(dg.ToString("B"));
+                }
+            }
+            foreach (var prov in state.Providers.Values)
+            {
+                if (prov.IndependentlyDenied)
+                {
+                    combinedDenied.Add(prov.ProviderId.ToString("B"));
+                }
+            }
+
+            if (combinedDenied.Count > 0)
+            {
+                baseKey.SetValue("IndependentlyDeniedProviders", combinedDenied.ToArray(), RegistryValueKind.MultiString);
+            }
+            else
+            {
+                baseKey.DeleteValue("IndependentlyDeniedProviders", false);
             }
 
             byte[]? hmacKey = GetOrCreateHmacKey(baseKey, allowCreate: true);
@@ -275,6 +337,12 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
 
             baseKey.SetValue("SessionData", json, RegistryValueKind.String);
             baseKey.SetValue("IntegrityDigest", digest, RegistryValueKind.Binary);
+
+            baseKey.Flush();
+
+            // Write IsPanicActive LAST to guarantee failure-safe atomic deactivation
+            baseKey.SetValue("IsPanicActive", state.IsPanicActive ? 1 : 0, RegistryValueKind.DWord);
+            baseKey.Flush();
         }
         catch (Exception ex)
         {
@@ -293,6 +361,7 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
                 baseKey.DeleteValue("SessionData", false);
                 baseKey.DeleteValue("IntegrityDigest", false);
                 baseKey.DeleteValue("HiddenProviders", false);
+                baseKey.DeleteValue("IndependentlyDeniedProviders", false);
                 baseKey.DeleteValue("PanicSessionId", false);
                 baseKey.SetValue("IsPanicActive", 0, RegistryValueKind.DWord);
             }
@@ -328,22 +397,34 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
             bool hasSystem = false;
             bool hasAdmins = false;
 
-            foreach (RegistryAccessRule rule in rules)
+            foreach (AuthorizationRule rule in rules)
             {
-                if (rule.AccessControlType == AccessControlType.Deny)
+                if (rule is not RegistryAccessRule regRule)
                 {
-                    if (rule.IdentityReference == systemSid || rule.IdentityReference == adminsSid)
+                    return false;
+                }
+
+                if (regRule.AccessControlType == AccessControlType.Deny)
+                {
+                    if (regRule.IdentityReference == systemSid || regRule.IdentityReference == adminsSid)
                     {
                         return false;
                     }
                 }
-                else if (rule.AccessControlType == AccessControlType.Allow)
+                else if (regRule.AccessControlType == AccessControlType.Allow)
                 {
-                    if (rule.IdentityReference == systemSid)
+                    var rights = regRule.RegistryRights;
+                    var req = RegistryRights.ReadKey | RegistryRights.WriteKey;
+                    if ((rights & req) != req && (rights & RegistryRights.FullControl) != RegistryRights.FullControl)
+                    {
+                        return false;
+                    }
+
+                    if (regRule.IdentityReference == systemSid)
                     {
                         hasSystem = true;
                     }
-                    else if (rule.IdentityReference == adminsSid)
+                    else if (regRule.IdentityReference == adminsSid)
                     {
                         hasAdmins = true;
                     }
@@ -351,6 +432,10 @@ public sealed class WindowsRegistryPanicStore : IPanicRestorationStore
                     {
                         return false;
                     }
+                }
+                else
+                {
+                    return false;
                 }
             }
 
@@ -370,7 +455,10 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
     private byte[]? _integrityDigest;
     private bool _simulateTampering;
     private bool _simulateUnauthorizedAccess;
+    private bool _simulateUnexpectedAce;
+    private bool _simulateUnauthorizedAllow;
     private bool _simulateSaveFailure;
+    private bool _simulatePartialWriteSessionData;
     private bool _simulateKeyCorruption;
     private bool _simulateDeleteFailure;
     private readonly List<Guid> _simulatedHiddenProviders = new();
@@ -388,10 +476,28 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
         set { lock (_storeLock) _simulateUnauthorizedAccess = value; }
     }
 
+    public bool SimulateUnexpectedAce
+    {
+        get { lock (_storeLock) return _simulateUnexpectedAce; }
+        set { lock (_storeLock) _simulateUnexpectedAce = value; }
+    }
+
+    public bool SimulateUnauthorizedAllow
+    {
+        get { lock (_storeLock) return _simulateUnauthorizedAllow; }
+        set { lock (_storeLock) _simulateUnauthorizedAllow = value; }
+    }
+
     public bool SimulateSaveFailure
     {
         get { lock (_storeLock) return _simulateSaveFailure; }
         set { lock (_storeLock) _simulateSaveFailure = value; }
+    }
+
+    public bool SimulatePartialWriteSessionData
+    {
+        get { lock (_storeLock) return _simulatePartialWriteSessionData; }
+        set { lock (_storeLock) _simulatePartialWriteSessionData = value; }
     }
 
     public bool SimulateKeyCorruption
@@ -469,6 +575,13 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
                 throw new IOException("Simulated disk or registry write failure during panic save.");
             }
 
+            if (_simulatePartialWriteSessionData)
+            {
+                _savedState = null;
+                _integrityDigest = null;
+                throw new IOException("Simulated partial write failure to SessionData/IntegrityDigest.");
+            }
+
             if (_simulateUnauthorizedAccess)
             {
                 throw new UnauthorizedAccessException("Simulated access denied by unprivileged ACL.");
@@ -482,13 +595,34 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
             // Sync with simulated hidden providers
             foreach (var prov in state.Providers.Values)
             {
-                if (prov.HiddenByTether && !_simulatedHiddenProviders.Contains(prov.ProviderId))
+                string pKey = prov.ProviderId.ToString("D");
+                if (state.RestoredProviders.Contains(pKey) || state.IndependentlyDeniedProviders.Contains(pKey))
+                {
+                    _simulatedHiddenProviders.Remove(prov.ProviderId);
+                }
+                else if (prov.HiddenByTether && !_simulatedHiddenProviders.Contains(prov.ProviderId))
                 {
                     _simulatedHiddenProviders.Add(prov.ProviderId);
                 }
                 else if (!prov.HiddenByTether)
                 {
                     _simulatedHiddenProviders.Remove(prov.ProviderId);
+                }
+            }
+
+            foreach (var r in state.RestoredProviders)
+            {
+                if (Guid.TryParse(r, out var rg))
+                {
+                    _simulatedHiddenProviders.Remove(rg);
+                }
+            }
+
+            foreach (var d in state.IndependentlyDeniedProviders)
+            {
+                if (Guid.TryParse(d, out var dg))
+                {
+                    _simulatedHiddenProviders.Remove(dg);
                 }
             }
 
@@ -523,7 +657,7 @@ public sealed class InMemoryPanicRestorationStore : IPanicRestorationStore
     {
         lock (_storeLock)
         {
-            return !_simulateUnauthorizedAccess;
+            return !_simulateUnauthorizedAccess && !_simulateUnexpectedAce && !_simulateUnauthorizedAllow;
         }
     }
 }

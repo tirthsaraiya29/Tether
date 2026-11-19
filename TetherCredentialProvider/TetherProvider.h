@@ -85,7 +85,10 @@ public:
 #ifdef TETHER_TEST_HARNESS
     friend void CTetherProvider_SetTestRegistryRoot(HKEY hRoot, const wchar_t* subKey);
     friend void CTetherProvider_SetSimulateInvalidAcl(bool simulate);
+    friend void CTetherProvider_SetSimulateUnexpectedAce(bool simulate);
+    friend void CTetherProvider_SetSimulateUnauthorizedAllow(bool simulate);
     friend void CTetherProvider_SetSimulateWriteFailure(bool simulate);
+    friend void CTetherProvider_SetEnforceAclInTest(bool enforce);
 #endif
 
 protected:

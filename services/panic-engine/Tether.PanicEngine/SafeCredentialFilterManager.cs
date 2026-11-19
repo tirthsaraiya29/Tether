@@ -133,7 +133,9 @@ public class SafeCredentialFilterManager
                 IsPanicActive = false,
                 ActivatedAt = _currentSession.ActivatedAt,
                 DeactivatedAt = DateTimeOffset.UtcNow,
-                Providers = new Dictionary<string, TrackedProviderState>(_currentSession.Providers, StringComparer.OrdinalIgnoreCase)
+                Providers = new Dictionary<string, TrackedProviderState>(_currentSession.Providers, StringComparer.OrdinalIgnoreCase),
+                RestoredProviders = new HashSet<string>(_currentSession.RestoredProviders, StringComparer.OrdinalIgnoreCase),
+                IndependentlyDeniedProviders = new HashSet<string>(_currentSession.IndependentlyDeniedProviders, StringComparer.OrdinalIgnoreCase)
             };
 
             try
@@ -213,7 +215,9 @@ public class SafeCredentialFilterManager
                     IsPanicActive = _currentSession.IsPanicActive,
                     ActivatedAt = _currentSession.ActivatedAt,
                     DeactivatedAt = _currentSession.DeactivatedAt,
-                    Providers = workingProviders
+                    Providers = workingProviders,
+                    RestoredProviders = new HashSet<string>(_currentSession.RestoredProviders, StringComparer.OrdinalIgnoreCase),
+                    IndependentlyDeniedProviders = new HashSet<string>(_currentSession.IndependentlyDeniedProviders, StringComparer.OrdinalIgnoreCase)
                 };
 
                 try
@@ -254,6 +258,8 @@ public class SafeCredentialFilterManager
 
             bool stateModified = false;
             var workingProviders = new Dictionary<string, TrackedProviderState>(_currentSession.Providers, StringComparer.OrdinalIgnoreCase);
+            var restoredSet = new HashSet<string>(_currentSession.RestoredProviders, StringComparer.OrdinalIgnoreCase);
+            var deniedSet = new HashSet<string>(_currentSession.IndependentlyDeniedProviders, StringComparer.OrdinalIgnoreCase);
 
             for (int i = 0; i < providers.Length; i++)
             {
@@ -266,19 +272,34 @@ public class SafeCredentialFilterManager
                 }
 
                 string key = pid.ToString("D");
-                if (workingProviders.TryGetValue(key, out var tracked))
+
+                bool isDenied = deniedSet.Contains(key) ||
+                                (workingProviders.TryGetValue(key, out var tp) && tp.IndependentlyDenied);
+
+                if (isDenied)
                 {
-                    if (tracked.HiddenByTether && tracked.OriginalVisibility)
+                    // If an independent denial exists, preserve the denial rather than guessing! Never force allowStates[i] = true!
+                    allowStates[i] = false;
+                    deniedSet.Add(key);
+                    if (workingProviders.TryGetValue(key, out var currentTp))
                     {
-                        // Tether explicitly hid this provider; safely restore it
+                        workingProviders[key] = currentTp with { IndependentlyDenied = true, HiddenByTether = false };
+                        stateModified = true;
+                    }
+                }
+                else if (workingProviders.TryGetValue(key, out var tracked))
+                {
+                    if (tracked.HiddenByTether && tracked.OriginalVisibility && !tracked.IndependentlyDenied)
+                    {
+                        // Clean restoration: Tether hid it, was originally visible, and no independent denial
                         allowStates[i] = true;
-                        // Remove ownership record only after restoration has been successfully completed
+                        restoredSet.Add(key);
                         workingProviders.Remove(key);
                         stateModified = true;
                     }
-                    else if (!tracked.OriginalVisibility || !tracked.HiddenByTether)
+                    else
                     {
-                        // Never reverse an independently imposed filtering denial (pre-hidden or third-party denial)
+                        // Pre-hidden or third-party denial: preserve denial
                         allowStates[i] = false;
                     }
                 }
@@ -293,7 +314,9 @@ public class SafeCredentialFilterManager
                     IsPanicActive = _currentSession.IsPanicActive,
                     ActivatedAt = _currentSession.ActivatedAt,
                     DeactivatedAt = _currentSession.DeactivatedAt,
-                    Providers = workingProviders
+                    Providers = workingProviders,
+                    RestoredProviders = restoredSet,
+                    IndependentlyDeniedProviders = deniedSet
                 };
 
                 try
@@ -325,29 +348,42 @@ public class SafeCredentialFilterManager
         lock (_syncLock)
         {
             string key = providerId.ToString("D");
-            if (_currentSession.Providers.TryGetValue(key, out var existing))
+            var nextProviders = new Dictionary<string, TrackedProviderState>(_currentSession.Providers, StringComparer.OrdinalIgnoreCase);
+            var nextDenied = new HashSet<string>(_currentSession.IndependentlyDeniedProviders, StringComparer.OrdinalIgnoreCase);
+            nextDenied.Add(key);
+
+            if (nextProviders.TryGetValue(key, out var existing))
             {
-                var updated = existing with { HiddenByTether = false, OriginalVisibility = false };
-                var nextProviders = new Dictionary<string, TrackedProviderState>(_currentSession.Providers, StringComparer.OrdinalIgnoreCase)
-                {
-                    [key] = updated
-                };
-
-                var nextSession = new PanicLockSessionState
-                {
-                    SessionId = _currentSession.SessionId,
-                    IsPanicActive = _currentSession.IsPanicActive,
-                    ActivatedAt = _currentSession.ActivatedAt,
-                    DeactivatedAt = _currentSession.DeactivatedAt,
-                    Providers = nextProviders
-                };
-
-                _store.Save(nextSession);
-                _currentSession = nextSession;
-                _logger.Info($"SafeCredentialFilterManager: Recorded independent denial for provider {providerId}. Tether ownership revoked.");
-                return true;
+                nextProviders[key] = existing with { HiddenByTether = false, OriginalVisibility = false, IndependentlyDenied = true };
             }
-            return false;
+            else
+            {
+                nextProviders[key] = new TrackedProviderState
+                {
+                    ProviderId = providerId,
+                    OriginalVisibility = false,
+                    HiddenByTether = false,
+                    IndependentlyDenied = true,
+                    CapturedAt = DateTimeOffset.UtcNow,
+                    SessionId = _currentSession.SessionId
+                };
+            }
+
+            var nextSession = new PanicLockSessionState
+            {
+                SessionId = _currentSession.SessionId,
+                IsPanicActive = _currentSession.IsPanicActive,
+                ActivatedAt = _currentSession.ActivatedAt,
+                DeactivatedAt = _currentSession.DeactivatedAt,
+                Providers = nextProviders,
+                RestoredProviders = new HashSet<string>(_currentSession.RestoredProviders, StringComparer.OrdinalIgnoreCase),
+                IndependentlyDeniedProviders = nextDenied
+            };
+
+            _store.Save(nextSession);
+            _currentSession = nextSession;
+            _logger.Info($"SafeCredentialFilterManager: Recorded independent denial for provider {providerId}. Tether ownership revoked.");
+            return true;
         }
     }
 }

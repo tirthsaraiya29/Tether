@@ -570,6 +570,15 @@ public sealed class PacketRouter
                 _logger.Info("PacketRouter: Cleared panic lock upon workstation unlock.");
             }
         }
+        else if (cmdLower.StartsWith("deny_provider:") || cmdLower.StartsWith("deny_cred_provider:"))
+        {
+            string guidStr = cmd.Command.Substring(cmd.Command.IndexOf(':') + 1).Trim();
+            if (Guid.TryParse(guidStr, out var provGuid))
+            {
+                _panicManager.RecordIndependentDenial(provGuid);
+                _logger.Warning($"PacketRouter: Recorded independent denial for provider {provGuid}");
+            }
+        }
 
         if (cmdLower.StartsWith("volume_") || cmdLower.StartsWith("set_volume:") || cmdLower.StartsWith("vol_") ||
             cmdLower.StartsWith("brightness_") || cmdLower.StartsWith("set_brightness:") || cmdLower.StartsWith("bright_") ||

@@ -59,6 +59,16 @@ public class PanicManager
             _logger.Info($"PanicManager: Received external PANIC_CLEARED event. Session: {evt.SessionId}");
             ClearPanic(evt.SessionId, evt.SequenceNumber);
         }
+        else if (evt.EventType == TetherEventType.AUTH_FAILURE ||
+                 evt.EventType == TetherEventType.PAIRING_INVALIDATED ||
+                 evt.EventType == TetherEventType.FORGET_PHONE)
+        {
+            if (!string.IsNullOrWhiteSpace(evt.PayloadJson) && Guid.TryParse(evt.PayloadJson, out var providerId))
+            {
+                _logger.Warning($"PanicManager: Recording independent denial for provider {providerId} due to event {evt.EventType}.");
+                RecordIndependentDenial(providerId);
+            }
+        }
     }
 
     public string TriggerPanic(string? customSessionId = null, long sequenceNumber = 0)
@@ -164,6 +174,14 @@ public class PanicManager
             });
 
             return true;
+        }
+    }
+
+    public bool RecordIndependentDenial(Guid providerId)
+    {
+        lock (_stateLock)
+        {
+            return _filterManager.RecordIndependentDenial(providerId);
         }
     }
 }

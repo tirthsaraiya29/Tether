@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Tether.PanicEngine;
 using Tether.Shared.Logging;
+using Microsoft.Win32;
 using Xunit;
 
 namespace Tether.Tests;
@@ -768,5 +769,232 @@ public class SafeCredentialProviderRestorationTests
         bool restored = m3.Restore(provs, allow);
         Assert.True(restored);
         Assert.True(allow[0]);
+    }
+
+    [Fact]
+    public void WindowsRegistryPanicStore_FailureSafeDeactivation_WritesIsPanicActiveLast()
+    {
+        const string testKey = @"Software\Tether\TestAtomicDeactivation";
+        Registry.CurrentUser.DeleteSubKeyTree(testKey, false);
+
+        try
+        {
+            var store = new WindowsRegistryPanicStore(_logger, Registry.CurrentUser, testKey);
+            var manager = new SafeCredentialFilterManager(_logger, store);
+
+            var providers = new[] { _provA, _tetherProv };
+            var allowStates = new[] { true, true };
+
+            manager.ActivatePanicLock("sess-atomic-deact");
+            manager.ApplyFilter(providers, allowStates);
+
+            using (var key = Registry.CurrentUser.OpenSubKey(testKey, false))
+            {
+                Assert.NotNull(key);
+                Assert.Equal(1, key.GetValue("IsPanicActive"));
+            }
+
+            // Normal deactivation writes SessionData and IntegrityDigest first, then IsPanicActive = 0
+            manager.DeactivatePanicLock("sess-atomic-deact");
+
+            using (var key = Registry.CurrentUser.OpenSubKey(testKey, false))
+            {
+                Assert.NotNull(key);
+                Assert.Equal(0, key.GetValue("IsPanicActive"));
+                Assert.NotNull(key.GetValue("SessionData"));
+                Assert.NotNull(key.GetValue("IntegrityDigest"));
+            }
+        }
+        finally
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(testKey, false);
+        }
+    }
+
+    [Fact]
+    public void WindowsRegistryPanicStore_MissingOrMalformedIsPanicActive_RefusesRestoration()
+    {
+        const string testKey = @"Software\Tether\TestMalformedActive";
+        Registry.CurrentUser.DeleteSubKeyTree(testKey, false);
+
+        try
+        {
+            var store = new WindowsRegistryPanicStore(_logger, Registry.CurrentUser, testKey);
+            var manager = new SafeCredentialFilterManager(_logger, store);
+
+            manager.ActivatePanicLock("sess-malformed-active");
+            var providers = new[] { _provA, _tetherProv };
+            var allowStates = new[] { true, true };
+            manager.ApplyFilter(providers, allowStates);
+
+            // Corrupt IsPanicActive in registry: change from DWORD to string
+            using (var key = Registry.CurrentUser.OpenSubKey(testKey, true))
+            {
+                Assert.NotNull(key);
+                key.SetValue("IsPanicActive", "malformed_string_val", RegistryValueKind.String);
+            }
+
+            // Load must fail closed on malformed state: return null!
+            var loaded = store.Load();
+            Assert.Null(loaded);
+
+            // Starting a new manager with this store fails closed to an inactive empty state, never restoring
+            var newManager = new SafeCredentialFilterManager(_logger, store);
+            Assert.False(newManager.IsPanicActive);
+            Assert.Empty(newManager.GetTrackedProviders());
+        }
+        finally
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(testKey, false);
+        }
+    }
+
+    [Fact]
+    public void WindowsRegistryPanicStore_PartialWritesToSessionDataAndIntegrityDigest_RefusesRestoration()
+    {
+        const string testKey = @"Software\Tether\TestPartialWrites";
+        Registry.CurrentUser.DeleteSubKeyTree(testKey, false);
+
+        try
+        {
+            var store = new WindowsRegistryPanicStore(_logger, Registry.CurrentUser, testKey);
+            var manager = new SafeCredentialFilterManager(_logger, store);
+
+            manager.ActivatePanicLock("sess-partial-write");
+            var providers = new[] { _provA, _tetherProv };
+            var allowStates = new[] { true, true };
+            manager.ApplyFilter(providers, allowStates);
+
+            // Corrupt IntegrityDigest (simulating partial write or tampering)
+            using (var key = Registry.CurrentUser.OpenSubKey(testKey, true))
+            {
+                Assert.NotNull(key);
+                var digest = key.GetValue("IntegrityDigest") as byte[];
+                Assert.NotNull(digest);
+                digest[0] ^= 0xFF; // Flip byte
+                key.SetValue("IntegrityDigest", digest, RegistryValueKind.Binary);
+            }
+
+            // Load must detect mismatch and return null
+            var loaded = store.Load();
+            Assert.Null(loaded);
+        }
+        finally
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(testKey, false);
+        }
+    }
+
+    [Fact]
+    public void WindowsRegistryPanicStore_ManagedRestorationOfNativeOnlyOwnershipRecords_RemovesFromRegistry()
+    {
+        const string testKey = @"Software\Tether\TestNativeOnlyRestore";
+        Registry.CurrentUser.DeleteSubKeyTree(testKey, false);
+
+        try
+        {
+            var store = new WindowsRegistryPanicStore(_logger, Registry.CurrentUser, testKey);
+            var manager = new SafeCredentialFilterManager(_logger, store);
+
+            manager.ActivatePanicLock("sess-native-restore");
+
+            // Native filter independently captured ProvB and wrote it to HiddenProviders in registry
+            using (var key = Registry.CurrentUser.OpenSubKey(testKey, true))
+            {
+                Assert.NotNull(key);
+                key.SetValue("HiddenProviders", new[] { _provB.ToString("B") }, RegistryValueKind.MultiString);
+            }
+
+            // Service restarts and loads registry state
+            var restartedManager = new SafeCredentialFilterManager(_logger, store);
+            Assert.True(restartedManager.IsPanicActive);
+
+            var tracked = restartedManager.GetTrackedProviders();
+            Assert.Contains(tracked, p => p.ProviderId == _provB);
+
+            // Deactivate and restore ProvB
+            restartedManager.DeactivatePanicLock("sess-native-restore");
+            var restoreProvs = new[] { _provB, _tetherProv };
+            var restoreAllow = new[] { false, true };
+
+            bool restored = restartedManager.Restore(restoreProvs, restoreAllow);
+            Assert.True(restored);
+            Assert.True(restoreAllow[0]);
+
+            // Verified: ProvB was removed from HiddenProviders in the registry!
+            using (var key = Registry.CurrentUser.OpenSubKey(testKey, false))
+            {
+                Assert.NotNull(key);
+                var hiddenAfter = key.GetValue("HiddenProviders") as string[];
+                Assert.True(hiddenAfter == null || !hiddenAfter.Any(s => s.Contains(_provB.ToString())));
+            }
+        }
+        finally
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(testKey, false);
+        }
+    }
+
+    [Fact]
+    public void WindowsRegistryPanicStore_StaleOwnershipRecordsAfterSuccessfulRestoration_NotResurrectedBySave()
+    {
+        const string testKey = @"Software\Tether\TestNoResurrection";
+        Registry.CurrentUser.DeleteSubKeyTree(testKey, false);
+
+        try
+        {
+            var store = new WindowsRegistryPanicStore(_logger, Registry.CurrentUser, testKey);
+            var manager = new SafeCredentialFilterManager(_logger, store);
+
+            manager.ActivatePanicLock("sess-resurrect");
+            var providers = new[] { _provA, _tetherProv };
+            var allowStates = new[] { true, true };
+            manager.ApplyFilter(providers, allowStates);
+
+            // Deactivate and restore ProvA
+            manager.DeactivatePanicLock("sess-resurrect");
+            bool restored = manager.Restore(providers, allowStates);
+            Assert.True(restored);
+            Assert.True(allowStates[0]);
+
+            // Now perform another save or filtering operation
+            var session = store.Load();
+            Assert.NotNull(session);
+            Assert.Contains(_provA.ToString("D"), session.RestoredProviders);
+
+            // Calling Save on the store must NOT resurrect ProvA into HiddenProviders
+            store.Save(session);
+
+            using (var key = Registry.CurrentUser.OpenSubKey(testKey, false))
+            {
+                Assert.NotNull(key);
+                var hiddenAfter = key.GetValue("HiddenProviders") as string[];
+                Assert.True(hiddenAfter == null || !hiddenAfter.Any(s => s.Contains(_provA.ToString())));
+            }
+        }
+        finally
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(testKey, false);
+        }
+    }
+
+    [Fact]
+    public void InMemoryStore_Simulation_UnexpectedAceAndUnauthorizedAllow_Rejected()
+    {
+        var store = new InMemoryPanicRestorationStore();
+
+        Assert.True(store.VerifyAccessAcl());
+
+        store.SimulateUnexpectedAce = true;
+        Assert.False(store.VerifyAccessAcl(), "Must reject unexpected ACE type");
+        store.SimulateUnexpectedAce = false;
+
+        store.SimulateUnauthorizedAllow = true;
+        Assert.False(store.VerifyAccessAcl(), "Must reject unauthorized allow ACE");
+        store.SimulateUnauthorizedAllow = false;
+
+        store.SimulatePartialWriteSessionData = true;
+        var state = new PanicLockSessionState { SessionId = "test", IsPanicActive = true };
+        Assert.Throws<System.IO.IOException>(() => store.Save(state));
     }
 }

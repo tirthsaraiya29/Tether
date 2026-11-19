@@ -26,14 +26,20 @@ void DllRelease() {}
 // Exported test helpers from TetherProvider.cpp
 void CTetherProvider_SetTestRegistryRoot(HKEY hRoot, const wchar_t* subKey);
 void CTetherProvider_SetSimulateInvalidAcl(bool simulate);
+void CTetherProvider_SetSimulateUnexpectedAce(bool simulate);
+void CTetherProvider_SetSimulateUnauthorizedAllow(bool simulate);
 void CTetherProvider_SetSimulateWriteFailure(bool simulate);
+void CTetherProvider_SetEnforceAclInTest(bool enforce);
 
 static const wchar_t* TEST_KEY_PATH = L"Software\\Tether\\TestPanicLock";
 
 static void CleanTestRegistry()
 {
     CTetherProvider_SetSimulateInvalidAcl(false);
+    CTetherProvider_SetSimulateUnexpectedAce(false);
+    CTetherProvider_SetSimulateUnauthorizedAllow(false);
     CTetherProvider_SetSimulateWriteFailure(false);
+    CTetherProvider_SetEnforceAclInTest(false);
     RegDeleteKeyW(HKEY_CURRENT_USER, TEST_KEY_PATH);
 }
 
@@ -155,11 +161,12 @@ static void Test_PanicActive_HidesAlternatives_PreservesTether_AndRestoresCleanl
     SetTestRegistryPanicState(false, L"native-sess-1");
 
     // 3. Filter during restore
-    hr = pFilter->Filter(CPUS_LOGON, 0, providers, allow, 3);
+    BOOL restoreAllow[] = { TRUE, TRUE, TRUE };
+    hr = pFilter->Filter(CPUS_LOGON, 0, providers, restoreAllow, 3);
     TEST_ASSERT(SUCCEEDED(hr));
-    TEST_ASSERT(allow[0] == TRUE); // Restored
-    TEST_ASSERT(allow[1] == TRUE); // Restored
-    TEST_ASSERT(allow[2] == TRUE); // Tether remains visible
+    TEST_ASSERT(restoreAllow[0] == TRUE); // Restored
+    TEST_ASSERT(restoreAllow[1] == TRUE); // Restored
+    TEST_ASSERT(restoreAllow[2] == TRUE); // Tether remains visible
 
     // Verify registry is cleaned after full restoration
     hidden = GetTestRegistryHiddenProviders();
@@ -195,12 +202,13 @@ static void Test_PreserveIncomingDenial_OnAlternativeProvider()
     // 2. Clear panic
     SetTestRegistryPanicState(false, L"native-sess-prehidden");
 
-    // 3. Filter outside panic
-    hr = pFilter->Filter(CPUS_LOGON, 0, providers, allow, 3);
+    // 3. Filter outside panic (incoming ProvB is FALSE from independent filter)
+    BOOL restoreAllow[] = { TRUE, FALSE, TRUE };
+    hr = pFilter->Filter(CPUS_LOGON, 0, providers, restoreAllow, 3);
     TEST_ASSERT(SUCCEEDED(hr));
-    TEST_ASSERT(allow[0] == TRUE);  // ProvA restored (Tether hid it)
-    TEST_ASSERT(allow[1] == FALSE); // ProvB MUST REMAIN FALSE! Never unhide pre-hidden tiles!
-    TEST_ASSERT(allow[2] == TRUE);
+    TEST_ASSERT(restoreAllow[0] == TRUE);  // ProvA restored (Tether hid it)
+    TEST_ASSERT(restoreAllow[1] == FALSE); // ProvB MUST REMAIN FALSE! Never unhide pre-hidden tiles!
+    TEST_ASSERT(restoreAllow[2] == TRUE);
 
     pFilter->Release();
 }
@@ -226,10 +234,11 @@ static void Test_PreserveIncomingDenial_OnTetherProvider()
     // 2. Clear panic
     SetTestRegistryPanicState(false, L"native-sess-tether-denied");
 
-    hr = pFilter->Filter(CPUS_LOGON, 0, providers, allow, 2);
+    BOOL restoreAllow[] = { TRUE, FALSE };
+    hr = pFilter->Filter(CPUS_LOGON, 0, providers, restoreAllow, 2);
     TEST_ASSERT(SUCCEEDED(hr));
-    TEST_ASSERT(allow[0] == TRUE);
-    TEST_ASSERT(allow[1] == FALSE); // Tether denial preserved after restore
+    TEST_ASSERT(restoreAllow[0] == TRUE);
+    TEST_ASSERT(restoreAllow[1] == FALSE); // Tether denial preserved after restore
 
     pFilter->Release();
 }
@@ -255,12 +264,13 @@ static void Test_MultipleCooperatingFilters()
 
     SetTestRegistryPanicState(false, L"native-sess-cooperating");
 
-    hr = pFilter->Filter(CPUS_LOGON, 0, providers, allow, 4);
+    BOOL restoreAllow[] = { TRUE, FALSE, TRUE, FALSE };
+    hr = pFilter->Filter(CPUS_LOGON, 0, providers, restoreAllow, 4);
     TEST_ASSERT(SUCCEEDED(hr));
-    TEST_ASSERT(allow[0] == TRUE);  // ProvA restored
-    TEST_ASSERT(allow[1] == FALSE); // ProvB preserved FALSE
-    TEST_ASSERT(allow[2] == TRUE);  // ProvC restored
-    TEST_ASSERT(allow[3] == FALSE); // Tether preserved FALSE
+    TEST_ASSERT(restoreAllow[0] == TRUE);  // ProvA restored
+    TEST_ASSERT(restoreAllow[1] == FALSE); // ProvB preserved FALSE
+    TEST_ASSERT(restoreAllow[2] == TRUE);  // ProvC restored
+    TEST_ASSERT(restoreAllow[3] == FALSE); // Tether preserved FALSE
 
     pFilter->Release();
 }
@@ -292,10 +302,11 @@ static void Test_LogonUIReenumeration_DuringPanic()
     // Unlock
     SetTestRegistryPanicState(false, L"native-sess-reenum");
 
-    hr = pFilter->Filter(CPUS_LOGON, 0, providers, reenumAllow, 2);
+    BOOL restoreAllow[] = { TRUE, TRUE };
+    hr = pFilter->Filter(CPUS_LOGON, 0, providers, restoreAllow, 2);
     TEST_ASSERT(SUCCEEDED(hr));
-    TEST_ASSERT(reenumAllow[0] == TRUE);
-    TEST_ASSERT(reenumAllow[1] == TRUE);
+    TEST_ASSERT(restoreAllow[0] == TRUE);
+    TEST_ASSERT(restoreAllow[1] == TRUE);
 
     pFilter->Release();
 }
@@ -319,16 +330,18 @@ static void Test_RestorationIdempotency()
 
     // 2. Clear panic & restore
     SetTestRegistryPanicState(false, L"native-sess-idempotent");
-    hr = pFilter->Filter(CPUS_LOGON, 0, providers, allow, 3);
-    TEST_ASSERT(allow[0] == TRUE);
-    TEST_ASSERT(allow[1] == FALSE);
-    TEST_ASSERT(allow[2] == TRUE);
+    BOOL restoreAllow[] = { TRUE, FALSE, TRUE };
+    hr = pFilter->Filter(CPUS_LOGON, 0, providers, restoreAllow, 3);
+    TEST_ASSERT(restoreAllow[0] == TRUE);
+    TEST_ASSERT(restoreAllow[1] == FALSE);
+    TEST_ASSERT(restoreAllow[2] == TRUE);
 
     // 3. Repeated call after restore must be strictly idempotent
-    hr = pFilter->Filter(CPUS_LOGON, 0, providers, allow, 3);
-    TEST_ASSERT(allow[0] == TRUE);
-    TEST_ASSERT(allow[1] == FALSE);
-    TEST_ASSERT(allow[2] == TRUE);
+    BOOL reenumAllow[] = { TRUE, FALSE, TRUE };
+    hr = pFilter->Filter(CPUS_LOGON, 0, providers, reenumAllow, 3);
+    TEST_ASSERT(reenumAllow[0] == TRUE);
+    TEST_ASSERT(reenumAllow[1] == FALSE);
+    TEST_ASSERT(reenumAllow[2] == TRUE);
 
     pFilter->Release();
 }
@@ -344,9 +357,9 @@ static void Test_FailSafe_WhenDaclVersionInvalid()
     GUID providers[] = { ProvA, CLSID_TetherProvider };
     BOOL allow[] = { TRUE, TRUE };
 
-    // Must fail safe: refuse to interpret untrusted registry, leave allow states untouched!
+    // Must fail closed: return FAILED(hr), leave allow states untouched!
     hr = pFilter->Filter(CPUS_LOGON, 0, providers, allow, 2);
-    TEST_ASSERT(SUCCEEDED(hr));
+    TEST_ASSERT(FAILED(hr));
     TEST_ASSERT(allow[0] == TRUE);
     TEST_ASSERT(allow[1] == TRUE);
 
@@ -367,7 +380,7 @@ static void Test_FailSafe_WhenSecurityAclInvalid()
 
     // When security descriptor validation fails, fail safe and leave allow states untouched
     hr = pFilter->Filter(CPUS_LOGON, 0, providers, allow, 2);
-    TEST_ASSERT(SUCCEEDED(hr));
+    TEST_ASSERT(FAILED(hr));
     TEST_ASSERT(allow[0] == TRUE);
     TEST_ASSERT(allow[1] == TRUE);
 
@@ -496,8 +509,8 @@ static void Test_ThirdPartyDenialIntroducedAfterTetherHidesProvider()
         RegCloseKey(hKey);
     }
 
-    // 4. Restore enumeration executes:
-    BOOL restoreAllow[] = { FALSE, FALSE, TRUE };
+    // 4. Restore enumeration executes: ProvA allowed (TRUE) by preceding filter, ProvB denied (FALSE)
+    BOOL restoreAllow[] = { TRUE, FALSE, TRUE };
     hr = pFilter->Filter(CPUS_LOGON, 0, providers, restoreAllow, 3);
     TEST_ASSERT(SUCCEEDED(hr));
 
@@ -505,6 +518,128 @@ static void Test_ThirdPartyDenialIntroducedAfterTetherHidesProvider()
     TEST_ASSERT(restoreAllow[0] == TRUE);
     // ProvB was denied by third party -> MUST REMAIN FALSE! Never unhide!
     TEST_ASSERT(restoreAllow[1] == FALSE);
+
+    pFilter->Release();
+}
+
+static void Test_FailSafe_MissingOrMalformedIsPanicActive()
+{
+    // Write registry with string IsPanicActive instead of DWORD
+    HKEY hKey = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, TEST_KEY_PATH, 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS)
+    {
+        DWORD dwDacl = 2;
+        RegSetValueExW(hKey, L"VaultDaclVersion", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&dwDacl), sizeof(dwDacl));
+        const wchar_t* malformedActive = L"invalid_string";
+        RegSetValueExW(hKey, L"IsPanicActive", 0, REG_SZ, reinterpret_cast<const BYTE*>(malformedActive), static_cast<DWORD>((wcslen(malformedActive) + 1) * sizeof(wchar_t)));
+        const wchar_t* sess = L"sess-malformed";
+        RegSetValueExW(hKey, L"PanicSessionId", 0, REG_SZ, reinterpret_cast<const BYTE*>(sess), static_cast<DWORD>((wcslen(sess) + 1) * sizeof(wchar_t)));
+        RegCloseKey(hKey);
+    }
+
+    ICredentialProviderFilter* pFilter = nullptr;
+    HRESULT hr = CTetherProvider_CreateInstance(IID_ICredentialProviderFilter, reinterpret_cast<void**>(&pFilter));
+    TEST_ASSERT(SUCCEEDED(hr) && pFilter != nullptr);
+
+    GUID providers[] = { ProvA, CLSID_TetherProvider };
+    BOOL allow[] = { TRUE, TRUE };
+
+    // Must fail closed: return FAILED(hr), leaving allow states completely untouched
+    hr = pFilter->Filter(CPUS_LOGON, 0, providers, allow, 2);
+    TEST_ASSERT(FAILED(hr));
+    TEST_ASSERT(allow[0] == TRUE);
+    TEST_ASSERT(allow[1] == TRUE);
+
+    pFilter->Release();
+}
+
+static void Test_SecurityAcl_UnexpectedAceType_Rejected()
+{
+    SetTestRegistryPanicState(true, L"native-sess-ace-type");
+    CTetherProvider_SetSimulateUnexpectedAce(true);
+
+    ICredentialProviderFilter* pFilter = nullptr;
+    HRESULT hr = CTetherProvider_CreateInstance(IID_ICredentialProviderFilter, reinterpret_cast<void**>(&pFilter));
+    TEST_ASSERT(SUCCEEDED(hr) && pFilter != nullptr);
+
+    GUID providers[] = { ProvA, CLSID_TetherProvider };
+    BOOL allow[] = { TRUE, TRUE };
+
+    hr = pFilter->Filter(CPUS_LOGON, 0, providers, allow, 2);
+    TEST_ASSERT(FAILED(hr));
+    TEST_ASSERT(allow[0] == TRUE);
+    TEST_ASSERT(allow[1] == TRUE);
+
+    CTetherProvider_SetSimulateUnexpectedAce(false);
+    pFilter->Release();
+}
+
+static void Test_SecurityAcl_UnauthorizedAllowAce_Rejected()
+{
+    SetTestRegistryPanicState(true, L"native-sess-unauth-allow");
+    CTetherProvider_SetSimulateUnauthorizedAllow(true);
+
+    ICredentialProviderFilter* pFilter = nullptr;
+    HRESULT hr = CTetherProvider_CreateInstance(IID_ICredentialProviderFilter, reinterpret_cast<void**>(&pFilter));
+    TEST_ASSERT(SUCCEEDED(hr) && pFilter != nullptr);
+
+    GUID providers[] = { ProvA, CLSID_TetherProvider };
+    BOOL allow[] = { TRUE, TRUE };
+
+    hr = pFilter->Filter(CPUS_LOGON, 0, providers, allow, 2);
+    TEST_ASSERT(FAILED(hr));
+    TEST_ASSERT(allow[0] == TRUE);
+    TEST_ASSERT(allow[1] == TRUE);
+
+    CTetherProvider_SetSimulateUnauthorizedAllow(false);
+    pFilter->Release();
+}
+
+static void Test_IndependentDenial_PreservedDuringRestore()
+{
+    SetTestRegistryPanicState(false, L"sess-indep-denial");
+
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, TEST_KEY_PATH, 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS)
+    {
+        // ProvA and ProvB in HiddenProviders
+        wchar_t szGuidA[64] = { 0 };
+        wchar_t szGuidB[64] = { 0 };
+        StringFromGUID2(ProvA, szGuidA, ARRAYSIZE(szGuidA));
+        StringFromGUID2(ProvB, szGuidB, ARRAYSIZE(szGuidB));
+
+        std::vector<wchar_t> multiHidden;
+        multiHidden.insert(multiHidden.end(), szGuidA, szGuidA + wcslen(szGuidA) + 1);
+        multiHidden.insert(multiHidden.end(), szGuidB, szGuidB + wcslen(szGuidB) + 1);
+        multiHidden.push_back(L'\0');
+        RegSetValueExW(hKey, L"HiddenProviders", 0, REG_MULTI_SZ, reinterpret_cast<const BYTE*>(multiHidden.data()), static_cast<DWORD>(multiHidden.size() * sizeof(wchar_t)));
+
+        // ProvB in IndependentlyDeniedProviders
+        std::vector<wchar_t> multiDenied;
+        multiDenied.insert(multiDenied.end(), szGuidB, szGuidB + wcslen(szGuidB) + 1);
+        multiDenied.push_back(L'\0');
+        RegSetValueExW(hKey, L"IndependentlyDeniedProviders", 0, REG_MULTI_SZ, reinterpret_cast<const BYTE*>(multiDenied.data()), static_cast<DWORD>(multiDenied.size() * sizeof(wchar_t)));
+
+        RegCloseKey(hKey);
+    }
+
+    ICredentialProviderFilter* pFilter = nullptr;
+    HRESULT hr = CTetherProvider_CreateInstance(IID_ICredentialProviderFilter, reinterpret_cast<void**>(&pFilter));
+    TEST_ASSERT(SUCCEEDED(hr) && pFilter != nullptr);
+
+    GUID providers[] = { ProvA, ProvB, CLSID_TetherProvider };
+    BOOL allow[] = { TRUE, TRUE, TRUE };
+
+    hr = pFilter->Filter(CPUS_LOGON, 0, providers, allow, 3);
+    TEST_ASSERT(SUCCEEDED(hr));
+    TEST_ASSERT(allow[0] == TRUE);  // ProvA restored
+    TEST_ASSERT(allow[1] == FALSE); // ProvB kept denied because of independent denial!
+    TEST_ASSERT(allow[2] == TRUE);
+
+    // ProvB must NOT have been marked restored in HiddenProviders!
+    auto hidden = GetTestRegistryHiddenProviders();
+    TEST_ASSERT(hidden.size() == 1);
+    TEST_ASSERT(IsEqualGUID(hidden[0], ProvB));
 
     pFilter->Release();
 }
@@ -527,9 +662,13 @@ int main()
     RunTest("RestorationIdempotency", Test_RestorationIdempotency);
     RunTest("FailSafe_WhenDaclVersionInvalid", Test_FailSafe_WhenDaclVersionInvalid);
     RunTest("FailSafe_WhenSecurityAclInvalid", Test_FailSafe_WhenSecurityAclInvalid);
+    RunTest("FailSafe_MissingOrMalformedIsPanicActive", Test_FailSafe_MissingOrMalformedIsPanicActive);
+    RunTest("SecurityAcl_UnexpectedAceType_Rejected", Test_SecurityAcl_UnexpectedAceType_Rejected);
+    RunTest("SecurityAcl_UnauthorizedAllowAce_Rejected", Test_SecurityAcl_UnauthorizedAllowAce_Rejected);
     RunTest("FailedRegistryWrite_PreservesState", Test_FailedRegistryWrite_PreservesState);
     RunTest("ProvidersAbsentDuringFirstRestorationEnumeration", Test_ProvidersAbsentDuringFirstRestorationEnumeration);
     RunTest("ThirdPartyDenialIntroducedAfterTetherHidesProvider", Test_ThirdPartyDenialIntroducedAfterTetherHidesProvider);
+    RunTest("IndependentDenial_PreservedDuringRestore", Test_IndependentDenial_PreservedDuringRestore);
 
     std::cout << "========================================" << std::endl;
     std::cout << " All Native Tests Passed Successfully!" << std::endl;
