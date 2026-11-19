@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.security.keystore.UserNotAuthenticatedException
 import android.util.Base64
 import android.util.Log
 import androidx.biometric.BiometricPrompt
@@ -37,7 +38,8 @@ class ProductionSecurityEngine {
 
     companion object {
         private const val TAG = "ProductionSecurityEngine"
-        private const val EC_IDENTITY_ALIAS = "TetherIdentityKey_v1"
+        private const val EC_IDENTITY_ALIAS = "TetherIdentityKey_v2"
+        private const val LEGACY_EC_IDENTITY_ALIAS = "TetherIdentityKey_v1"
         private const val STORAGE_KEY_ALIAS = "TetherStorageKey_v2"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val PREFS_NAME = "tether_secure_prefs"
@@ -45,6 +47,10 @@ class ProductionSecurityEngine {
 
         private const val GCM_IV_LENGTH_BYTES = 12
         private const val GCM_TAG_LENGTH_BITS = 128
+
+        // Time-boxed auth window so one device unlock/biometric authorizes all
+        // background signing (pairing, reconnect, transfer proofs) within it.
+        private const val AUTH_VALIDITY_SECONDS = 300
 
         private val keyCacheLock = Any()
 
@@ -64,18 +70,33 @@ class ProductionSecurityEngine {
 
     @Synchronized
     private fun ensureIdentityKeyPairExists() {
+        // Legacy v1 keys were generated with per-operation auth and cannot sign in
+        // background flows; drop them so a usable v2 key is generated instead.
+        try {
+            if (keyStore.containsAlias(LEGACY_EC_IDENTITY_ALIAS)) {
+                keyStore.deleteEntry(LEGACY_EC_IDENTITY_ALIAS)
+                cachedPublicKeyBytes = null
+            }
+        } catch (_: Exception) {}
+
         if (keyStore.containsAlias(EC_IDENTITY_ALIAS)) {
             try {
                 val privateKey = keyStore.getKey(EC_IDENTITY_ALIAS, null) as? PrivateKey
                 if (privateKey != null) {
-                    val testSig = Signature.getInstance("SHA256withECDSA")
-                    testSig.initSign(privateKey)
-                    testSig.update(byteArrayOf(1, 2, 3))
-                    testSig.sign()
+                    try {
+                        val testSig = Signature.getInstance("SHA256withECDSA")
+                        testSig.initSign(privateKey)
+                        testSig.update(byteArrayOf(1, 2, 3))
+                        testSig.sign()
+                    } catch (_: UserNotAuthenticatedException) {
+                        // Key is intact; only the auth gate blocked the self-test.
+                    }
                 } else {
                     keyStore.deleteEntry(EC_IDENTITY_ALIAS)
                     cachedPublicKeyBytes = null
                 }
+            } catch (e: UserNotAuthenticatedException) {
+                // Same as above — do not destroy the key over an auth gate.
             } catch (_: Exception) {
                 try {
                     keyStore.deleteEntry(EC_IDENTITY_ALIAS)
@@ -103,11 +124,11 @@ class ProductionSecurityEngine {
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     builder.setUserAuthenticationParameters(
-                        0,
+                        AUTH_VALIDITY_SECONDS,
                         KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
                     )
                 } else {
-                    builder.setUserAuthenticationValidityDurationSeconds(-1)
+                    builder.setUserAuthenticationValidityDurationSeconds(AUTH_VALIDITY_SECONDS)
                 }
 
                 if (useStrongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
