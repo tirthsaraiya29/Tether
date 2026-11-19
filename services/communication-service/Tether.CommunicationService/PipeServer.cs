@@ -44,6 +44,42 @@ public class PipeServer : IDisposable
         uint TokenInformationLength,
         out uint ReturnLength);
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DATA_BLOB
+    {
+        public int cbData;
+        public IntPtr pbData;
+    }
+
+    [DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern bool CryptUnprotectData(
+        ref DATA_BLOB pDataIn,
+        StringBuilder? ppszDataDescr,
+        ref DATA_BLOB pOptionalEntropy,
+        IntPtr pvReserved,
+        IntPtr pPromptStruct,
+        uint dwFlags,
+        ref DATA_BLOB pDataOut);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool LogonUser(
+        string lpszUsername,
+        string? lpszDomain,
+        string lpszPassword,
+        int dwLogonType,
+        int dwLogonProvider,
+        out IntPtr phToken);
+
+    [DllImport("kernel32.dll", SetLastError = false)]
+    private static extern void RtlZeroMemory(IntPtr dest, IntPtr size);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr LocalFree(IntPtr hMem);
+
+    private const uint CRYPTPROTECT_UI_FORBIDDEN = 0x1;
+    private const int LOGON32_LOGON_INTERACTIVE = 2;
+    private const int LOGON32_PROVIDER_DEFAULT = 0;
+
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
     private CancellationTokenSource? _cts;
@@ -284,6 +320,106 @@ public class PipeServer : IDisposable
         return false;
     }
 
+    private static bool ValidateVaultSecretPayload(byte[] protectedPayload, string clientSid, string? username)
+    {
+        if (protectedPayload == null || protectedPayload.Length == 0) return false;
+
+        byte[] entropyBytes = Encoding.UTF8.GetBytes("Tether_System_Bound_Vault_v1");
+        IntPtr unmanagedIn = Marshal.AllocHGlobal(protectedPayload.Length);
+        IntPtr unmanagedEntropy = Marshal.AllocHGlobal(entropyBytes.Length);
+        DATA_BLOB dataOut = new DATA_BLOB();
+
+        try
+        {
+            Marshal.Copy(protectedPayload, 0, unmanagedIn, protectedPayload.Length);
+            Marshal.Copy(entropyBytes, 0, unmanagedEntropy, entropyBytes.Length);
+
+            var dataIn = new DATA_BLOB { cbData = protectedPayload.Length, pbData = unmanagedIn };
+            var entropy = new DATA_BLOB { cbData = entropyBytes.Length, pbData = unmanagedEntropy };
+
+            if (!CryptUnprotectData(ref dataIn, null, ref entropy, IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN, ref dataOut))
+            {
+                return false;
+            }
+
+            if (dataOut.pbData == IntPtr.Zero || dataOut.cbData <= 0)
+            {
+                return false;
+            }
+
+            string targetUser = username ?? string.Empty;
+            string? targetDomain = null;
+
+            if (string.IsNullOrEmpty(targetUser))
+            {
+                try
+                {
+                    var sidObj = new SecurityIdentifier(clientSid);
+                    var account = (NTAccount)sidObj.Translate(typeof(NTAccount));
+                    targetUser = account.Value;
+                }
+                catch { }
+            }
+
+            if (targetUser.Contains('\\'))
+            {
+                var parts = targetUser.Split('\\', 2);
+                targetDomain = parts[0];
+                targetUser = parts[1];
+            }
+            else if (targetUser.Contains('@'))
+            {
+                var parts = targetUser.Split('@', 2);
+                targetUser = parts[0];
+                targetDomain = parts[1];
+            }
+
+            int charCount = dataOut.cbData / sizeof(char);
+            while (charCount > 0 && Marshal.ReadInt16(dataOut.pbData, (charCount - 1) * sizeof(char)) == 0)
+            {
+                charCount--;
+            }
+
+            string password = Marshal.PtrToStringUni(dataOut.pbData, charCount);
+
+            bool logonOk = false;
+            if (LogonUser(targetUser, targetDomain, password, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, out IntPtr tokenHandle))
+            {
+                logonOk = true;
+                CloseHandle(tokenHandle);
+            }
+            else if (string.IsNullOrEmpty(targetDomain) && LogonUser(targetUser, ".", password, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, out tokenHandle))
+            {
+                logonOk = true;
+                CloseHandle(tokenHandle);
+            }
+
+            return logonOk;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            if (dataOut.pbData != IntPtr.Zero && dataOut.cbData > 0)
+            {
+                RtlZeroMemory(dataOut.pbData, (IntPtr)dataOut.cbData);
+                LocalFree(dataOut.pbData);
+            }
+            if (unmanagedIn != IntPtr.Zero)
+            {
+                RtlZeroMemory(unmanagedIn, (IntPtr)protectedPayload.Length);
+                Marshal.FreeHGlobal(unmanagedIn);
+            }
+            if (unmanagedEntropy != IntPtr.Zero)
+            {
+                RtlZeroMemory(unmanagedEntropy, (IntPtr)entropyBytes.Length);
+                Marshal.FreeHGlobal(unmanagedEntropy);
+            }
+        }
+    }
+
     private static void SaveVaultSecret(byte[] encryptedPassword, string clientSid, string? username)
     {
         using var rootKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
@@ -378,8 +514,15 @@ public class PipeServer : IDisposable
                                 if (!string.IsNullOrEmpty(hexPayload))
                                 {
                                     byte[] protectedPayload = Convert.FromHexString(hexPayload);
-                                    SaveVaultSecret(protectedPayload, clientSid, username);
-                                    _logger.Info($"Vault secret updated securely over IPC for client SID: {clientSid}");
+                                    if (ValidateVaultSecretPayload(protectedPayload, clientSid, username))
+                                    {
+                                        SaveVaultSecret(protectedPayload, clientSid, username);
+                                        _logger.Info($"Vault secret verified and updated securely over IPC for client SID: {clientSid}");
+                                    }
+                                    else
+                                    {
+                                        _logger.Warning($"Security Block: Rejected VAULT_UPDATE from client SID {clientSid} because password validation failed.");
+                                    }
                                 }
                                 else
                                 {

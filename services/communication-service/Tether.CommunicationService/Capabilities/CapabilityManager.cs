@@ -196,11 +196,7 @@ public sealed class CapabilityManager
         if (device == null || string.IsNullOrEmpty(requiredCap))
             return false;
 
-        var caps = (device.Capabilities == null || device.Capabilities.Count == 0)
-            ? (device.TrustState == DeviceTrustState.Paired ? DefaultCapabilities.ToList() : new List<string>())
-            : device.Capabilities;
-
-        return HasCapability(caps, requiredCap);
+        return HasCapability(device.Capabilities, requiredCap);
     }
 
 

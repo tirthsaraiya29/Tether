@@ -71,9 +71,8 @@ public static class AuthenticodeVerifier
     public const string ExpectedPublisherSubject = "CN=Tether Project, O=Tether, C=US";
     public const string ExpectedPublisherOrganization = "Tether Project";
 
-    // Pinned ECDSA P-256 public key (X9.62 uncompressed 64-byte key or SPKI) used to sign update-manifest.json
-    // Public key parameter encoded in PEM/Base64 or ECDsa XML/ECC
-    public const string PinnedManifestPublicKey = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+d23PzDk0hLw5v0fE9W+tqC7F3jV4jA9K3F1uT7wH5s=";
+    // Pinned ECDSA P-256 public key (X9.62 uncompressed 64-byte key in standard 91-byte SPKI DER Base64) used to sign update-manifest.json
+    public const string PinnedManifestPublicKey = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEBOKjo1fTCzu80u60neU94VHRXMQHvUPtFX2Cnl+zyJp2GIKrS3Zw3Ignio5Tdwba/jHl3vD6AJPt3RsQF0Db9Q==";
 
     /// <summary>
     /// Verifies the Authenticode signature of a PE file (installer, DLL, EXE).

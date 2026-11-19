@@ -135,7 +135,7 @@ public sealed class PacketRouter
             case "FS_DOWNLOAD_RESULT":
             case "FS_UPLOAD_RESULT":
             case "FS_TRANSFER_STATUS":
-                FileTransferServer.HandleRemoteResponse(type, doc.RootElement.GetRawText());
+                FileTransferServer.HandleRemoteResponse(type, doc.RootElement.GetRawText(), session.Device?.Fingerprint);
                 break;
 
             // Terminal Frames

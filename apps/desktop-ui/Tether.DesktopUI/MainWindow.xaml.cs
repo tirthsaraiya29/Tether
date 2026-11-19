@@ -1166,17 +1166,11 @@ namespace Tether.DesktopUI
             {
                 var notif = new DesktopNotification(title, message, type);
                 _activeNotifications.Insert(0, notif);
-                UpdateNotificationVisibility();
-
-                // Auto-dismiss after 2.5 seconds (~2500ms)
-                var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2500) };
-                timer.Tick += (s, e) =>
+                while (_activeNotifications.Count > 100)
                 {
-                    timer.Stop();
-                    _activeNotifications.Remove(notif);
-                    UpdateNotificationVisibility();
-                };
-                timer.Start();
+                    _activeNotifications.RemoveAt(_activeNotifications.Count - 1);
+                }
+                UpdateNotificationVisibility();
             });
         }
 

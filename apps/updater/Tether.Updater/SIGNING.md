@@ -36,7 +36,7 @@ For official production releases:
 - **Algorithm:** ECDSA with NIST P-256 curve (`SHA256withECDSA`).
 - **Pinned Public Key (SPKI Base64):**
   ```
-  MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+d23PzDk0hLw5v0fE9W+tqC7F3jV4jA9K3F1uT7wH5s=
+  MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEBOKjo1fTCzu80u60neU94VHRXMQHvUPtFX2Cnl+zyJp2GIKrS3Zw3Ignio5Tdwba/jHl3vD6AJPt3RsQF0Db9Q==
   ```
   Embedded in `shared/Tether.Shared/Security/AuthenticodeVerifier.cs` as `PinnedManifestPublicKey`.
 - **Private Key Storage:**

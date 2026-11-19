@@ -316,9 +316,19 @@ public sealed class TetherSession : IDisposable
         // =========================================================================
         if (isAlreadyPaired && !init.IsPairingRequested && knownDevice != null)
         {
-            string storedSpki = string.IsNullOrEmpty(knownDevice.PublicKeySpkiBase64)
-                ? init.PublicKey
-                : knownDevice.PublicKeySpkiBase64;
+            if (string.IsNullOrEmpty(knownDevice.PublicKeySpkiBase64))
+            {
+                _logger.Warning($"TetherSession [{SessionId}]: Paired device record for {phoneFingerprint} is missing stored SPKI. Refusing handshake.");
+                await WriteJsonFrameSafeAsync(new HandshakeResponse
+                {
+                    DeviceId = _identity.DeviceId,
+                    DeviceName = _identity.DeviceName,
+                    PublicKey = _identity.GetPublicKeySpkiBase64(),
+                    Status = HandshakeStatus.PairingDenied
+                }, serviceCt);
+                return false;
+            }
+            string storedSpki = knownDevice.PublicKeySpkiBase64;
 
             _logger.Info($"TetherSession [{SessionId}]: Recognized paired phone {phoneFingerprint} ({knownDevice.DisplayName}). Issuing serverNonce challenge.");
 

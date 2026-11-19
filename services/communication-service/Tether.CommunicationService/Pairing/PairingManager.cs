@@ -361,16 +361,6 @@ public sealed class PairingManager
             return false;
         }
     }
-    public bool TryGetPin(string requestId, out string pin)
-    {
-        pin = "";
-        if (!string.IsNullOrEmpty(requestId) && _pending.TryGetValue(requestId, out var pending))
-        {
-            pin = pending.Pin;
-            return true;
-        }
-        return false;
-    }
 
     private readonly SemaphoreSlim _pairingPromptGate = new(1, 1);
 
