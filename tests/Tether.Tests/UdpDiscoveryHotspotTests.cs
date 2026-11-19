@@ -305,7 +305,7 @@ public class UdpDiscoveryHotspotTests
         );
 
         Assert.Contains("remoteip=localsubnet", ruleArgs);
-        Assert.Contains("profile=private,domain", ruleArgs);
+        Assert.Contains("profile=private,domain,public", ruleArgs);
         Assert.Contains("localport=37123", ruleArgs);
         Assert.Contains("action=allow", ruleArgs);
     }

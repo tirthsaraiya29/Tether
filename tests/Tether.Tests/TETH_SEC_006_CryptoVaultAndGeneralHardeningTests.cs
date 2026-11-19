@@ -214,7 +214,7 @@ public class TETH_SEC_006_CryptoVaultAndGeneralHardeningTests
     }
 
     [Fact]
-    public void FirewallRuleArguments_ScopedToPrivateAndDomain_ExcludesPublic()
+    public void FirewallRuleArguments_IncludeAllProfiles_WithLocalSubnetScope()
     {
         string ruleArgs = Worker.BuildFirewallRuleArguments(
             "Tether-Control-TCP",
@@ -223,9 +223,8 @@ public class TETH_SEC_006_CryptoVaultAndGeneralHardeningTests
             @"C:\Program Files\Tether\Tether.CommunicationService.exe"
         );
 
-        Assert.Contains("profile=private,domain", ruleArgs);
+        Assert.Contains("profile=private,domain,public", ruleArgs);
         Assert.DoesNotContain("profile=any", ruleArgs);
-        Assert.DoesNotContain("profile=public", ruleArgs);
         Assert.Contains("remoteip=localsubnet", ruleArgs);
     }
 

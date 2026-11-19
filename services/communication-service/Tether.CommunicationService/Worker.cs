@@ -472,7 +472,9 @@ public sealed class Worker : BackgroundService
 
     internal static string BuildFirewallRuleArguments(string ruleName, string protocol, int port, string exePath)
     {
-        return $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=allow protocol={protocol} localport={port} program=\"{exePath}\" profile=private,domain remoteip=localsubnet enable=yes";
+        // Public profile required: Android hotspot networks are categorized Public by Windows.
+        // remoteip=localsubnet remains the security boundary, so Public inbound is still subnet-scoped.
+        return $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=allow protocol={protocol} localport={port} program=\"{exePath}\" profile=private,domain,public remoteip=localsubnet enable=yes";
     }
 
     private void AddPortRule(string ruleName, string protocol, int port, string exePath)
