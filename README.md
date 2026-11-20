@@ -21,9 +21,9 @@
 - [Installation and Setup](#installation-and-setup)
 - [Use Cases and Value Proposition](#use-cases-and-value-proposition)
 - [Key Features](#key-features)
-- [Visual Highlights and UI Screenshots](#visual-highlights-and-ui-screenshots)
 - [Architecture and System Design](#architecture-and-system-design)
 - [Architecture Deep Dive for Contributors](#architecture-deep-dive-for-contributors)
+- [Visual Highlights and UI Screenshots](#visual-highlights-and-ui-screenshots)
 - [Supported Platforms](#supported-platforms)
 - [Prerequisites](#prerequisites)
 - [Quick Start and Usage](#quick-start-and-usage)
@@ -192,91 +192,6 @@ Tether provides eight integrated remote capability domains accessible from the A
 - **Background update notifications:** A foreground `UpdateCheckService` checks GitHub releases on a dedicated notification channel and offers an in-app update dialog.
 - **In-app updates:** Downloading the update APK happens inside the app; the package is signature-checked against the installed app before the system installer is invoked. "Install unknown apps" is requested as part of the Permissions screen.
 - **Permissions screen:** A dedicated Permissions screen, reachable after the app lock is unlocked, tracks the runtime permissions Tether needs (nearby Wi-Fi, location, notifications, notification listener access, battery optimization exemption, overlays, full-screen intents, install-unknown-apps) and offers per-item grant actions. Nothing is auto-prompted at first launch.
----
-
-## Visual Highlights and UI Screenshots
-
-**Screenshot directory:** `docs/assets/screenshots/`
-
-### Workstation Control Plane
-
-The Windows desktop interface provides IPC diagnostics, system audio and display-brightness controls, and DPAPI-backed local vault integration.
-
-<p align="center">
-  <img src="docs/assets/screenshots/desktop-telemetry-control-plane.png" alt="Tether Windows Desktop Telemetry Control Plane" width="100%" />
-</p>
-
-<p align="center">
-  <em><strong>Desktop Telemetry Control Plane</strong> — IPC diagnostic event stream, Core Audio and display-brightness integrations, and DPAPI-backed local vault subsystem.</em>
-</p>
-
-### Mobile Command and Input Experience
-
-<table>
-  <tr>
-    <td width="50%" align="center" valign="top">
-      <img src="docs/assets/screenshots/android-command-center.jpg" alt="Tether Mobile Trust Command Center" width="85%" />
-      <br /><br />
-      <strong>Mobile Trust Command Center</strong>
-      <p>Workstation connection status, lock and unlock controls, emergency lockdown, audio controls, and brightness sliders.</p>
-    </td>
-    <td width="50%" align="center" valign="top">
-      <img src="docs/assets/screenshots/android-remote-trackpad.jpg" alt="Tether Remote Trackpad and Modifier Keys" width="85%" />
-      <br /><br />
-      <strong>Remote Trackpad</strong>
-      <p>Cursor movement, scrolling, and supported Windows modifier-key input.</p>
-    </td>
-  </tr>
-</table>
-
-### Remote Execution and Handshake Security
-
-<table>
-  <tr>
-    <td width="50%" align="center" valign="top">
-      <img src="docs/assets/screenshots/android-system-apps-launcher.jpg" alt="Tether System Applications Launcher" width="85%" />
-      <br /><br />
-      <strong>System Application Launcher</strong>
-      <p>Session-aware requests to launch supported utilities, including Terminal, Task Manager, File Explorer, and Windows Settings.</p>
-    </td>
-    <td width="50%" align="center" valign="top">
-      <img src="docs/assets/screenshots/android-handshake-verified.jpg" alt="Tether Cryptographic Handshake Verification" width="85%" />
-      <br /><br />
-      <strong>Handshake Verification</strong>
-      <p>Connection verification and authorization-state checks before sensitive command dispatch.</p>
-    </td>
-  </tr>
-</table>
-
-### Identity Pinning and Device Integrity
-
-<table>
-  <tr>
-    <td width="50%" align="center" valign="top">
-      <img src="docs/assets/screenshots/android-device-pairing.jpg" alt="Tether Cryptographic Device Pairing" width="85%" />
-      <br /><br />
-      <strong>Cryptographic Device Pairing</strong>
-      <p>Public-key fingerprint verification and persistent identity binding between Android and Windows.</p>
-    </td>
-    <td width="50%" align="center" valign="top">
-      <img src="docs/assets/screenshots/android-system-config-integrity.jpg" alt="Tether Device Integrity and Security Policy Configuration" width="85%" />
-      <br /><br />
-      <strong>Device Integrity and Policy Configuration</strong>
-      <p>Device-security signals, runtime policies, and socket-daemon controls.</p>
-    </td>
-  </tr>
-</table>
-
-### Local Network Connectivity
-
-<p align="center">
-  <img src="docs/assets/screenshots/local-lan-connectivity.jpg" alt="Tether Local LAN Connectivity" width="45%" />
-</p>
-
-<p align="center">
-  <em><strong>Local Network Boundary</strong> — Designed for direct communication between paired devices on a supported local Wi-Fi/LAN network.</em>
-</p>
-
 ---
 
 ## Architecture and System Design
@@ -471,6 +386,91 @@ Windows components use named pipes for local inter-process communication:
 - **`Tether.InputPipe`:** Communication-service-to-session-helper stream for remote input events.
 
 Named pipes must be hardened with strict ACLs, process identity validation, and message length validation to prevent unauthorized local manipulation.
+
+---
+
+## Visual Highlights and UI Screenshots
+
+**Screenshot directory:** `docs/assets/screenshots/`
+
+### Workstation Control Plane
+
+The Windows desktop interface provides IPC diagnostics, system audio and display-brightness controls, and DPAPI-backed local vault integration.
+
+<p align="center">
+  <img src="docs/assets/screenshots/desktop-telemetry-control-plane.png" alt="Tether Windows Desktop Telemetry Control Plane" width="100%" />
+</p>
+
+<p align="center">
+  <em><strong>Desktop Telemetry Control Plane</strong> — IPC diagnostic event stream, Core Audio and display-brightness integrations, and DPAPI-backed local vault subsystem.</em>
+</p>
+
+### Mobile Command and Input Experience
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-command-center.jpg" alt="Tether Mobile Trust Command Center" width="85%" />
+      <br /><br />
+      <strong>Mobile Trust Command Center</strong>
+      <p>Workstation connection status, lock and unlock controls, emergency lockdown, audio controls, and brightness sliders.</p>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-remote-trackpad.jpg" alt="Tether Remote Trackpad and Modifier Keys" width="85%" />
+      <br /><br />
+      <strong>Remote Trackpad</strong>
+      <p>Cursor movement, scrolling, and supported Windows modifier-key input.</p>
+    </td>
+  </tr>
+</table>
+
+### Remote Execution and Handshake Security
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-system-apps-launcher.jpg" alt="Tether System Applications Launcher" width="85%" />
+      <br /><br />
+      <strong>System Application Launcher</strong>
+      <p>Session-aware requests to launch supported utilities, including Terminal, Task Manager, File Explorer, and Windows Settings.</p>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-handshake-verified.jpg" alt="Tether Cryptographic Handshake Verification" width="85%" />
+      <br /><br />
+      <strong>Handshake Verification</strong>
+      <p>Connection verification and authorization-state checks before sensitive command dispatch.</p>
+    </td>
+  </tr>
+</table>
+
+### Identity Pinning and Device Integrity
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-device-pairing.jpg" alt="Tether Cryptographic Device Pairing" width="85%" />
+      <br /><br />
+      <strong>Cryptographic Device Pairing</strong>
+      <p>Public-key fingerprint verification and persistent identity binding between Android and Windows.</p>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-system-config-integrity.jpg" alt="Tether Device Integrity and Security Policy Configuration" width="85%" />
+      <br /><br />
+      <strong>Device Integrity and Policy Configuration</strong>
+      <p>Device-security signals, runtime policies, and socket-daemon controls.</p>
+    </td>
+  </tr>
+</table>
+
+### Local Network Connectivity
+
+<p align="center">
+  <img src="docs/assets/screenshots/local-lan-connectivity.jpg" alt="Tether Local LAN Connectivity" width="45%" />
+</p>
+
+<p align="center">
+  <em><strong>Local Network Boundary</strong> — Designed for direct communication between paired devices on a supported local Wi-Fi/LAN network.</em>
+</p>
 
 ---
 
