@@ -77,6 +77,7 @@ public class PipeServer : IDisposable
     private static extern IntPtr LocalFree(IntPtr hMem);
 
     private const uint CRYPTPROTECT_UI_FORBIDDEN = 0x1;
+    private const uint CRYPTPROTECT_LOCAL_MACHINE = 0x4;
     private const int LOGON32_LOGON_INTERACTIVE = 2;
     private const int LOGON32_PROVIDER_DEFAULT = 0;
 
@@ -337,7 +338,8 @@ public class PipeServer : IDisposable
             var dataIn = new DATA_BLOB { cbData = protectedPayload.Length, pbData = unmanagedIn };
             var entropy = new DATA_BLOB { cbData = entropyBytes.Length, pbData = unmanagedEntropy };
 
-            if (!CryptUnprotectData(ref dataIn, null, ref entropy, IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN, ref dataOut))
+            if (!CryptUnprotectData(ref dataIn, null, ref entropy, IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, ref dataOut) &&
+                !CryptUnprotectData(ref dataIn, null, ref entropy, IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN, ref dataOut))
             {
                 return false;
             }
@@ -357,6 +359,10 @@ public class PipeServer : IDisposable
                     {
                         return false;
                     }
+                }
+                catch (IdentityNotMappedException)
+                {
+                    // Translation can fail for local/MS account format; LogonUser token SID check below validates
                 }
                 catch
                 {
@@ -404,7 +410,8 @@ public class PipeServer : IDisposable
             try
             {
                 if (LogonUser(targetUser, targetDomain, password, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, out tokenHandle) ||
-                    (string.IsNullOrEmpty(targetDomain) && LogonUser(targetUser, ".", password, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, out tokenHandle)))
+                    (string.IsNullOrEmpty(targetDomain) && LogonUser(targetUser, ".", password, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, out tokenHandle)) ||
+                    (!string.IsNullOrEmpty(targetDomain) && LogonUser(targetUser, null, password, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, out tokenHandle)))
                 {
                     using var tokenIdentity = new WindowsIdentity(tokenHandle);
                     string? tokenUserSid = tokenIdentity.User?.Value;
@@ -482,16 +489,11 @@ public class PipeServer : IDisposable
         using (pipeStream)
         using (var clientCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt))
         {
-            // Immediate client authentication prior to accepting any data
-            if (!AuthenticateClient(pipeStream, out string clientSid, out uint clientSessionId, out bool isClientSystem))
-            {
-                _logger.Warning($"Rejected unauthorized named pipe client (SID: {clientSid}, Session: {clientSessionId}). Closing connection.");
-                return;
-            }
-
-            _logger.Info($"Authorized client connected to pipe (SID: {clientSid}, Session: {clientSessionId}).");
-
             var buffer = new byte[IpcConstants.PipeBufferSize];
+            bool isAuthenticated = false;
+            string clientSid = string.Empty;
+            uint clientSessionId = 0xFFFFFFFF;
+            bool isClientSystem = false;
 
             while (pipeStream.IsConnected && !clientCts.IsCancellationRequested)
             {
@@ -504,6 +506,18 @@ public class PipeServer : IDisposable
                     if (read == 0)
                     {
                         break;
+                    }
+
+                    if (!isAuthenticated)
+                    {
+                        if (!AuthenticateClient(pipeStream, out clientSid, out clientSessionId, out isClientSystem))
+                        {
+                            _logger.Warning($"Rejected unauthorized named pipe client (SID: {clientSid}, Session: {clientSessionId}). Closing connection.");
+                            return;
+                        }
+
+                        isAuthenticated = true;
+                        _logger.Info($"Authorized client connected to pipe (SID: {clientSid}, Session: {clientSessionId}).");
                     }
 
                     var json = Encoding.UTF8.GetString(buffer, 0, read);
@@ -538,6 +552,11 @@ public class PipeServer : IDisposable
                                 var root = doc.RootElement;
                                 string? hexPayload = root.TryGetProperty("hexPayload", out var hexProp) ? hexProp.GetString() : null;
                                 string? username = root.TryGetProperty("username", out var userProp) ? userProp.GetString() : null;
+                                string? domain = root.TryGetProperty("domain", out var domProp) ? domProp.GetString() : null;
+                                if (!string.IsNullOrEmpty(domain) && !string.IsNullOrEmpty(username) && !username.Contains('\\') && !username.Contains('@'))
+                                {
+                                    username = $"{domain}\\{username}";
+                                }
 
                                 if (!string.IsNullOrEmpty(hexPayload))
                                 {

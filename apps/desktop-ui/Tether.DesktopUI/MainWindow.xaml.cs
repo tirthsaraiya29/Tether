@@ -1246,7 +1246,7 @@ namespace Tether.DesktopUI
             ShowNotification("Success", "Activity log copied to clipboard.", NotificationType.Success);
         }
 
-        private async void DispatchServiceBusPipe(TetherEvent evt)
+        private async Task<bool> DispatchServiceBusPipeAsync(TetherEvent evt)
         {
             const int maxAttempts = 3;
             const int retryDelayMs = 300;
@@ -1257,11 +1257,16 @@ namespace Tether.DesktopUI
                 {
                     string json = JsonSerializer.Serialize(evt);
                     byte[] bytes = Encoding.UTF8.GetBytes(json);
-                    using var client = new NamedPipeClientStream(".", IpcConstants.PipeName, PipeDirection.Out);
+                    using var client = new NamedPipeClientStream(
+                        serverName: ".",
+                        pipeName: IpcConstants.PipeName,
+                        direction: PipeDirection.InOut,
+                        options: PipeOptions.Asynchronous,
+                        impersonationLevel: TokenImpersonationLevel.Impersonation);
                     await client.ConnectAsync(800);
                     await client.WriteAsync(bytes, 0, bytes.Length);
                     await client.FlushAsync();
-                    return;
+                    return true;
                 }
                 catch (TimeoutException)
                 {
@@ -1271,12 +1276,26 @@ namespace Tether.DesktopUI
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"Dispatch failed: {ex.Message}");
-                    LogTerminal("Could not reach the Tether service. Retrying…");
-                    break;
+                    if (attempt < maxAttempts - 1)
+                    {
+                        await Task.Delay(retryDelayMs);
+                    }
+                    else
+                    {
+                        LogTerminal("Could not reach the Tether service. Retrying…");
+                    }
                 }
             }
-            if (!_isListening) return;
-            LogTerminal("Tether service is not running. Click 'Restart Tether Service' to try again.");
+            if (_isListening)
+            {
+                LogTerminal("Tether service is not running. Click 'Restart Tether Service' to try again.");
+            }
+            return false;
+        }
+
+        private void DispatchServiceBusPipe(TetherEvent evt)
+        {
+            _ = DispatchServiceBusPipeAsync(evt);
         }
 
         private void BtnLockdownOverride_Click(object sender, RoutedEventArgs e)
@@ -1319,6 +1338,7 @@ namespace Tether.DesktopUI
 
         private void EnsureVaultDaclArchitecture()
         {
+            if (!IsElevated) return;
             try
             {
                 using var rootKey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider", true)
@@ -1364,7 +1384,7 @@ namespace Tether.DesktopUI
             }
         }
 
-        private void BtnCommitVault_Click(object sender, RoutedEventArgs e)
+        private async void BtnCommitVault_Click(object sender, RoutedEventArgs e)
         {
             IntPtr unmanagedPasswordPtr = IntPtr.Zero;
             IntPtr unmanagedEntropy = IntPtr.Zero;
@@ -1376,7 +1396,9 @@ namespace Tether.DesktopUI
                 int byteLength = plainTextLength * 2;
                 unmanagedPasswordPtr = Marshal.SecureStringToGlobalAllocUnicode(TxtPassword.SecurePassword);
 
-                if (!LogonUser(Environment.UserName, Environment.UserDomainName, Marshal.PtrToStringUni(unmanagedPasswordPtr), 2, 0, out IntPtr token))
+                if (!LogonUser(Environment.UserName, Environment.UserDomainName, Marshal.PtrToStringUni(unmanagedPasswordPtr), 2, 0, out IntPtr token) &&
+                    !LogonUser(Environment.UserName, ".", Marshal.PtrToStringUni(unmanagedPasswordPtr), 2, 0, out token) &&
+                    !LogonUser(Environment.UserName, null, Marshal.PtrToStringUni(unmanagedPasswordPtr), 2, 0, out token))
                 {
                     if (TxtVaultBadge != null) TxtVaultBadge.Text = "INCORRECT PASSWORD";
                     LogTerminal("Incorrect password. Please enter your valid Windows password.");
@@ -1400,37 +1422,52 @@ namespace Tether.DesktopUI
                         Marshal.Copy(dataOut.pbData, protectedPayload, 0, dataOut.cbData);
 
                         string hexPayload = Convert.ToHexString(protectedPayload);
-
-                        // Best effort: notify the service over the pipe (works regardless of elevation)
-                        var vaultEvt = new TetherEvent
-                        {
-                            EventType = TetherEventType.VAULT_UPDATE,
-                            Source = "DesktopUI",
-                            PayloadJson = JsonSerializer.Serialize(new
-                            {
-                                hexPayload = hexPayload,
-                                username = Environment.UserName
-                            })
-                        };
-                        DispatchServiceBusPipe(vaultEvt);
+                        bool saved = false;
 
                         if (IsElevated)
                         {
                             WriteVaultToRegistry(protectedPayload);
+                            saved = true;
                         }
                         else
                         {
-                            // Non-elevated: HKLM is not writable — relaunch self elevated to commit.
-                            if (!RunElevatedSelf("--commit-vault-stdin"))
+                            // Try saving via the background service over authenticated named pipe
+                            var vaultEvt = new TetherEvent
                             {
-                                LogTerminal("Administrator approval was declined. Password not saved.");
-                                return;
+                                EventType = TetherEventType.VAULT_UPDATE,
+                                Source = "DesktopUI",
+                                PayloadJson = JsonSerializer.Serialize(new
+                                {
+                                    hexPayload = hexPayload,
+                                    username = Environment.UserName,
+                                    domain = Environment.UserDomainName
+                                })
+                            };
+                            saved = await DispatchServiceBusPipeAsync(vaultEvt);
+
+                            if (!saved)
+                            {
+                                // Non-elevated: HKLM is not writable and service unreachable — relaunch self elevated to commit.
+                                if (!RunElevatedSelf($"--commit-vault-payload {hexPayload}"))
+                                {
+                                    LogTerminal("Administrator approval was declined. Password not saved.");
+                                    return;
+                                }
+                                saved = true;
                             }
                         }
 
-                        if (TxtVaultBadge != null) TxtVaultBadge.Text = "PASSWORD SAVED";
-                        LogTerminal("Windows password saved securely.");
-                        TxtPassword.Clear();
+                        if (saved)
+                        {
+                            if (TxtVaultBadge != null) TxtVaultBadge.Text = "PASSWORD SAVED";
+                            LogTerminal("Windows password saved securely.");
+                            TxtPassword.Clear();
+                        }
+                        else
+                        {
+                            if (TxtVaultBadge != null) TxtVaultBadge.Text = "FAILED TO SAVE";
+                            LogTerminal("Could not save Windows password.");
+                        }
                     }
                     finally
                     {
@@ -1461,6 +1498,11 @@ namespace Tether.DesktopUI
             {
                 secretsKey?.SetValue("EncryptedPassword", protectedPayload, RegistryValueKind.Binary);
                 secretsKey?.SetValue("TargetUsername", Environment.UserName, RegistryValueKind.String);
+                using var id = WindowsIdentity.GetCurrent();
+                if (id.User != null)
+                {
+                    secretsKey?.SetValue("TargetUserSid", id.User.Value, RegistryValueKind.String);
+                }
             }
             using (RegistryKey? rootKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true))
             {

@@ -56,11 +56,18 @@ namespace Tether.DesktopUI
                 return;
             }
 
-            if (e.Args.Length > 0 && e.Args[0].Equals("--commit-vault-stdin", StringComparison.OrdinalIgnoreCase))
+            if (e.Args.Length > 0 && (e.Args[0].Equals("--commit-vault-stdin", StringComparison.OrdinalIgnoreCase) ||
+                                      e.Args[0].Equals("--commit-vault-payload", StringComparison.OrdinalIgnoreCase) ||
+                                      e.Args[0].Equals("--commit-vault", StringComparison.OrdinalIgnoreCase)))
             {
                 try
                 {
-                    string? hex = Console.ReadLine();
+                    string? hex = e.Args.Length > 1 ? e.Args[1] : null;
+                    if (string.IsNullOrEmpty(hex))
+                    {
+                        try { hex = Console.ReadLine(); } catch { }
+                    }
+
                     if (!string.IsNullOrEmpty(hex))
                     {
                         byte[] payload = Convert.FromHexString(hex.Trim());
@@ -81,6 +88,12 @@ namespace Tether.DesktopUI
                         {
                             secretsKey.SetAccessControl(rs);
                             secretsKey.SetValue("EncryptedPassword", payload, Microsoft.Win32.RegistryValueKind.Binary);
+                            secretsKey.SetValue("TargetUsername", Environment.UserName, Microsoft.Win32.RegistryValueKind.String);
+                            using var id = System.Security.Principal.WindowsIdentity.GetCurrent();
+                            if (id.User != null)
+                            {
+                                secretsKey.SetValue("TargetUserSid", id.User.Value, Microsoft.Win32.RegistryValueKind.String);
+                            }
                         }
                     }
                 }
@@ -261,7 +274,12 @@ namespace Tether.DesktopUI
                 };
                 string json = System.Text.Json.JsonSerializer.Serialize(evt);
                 byte[] bytes = System.Text.Encoding.UTF8.GetBytes(json);
-                using var client = new NamedPipeClientStream(".", Tether.Shared.IPC.IpcConstants.PipeName, PipeDirection.Out);
+                using var client = new NamedPipeClientStream(
+                    serverName: ".",
+                    pipeName: Tether.Shared.IPC.IpcConstants.PipeName,
+                    direction: PipeDirection.InOut,
+                    options: PipeOptions.Asynchronous,
+                    impersonationLevel: System.Security.Principal.TokenImpersonationLevel.Impersonation);
                 client.Connect(300);
                 client.Write(bytes, 0, bytes.Length);
                 client.Flush();

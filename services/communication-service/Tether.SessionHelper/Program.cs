@@ -362,7 +362,12 @@ internal static class Program
                 _ = SendJsonFrameAsync(new { type = "POWER_EVENT", eventType, source = "SessionHelper.WM_QUERYENDSESSION" });
                 try
                 {
-                    using var client = new NamedPipeClientStream(".", "TetherPipe", PipeDirection.Out);
+                    using var client = new NamedPipeClientStream(
+                        serverName: ".",
+                        pipeName: "TetherPipe",
+                        direction: PipeDirection.InOut,
+                        options: PipeOptions.Asynchronous,
+                        impersonationLevel: System.Security.Principal.TokenImpersonationLevel.Impersonation);
                     client.Connect(300);
                     byte[] b = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
                     {

@@ -679,7 +679,8 @@ HRESULT CTetherCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SER
     HKEY hRoot = nullptr;
     DWORD dwVaultDaclVer = 0;
     DWORD dwVerSize = sizeof(dwVaultDaclVer);
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hRoot) == ERROR_SUCCESS)
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ | KEY_WOW64_64KEY, &hRoot) == ERROR_SUCCESS ||
+        RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether", 0, KEY_READ | KEY_WOW64_64KEY, &hRoot) == ERROR_SUCCESS)
     {
         RegQueryValueExW(hRoot, L"VaultDaclVersion", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwVaultDaclVer), &dwVerSize);
         RegCloseKey(hRoot);
@@ -691,7 +692,10 @@ HRESULT CTetherCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SER
     }
 
     HKEY hKey = nullptr;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ | KEY_WOW64_64KEY, &hKey) != ERROR_SUCCESS)
+    {
+        RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\Secrets", 0, KEY_READ | KEY_WOW64_64KEY, &hKey);
+    }
 
     if (hKey != nullptr)
     {
@@ -743,7 +747,8 @@ bool CTetherCredential::_IsEncryptedPasswordBlobPresent()
     HKEY hRoot = nullptr;
     DWORD dwVaultDaclVer = 0;
     DWORD dwVerSize = sizeof(dwVaultDaclVer);
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ, &hRoot) == ERROR_SUCCESS)
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ | KEY_WOW64_64KEY, &hRoot) == ERROR_SUCCESS ||
+        RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether", 0, KEY_READ | KEY_WOW64_64KEY, &hRoot) == ERROR_SUCCESS)
     {
         RegQueryValueExW(hRoot, L"VaultDaclVersion", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwVaultDaclVer), &dwVerSize);
         RegCloseKey(hRoot);
@@ -754,7 +759,8 @@ bool CTetherCredential::_IsEncryptedPasswordBlobPresent()
     }
 
     HKEY hKey = nullptr;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ | KEY_WOW64_64KEY, &hKey) != ERROR_SUCCESS &&
+        RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\Secrets", 0, KEY_READ | KEY_WOW64_64KEY, &hKey) != ERROR_SUCCESS)
     {
         return false;
     }

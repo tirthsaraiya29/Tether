@@ -145,6 +145,7 @@ Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\
 
 ; 4. Encrypted configuration and secure pairing store
 Root: HKLM64; Subkey: "SOFTWARE\{#MyAppName}"; Flags: createvalueifdoesntexist
+Root: HKLM64; Subkey: "SOFTWARE\{#MyAppName}\CredentialProvider"; ValueType: dword; ValueName: "VaultDaclVersion"; ValueData: 2; Flags: createvalueifdoesntexist
 
 ; 5. Shell App Paths registration
 Root: HKLM64; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{#MyDesktopUIExeName}"; \

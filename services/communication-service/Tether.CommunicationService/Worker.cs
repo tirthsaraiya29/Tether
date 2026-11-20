@@ -206,6 +206,8 @@ public sealed class Worker : BackgroundService
         PowerEventHub.Watcher = _powerWatcher;
 
         EnsureFirewallRulesExist();
+        EnsureVaultStructure();
+        SyncFallbackAuthRegistry();
 
         _pipeServer.Start();
         _tcpServer.Start();
@@ -543,6 +545,27 @@ public sealed class Worker : BackgroundService
         _tcpServer.Stop();
         _pipeServer.Dispose();
         await base.StopAsync(cancellationToken);
+    }
+
+    private void EnsureVaultStructure()
+    {
+        try
+        {
+            using var baseKey = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64);
+            using var rootKey = baseKey.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
+            if (rootKey != null)
+            {
+                var val = rootKey.GetValue("VaultDaclVersion");
+                if (val == null || (val is int v && v < 2))
+                {
+                    rootKey.SetValue("VaultDaclVersion", 2, Microsoft.Win32.RegistryValueKind.DWord);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed ensuring CredentialProvider vault structure.");
+        }
     }
 
     private void SyncFallbackAuthRegistry()
