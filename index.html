@@ -1514,8 +1514,20 @@
       outline-offset: 3px;
     }
     .ask-cat-icon {
-      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--green-wash);
+      margin-bottom: 10px;
       color: var(--green);
+      flex-shrink: 0;
+    }
+    .ask-cat-icon svg {
+      display: block;
+      flex-shrink: 0;
     }
     .ask-cat-title {
       color: var(--silver);
@@ -1780,8 +1792,9 @@
         <a href="#screenshots" class="nav-link" data-nav-link="screenshots">Showcase</a>
         <a href="#how-it-works" class="nav-link" data-nav-link="how-it-works">How It Works</a>
         <a href="#architecture" class="nav-link" data-nav-link="architecture">Architecture</a>
-        <a href="#developers" class="nav-link" data-nav-link="developers">Developers</a>
         <a href="#faq" class="nav-link" data-nav-link="faq">FAQ</a>
+        <a href="#ask" class="nav-link" data-nav-link="ask">Ask a Question</a>
+        <a href="#developers" class="nav-link" data-nav-link="developers">Developers</a>
         <a href="https://github.com/tirthsaraiya29/Tether" class="btn btn-sm btn-green" target="_blank" rel="noopener">GitHub</a>
       </nav>
     </div>
@@ -2103,6 +2116,198 @@
       </div>
     </section>
 
+    <!-- ============ FAQ ============ -->
+    <section class="section" id="faq" data-nav-section style="border-top: 1px solid var(--border);">
+      <div class="container container-narrow">
+        <header class="section-head reveal">
+          <p class="eyebrow">Questions</p>
+          <h2>The things people usually ask.</h2>
+        </header>
+        <div class="faq reveal" style="--reveal-delay: 0.1s;">
+          <details class="faq-item">
+            <summary>What is Tether, in one sentence?</summary>
+            <div class="faq-body">
+              <p>An open project that lets your Android phone control a few things on your Windows PC over your home Wi-Fi, without going through any company servers.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Does my data go anywhere?</summary>
+            <div class="faq-body">
+              <p>No. Your phone and PC talk directly to each other over your own Wi-Fi. There is no cloud account and no relay server holding your traffic.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Is it safe to use?</summary>
+            <div class="faq-body">
+              <p>Not yet. Tether is an early project and no outside expert has reviewed it. It is interesting to explore, but do not rely on it to protect anything important.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Can I unlock my Windows PC with my Android phone's fingerprint?</summary>
+            <div class="faq-body">
+              <p>Yes. Tether ships a native C++ Windows Credential Provider (TetherCredentialProvider.dll) loaded by Winlogon. When you tap your phone, your Android biometric sensor signs a challenge with an ECDSA P-256 key stored inside the hardware Keystore. The service verifies the signature and Windows lets you in — no password typed, no cloud round-trip.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Can I use my Android phone as a wireless trackpad for Windows?</summary>
+            <div class="faq-body">
+              <p>Yes. Touch input from the Tether Android app is streamed over your LAN to Tether.SessionHelper.exe, which injects synthetic mouse deltas, clicks, scrolling, and modifier-key combinations directly into your active desktop session via SendInput — no Bluetooth, no drivers to install.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>How is Tether different from KDE Connect, Link to Windows, or Intel Unison?</summary>
+            <div class="faq-body">
+              <p>Tether is fully local-first with zero cloud dependency. KDE Connect is Linux-first and lacks a Windows Credential Provider. Link to Windows and Intel Unison both require a Microsoft or Intel cloud account and route traffic through external servers. Tether routes nothing outside your home network and requires no account of any kind.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>What Android and Windows versions does Tether support?</summary>
+            <div class="faq-body">
+              <p>Tether requires Android 12 or newer (API 31+) and Windows 10 or Windows 11. The Windows service targets .NET 10 and the Credential Provider is a 64-bit native C++20 DLL.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Is Tether free and open source?</summary>
+            <div class="faq-body">
+              <p>Yes, completely. The full source — Android Kotlin app, Windows .NET 10 service, C++ Credential Provider, and WPF desktop UI — is on GitHub at <a href="https://github.com/tirthsaraiya29/Tether" rel="noopener">github.com/tirthsaraiya29/Tether</a>. No account, subscription, or payment required.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>What ports does Tether use on my network?</summary>
+            <div class="faq-body">
+              <p>TCP 37123 for the main TLS 1.3 control channel, TCP 37124 for the Kestrel HTTPS file-transfer server, and UDP 37124 / UDP 5353 (mDNS) for zero-configuration local device discovery. No external ports or port-forwarding required.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>What is the emergency lockdown / panic feature?</summary>
+            <div class="faq-body">
+              <p>Tether.PanicEngine lets you trigger an immediate Windows workstation lock and trust-state revocation from your phone with a single tap. Active sessions are invalidated across the network boundary, and the paired device must re-authenticate before commands are accepted again.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>What is the best AirDroid alternative with no cloud?</summary>
+            <div class="faq-body">
+              <p>Tether is a fully local, open-source AirDroid alternative. Unlike AirDroid, Tether does not route any data through cloud servers, requires no account, and encrypts all traffic with TLS 1.3 directly on your LAN. It also adds features AirDroid lacks on Windows: native biometric logon, emergency workstation lockdown, and hardware-backed key authentication.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Can Tether replace Microsoft Phone Link (Link to Windows)?</summary>
+            <div class="faq-body">
+              <p>Tether is a strong local-first alternative to Microsoft Phone Link (formerly Your Phone). Unlike Phone Link, Tether does not require a Microsoft account and does not route data through Microsoft cloud infrastructure. Tether operates 100% on your local Wi-Fi. While Phone Link offers SMS mirroring and photo sync (cloud features), Tether focuses on security: biometric PC unlock, encrypted LAN file transfer, wireless trackpad, and emergency lockdown — all without any cloud dependency.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Does Tether work on Windows 10 Home?</summary>
+            <div class="faq-body">
+              <p>Yes. Tether supports Windows 10 Home, Windows 10 Pro, Windows 11 Home, and Windows 11 Pro (64-bit). The Windows Credential Provider works on any Windows edition that allows third-party COM Credential Provider registration, which includes all consumer Home editions.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>How do I use my Android phone as a mouse for my Windows PC over Wi-Fi?</summary>
+            <div class="faq-body">
+              <p>Install the Tether app on your Android phone and the Tether Windows service on your PC. After pairing over your local Wi-Fi, open the Trackpad screen in the Tether Android app. Your phone's touchscreen now controls the Windows mouse cursor: glide one finger to move, tap for left-click, two-finger tap for right-click, and two-finger drag to scroll. No Bluetooth, no USB, no extra drivers needed.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Is Tether available on the Google Play Store?</summary>
+            <div class="faq-body">
+              <p>Tether is currently distributed as a sideloaded APK from GitHub Releases. Play Store distribution is a planned future step. You can download the latest Tether Android APK from <a href="https://github.com/tirthsaraiya29/Tether/releases" rel="noopener">github.com/tirthsaraiya29/Tether/releases</a>.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Does Tether send analytics, crash reports, or telemetry?</summary>
+            <div class="faq-body">
+              <p>No. Tether sends zero analytics, telemetry, or crash reports to any external server. All traffic is strictly between your Android phone and your Windows PC on your local network. The entire codebase is open source on GitHub so you can audit this yourself.</p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Ask a Question ============ -->
+    <section class="section" id="ask" data-nav-section style="border-top: 1px solid var(--border);">
+    <div class="container container-narrow">
+      <header class="section-head reveal">
+        <p class="eyebrow">Get in touch</p>
+        <h2>Ask a Question</h2>
+        <p class="section-lede">Found a bug, have an idea, want to share feedback, or discovered a security issue? Pick a category below and your submission reaches the maintainer directly. Contact details you provide stay private — they are stored separately and never appear in the public GitHub issue.</p>
+      </header>
+      <form id="ask-form" class="reveal" style="--reveal-delay: 0.1s;" novalidate>
+        <fieldset style="border:0; padding:0; margin:0 0 8px;">
+          <legend class="sr-only">Submission category</legend>
+          <div class="ask-grid" role="radiogroup" aria-label="Submission category">
+            <label class="ask-cat">
+              <input type="radio" name="category" value="bug" />
+              <div class="ask-cat-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M4.72.22a.75.75 0 0 1 1.06 0l1 .999a3.488 3.488 0 0 1 2.441 0l.999-1a.748.748 0 0 1 1.05-.018.75.75 0 0 1 .018 1.068l-.975.975c.616.7.994 1.618 1.005 2.624L11.276 5h1.749a.75.75 0 0 1 0 1.5h-1.753a3.657 3.657 0 0 1-.7 1.421l.31.31a.75.75 0 1 1-1.06 1.061l-.312-.312a3.65 3.65 0 0 1-1.015.475v1.495a.75.75 0 0 1-1.5 0v-1.495a3.65 3.65 0 0 1-1.015-.475l-.311.312a.75.75 0 1 1-1.061-1.06l.31-.31a3.657 3.657 0 0 1-.7-1.421H2.975a.75.75 0 0 1 0-1.5h1.75L4.72 4.648c.011-1.006.389-1.923 1.005-2.624L4.75 1.283a.75.75 0 0 1-.03-1.063Z"/></svg>
+              </div>
+              <div class="ask-cat-title">Bug Report</div>
+              <div class="ask-cat-desc">Something is broken or behaving unexpectedly.</div>
+            </label>
+            <label class="ask-cat">
+              <input type="radio" name="category" value="feature" />
+              <div class="ask-cat-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M9.254 2.09a5.24 5.24 0 0 1 4.656 4.657c.083.76-.616 1.253-1.353 1.253h-2.132c-.436 0-.682.27-.75.607a3.5 3.5 0 0 1-2.975 2.975c-.336.068-.607.314-.607.75v2.132c0 .737-.493 1.436-1.253 1.353A5.24 5.24 0 0 1 .19 10.166 5.242 5.242 0 0 1 9.254 2.09ZM5.5 10.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm-1.75-3.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm3.5-1.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"/></svg>
+              </div>
+              <div class="ask-cat-title">Feature Request</div>
+              <div class="ask-cat-desc">Suggest an improvement or new capability.</div>
+            </label>
+            <label class="ask-cat">
+              <input type="radio" name="category" value="appreciation" />
+              <div class="ask-cat-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M8.834c.086-.563.394-1.072.844-1.4.283-.206.612-.337.957-.385V2.5a.5.5 0 0 1 .5-.5 2.25 2.25 0 0 1 0 4.5h-.283c.35.169.655.426.881.75a.5.5 0 0 1-.05.632l-.052.05a.5.5 0 0 1-.63.062 1.85 1.85 0 0 0-.96-.294h-3.29a.5.5 0 0 1 0-1h2.14l-.583-1.75a.5.5 0 0 1 .313-.63.5.5 0 0 1 .633.318l.7 2.062ZM4.25 7.5A2.25 2.25 0 0 1 4.25 3h3.5a2.25 2.25 0 0 1 0 4.5h-3.5Z"/></svg>
+              </div>
+              <div class="ask-cat-title">Appreciation &amp; Feedback</div>
+              <div class="ask-cat-desc">Share appreciation or your experience.</div>
+            </label>
+            <label class="ask-cat">
+              <input type="radio" name="category" value="security" />
+              <div class="ask-cat-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M8.533.133a1.75 1.75 0 0 0-1.066 0l-5.25 1.68A1.75 1.75 0 0 0 1 3.48V7c0 1.566.32 3.182 1.303 4.682.983 1.499 2.585 2.813 5.032 3.855a1.75 1.75 0 0 0 1.33 0c2.447-1.042 4.05-2.356 5.032-3.855C14.68 10.182 15 8.566 15 7V3.48a1.75 1.75 0 0 0-1.217-1.667l-5.25-1.68ZM6.78 5.72a.75.75 0 1 0-1.06 1.06L6.94 8 5.72 9.22a.75.75 0 1 0 1.06 1.06L8 9.06l1.22 1.22a.75.75 0 1 0 1.06-1.06L9.06 8l1.22-1.22a.75.75 0 1 0-1.06-1.06L8 6.94 6.78 5.72Z"/></svg>
+              </div>
+              <div class="ask-cat-title">Security Vulnerability</div>
+              <div class="ask-cat-desc">Private advisory — never filed publicly.</div>
+            </label>
+          </div>
+        </fieldset>
+        <p class="dl-state" id="ask-hint" style="margin-bottom:16px;">Select a category to continue.</p>
+        <div id="ask-fields"></div>
+        <div class="ask-contact">
+          <p><strong>Contact information (required, private).</strong> Provide at least one of the following so the maintainer can follow up. This information is submitted to a private channel accessible only to the repository owner — it is <strong>never</strong> included in any public GitHub issue.</p>
+          <div class="ask-field" data-field="email">
+            <label for="ask-email">Email address <span class="req">(provide email or phone)</span></label>
+            <input type="email" id="ask-email" name="contact_email" autocomplete="email" placeholder="you@example.com" />
+            <p class="field-error">Enter a valid email address, or a phone number.</p>
+          </div>
+          <div class="ask-field" data-field="phone">
+            <label for="ask-phone">Phone number <span class="req">(optional if email provided)</span></label>
+            <input type="tel" id="ask-phone" name="contact_phone" autocomplete="tel" placeholder="+1 555 000 0000" />
+            <p class="field-error">Enter a valid phone number, or an email address.</p>
+          </div>
+          <div class="ask-field" data-field="github">
+            <label for="ask-github">GitHub username <span class="req">(optional)</span></label>
+            <input type="text" id="ask-github" name="contact_github" autocomplete="off" placeholder="octocat" />
+            <p class="field-error">GitHub usernames may only contain letters, digits, and single hyphens.</p>
+          </div>
+          <div class="ask-field" data-field="github_public" hidden>
+            <label for="ask-github-public" style="display:flex; align-items:center; gap:8px; font-weight:400;">
+              <input type="checkbox" id="ask-github-public" name="contact_github_public" style="width:auto;" />
+              Show my GitHub username publicly on the issue (credit me)
+            </label>
+            <p class="ask-note">Unchecked: your username is stored privately like the other contact details.</p>
+          </div>
+          <p class="ask-note">Your contact details are sent over HTTPS to a private store tied to your submission and are visible only to Tirth Saraiya, the repository owner. They do not appear in the public issue, issue labels, comments, or any GitHub-facing content.</p>
+        </div>
+        <label class="hp-field" aria-hidden="true">Leave this field empty<input type="text" id="ask-website" name="website" tabindex="-1" autocomplete="off" /></label>
+        <div class="form-status" id="ask-status" role="status" aria-live="polite" hidden></div>
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+          <button class="btn btn-primary" type="submit" id="ask-submit">Submit</button>
+          <button class="btn btn-green" type="button" id="ask-reset" hidden>Clear form</button>
+        </div>
+      </form>
+    </div>
+    </section>
+
     <!-- ============ Developers ============ -->
     <section class="section" id="developers" data-nav-section style="border-top: 1px solid var(--border);">
       <div class="container">
@@ -2225,114 +2430,6 @@
       </div>
     </section>
 
-    <!-- ============ FAQ ============ -->
-    <section class="section" id="faq" style="border-top: 1px solid var(--border);">
-      <div class="container container-narrow">
-        <header class="section-head reveal">
-          <p class="eyebrow">Questions</p>
-          <h2>The things people usually ask.</h2>
-        </header>
-        <div class="faq reveal" style="--reveal-delay: 0.1s;">
-          <details class="faq-item">
-            <summary>What is Tether, in one sentence?</summary>
-            <div class="faq-body">
-              <p>An open project that lets your Android phone control a few things on your Windows PC over your home Wi-Fi, without going through any company servers.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>Does my data go anywhere?</summary>
-            <div class="faq-body">
-              <p>No. Your phone and PC talk directly to each other over your own Wi-Fi. There is no cloud account and no relay server holding your traffic.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>Is it safe to use?</summary>
-            <div class="faq-body">
-              <p>Not yet. Tether is an early project and no outside expert has reviewed it. It is interesting to explore, but do not rely on it to protect anything important.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>Can I unlock my Windows PC with my Android phone's fingerprint?</summary>
-            <div class="faq-body">
-              <p>Yes. Tether ships a native C++ Windows Credential Provider (TetherCredentialProvider.dll) loaded by Winlogon. When you tap your phone, your Android biometric sensor signs a challenge with an ECDSA P-256 key stored inside the hardware Keystore. The service verifies the signature and Windows lets you in — no password typed, no cloud round-trip.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>Can I use my Android phone as a wireless trackpad for Windows?</summary>
-            <div class="faq-body">
-              <p>Yes. Touch input from the Tether Android app is streamed over your LAN to Tether.SessionHelper.exe, which injects synthetic mouse deltas, clicks, scrolling, and modifier-key combinations directly into your active desktop session via SendInput — no Bluetooth, no drivers to install.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>How is Tether different from KDE Connect, Link to Windows, or Intel Unison?</summary>
-            <div class="faq-body">
-              <p>Tether is fully local-first with zero cloud dependency. KDE Connect is Linux-first and lacks a Windows Credential Provider. Link to Windows and Intel Unison both require a Microsoft or Intel cloud account and route traffic through external servers. Tether routes nothing outside your home network and requires no account of any kind.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>What Android and Windows versions does Tether support?</summary>
-            <div class="faq-body">
-              <p>Tether requires Android 12 or newer (API 31+) and Windows 10 or Windows 11. The Windows service targets .NET 10 and the Credential Provider is a 64-bit native C++20 DLL.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>Is Tether free and open source?</summary>
-            <div class="faq-body">
-              <p>Yes, completely. The full source — Android Kotlin app, Windows .NET 10 service, C++ Credential Provider, and WPF desktop UI — is on GitHub at <a href="https://github.com/tirthsaraiya29/Tether" rel="noopener">github.com/tirthsaraiya29/Tether</a>. No account, subscription, or payment required.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>What ports does Tether use on my network?</summary>
-            <div class="faq-body">
-              <p>TCP 37123 for the main TLS 1.3 control channel, TCP 37124 for the Kestrel HTTPS file-transfer server, and UDP 37124 / UDP 5353 (mDNS) for zero-configuration local device discovery. No external ports or port-forwarding required.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>What is the emergency lockdown / panic feature?</summary>
-            <div class="faq-body">
-              <p>Tether.PanicEngine lets you trigger an immediate Windows workstation lock and trust-state revocation from your phone with a single tap. Active sessions are invalidated across the network boundary, and the paired device must re-authenticate before commands are accepted again.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>What is the best AirDroid alternative with no cloud?</summary>
-            <div class="faq-body">
-              <p>Tether is a fully local, open-source AirDroid alternative. Unlike AirDroid, Tether does not route any data through cloud servers, requires no account, and encrypts all traffic with TLS 1.3 directly on your LAN. It also adds features AirDroid lacks on Windows: native biometric logon, emergency workstation lockdown, and hardware-backed key authentication.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>Can Tether replace Microsoft Phone Link (Link to Windows)?</summary>
-            <div class="faq-body">
-              <p>Tether is a strong local-first alternative to Microsoft Phone Link (formerly Your Phone). Unlike Phone Link, Tether does not require a Microsoft account and does not route data through Microsoft cloud infrastructure. Tether operates 100% on your local Wi-Fi. While Phone Link offers SMS mirroring and photo sync (cloud features), Tether focuses on security: biometric PC unlock, encrypted LAN file transfer, wireless trackpad, and emergency lockdown — all without any cloud dependency.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>Does Tether work on Windows 10 Home?</summary>
-            <div class="faq-body">
-              <p>Yes. Tether supports Windows 10 Home, Windows 10 Pro, Windows 11 Home, and Windows 11 Pro (64-bit). The Windows Credential Provider works on any Windows edition that allows third-party COM Credential Provider registration, which includes all consumer Home editions.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>How do I use my Android phone as a mouse for my Windows PC over Wi-Fi?</summary>
-            <div class="faq-body">
-              <p>Install the Tether app on your Android phone and the Tether Windows service on your PC. After pairing over your local Wi-Fi, open the Trackpad screen in the Tether Android app. Your phone's touchscreen now controls the Windows mouse cursor: glide one finger to move, tap for left-click, two-finger tap for right-click, and two-finger drag to scroll. No Bluetooth, no USB, no extra drivers needed.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>Is Tether available on the Google Play Store?</summary>
-            <div class="faq-body">
-              <p>Tether is currently distributed as a sideloaded APK from GitHub Releases. Play Store distribution is a planned future step. You can download the latest Tether Android APK from <a href="https://github.com/tirthsaraiya29/Tether/releases" rel="noopener">github.com/tirthsaraiya29/Tether/releases</a>.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>Does Tether send analytics, crash reports, or telemetry?</summary>
-            <div class="faq-body">
-              <p>No. Tether sends zero analytics, telemetry, or crash reports to any external server. All traffic is strictly between your Android phone and your Windows PC on your local network. The entire codebase is open source on GitHub so you can audit this yourself.</p>
-            </div>
-          </details>
-        </div>
-      </div>
-    </section>
-
     <!-- ============ CTA ============ -->
     <section class="section section-cta" id="get-started">
       <div class="container">
@@ -2351,90 +2448,6 @@
       </div>
     </section>
   </main>
-
-  <!-- ============ Ask a Question ============ -->
-  <section class="section" id="ask" style="border-top: 1px solid var(--border);">
-    <div class="container container-narrow">
-      <header class="section-head reveal">
-        <p class="eyebrow">Get in touch</p>
-        <h2>Ask a Question</h2>
-        <p class="section-lede">Found a bug, have an idea, want to share feedback, or discovered a security issue? Pick a category below and your submission reaches the maintainer directly. Contact details you provide stay private — they are stored separately and never appear in the public GitHub issue.</p>
-      </header>
-      <form id="ask-form" class="reveal" style="--reveal-delay: 0.1s;" novalidate>
-        <fieldset style="border:0; padding:0; margin:0 0 8px;">
-          <legend class="sr-only">Submission category</legend>
-          <div class="ask-grid" role="radiogroup" aria-label="Submission category">
-            <label class="ask-cat">
-              <input type="radio" name="category" value="bug" />
-              <div class="ask-cat-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M4.72.22a.75.75 0 0 1 1.06 0l1 .999a3.488 3.488 0 0 1 2.441 0l.999-1a.748.748 0 0 1 1.05-.018.75.75 0 0 1 .018 1.068l-.975.975c.616.7.994 1.618 1.005 2.624L11.276 5h1.749a.75.75 0 0 1 0 1.5h-1.753a3.657 3.657 0 0 1-.7 1.421l.31.31a.75.75 0 1 1-1.06 1.061l-.312-.312a3.65 3.65 0 0 1-1.015.475v1.495a.75.75 0 0 1-1.5 0v-1.495a3.65 3.65 0 0 1-1.015-.475l-.311.312a.75.75 0 1 1-1.061-1.06l.31-.31a3.657 3.657 0 0 1-.7-1.421H2.975a.75.75 0 0 1 0-1.5h1.75L4.72 4.648c.011-1.006.389-1.923 1.005-2.624L4.75 1.283a.75.75 0 0 1-.03-1.063Z"/></svg>
-              </div>
-              <div class="ask-cat-title">Bug Report</div>
-              <div class="ask-cat-desc">Something is broken or behaving unexpectedly.</div>
-            </label>
-            <label class="ask-cat">
-              <input type="radio" name="category" value="feature" />
-              <div class="ask-cat-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M9.254 2.09a5.24 5.24 0 0 1 4.656 4.657c.083.76-.616 1.253-1.353 1.253h-2.132c-.436 0-.682.27-.75.607a3.5 3.5 0 0 1-2.975 2.975c-.336.068-.607.314-.607.75v2.132c0 .737-.493 1.436-1.253 1.353A5.24 5.24 0 0 1 .19 10.166 5.242 5.242 0 0 1 9.254 2.09ZM5.5 10.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm-1.75-3.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm3.5-1.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"/></svg>
-              </div>
-              <div class="ask-cat-title">Feature Request</div>
-              <div class="ask-cat-desc">Suggest an improvement or new capability.</div>
-            </label>
-            <label class="ask-cat">
-              <input type="radio" name="category" value="appreciation" />
-              <div class="ask-cat-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M8.834c.086-.563.394-1.072.844-1.4.283-.206.612-.337.957-.385V2.5a.5.5 0 0 1 .5-.5 2.25 2.25 0 0 1 0 4.5h-.283c.35.169.655.426.881.75a.5.5 0 0 1-.05.632l-.052.05a.5.5 0 0 1-.63.062 1.85 1.85 0 0 0-.96-.294h-3.29a.5.5 0 0 1 0-1h2.14l-.583-1.75a.5.5 0 0 1 .313-.63.5.5 0 0 1 .633.318l.7 2.062ZM4.25 7.5A2.25 2.25 0 0 1 4.25 3h3.5a2.25 2.25 0 0 1 0 4.5h-3.5Z"/></svg>
-              </div>
-              <div class="ask-cat-title">Appreciation &amp; Feedback</div>
-              <div class="ask-cat-desc">Share appreciation or your experience.</div>
-            </label>
-            <label class="ask-cat">
-              <input type="radio" name="category" value="security" />
-              <div class="ask-cat-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M8.533.133a1.75 1.75 0 0 0-1.066 0l-5.25 1.68A1.75 1.75 0 0 0 1 3.48V7c0 1.566.32 3.182 1.303 4.682.983 1.499 2.585 2.813 5.032 3.855a1.75 1.75 0 0 0 1.33 0c2.447-1.042 4.05-2.356 5.032-3.855C14.68 10.182 15 8.566 15 7V3.48a1.75 1.75 0 0 0-1.217-1.667l-5.25-1.68ZM6.78 5.72a.75.75 0 1 0-1.06 1.06L6.94 8 5.72 9.22a.75.75 0 1 0 1.06 1.06L8 9.06l1.22 1.22a.75.75 0 1 0 1.06-1.06L9.06 8l1.22-1.22a.75.75 0 1 0-1.06-1.06L8 6.94 6.78 5.72Z"/></svg>
-              </div>
-              <div class="ask-cat-title">Security Vulnerability</div>
-              <div class="ask-cat-desc">Private advisory — never filed publicly.</div>
-            </label>
-          </div>
-        </fieldset>
-        <p class="dl-state" id="ask-hint" style="margin-bottom:16px;">Select a category to continue.</p>
-        <div id="ask-fields"></div>
-        <div class="ask-contact">
-          <p><strong>Contact information (required, private).</strong> Provide at least one of the following so the maintainer can follow up. This information is submitted to a private channel accessible only to the repository owner — it is <strong>never</strong> included in any public GitHub issue.</p>
-          <div class="ask-field" data-field="email">
-            <label for="ask-email">Email address <span class="req">(provide email or phone)</span></label>
-            <input type="email" id="ask-email" name="contact_email" autocomplete="email" placeholder="you@example.com" />
-            <p class="field-error">Enter a valid email address, or a phone number.</p>
-          </div>
-          <div class="ask-field" data-field="phone">
-            <label for="ask-phone">Phone number <span class="req">(optional if email provided)</span></label>
-            <input type="tel" id="ask-phone" name="contact_phone" autocomplete="tel" placeholder="+1 555 000 0000" />
-            <p class="field-error">Enter a valid phone number, or an email address.</p>
-          </div>
-          <div class="ask-field" data-field="github">
-            <label for="ask-github">GitHub username <span class="req">(optional)</span></label>
-            <input type="text" id="ask-github" name="contact_github" autocomplete="off" placeholder="octocat" />
-            <p class="field-error">GitHub usernames may only contain letters, digits, and single hyphens.</p>
-          </div>
-          <div class="ask-field" data-field="github_public" hidden>
-            <label for="ask-github-public" style="display:flex; align-items:center; gap:8px; font-weight:400;">
-              <input type="checkbox" id="ask-github-public" name="contact_github_public" style="width:auto;" />
-              Show my GitHub username publicly on the issue (credit me)
-            </label>
-            <p class="ask-note">Unchecked: your username is stored privately like the other contact details.</p>
-          </div>
-          <p class="ask-note">Your contact details are sent over HTTPS to a private store tied to your submission and are visible only to Tirth Saraiya, the repository owner. They do not appear in the public issue, issue labels, comments, or any GitHub-facing content.</p>
-        </div>
-        <label class="hp-field" aria-hidden="true">Leave this field empty<input type="text" id="ask-website" name="website" tabindex="-1" autocomplete="off" /></label>
-        <div class="form-status" id="ask-status" role="status" aria-live="polite" hidden></div>
-        <div style="display:flex; gap:12px; flex-wrap:wrap;">
-          <button class="btn btn-primary" type="submit" id="ask-submit">Submit</button>
-          <button class="btn btn-green" type="button" id="ask-reset" hidden>Clear form</button>
-        </div>
-      </form>
-    </div>
-  </section>
   <!-- REMOVED-ABOUT-MARKER (About Tether SEO prose retired 2026-11-20) -->
   <footer class="site-footer">
     <div class="container footer-grid">
