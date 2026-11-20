@@ -1,9 +1,9 @@
 # AI models and AI crawlers are not permitted on this site.
 # They may read /ai-summary.txt only.
 
+# Default: allow all standard crawlers (search engines, etc.)
 User-agent: *
-Disallow: /
-Allow: /ai-summary.txt
+Allow: /
 
 # --- AI crawlers: blocked everywhere except the summary ---
 User-agent: GPTBot
