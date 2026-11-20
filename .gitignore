@@ -112,3 +112,8 @@ CHANGELOG.md
 
 # Teamwork subagent workspace state
 .agents/
+
+# Serverless env (secrets live in Vercel project settings, never in the repo)
+.env
+.env*.local
+.vercel

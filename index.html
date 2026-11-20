@@ -1467,6 +1467,164 @@
       line-height: 1.6;
     }
 
+    /* ---------- 11b. Download & Ask a Question ---------- */
+    .dl-btn[disabled] {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .dl-state {
+      font-size: 0.85rem;
+      color: var(--text-subtle);
+      margin-top: 10px;
+      min-height: 1.2em;
+    }
+    .dl-state.is-error { color: var(--warn); }
+
+    .ask-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      margin-bottom: 24px;
+    }
+    .ask-cat {
+      position: relative;
+      display: block;
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      cursor: pointer;
+      transition: border-color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .ask-cat:hover {
+      border-color: var(--green-border);
+      transform: translateY(-2px);
+    }
+    .ask-cat input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .ask-cat:has(input:checked) {
+      border-color: var(--green);
+      background: var(--green-wash);
+    }
+    .ask-cat:has(input:focus-visible) {
+      outline: 2px solid var(--focus);
+      outline-offset: 3px;
+    }
+    .ask-cat-icon {
+      font-size: 1.3rem;
+      margin-bottom: 8px;
+    }
+    .ask-cat-title {
+      color: var(--silver);
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 4px;
+    }
+    .ask-cat-desc {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+
+    .ask-field {
+      margin-bottom: 16px;
+    }
+    .ask-field label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--silver);
+      margin-bottom: 6px;
+    }
+    .ask-field .req {
+      color: var(--green-dim);
+      font-size: 0.75rem;
+    }
+    .ask-field input,
+    .ask-field select,
+    .ask-field textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+      font-size: 0.9rem;
+    }
+    .ask-field textarea {
+      min-height: 96px;
+      resize: vertical;
+    }
+    .ask-field input:focus,
+    .ask-field select:focus,
+    .ask-field textarea:focus {
+      outline: none;
+      border-color: var(--green);
+      box-shadow: 0 0 0 2px var(--green-wash);
+    }
+    .ask-field .field-error {
+      display: none;
+      color: var(--warn);
+      font-size: 0.8rem;
+      margin-top: 4px;
+    }
+    .ask-field.has-error input,
+    .ask-field.has-error select,
+    .ask-field.has-error textarea {
+      border-color: var(--warn);
+    }
+    .ask-field.has-error .field-error {
+      display: block;
+    }
+    .ask-contact {
+      border: 1px solid var(--green-border);
+      border-radius: var(--radius-md);
+      background: var(--green-wash);
+      padding: 20px;
+      margin: 24px 0;
+    }
+    .ask-contact > p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+    .ask-note {
+      font-size: 0.8rem;
+      color: var(--text-subtle);
+      line-height: 1.5;
+      margin-top: 8px;
+    }
+    .form-status {
+      margin-top: 16px;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .form-status[hidden] { display: none; }
+    .form-status.is-success {
+      border: 1px solid var(--green-border);
+      background: var(--green-wash);
+      color: var(--text);
+    }
+    .form-status.is-error {
+      border: 1px solid rgba(245, 184, 61, 0.45);
+      background: rgba(245, 184, 61, 0.08);
+      color: var(--warn);
+    }
+    /* Honeypot: real users never see or tab into this */
+    .hp-field {
+      position: absolute !important;
+      left: -9999px;
+      height: 1px;
+      width: 1px;
+      overflow: hidden;
+    }
+
     /* ---------- 12. CTA & Footer ---------- */
     .section-cta {
       background:
@@ -1640,9 +1798,10 @@
             Tether is a free, open-source personal trust and authentication platform connecting an Android phone to a Windows PC over your local network. Unlock Windows via biometric challenge, use your phone as a wireless trackpad, send files, execute emergency lockdowns, and adjust media controls — completely on LAN via TLS 1.3 with zero accounts and no subscriptions.
           </p>
           <div class="hero-actions reveal is-visible" style="--reveal-delay: 0.2s;">
-            <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether/releases">Download Releases</a>
+            <button class="btn btn-primary dl-btn" id="dl-btn" type="button" disabled>Detecting platform…</button>
             <a class="btn btn-green" href="https://github.com/tirthsaraiya29/Tether">View on GitHub</a>
           </div>
+          <p class="dl-state" id="dl-state" role="status" aria-live="polite"></p>
           <div class="hero-note reveal is-visible" style="--reveal-delay: 0.28s;">
             <span class="status-chip">STILL BEING BUILT</span>
             <span>Tether is an early project and hasn't been security audited. It is fun to explore, but do not trust it with anything important yet.</span>
@@ -2193,47 +2352,70 @@
     </section>
   </main>
 
-  <!-- ============ About / SEO Content ============ -->
-  <section class="section" id="about" style="border-top: 1px solid var(--border);">
-    <div class="container container-narrow prose">
-      <header class="section-head">
-        <p class="eyebrow">About Tether</p>
-        <h2>The local-first Android to Windows connection app.</h2>
+  <!-- ============ Ask a Question ============ -->
+  <section class="section" id="ask" style="border-top: 1px solid var(--border);">
+    <div class="container container-narrow">
+      <header class="section-head reveal">
+        <p class="eyebrow">Get in touch</p>
+        <h2>Ask a Question</h2>
+        <p class="section-lede">Found a bug, have an idea, want to share feedback, or discovered a security issue? Pick a category below and your submission reaches the maintainer directly. Contact details you provide stay private — they are stored separately and never appear in the public GitHub issue.</p>
       </header>
-      <p>
-        <strong>Tether</strong> is a free, open-source companion app that creates a direct, encrypted bridge between your Android smartphone and your Windows PC over your home or office Wi-Fi network. Unlike cloud-based alternatives such as Microsoft's Link to Windows, Intel Unison, or AirDroid, Tether routes <em>zero</em> traffic through external servers. Every command, every file, every authentication challenge travels exclusively over your local area network (LAN) using a TLS 1.3 encrypted connection.
-      </p>
-      <p>
-        Tether is designed for people who want the convenience of a phone–PC companion app without sacrificing privacy, without creating a cloud account, and without paying a subscription. If your phone and PC are on the same Wi-Fi, Tether works. If you are offline, it still works. The internet is simply not part of the design.
-      </p>
-
-      <h3 style="margin-top: 32px;">Connect Android to Windows over Local Wi-Fi</h3>
-      <p>
-        Install the Tether app on your Android phone (Android 12 or newer) and run the installer on your Windows 10 or 11 PC. The two devices find each other automatically via mDNS — no IP addresses to type. A one-time pairing exchange stores ECDSA P-256 keys in tamper-resistant hardware on both ends (Android Keystore StrongBox, Windows DPAPI), then the tether is live over a TLS 1.3 connection. Everything stays on your LAN: if you are offline, Tether still works.
-      </p>
-
-      <h3 style="margin-top: 32px;">Unlock Windows with Android Biometrics</h3>
-      <p>
-        A native C++ Credential Provider is registered with Windows Logon. Walk up to your locked PC, tap your phone, confirm with your fingerprint — the phone signs a one-time challenge with its hardware-bound key and your PC unlocks. No password typed, no Microsoft account, no cloud. This works on any Windows 10/11 edition that accepts third-party Credential Providers.
-      </p>
-
-      <h3 style="margin-top: 32px;">Everyday Remote Control</h3>
-      <p>
-        Use your phone as a wireless trackpad (touch and scroll streamed to <code>Tether.SessionHelper.exe</code> via <code>SendInput</code>), transfer files over a local TLS-protected server on port 37124, adjust volume, brightness, and media playback, launch apps, run remote terminal commands, and mirror notifications between devices. Tether also detects shutdowns and reboots the instant they start (Event ID 1074 / <code>WM_QUERYENDSESSION</code>), so your phone shows <strong>POWERED OFF</strong> or <strong>RESTARTING</strong> instead of a generic disconnect. A one-tap Panic Lock instantly locks the workstation and revokes trust until a fresh biometric challenge passes.
-      </p>
-
-      <h3 style="margin-top: 32px;">Security Model</h3>
-      <p>
-        Identity keys live in hardware (StrongBox TEE on Android; DPAPI-protected secrets in <code>HKLM\SOFTWARE\Tether\Secrets</code> on Windows) and are never exported — only signatures leave the device. IPC runs over ACL-enforced named pipes, TLS sessions are mutually pinned, and replay attacks are blocked with monotonic request IDs. The service runs as SYSTEM in Session 0 and never breaks that boundary; user-session work is done by a separate helper process.
-      </p>
-
-      <h3 style="margin-top: 32px;">Open Source &amp; Platforms</h3>
-      <p>
-        Tether is free and open source at <a href="https://github.com/tirthsaraiya29/Tether" rel="noopener">github.com/tirthsaraiya29/Tether</a> — Kotlin/Compose for Android, C# .NET 10 for Windows services and the WPF UI, C++ for the Credential Provider. It supports Android 12+ and 64-bit Windows 10/11. The project is in active development; a security audit has not yet been performed. Download from <a href="https://github.com/tirthsaraiya29/Tether/releases" rel="noopener">GitHub Releases</a>, pair in three steps, and you are tethered in minutes.
-      </p>
+      <form id="ask-form" class="reveal" style="--reveal-delay: 0.1s;" novalidate>
+        <fieldset style="border:0; padding:0; margin:0 0 8px;">
+          <legend class="sr-only">Submission category</legend>
+          <div class="ask-grid" role="radiogroup" aria-label="Submission category">
+            <label class="ask-cat">
+              <input type="radio" name="category" value="bug" />
+              <div class="ask-cat-icon" aria-hidden="true">&#128027;</div>
+              <div class="ask-cat-title">Bug Report</div>
+              <div class="ask-cat-desc">Something is broken or behaving unexpectedly.</div>
+            </label>
+            <label class="ask-cat">
+              <input type="radio" name="category" value="feature" />
+              <div class="ask-cat-icon" aria-hidden="true">&#128161;</div>
+              <div class="ask-cat-title">Feature Request</div>
+              <div class="ask-cat-desc">Suggest an improvement or new capability.</div>
+            </label>
+            <label class="ask-cat">
+              <input type="radio" name="category" value="appreciation" />
+              <div class="ask-cat-icon" aria-hidden="true">&#128075;</div>
+              <div class="ask-cat-title">Appreciation &amp; Feedback</div>
+              <div class="ask-cat-desc">Share appreciation or your experience.</div>
+            </label>
+            <label class="ask-cat">
+              <input type="radio" name="category" value="security" />
+              <div class="ask-cat-icon" aria-hidden="true">&#128274;</div>
+              <div class="ask-cat-title">Security Vulnerability</div>
+              <div class="ask-cat-desc">Private advisory — never filed publicly.</div>
+            </label>
+          </div>
+        </fieldset>
+        <p class="dl-state" id="ask-hint" style="margin-bottom:16px;">Select a category to continue.</p>
+        <div id="ask-fields"></div>
+        <div class="ask-contact">
+          <p><strong>Contact information (required, private).</strong> Provide at least one of the following so the maintainer can follow up. This information is submitted to a private channel accessible only to the repository owner — it is <strong>never</strong> included in any public GitHub issue.</p>
+          <div class="ask-field" data-field="email">
+            <label for="ask-email">Email address <span class="req">(provide email or phone)</span></label>
+            <input type="email" id="ask-email" name="contact_email" autocomplete="email" placeholder="you@example.com" />
+            <p class="field-error">Enter a valid email address, or a phone number.</p>
+          </div>
+          <div class="ask-field" data-field="phone">
+            <label for="ask-phone">Phone number <span class="req">(optional if email provided)</span></label>
+            <input type="tel" id="ask-phone" name="contact_phone" autocomplete="tel" placeholder="+1 555 000 0000" />
+            <p class="field-error">Enter a valid phone number, or an email address.</p>
+          </div>
+          <p class="ask-note">Your contact details are sent over HTTPS to a private store tied to your submission and are visible only to Tirth Saraiya, the repository owner. They do not appear in the public issue, issue labels, comments, or any GitHub-facing content.</p>
+        </div>
+        <label class="hp-field" aria-hidden="true">Leave this field empty<input type="text" id="ask-website" name="website" tabindex="-1" autocomplete="off" /></label>
+        <div class="form-status" id="ask-status" role="status" aria-live="polite" hidden></div>
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+          <button class="btn btn-primary" type="submit" id="ask-submit">Submit</button>
+          <button class="btn btn-green" type="button" id="ask-reset" hidden>Clear form</button>
+        </div>
+      </form>
     </div>
   </section>
-
+  <!-- REMOVED-ABOUT-MARKER (About Tether SEO prose retired 2026-11-20) -->
   <footer class="site-footer">
     <div class="container footer-grid">
       <div class="footer-brand">
@@ -2264,7 +2446,7 @@
           <li><a href="#architecture">Architecture</a></li>
           <li><a href="#developers">For Developers</a></li>
           <li><a href="#faq">Frequently Asked Questions</a></li>
-          <li><a href="#about">About Tether</a></li>
+          <li><a href="#ask">Ask a Question</a></li>
         </ul>
       </nav>
       <div>
@@ -2425,6 +2607,323 @@
           });
         }
       });
+      /* ---------- OS-aware download button ---------- */
+      (function () {
+        var btn = doc.getElementById('dl-btn');
+        var state = doc.getElementById('dl-state');
+        if (!btn || !state) return;
+
+        function setMsg(text, isError) {
+          state.textContent = text || '';
+          state.classList.toggle('is-error', !!isError);
+        }
+
+        function detectOs() {
+          var ua = navigator.userAgent;
+          if (/Android/i.test(ua)) return 'android';
+          if (/Windows/i.test(ua)) return 'windows';
+          return null;
+        }
+
+        function findAsset(assets, ext) {
+          for (var i = 0; i < assets.length; i++) {
+            if (assets[i].name && assets[i].name.toLowerCase().slice(-ext.length) === ext) return assets[i];
+          }
+          return null;
+        }
+
+        var CACHE_KEY = 'tether-release-cache';
+        var CACHE_TTL = 60 * 60 * 1000; // one hour
+
+        function apply(entry) {
+          btn.disabled = false;
+          btn.textContent = 'Download for ' + (entry.ext === '.exe' ? 'Windows' : 'Android');
+          btn.onclick = function () {
+            var a = doc.createElement('a');
+            a.href = entry.url;
+            a.download = entry.name;
+            doc.body.appendChild(a);
+            a.click();
+            a.remove();
+          };
+          setMsg('Latest release: ' + entry.version + ' (' + entry.name + ')');
+        }
+
+        function load() {
+          var os = detectOs();
+          var ext = os === 'windows' ? '.exe' : os === 'android' ? '.apk' : null;
+
+          if (!os) {
+            btn.textContent = 'Download not supported for this OS';
+            setMsg('Tether is available for Windows and Android only.');
+            return;
+          }
+
+          var cached = null;
+          try { cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); } catch (err) { cached = null; }
+          var fresh = cached && cached.ext === ext && (Date.now() - cached.t) < CACHE_TTL;
+
+          if (fresh && cached.url) { apply(cached); return; }
+
+          fetch('https://api.github.com/repos/tirthsaraiya29/Tether/releases/latest', {
+            headers: { 'Accept': 'application/vnd.github+json' }
+          }).then(function (r) {
+            if (!r.ok) throw new Error('GitHub API ' + r.status);
+            return r.json();
+          }).then(function (rel) {
+            var asset = rel.assets ? findAsset(rel.assets, ext) : null;
+            if (!asset) {
+              btn.textContent = 'Download not available';
+              setMsg('The latest release does not include a ' + ext + ' asset. Browse all files on the Releases page.', true);
+              return;
+            }
+            var entry = { t: Date.now(), ext: ext, url: asset.browser_download_url, name: asset.name, version: rel.tag_name || '' };
+            try { localStorage.setItem(CACHE_KEY, JSON.stringify(entry)); } catch (err) { /* storage unavailable */ }
+            apply(entry);
+          }).catch(function () {
+            if (cached && cached.ext === ext && cached.url) { apply(cached); return; }
+            btn.textContent = 'Download from Releases';
+            btn.disabled = false;
+            btn.onclick = function () { window.open('https://github.com/tirthsaraiya29/Tether/releases', '_blank', 'noopener'); };
+            setMsg('Could not load the latest release info. You can browse releases on GitHub instead.', true);
+          });
+        }
+
+        load();
+      })();
+
+      /* ---------- Ask a Question form ---------- */
+      (function () {
+        var form = doc.getElementById('ask-form');
+        if (!form) return;
+
+        var fieldsHost = doc.getElementById('ask-fields');
+        var hint = doc.getElementById('ask-hint');
+        var status = doc.getElementById('ask-status');
+        var submitBtn = doc.getElementById('ask-submit');
+        var resetBtn = doc.getElementById('ask-reset');
+        var honeypot = doc.getElementById('ask-website');
+
+        var COMPONENTS = ['Android app', 'Windows service', 'Windows desktop UI', 'Windows Credential Provider', 'Device pairing and trust', 'Communication and file transfer', 'Input and trackpad', 'Installation and updates'];
+
+        var CATEGORIES = {
+          bug: {
+            title: 'Bug Report',
+            fields: [
+              { name: 'component', type: 'select', label: 'Affected component', required: true, options: COMPONENTS.concat(['Other / Unsure']) },
+              { name: 'description', type: 'textarea', label: 'Describe the bug', required: true },
+              { name: 'reproduce', type: 'textarea', label: 'Steps to reproduce', required: true },
+              { name: 'expected', type: 'textarea', label: 'Expected behaviour', required: true },
+              { name: 'actual', type: 'textarea', label: 'Actual behaviour', required: true },
+              { name: 'version', type: 'input', label: 'Tether version or commit' },
+              { name: 'androidEnv', type: 'input', label: 'Android environment' },
+              { name: 'windowsEnv', type: 'input', label: 'Windows environment' },
+              { name: 'logs', type: 'textarea', label: 'Logs and screenshots (remove sensitive info first)' },
+              { name: 'additional', type: 'textarea', label: 'Additional context' }
+            ]
+          },
+          feature: {
+            title: 'Feature Request',
+            fields: [
+              { name: 'problem', type: 'textarea', label: 'Problem or use case', required: true },
+              { name: 'solution', type: 'textarea', label: 'Proposed solution', required: true },
+              { name: 'component', type: 'select', label: 'Relevant component', required: true, options: COMPONENTS.concat(['Cross-platform functionality', 'Other / Unsure']) },
+              { name: 'alternatives', type: 'textarea', label: 'Alternatives considered' },
+              { name: 'context', type: 'textarea', label: 'Additional context' }
+            ]
+          },
+          appreciation: {
+            title: 'Appreciation & Feedback',
+            fields: [
+              { name: 'message', type: 'textarea', label: 'Your message', required: true },
+              { name: 'feedback', type: 'textarea', label: 'Suggestions or feedback (optional)' },
+              { name: 'ack', type: 'checkbox', label: 'I confirm this submission does not contain passwords, private keys, tokens, or other sensitive information.', required: true }
+            ]
+          },
+          security: {
+            title: 'Security Vulnerability (Private Advisory)',
+            fields: [
+              { name: 'description', type: 'textarea', label: 'Vulnerability description', required: true },
+              { name: 'component', type: 'select', label: 'Affected component', required: true, options: COMPONENTS.concat(['Other / Unsure']) },
+              { name: 'impact', type: 'textarea', label: 'Impact', required: true },
+              { name: 'reproduce', type: 'textarea', label: 'Reproduction steps / evidence' },
+              { name: 'reproducible', type: 'select', label: 'Is it reproducible?', required: true, options: ['Yes, consistently', 'Intermittently', 'Not reproducible', 'Unsure'] },
+              { name: 'disclosed', type: 'select', label: 'Have you disclosed this elsewhere?', required: true, options: ['No', 'Yes (explain in reproduction steps)', 'Partially'] },
+              { name: 'ack', type: 'checkbox', label: 'I understand this report will be handled confidentially and will not be filed as a public issue.', required: true }
+            ]
+          }
+        };
+
+        var currentCat = null;
+
+        function esc(s) {
+          return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+          });
+        }
+
+        function buildFields(cat) {
+          currentCat = cat;
+          var def = CATEGORIES[cat];
+          hint.textContent = def.title + ' selected.';
+          var html = def.fields.map(function (f) {
+            var id = 'ask-f-' + f.name;
+            var inner;
+            if (f.type === 'textarea') {
+              inner = '<textarea id="' + id + '" name="' + f.name + '"></textarea>';
+            } else if (f.type === 'select') {
+              inner = '<select id="' + id + '" name="' + f.name + '"><option value="">Select…</option>' +
+                f.options.map(function (o) { return '<option>' + esc(o) + '</option>'; }).join('') + '</select>';
+            } else if (f.type === 'checkbox') {
+              inner = '<input type="checkbox" id="' + id + '" name="' + f.name + '" style="width:auto; margin-right:8px;" />';
+            } else {
+              inner = '<input type="text" id="' + id + '" name="' + f.name + '" />';
+            }
+            return '<div class="ask-field" data-field="' + f.name + '">' +
+              '<label for="' + id + '">' + esc(f.label) + (f.required ? ' <span class="req">(required)</span>' : '') + '</label>' +
+              inner +
+              '<p class="field-error">This field is required.</p>' +
+              '</div>';
+          }).join('');
+          if (cat === 'security') {
+            html += '<p class="ask-note" style="border-left: 3px solid var(--warn); padding-left: 12px;"><strong>Do not open a public GitHub issue for security vulnerabilities.</strong> This form routes your report to GitHub’s private security advisory channel, where only the repository owner can read it.</p>';
+          }
+          fieldsHost.innerHTML = html;
+        }
+
+        Array.prototype.forEach.call(form.querySelectorAll('input[name="category"]'), function (radio) {
+          radio.addEventListener('change', function () {
+            if (radio.checked) buildFields(radio.value);
+          });
+        });
+
+        function setStatus(html, cls) {
+          status.hidden = false;
+          status.className = 'form-status' + (cls ? ' ' + cls : '');
+          status.innerHTML = html;
+        }
+
+        function clearStatus() {
+          status.hidden = true;
+          status.textContent = '';
+          status.className = 'form-status';
+        }
+
+        function validate() {
+          var ok = true;
+          function fail(name, msg) {
+            var w = fieldsHost.querySelector('[data-field="' + name + '"]');
+            if (w) {
+              w.classList.add('has-error');
+              var fe = w.querySelector('.field-error');
+              if (fe && msg) fe.textContent = msg;
+            }
+            ok = false;
+          }
+          fieldsHost.querySelectorAll('.ask-field').forEach(function (w) { w.classList.remove('has-error'); });
+
+          if (!currentCat) {
+            hint.textContent = 'Select a category first.';
+            hint.classList.add('is-error');
+            return false;
+          }
+          hint.classList.remove('is-error');
+
+          CATEGORIES[currentCat].fields.forEach(function (f) {
+            var el = fieldsHost.querySelector('[name="' + f.name + '"]');
+            if (!el) return;
+            if (f.type === 'checkbox') {
+              if (f.required && !el.checked) fail(f.name);
+            } else if (f.required && !el.value.trim()) {
+              fail(f.name);
+            }
+          });
+
+          var email = doc.getElementById('ask-email').value.trim();
+          var phone = doc.getElementById('ask-phone').value.trim();
+          var emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+          var phoneOk = /^[+()\-.\s\d]{6,20}$/.test(phone);
+          if (!email && !phone) {
+            fail('email', 'Provide an email address or a phone number.');
+            fail('phone', 'Provide a phone number or an email address.');
+          } else {
+            if (email && !emailOk) fail('email', 'Enter a valid email address.');
+            if (phone && !phoneOk) fail('phone', 'Enter a valid phone number.');
+          }
+          return ok;
+        }
+
+        var lastPayload = null;
+
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          clearStatus();
+          if (!validate()) {
+            setStatus('Please fix the highlighted fields and try again.', 'is-error');
+            return;
+          }
+          if (honeypot && honeypot.value) return; // bot: silently drop
+
+          var data = { category: currentCat, fields: {} };
+          CATEGORIES[currentCat].fields.forEach(function (f) {
+            var el = fieldsHost.querySelector('[name="' + f.name + '"]');
+            if (!el) return;
+            data.fields[f.name] = f.type === 'checkbox' ? el.checked : el.value.trim();
+          });
+          data.contact_email = doc.getElementById('ask-email').value.trim();
+          data.contact_phone = doc.getElementById('ask-phone').value.trim();
+
+          var payloadKey = JSON.stringify(data);
+          if (payloadKey === lastPayload && submitBtn.disabled) return;
+          lastPayload = payloadKey;
+
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Submitting…';
+          setStatus('Submitting your ' + CATEGORIES[currentCat].title.toLowerCase() + '…');
+
+          fetch('/api/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          }).then(function (r) {
+            return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+          }).then(function (res) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Submit';
+            if (res.ok && res.body.ok) {
+              if (res.body.url) {
+                setStatus('Thank you! Your submission was filed as <a href="' + esc(res.body.url) + '" target="_blank" rel="noopener">issue #' + esc(String(res.body.number)) + '</a>.', 'is-success');
+              } else {
+                setStatus('Thank you! Your private security report has been received and will be handled confidentially.' + (res.body.reference ? ' Reference: <code>' + esc(res.body.reference) + '</code>' : ''), 'is-success');
+              }
+              resetBtn.hidden = false;
+              submitBtn.disabled = true;
+            } else {
+              var msg = (res.body && res.body.error) || 'Submission failed. Please try again.';
+              var retry = (res.body && res.body.retry_after) ? ' You can retry in ' + esc(String(res.body.retry_after)) + 's.' : '';
+              setStatus(esc(msg) + retry, 'is-error');
+              lastPayload = null;
+            }
+          }).catch(function () {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Submit';
+            lastPayload = null;
+            setStatus('Network error — your information is preserved below. Please try again.', 'is-error');
+          });
+        });
+
+        resetBtn.addEventListener('click', function () {
+          form.reset();
+          fieldsHost.innerHTML = '';
+          hint.textContent = 'Select a category to continue.';
+          currentCat = null;
+          lastPayload = null;
+          clearStatus();
+          resetBtn.hidden = true;
+          submitBtn.disabled = false;
+        });
+      })();
+
     })();
   </script>
 </body>
