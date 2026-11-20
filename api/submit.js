@@ -40,7 +40,7 @@ function cleanStr(v, max = MAX_FIELD) {
 
 function mdEsc(s) {
   // Prevent Markdown/HTML injection into issue bodies: no leading headers/links forgery.
-  return s.replace(/^#/gm, '#​').replace(/</g, '&lt;');
+  return String(s == null ? '' : s).replace(/^#/gm, '#​').replace(/</g, '&lt;');
 }
 
 function checkRate(ip) {
@@ -65,7 +65,8 @@ function ghHeaders(token) {
   };
 }
 
-function buildBody(category, f) {
+function buildBody(category, f, credit) {
+  const creditLine = credit ? '<sub>Reported by [@' + credit + '](https://github.com/' + credit + ').</sub>\n' : '';
   const lines = [];
   if (category === 'bug') {
     lines.push('### Affected component', f.component || '_not provided_', '');
@@ -78,6 +79,7 @@ function buildBody(category, f) {
     lines.push('### Windows environment', f.windowsEnv || '_not provided_', '');
     lines.push('### Logs and screenshots', mdEsc(f.logs || '_not provided_'), '');
     lines.push('### Additional context', mdEsc(f.additional || '_not provided_'), '');
+    if (creditLine) lines.push(creditLine);
     lines.push('_Submitted via the Tether website Ask a Question form._');
   } else if (category === 'feature') {
     lines.push('### Problem or use case', mdEsc(f.problem), '');
@@ -85,20 +87,26 @@ function buildBody(category, f) {
     lines.push('### Relevant component', f.component || '_not provided_', '');
     lines.push('### Alternatives considered', mdEsc(f.alternatives || '_not provided_'), '');
     lines.push('### Additional context', mdEsc(f.context || '_not provided_'), '');
+    if (creditLine) lines.push(creditLine);
     lines.push('_Submitted via the Tether website Ask a Question form._');
   } else {
     lines.push('### Your message', mdEsc(f.message), '');
     lines.push('### Suggestions or feedback', mdEsc(f.feedback || '_not provided_'), '');
     lines.push('### Acknowledgements', f.ack ? '- [x] No passwords, private keys, tokens, or other sensitive information included.' : '- [ ] (missing)', '');
+    if (creditLine) lines.push(creditLine);
     lines.push('_Submitted via the Tether website Ask a Question form._');
   }
   return lines.join('\n').slice(0, MAX_BODY);
 }
 
 // Contact details go ONLY here — a private repo owned by the maintainer.
-async function storeContact(ref, email, phone, token, contactsRepo) {
+async function storeContact(ref, email, phone, github, githubPublic, token, contactsRepo) {
   const content = Buffer.from(
-    JSON.stringify({ ref, email: email || null, phone: phone || null, at: new Date().toISOString() }, null, 2)
+    JSON.stringify({
+      ref, email: email || null, phone: phone || null,
+      github: github || null, github_public: !!githubPublic,
+      at: new Date().toISOString()
+    }, null, 2)
   ).toString('base64');
   const res = await fetch(`${API}/repos/${contactsRepo}/contents/${ref}.json`, {
     method: 'PUT',
@@ -160,8 +168,13 @@ module.exports = async (req, res) => {
 
   const email = cleanStr(body.contact_email, 200);
   const phone = cleanStr(body.contact_phone, 30);
+  const github = cleanStr(body.contact_github, 40);
+  const githubPublic = github && body.contact_github_public === true;
   if (!email && !phone) {
     return json(res, 400, { ok: false, error: 'Contact information (email or phone) is required.' });
+  }
+  if (github && !/^[a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38}$/.test(github)) {
+    return json(res, 400, { ok: false, error: 'Invalid GitHub username format.' });
   }
 
   const ref = `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -173,7 +186,7 @@ module.exports = async (req, res) => {
       if (f.ack !== true) {
         return json(res, 400, { ok: false, error: 'You must acknowledge confidential handling.' });
       }
-      await storeContact(ref, email, phone, process.env.PRIVATE_REPO_TOKEN || token, contactsRepo);
+      await storeContact(ref, email, phone, github, false, process.env.PRIVATE_REPO_TOKEN || token, contactsRepo);
       const detail = [
         `Ref: ${ref}`,
         `Affected component: ${f.component || 'unspecified'}`,
@@ -210,7 +223,7 @@ module.exports = async (req, res) => {
 
     const titleGuess = f.description || f.problem || f.message || '';
     const title = `[${tpl.title}]: ${titleGuess.split('\n')[0].slice(0, 80) || ref}`;
-    const issueBody = buildBody(category, f);
+    const issueBody = buildBody(category, f, githubPublic ? github : null);
 
     const created = await fetch(`${API}/repos/${REPO}/issues`, {
       method: 'POST',
@@ -226,7 +239,7 @@ module.exports = async (req, res) => {
 
     // Store contact details privately, associated with the issue number.
     try {
-      await storeContact(`issue-${issue.number}`, email, phone, process.env.PRIVATE_REPO_TOKEN || token, contactsRepo);
+      await storeContact(`issue-${issue.number}`, email, phone, github, githubPublic, process.env.PRIVATE_REPO_TOKEN || token, contactsRepo);
     } catch (e) {
       console.error(`contact storage failed for issue ${issue.number}: ${e.message}`);
       // Issue exists; contact association failed. Report success but note it for the maintainer.
