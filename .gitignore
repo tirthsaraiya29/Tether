@@ -75,6 +75,7 @@ data/logs/
 data/secure-storage/
 *.docx
 "codes copier.py"
+skills/**
 
 # -----------------------------------------------------------------------------
 # Inno Setup — installer build artifacts
