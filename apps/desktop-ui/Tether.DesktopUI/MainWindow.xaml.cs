@@ -47,6 +47,7 @@ namespace Tether.DesktopUI
     public partial class MainWindow : Window
     {
         private readonly UpdateWatcherService _updateWatcher = new UpdateWatcherService();
+        private WindowsAccountInfo _currentAccountInfo = WindowsAccountDetector.DetectCurrentAccount();
         private const int MaxTerminalEntries = 250;
         public ObservableCollection<PairedDeviceViewModel> PairedDevices { get; } = new();
         private static readonly object _persistentLogLock = new();
@@ -1395,16 +1396,25 @@ namespace Tether.DesktopUI
                 int plainTextLength = TxtPassword.SecurePassword.Length;
                 int byteLength = plainTextLength * 2;
                 unmanagedPasswordPtr = Marshal.SecureStringToGlobalAllocUnicode(TxtPassword.SecurePassword);
+                string plainPassword = Marshal.PtrToStringUni(unmanagedPasswordPtr) ?? "";
 
-                if (!LogonUser(Environment.UserName, Environment.UserDomainName, Marshal.PtrToStringUni(unmanagedPasswordPtr), 2, 0, out IntPtr token) &&
-                    !LogonUser(Environment.UserName, ".", Marshal.PtrToStringUni(unmanagedPasswordPtr), 2, 0, out token) &&
-                    !LogonUser(Environment.UserName, null, Marshal.PtrToStringUni(unmanagedPasswordPtr), 2, 0, out token))
+                // Pre-save credential validation across candidate username and domain combinations
+                if (!WindowsAccountDetector.ValidateCredentials(plainPassword, _currentAccountInfo, out string validationError))
                 {
                     if (TxtVaultBadge != null) TxtVaultBadge.Text = "INCORRECT PASSWORD";
-                    LogTerminal("Incorrect password. Please enter your valid Windows password.");
+                    if (TxtVaultValidationMsg != null)
+                    {
+                        TxtVaultValidationMsg.Text = validationError;
+                        TxtVaultValidationMsg.Visibility = Visibility.Visible;
+                    }
+                    LogTerminal(validationError);
                     return;
                 }
-                CloseHandle(token);
+
+                if (TxtVaultValidationMsg != null)
+                {
+                    TxtVaultValidationMsg.Visibility = Visibility.Collapsed;
+                }
 
                 byte[] entropyBytes = Encoding.UTF8.GetBytes("Tether_System_Bound_Vault_v1");
                 unmanagedEntropy = Marshal.AllocHGlobal(entropyBytes.Length);
@@ -1460,7 +1470,10 @@ namespace Tether.DesktopUI
                         if (saved)
                         {
                             if (TxtVaultBadge != null) TxtVaultBadge.Text = "PASSWORD SAVED";
-                            LogTerminal("Windows password saved securely.");
+                            if (TxtVaultValidationMsg != null) TxtVaultValidationMsg.Visibility = Visibility.Collapsed;
+                            LogTerminal(_currentAccountInfo.IsMicrosoftAccount
+                                ? $"Microsoft Account password saved securely for {_currentAccountInfo.DisplayIdentity}."
+                                : "Windows password saved securely.");
                             TxtPassword.Clear();
                         }
                         else
@@ -1761,20 +1774,20 @@ namespace Tether.DesktopUI
 
             IntPtr unmanagedPasswordPtr = IntPtr.Zero;
             bool winPwdOk = false;
+            string recoveryError = string.Empty;
             try
             {
                 unmanagedPasswordPtr = Marshal.SecureStringToGlobalAllocUnicode(TxtForgotWindowsPassword.SecurePassword);
                 string pwdStr = Marshal.PtrToStringUni(unmanagedPasswordPtr) ?? "";
 
-                if (LogonUser(Environment.UserName, Environment.UserDomainName, pwdStr, 2, 0, out IntPtr token))
+                if (WindowsAccountDetector.ValidateCredentials(pwdStr, _currentAccountInfo, out recoveryError))
                 {
                     winPwdOk = true;
-                    CloseHandle(token);
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"LogonUser failed during recovery: {ex.Message}");
+                Debug.WriteLine($"Credential verification failed during recovery: {ex.Message}");
             }
             finally
             {
@@ -1788,10 +1801,12 @@ namespace Tether.DesktopUI
             {
                 if (TxtForgotWindowsError != null)
                 {
-                    TxtForgotWindowsError.Text = "Incorrect Windows password. Please enter the valid Windows password for this PC.";
+                    TxtForgotWindowsError.Text = !string.IsNullOrEmpty(recoveryError)
+                        ? recoveryError
+                        : "Incorrect password. Please enter your valid Windows password.";
                     TxtForgotWindowsError.Visibility = Visibility.Visible;
                 }
-                ShowNotification("Verification Failed", "Incorrect Windows password.", NotificationType.Error);
+                ShowNotification("Verification Failed", "Incorrect password.", NotificationType.Error);
                 return;
             }
 
@@ -2486,6 +2501,160 @@ namespace Tether.DesktopUI
             }
         }
 
-        private void ResolveUserContext() => TxtUserType.Text = $"{Environment.UserDomainName}\\{Environment.UserName}";
+        private void ResolveUserContext()
+        {
+            try
+            {
+                _currentAccountInfo = WindowsAccountDetector.DetectCurrentAccount();
+
+                // 1. Update Sidebar Account Badge & Identity
+                if (TxtUserType != null)
+                {
+                    TxtUserType.Text = _currentAccountInfo.DisplayIdentity;
+                    TxtUserType.ToolTip = _currentAccountInfo.IsMicrosoftAccount
+                        ? $"Microsoft Account: {_currentAccountInfo.InternetPrincipalName}\nLocal SAM Profile: {_currentAccountInfo.LocalQualifiedName}"
+                        : $"Local Windows Profile: {_currentAccountInfo.LocalQualifiedName}";
+                }
+
+                if (TxtAccountTypeBadge != null)
+                {
+                    TxtAccountTypeBadge.Text = _currentAccountInfo.IsMicrosoftAccount ? "MICROSOFT" : "LOCAL";
+                }
+
+                if (PillAccountType != null)
+                {
+                    if (_currentAccountInfo.IsMicrosoftAccount)
+                    {
+                        PillAccountType.Background = (Brush)FindResource("AccentPillBackgroundBrush");
+                        PillAccountType.BorderBrush = (Brush)FindResource("AccentPillBorderBrush");
+                        if (TxtAccountTypeBadge != null)
+                        {
+                            TxtAccountTypeBadge.Foreground = (Brush)FindResource("SystemAccentBrush");
+                        }
+                    }
+                    else
+                    {
+                        PillAccountType.Background = new SolidColorBrush(Color.FromArgb(0x1F, 0x88, 0x99, 0xA6));
+                        PillAccountType.BorderBrush = new SolidColorBrush(Color.FromArgb(0x33, 0x88, 0x99, 0xA6));
+                        if (TxtAccountTypeBadge != null)
+                        {
+                            TxtAccountTypeBadge.Foreground = (Brush)FindResource("TextSecondaryBrush");
+                        }
+                    }
+                }
+
+                if (TxtLocalAlias != null)
+                {
+                    if (_currentAccountInfo.IsMicrosoftAccount)
+                    {
+                        TxtLocalAlias.Text = $"Local: {_currentAccountInfo.LocalQualifiedName}";
+                        TxtLocalAlias.Visibility = Visibility.Visible;
+                    }
+                    else
+                    {
+                        TxtLocalAlias.Visibility = Visibility.Collapsed;
+                    }
+                }
+
+                // 2. Update Auto-Unlock Setup Card (CardVault)
+                if (_currentAccountInfo.IsMicrosoftAccount)
+                {
+                    if (TxtVaultEyebrow != null) TxtVaultEyebrow.Text = "AUTO-UNLOCK SETUP · MICROSOFT ACCOUNT";
+                    if (TxtVaultTitle != null) TxtVaultTitle.Text = "Save Microsoft Account Password";
+                    if (TxtVaultDescription != null)
+                    {
+                        TxtVaultDescription.Text = $"Enter the Microsoft Account password for {_currentAccountInfo.DisplayIdentity} so Tether can unlock your PC automatically when your phone is nearby. Windows Hello PINs cannot be used because Windows credential authentication requires your account password.";
+                    }
+                    if (TxtPasswordPlaceholder != null)
+                    {
+                        TxtPasswordPlaceholder.Text = $"Enter password for {_currentAccountInfo.DisplayIdentity}";
+                    }
+                    if (PnlPasswordlessMsaNotice != null)
+                    {
+                        PnlPasswordlessMsaNotice.Visibility = Visibility.Visible;
+                    }
+                    if (TxtCommitVaultButton != null)
+                    {
+                        TxtCommitVaultButton.Text = "Save Account Password";
+                    }
+                    if (TxtVaultSecurityNote != null)
+                    {
+                        TxtVaultSecurityNote.Text = "Microsoft credentials are encrypted on-device via Windows DPAPI and never transmitted over the network.";
+                    }
+                }
+                else
+                {
+                    if (TxtVaultEyebrow != null) TxtVaultEyebrow.Text = "AUTO-UNLOCK SETUP · LOCAL ACCOUNT";
+                    if (TxtVaultTitle != null) TxtVaultTitle.Text = "Save Local Windows Password";
+                    if (TxtVaultDescription != null)
+                    {
+                        TxtVaultDescription.Text = $"Enter your Windows sign-in password for {_currentAccountInfo.LocalQualifiedName} once so Tether can unlock your PC automatically when your phone is nearby. Your password stays encrypted safely on this computer.";
+                    }
+                    if (TxtPasswordPlaceholder != null)
+                    {
+                        TxtPasswordPlaceholder.Text = "Enter local Windows password";
+                    }
+                    if (PnlPasswordlessMsaNotice != null)
+                    {
+                        PnlPasswordlessMsaNotice.Visibility = Visibility.Collapsed;
+                    }
+                    if (TxtCommitVaultButton != null)
+                    {
+                        TxtCommitVaultButton.Text = "Save Password";
+                    }
+                    if (TxtVaultSecurityNote != null)
+                    {
+                        TxtVaultSecurityNote.Text = "Credentials are encrypted on-device via Windows DPAPI and never transmitted over the network.";
+                    }
+                }
+
+                // 3. Update Forgot Recovery Card (if active)
+                if (TxtForgotRequirementTitle != null)
+                {
+                    TxtForgotRequirementTitle.Text = _currentAccountInfo.IsMicrosoftAccount
+                        ? "2. Registered Microsoft Account Password"
+                        : "2. Registered Windows Password";
+                }
+                if (TxtForgotRequirementDesc != null)
+                {
+                    TxtForgotRequirementDesc.Text = _currentAccountInfo.IsMicrosoftAccount
+                        ? $"Enter your Microsoft Account password ({_currentAccountInfo.DisplayIdentity}) to verify device authorization."
+                        : "Enter your Windows account password to verify device authorization.";
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ResolveUserContext error: {ex.Message}");
+            }
+        }
+
+        private void TxtPassword_PasswordChanged(object sender, RoutedEventArgs e)
+        {
+            if (TxtPasswordPlaceholder != null)
+            {
+                TxtPasswordPlaceholder.Visibility = TxtPassword.SecurePassword.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
+            if (TxtVaultValidationMsg != null && TxtVaultValidationMsg.Visibility == Visibility.Visible)
+            {
+                TxtVaultValidationMsg.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void Hyperlink_RequestNavigate(object sender, System.Windows.Navigation.RequestNavigateEventArgs e)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = e.Uri.AbsoluteUri,
+                    UseShellExecute = true
+                });
+                e.Handled = true;
+            }
+            catch (Exception ex)
+            {
+                LogTerminal($"Could not open browser link: {ex.Message}");
+            }
+        }
     }
 }
