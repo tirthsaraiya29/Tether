@@ -1,4 +1,8 @@
-# Tether
+<p align="center">
+  <img src="docs/assets/branding/tether-logo-1024.png" width="160" height="160" alt="Tether Brand Logo" />
+</p>
+
+<h1 align="center">Tether</h1>
 
 **Adaptive personal trust and security system for Windows and Android.**
 
@@ -17,14 +21,15 @@
 - [Installation and Setup](#installation-and-setup)
 - [Use Cases and Value Proposition](#use-cases-and-value-proposition)
 - [Key Features](#key-features)
-- [Visual Highlights and UI Screenshots](#visual-highlights-and-ui-screenshots)
 - [Architecture and System Design](#architecture-and-system-design)
 - [Architecture Deep Dive for Contributors](#architecture-deep-dive-for-contributors)
+- [Visual Highlights and UI Screenshots](#visual-highlights-and-ui-screenshots)
 - [Supported Platforms](#supported-platforms)
 - [Prerequisites](#prerequisites)
 - [Quick Start and Usage](#quick-start-and-usage)
 - [Security Model](#security-model)
 - [Project Structure](#project-structure)
+- [Brand Identity &amp; Visual Assets](docs/BRANDING.md)
 - [Configuration](#configuration)
 - [Troubleshooting and Error Matrix](#troubleshooting-and-error-matrix)
 - [Roadmap](#roadmap)
@@ -110,6 +115,7 @@ Download prebuilt binaries directly from the official releases:
 - **Workstation Locking:** Requests immediate workstation locking through the configured command path.
 - **Trust Revocation:** Invalidates active trust relationships and associated session state.
 - **Emergency Command Dispatch:** Dedicated workflow for high-priority security events.
+- **Safe Credential Provider Restoration:** Safely captures pre-filter visibility states and idempotently restores exclusively Tether-hidden credential providers upon panic unlock, never unhiding third-party or system providers that were already hidden.
 
 ### Continuous Trust Validation
 
@@ -119,7 +125,9 @@ Download prebuilt binaries directly from the official releases:
 
 ### Windows Integration
 
-- **Custom Credential Provider:** Native C++ Win32 Credential Provider integration through `TetherCredentialProvider`.
+- **Custom Credential Provider:** Native C++ Win32 Credential Provider integration through `TetherCredentialProvider` with thread-safe COM event callbacks, non-blocking asynchronous IPC synchronization, seamless sign-in option switching, direct service management (start/restart), and multi-user credential enumeration on the secure logon desktop.
+- **Immediate Power State Synchronization:** Instantaneous detection of Windows shutdown and restart events via `EventLogWatcher` (USER32 Event ID 1074) and `WM_QUERYENDSESSION` handling in interactive components, immediately syncing powered off and restarting states to Android before link loss.
+- **On-Demand Unlock Prompts:** Unlock prompts trigger exclusively when requested by the Credential Provider, keeping routine lock events quiet.
 - **Communication Service:** `Tether.CommunicationService` handles local network communication, packet routing, and command dispatch.
 - **Interactive Session Helper:** `Tether.SessionHelper.exe` operates inside active user sessions for session-bound operations.
 - **Desktop Configuration UI:** `Tether.DesktopUI` provides an interface for status monitoring, configuration, and diagnostics.
@@ -128,7 +136,7 @@ Download prebuilt binaries directly from the official releases:
 
 ### Expanded Capability Ecosystem
 
-Tether provides nine integrated remote capability domains accessible from the Android companion app:
+Tether provides eight integrated remote capability domains accessible from the Android companion app:
 
 1. **Remote Desktop Streaming:**
    - Real-time low-latency screen streaming (multipart MJPEG on Port 37124).
@@ -147,25 +155,21 @@ Tether provides nine integrated remote capability domains accessible from the An
    - Scrollable monospace output canvas with streaming UTF-8 I/O.
    - Virtual terminal shortcut bar (Tab, Ctrl+C, Esc, Arrow keys) and quick diagnostic presets.
 
-4. **Bidirectional Clipboard Synchronization:**
-   - Live synchronization of text between Windows and Android clipboards.
-   - SHA-256 content hashing to eliminate echo loops.
-   - Remote Copy (Ctrl+C) and Remote Paste (Ctrl+V) command execution.
-   - Local clipboard history buffer.
-
-5. **Notification Bridge:**
+4. **Notification Bridge:**
    - Windows toast notification forwarding to the companion app.
    - Android notification mirroring to Windows desktop toasts via NotificationListenerService.
    - Remote notification dismissal across devices.
 
-6. **Advanced File Management:**
+5. **Advanced File Management:**
    - Directory navigation with recursive search.
    - Remote file renaming, moving, and folder creation.
    - Recycle Bin integration for safe deletion with optional permanent removal.
    - One-tap Recycle Bin emptying.
    - Resumable chunked file transfers protected by SHA-512 integrity hashes.
+   - Live bidirectional progress bar notifications with transfer speed (MB/s), ETA calculations, and saved location indicators on both Windows and Android.
+   - Direct "Open Folder" explorer shortcut and tap-to-view notification triggers upon completion.
 
-7. **Windows Administration and Diagnostics:**
+6. **Windows Administration and Diagnostics:**
    - Hardware telemetry: CPU load percentage, RAM usage, logical disk storage meters, and network adapter throughput.
    - Battery health analytics: Design capacity, full charge capacity, wear level percentage, and charge cycle counts via WMI.
    - Windows ACPI power plan switching via native powrprof APIs.
@@ -173,11 +177,11 @@ Tether provides nine integrated remote capability domains accessible from the An
    - Windows Services control: start, stop, and restart services by name.
    - Windows Update queries: pending update counts and title inspection.
 
-8. **Application and Window Management:**
+7. **Application and Window Management:**
    - Start Menu catalog scanning with one-tap application launching.
    - Live desktop window management: focus, left/right snap, maximize, minimize, graceful close, and process termination.
 
-9. **Automation Workflows:**
+8. **Automation Workflows:**
    - Persistent multi-command workflow recipes stored on the Windows host.
    - Trigger options: manual execution, recurring time intervals, and scheduled wall-clock times.
    - Conditional evaluation: execution gated on battery level, charging status, or process presence.
@@ -186,92 +190,8 @@ Tether provides nine integrated remote capability domains accessible from the An
 ### Android Update Checks and Permissions
 
 - **Background update notifications:** A foreground `UpdateCheckService` checks GitHub releases on a dedicated notification channel and offers an in-app update dialog.
-- **Permissions dashboard:** A dedicated Permissions screen, plus a dashboard banner, tracks the runtime permissions Tether needs (nearby Wi-Fi, location, notifications, battery optimization exemption, overlays, full-screen intents) and offers one-tap grant actions.
----
-
-## Visual Highlights and UI Screenshots
-
-**Screenshot directory:** `docs/assets/screenshots/`
-
-### Workstation Control Plane
-
-The Windows desktop interface provides IPC diagnostics, system audio and display-brightness controls, and DPAPI-backed local vault integration.
-
-<p align="center">
-  <img src="docs/assets/screenshots/desktop-telemetry-control-plane.png" alt="Tether Windows Desktop Telemetry Control Plane" width="100%" />
-</p>
-
-<p align="center">
-  <em><strong>Desktop Telemetry Control Plane</strong> — IPC diagnostic event stream, Core Audio and display-brightness integrations, and DPAPI-backed local vault subsystem.</em>
-</p>
-
-### Mobile Command and Input Experience
-
-<table>
-  <tr>
-    <td width="50%" align="center" valign="top">
-      <img src="docs/assets/screenshots/android-command-center.jpg" alt="Tether Mobile Trust Command Center" width="85%" />
-      <br /><br />
-      <strong>Mobile Trust Command Center</strong>
-      <p>Workstation connection status, lock and unlock controls, emergency lockdown, audio controls, and brightness sliders.</p>
-    </td>
-    <td width="50%" align="center" valign="top">
-      <img src="docs/assets/screenshots/android-remote-trackpad.jpg" alt="Tether Remote Trackpad and Modifier Keys" width="85%" />
-      <br /><br />
-      <strong>Remote Trackpad</strong>
-      <p>Cursor movement, scrolling, and supported Windows modifier-key input.</p>
-    </td>
-  </tr>
-</table>
-
-### Remote Execution and Handshake Security
-
-<table>
-  <tr>
-    <td width="50%" align="center" valign="top">
-      <img src="docs/assets/screenshots/android-system-apps-launcher.jpg" alt="Tether System Applications Launcher" width="85%" />
-      <br /><br />
-      <strong>System Application Launcher</strong>
-      <p>Session-aware requests to launch supported utilities, including Terminal, Task Manager, File Explorer, and Windows Settings.</p>
-    </td>
-    <td width="50%" align="center" valign="top">
-      <img src="docs/assets/screenshots/android-handshake-verified.jpg" alt="Tether Cryptographic Handshake Verification" width="85%" />
-      <br /><br />
-      <strong>Handshake Verification</strong>
-      <p>Connection verification and authorization-state checks before sensitive command dispatch.</p>
-    </td>
-  </tr>
-</table>
-
-### Identity Pinning and Device Integrity
-
-<table>
-  <tr>
-    <td width="50%" align="center" valign="top">
-      <img src="docs/assets/screenshots/android-device-pairing.jpg" alt="Tether Cryptographic Device Pairing" width="85%" />
-      <br /><br />
-      <strong>Cryptographic Device Pairing</strong>
-      <p>Public-key fingerprint verification and persistent identity binding between Android and Windows.</p>
-    </td>
-    <td width="50%" align="center" valign="top">
-      <img src="docs/assets/screenshots/android-system-config-integrity.jpg" alt="Tether Device Integrity and Security Policy Configuration" width="85%" />
-      <br /><br />
-      <strong>Device Integrity and Policy Configuration</strong>
-      <p>Device-security signals, runtime policies, and socket-daemon controls.</p>
-    </td>
-  </tr>
-</table>
-
-### Local Network Connectivity
-
-<p align="center">
-  <img src="docs/assets/screenshots/local-lan-connectivity.jpg" alt="Tether Local LAN Connectivity" width="45%" />
-</p>
-
-<p align="center">
-  <em><strong>Local Network Boundary</strong> — Designed for direct communication between paired devices on a supported local Wi-Fi/LAN network.</em>
-</p>
-
+- **In-app updates:** Downloading the update APK happens inside the app; the package is signature-checked against the installed app before the system installer is invoked. "Install unknown apps" is requested as part of the Permissions screen.
+- **Permissions screen:** A dedicated Permissions screen, reachable after the app lock is unlocked, tracks the runtime permissions Tether needs (nearby Wi-Fi, location, notifications, notification listener access, battery optimization exemption, overlays, full-screen intents, install-unknown-apps) and offers per-item grant actions. Nothing is auto-prompted at first launch.
 ---
 
 ## Architecture and System Design
@@ -281,6 +201,7 @@ Tether connects an Android companion application to a Windows workstation throug
 ### Component Interaction Diagram
 
 ```mermaid
+flowchart TD
 
 subgraph group_android["Android companion"]
   node_android_ui["Companion UI<br/>[MainActivity.kt]"]
@@ -362,33 +283,33 @@ node_event_bus -.->|"signals lockdown"| node_enforcement
 node_phone_service -.->|"shows pairing prompt"| node_user
 node_workstation -.->|"local Wi-Fi"| node_phone
 
-click node_android_ui "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/MainActivity.kt"
-click node_identity "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/ProductionSecurityEngine.kt"
-click node_discovery "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/TetherDiscoveryManager.kt"
-click node_phone_service "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/TetherLanService.kt"
-click node_phone_transport "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/TetherTransport.kt"
-click node_remote_input "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/RemoteInputEngine.kt"
-click node_phone_files "https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/FileTransferClient.kt"
-click node_desktop_ui "https://github.com/tirthsaraiya29/tether/blob/beta/apps/desktop-ui/Tether.DesktopUI/MainWindow.xaml.cs"
-click node_service "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Program.cs"
-click node_server "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Transport/TetherTcpServer.cs"
-click node_session "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Transport/TetherSession.cs"
-click node_router "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Protocol/PacketRouter.cs"
-click node_device_registry "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Devices/DeviceManager.cs"
-click node_trust_store "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Trust/TrustStore.cs"
-click node_pairing "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Pairing/PairingManager.cs"
-click node_identity_win "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Security/WindowsIdentity.cs"
-click node_event_bus "https://github.com/tirthsaraiya29/tether/blob/beta/services/event-bus/Tether.EventBus/InMemoryEventBus.cs"
-click node_trust_engine "https://github.com/tirthsaraiya29/tether/blob/beta/services/trust-engine/Tether.TrustEngine/TrustStateManager.cs"
-click node_panic "https://github.com/tirthsaraiya29/tether/blob/beta/services/panic-engine/Tether.PanicEngine/PanicManager.cs"
-click node_recovery "https://github.com/tirthsaraiya29/tether/blob/beta/services/recovery-engine/Tether.RecoveryEngine/RecoveryManager.cs"
-click node_enforcement "https://github.com/tirthsaraiya29/tether/blob/beta/services/enforcement-engine/Tether.EnforcementEngine/EnforcementManager.cs"
-click node_capabilities "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Capabilities/CapabilityManager.cs"
-click node_hardware "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Capabilities/HardwareExecutor.cs"
-click node_laptop_state "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Capabilities/LaptopStateCollector.cs"
-click node_session_helper "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.SessionHelper/Program.cs"
-click node_file_server "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/FileTransfer/FileTransferServer.cs"
-click node_token_store "https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/FileTransfer/TokenStore.cs"
+click node_android_ui "[https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/MainActivity.kt](https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/MainActivity.kt)"
+click node_identity "[https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/ProductionSecurityEngine.kt](https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/ProductionSecurityEngine.kt)"
+click node_discovery "[https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/TetherDiscoveryManager.kt](https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/TetherDiscoveryManager.kt)"
+click node_phone_service "[https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/TetherLanService.kt](https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/TetherLanService.kt)"
+click node_phone_transport "[https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/TetherTransport.kt](https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/TetherTransport.kt)"
+click node_remote_input "[https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/RemoteInputEngine.kt](https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/RemoteInputEngine.kt)"
+click node_phone_files "[https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/FileTransferClient.kt](https://github.com/tirthsaraiya29/tether/blob/beta/apps/android-companion/app/src/main/java/com/tether/phone/FileTransferClient.kt)"
+click node_desktop_ui "[https://github.com/tirthsaraiya29/tether/blob/beta/apps/desktop-ui/Tether.DesktopUI/MainWindow.xaml.cs](https://github.com/tirthsaraiya29/tether/blob/beta/apps/desktop-ui/Tether.DesktopUI/MainWindow.xaml.cs)"
+click node_service "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Program.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Program.cs)"
+click node_server "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Transport/TetherTcpServer.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Transport/TetherTcpServer.cs)"
+click node_session "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Transport/TetherSession.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Transport/TetherSession.cs)"
+click node_router "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Protocol/PacketRouter.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Protocol/PacketRouter.cs)"
+click node_device_registry "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Devices/DeviceManager.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Devices/DeviceManager.cs)"
+click node_trust_store "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Trust/TrustStore.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Trust/TrustStore.cs)"
+click node_pairing "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Pairing/PairingManager.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Pairing/PairingManager.cs)"
+click node_identity_win "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Security/WindowsIdentity.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Security/WindowsIdentity.cs)"
+click node_event_bus "[https://github.com/tirthsaraiya29/tether/blob/beta/services/event-bus/Tether.EventBus/InMemoryEventBus.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/event-bus/Tether.EventBus/InMemoryEventBus.cs)"
+click node_trust_engine "[https://github.com/tirthsaraiya29/tether/blob/beta/services/trust-engine/Tether.TrustEngine/TrustStateManager.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/trust-engine/Tether.TrustEngine/TrustStateManager.cs)"
+click node_panic "[https://github.com/tirthsaraiya29/tether/blob/beta/services/panic-engine/Tether.PanicEngine/PanicManager.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/panic-engine/Tether.PanicEngine/PanicManager.cs)"
+click node_recovery "[https://github.com/tirthsaraiya29/tether/blob/beta/services/recovery-engine/Tether.RecoveryEngine/RecoveryManager.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/recovery-engine/Tether.RecoveryEngine/RecoveryManager.cs)"
+click node_enforcement "[https://github.com/tirthsaraiya29/tether/blob/beta/services/enforcement-engine/Tether.EnforcementEngine/EnforcementManager.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/enforcement-engine/Tether.EnforcementEngine/EnforcementManager.cs)"
+click node_capabilities "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Capabilities/CapabilityManager.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Capabilities/CapabilityManager.cs)"
+click node_hardware "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Capabilities/HardwareExecutor.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Capabilities/HardwareExecutor.cs)"
+click node_laptop_state "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Capabilities/LaptopStateCollector.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/Capabilities/LaptopStateCollector.cs)"
+click node_session_helper "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.SessionHelper/Program.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.SessionHelper/Program.cs)"
+click node_file_server "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/FileTransfer/FileTransferServer.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/FileTransfer/FileTransferServer.cs)"
+click node_token_store "[https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/FileTransfer/TokenStore.cs](https://github.com/tirthsaraiya29/tether/blob/beta/services/communication-service/Tether.CommunicationService/FileTransfer/TokenStore.cs)"
 
 classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
 classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
@@ -404,7 +325,6 @@ class node_capabilities,node_hardware,node_laptop_state,node_session_helper,node
 class node_phone,node_workstation toneIndigo
 ```
 
-
 ### Network Design Principles
 
 - **Transport:** TLS 1.3 over direct TCP.
@@ -412,7 +332,7 @@ class node_phone,node_workstation toneIndigo
 - **Discovery:** mDNS and UDP broadcast.
 - **Cloud Relay:** None.
 - **BLE:** Not used as the primary command transport.
-- **Mobile Hotspot:** Unsupported.
+- **Mobile Hotspot:** Supported (transparent direct discovery and connection via Android Hotspot SoftAP without requiring a Wi-Fi router).
 
 ### Architectural Source References
 
@@ -466,6 +386,99 @@ Windows components use named pipes for local inter-process communication:
 - **`Tether.InputPipe`:** Communication-service-to-session-helper stream for remote input events.
 
 Named pipes must be hardened with strict ACLs, process identity validation, and message length validation to prevent unauthorized local manipulation.
+
+---
+
+## Visual Highlights and UI Screenshots
+
+**Screenshot directory:** `docs/assets/screenshots/`
+
+### Workstation Control Plane
+
+The Windows desktop interface provides IPC diagnostics, system audio and display-brightness controls, and DPAPI-backed local vault integration.
+
+<p align="center">
+  <img src="docs/assets/screenshots/desktop-telemetry-control-plane.png" alt="Tether Windows Desktop Telemetry Control Plane" width="100%" />
+</p>
+
+<p align="center">
+  <em><strong>Desktop Telemetry Control Plane</strong> — IPC diagnostic event stream, Core Audio and display-brightness integrations, and DPAPI-backed local vault subsystem.</em>
+</p>
+
+### Mobile Command, Streaming, and Input
+
+<table>
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-command-center.jpg" alt="Tether Mobile Trust Command Center" width="92%" />
+      <br /><br />
+      <strong>Mobile Trust Command Center</strong>
+      <p>Workstation connection status, lock and unlock controls, emergency lockdown, audio controls, and brightness sliders.</p>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-remote-desktop.jpg" alt="Tether Remote Desktop Live Streaming" width="92%" />
+      <br /><br />
+      <strong>Remote Desktop Streaming</strong>
+      <p>Real-time 30 FPS MJPEG desktop and window streaming paired with an integrated high-speed touch trackpad.</p>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-remote-trackpad.jpg" alt="Tether Remote Trackpad and Modifier Keys" width="92%" />
+      <br /><br />
+      <strong>Remote Trackpad</strong>
+      <p>Cursor movement, scrolling, and supported Windows modifier-key input.</p>
+    </td>
+  </tr>
+</table>
+
+### Remote Execution and Session Control
+
+<table>
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-terminal.jpg" alt="Tether Interactive Remote Terminal" width="92%" />
+      <br /><br />
+      <strong>Interactive Remote Terminal</strong>
+      <p>Multi-session PowerShell, CMD, and WSL shell with streaming I/O and quick control-key shortcuts.</p>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-system-apps-launcher.jpg" alt="Tether Application and Window Management" width="92%" />
+      <br /><br />
+      <strong>Application &amp; Window Management</strong>
+      <p>Live desktop window focus, snap, maximize/minimize controls, and Start Menu application launching.</p>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-handshake-verified.jpg" alt="Tether Cryptographic Handshake Verification" width="92%" />
+      <br /><br />
+      <strong>Handshake Verification</strong>
+      <p>Connection verification and authorization-state checks before sensitive command dispatch.</p>
+    </td>
+  </tr>
+</table>
+
+### Identity Pinning, Integrity, and Local Network
+
+<table>
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-device-pairing.jpg" alt="Tether Cryptographic Device Pairing" width="92%" />
+      <br /><br />
+      <strong>Cryptographic Device Pairing</strong>
+      <p>Public-key fingerprint verification and persistent identity binding between Android and Windows.</p>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/assets/screenshots/android-system-config-integrity.jpg" alt="Tether Device Integrity and Security Policy Configuration" width="92%" />
+      <br /><br />
+      <strong>Device Integrity &amp; Policy Config</strong>
+      <p>Device-security signals, runtime policies, background persistence, and socket-daemon controls.</p>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/assets/screenshots/local-lan-connectivity.jpg" alt="Tether Local LAN Connectivity" width="92%" />
+      <br /><br />
+      <strong>Local Network Boundary</strong>
+      <p>Direct peer-to-peer communication between paired devices over local Wi-Fi/LAN without a cloud relay.</p>
+    </td>
+  </tr>
+</table>
 
 ---
 
@@ -526,7 +539,8 @@ All command payloads require:
 - Developer options status.
 
 ### 5. Windows Credential Storage & Password Verification
-- **Phone-app unlock only:** The Credential Provider no longer exposes a manual password fallback, a TPM-stored password option, or a phone-screen-unlock option. Unlock is driven by the paired Android app, which is validated against the trust store before the provider serializes a credential.
+- **Phone-app unlock only:** The Credential Provider tile (labeled simply **Tether**) offers a focused sign-in path driven by the paired Android app. It monitors phone connection state in real time and presents the "Send unlock prompt to phone" command link only when the phone is actively connected.
+- **Service Management from Logon Screen:** The Credential Provider allows starting or restarting `TetherCommService` directly from the secure logon UI.
 - **Registry Vault Hardening:** Credential secrets reside in a dedicated `HKLM\...\Secrets` registry subkey protected by hardened discretionary access control lists (`VaultDaclVersion=2`) restricted to privileged system accounts. The provider now also reads the legacy path under `HKLM\...\CredentialProvider` for backward compatibility.
 - **DPAPI protection:** The stored password payload remains protected with `CryptProtectData` using the `Tether_System_Bound_Vault_v1` entropy string.
 
@@ -594,8 +608,7 @@ Settings can be inspected and modified via `appsettings.json` within service dir
 
 | Error Code / Symptom | Root Cause | Resolution |
 | --- | --- | --- |
-| `HOTSPOT_UNSUPPORTED` | Mobile device running Wi-Fi tethering / AP mode. | Connect both devices as station clients on the same Wi-Fi router. |
-| `DISCOVERY_FAILED` | Multicast/mDNS packets blocked by router isolation or firewall. | Ensure Client Isolation is disabled on the router, or allow inbound UDP `37123` and `5353`. |
+| `DISCOVERY_FAILED` | Multicast/mDNS packets blocked by router isolation or firewall. | Ensure Client Isolation is disabled on the router, or allow inbound UDP `37124` and `5353`. On hotspot networks, ensure laptop is connected to phone's AP. |
 | `Connection timeout` | `Tether.CommunicationService` is stopped or TCP `37123` blocked. | Verify service status in `services.msc` and inspect Windows Firewall rules. |
 | `TLS handshake failure` | Mismatched certificates or broken pairing state. | Reset pairing on both devices and establish a new handshake. |
 | `HELPER_NOT_FOUND` | `Tether.SessionHelper.exe` missing from expected path. | Reinstall or repair the Windows package via the installer. |

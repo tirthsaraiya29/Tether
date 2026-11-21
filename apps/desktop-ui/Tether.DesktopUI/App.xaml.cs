@@ -1,7 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -54,24 +56,100 @@ namespace Tether.DesktopUI
                 return;
             }
 
-            if (e.Args.Length > 0 && e.Args[0].Equals("--commit-vault-stdin", StringComparison.OrdinalIgnoreCase))
+            if (e.Args.Length > 0 && (e.Args[0].Equals("--commit-vault-stdin", StringComparison.OrdinalIgnoreCase) ||
+                                      e.Args[0].Equals("--commit-vault-payload", StringComparison.OrdinalIgnoreCase) ||
+                                      e.Args[0].Equals("--commit-vault", StringComparison.OrdinalIgnoreCase)))
             {
                 try
                 {
-                    string? hex = Console.ReadLine();
+                    string? hex = e.Args.Length > 1 ? e.Args[1] : null;
+                    if (string.IsNullOrEmpty(hex))
+                    {
+                        try { hex = Console.ReadLine(); } catch { }
+                    }
+
                     if (!string.IsNullOrEmpty(hex))
                     {
                         byte[] payload = Convert.FromHexString(hex.Trim());
-                        using var secretsKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", true);
-                        secretsKey?.SetValue("EncryptedPassword", payload, Microsoft.Win32.RegistryValueKind.Binary);
 
                         using var rootKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
                         rootKey?.SetValue("VaultDaclVersion", 2, Microsoft.Win32.RegistryValueKind.DWord);
+
+                        var rs = new System.Security.AccessControl.RegistrySecurity();
+                        var systemSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
+                        var adminsSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
+
+                        rs.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                        rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(systemSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+                        rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(adminsSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+
+                        using var secretsKey = rootKey?.CreateSubKey("Secrets", Microsoft.Win32.RegistryKeyPermissionCheck.ReadWriteSubTree, rs);
+                        if (secretsKey != null)
+                        {
+                            secretsKey.SetAccessControl(rs);
+                            secretsKey.SetValue("EncryptedPassword", payload, Microsoft.Win32.RegistryValueKind.Binary);
+                            secretsKey.SetValue("TargetUsername", Environment.UserName, Microsoft.Win32.RegistryValueKind.String);
+                            using var id = System.Security.Principal.WindowsIdentity.GetCurrent();
+                            if (id.User != null)
+                            {
+                                secretsKey.SetValue("TargetUserSid", id.User.Value, Microsoft.Win32.RegistryValueKind.String);
+                            }
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show($"Failed writing vault secret: {ex.Message}", "Tether Vault Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                Environment.Exit(0);
+                return;
+            }
+
+            if (e.Args.Length > 0 && (e.Args[0].Equals("--commit-fallback-auth", StringComparison.OrdinalIgnoreCase) || e.Args[0].Equals("--commit-master-auth", StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    uint authType = e.Args.Length > 1 ? uint.Parse(e.Args[1]) : 0;
+                    byte[]? payload = (e.Args.Length > 2 && !e.Args[2].Equals("none", StringComparison.OrdinalIgnoreCase))
+                        ? Convert.FromHexString(e.Args[2].Trim())
+                        : null;
+
+                    using var rootKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
+                    rootKey?.SetValue("VaultDaclVersion", 2, Microsoft.Win32.RegistryValueKind.DWord);
+                    rootKey?.SetValue("FallbackAuthType", (int)authType, Microsoft.Win32.RegistryValueKind.DWord);
+                    rootKey?.SetValue("MasterAuthType", (int)authType, Microsoft.Win32.RegistryValueKind.DWord);
+
+                    var rs = new System.Security.AccessControl.RegistrySecurity();
+                    var systemSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
+                    var adminsSid = new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
+
+                    rs.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                    rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(systemSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+                    rs.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(adminsSid, System.Security.AccessControl.RegistryRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+
+                    using var secretsKey = rootKey?.CreateSubKey("Secrets", Microsoft.Win32.RegistryKeyPermissionCheck.ReadWriteSubTree, rs);
+                    if (secretsKey != null)
+                    {
+                        secretsKey.SetAccessControl(rs);
+                        if (authType == 0 || payload == null || payload.Length == 0)
+                        {
+                            secretsKey.SetValue("FallbackAuthType", 0, Microsoft.Win32.RegistryValueKind.DWord);
+                            try { secretsKey.DeleteValue("FallbackAuthPayload", false); } catch { }
+                            secretsKey.SetValue("MasterAuthType", 0, Microsoft.Win32.RegistryValueKind.DWord);
+                            try { secretsKey.DeleteValue("MasterAuthPayload", false); } catch { }
+                        }
+                        else
+                        {
+                            secretsKey.SetValue("FallbackAuthType", (int)authType, Microsoft.Win32.RegistryValueKind.DWord);
+                            secretsKey.SetValue("FallbackAuthPayload", payload, Microsoft.Win32.RegistryValueKind.Binary);
+                            secretsKey.SetValue("MasterAuthType", (int)authType, Microsoft.Win32.RegistryValueKind.DWord);
+                            secretsKey.SetValue("MasterAuthPayload", payload, Microsoft.Win32.RegistryValueKind.Binary);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed writing fallback authentication secret: {ex.Message}", "Tether Fallback Auth Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
                 Environment.Exit(0);
                 return;
@@ -112,16 +190,46 @@ namespace Tether.DesktopUI
             catch { }
         }
 
+        public static PipeSecurity CreateInstancePipeSecurity()
+        {
+            var pipeSecurity = new PipeSecurity();
+            pipeSecurity.AddAccessRule(new PipeAccessRule(
+                new SecurityIdentifier(WellKnownSidType.NetworkSid, null),
+                PipeAccessRights.ReadWrite,
+                AccessControlType.Deny));
+
+            var currentUser = WindowsIdentity.GetCurrent().User;
+            if (currentUser != null)
+            {
+                pipeSecurity.AddAccessRule(new PipeAccessRule(
+                    currentUser,
+                    PipeAccessRights.ReadWrite,
+                    AccessControlType.Allow));
+            }
+
+            return pipeSecurity;
+        }
+
         private void StartInstancePipeServer()
         {
             _pipeCts = new CancellationTokenSource();
+            var pipeSecurity = CreateInstancePipeSecurity();
+
             Task.Run(async () =>
             {
                 while (!_pipeCts.Token.IsCancellationRequested)
                 {
                     try
                     {
-                        using var server = new NamedPipeServerStream(InstancePipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                        using var server = NamedPipeServerStreamAcl.Create(
+                            InstancePipeName,
+                            PipeDirection.In,
+                            1,
+                            PipeTransmissionMode.Byte,
+                            PipeOptions.Asynchronous,
+                            0,
+                            0,
+                            pipeSecurity);
                         await server.WaitForConnectionAsync(_pipeCts.Token);
 
                         using var ms = new MemoryStream();
@@ -147,6 +255,36 @@ namespace Tether.DesktopUI
                     catch { }
                 }
             }, _pipeCts.Token);
+        }
+
+        protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+        {
+            base.OnSessionEnding(e);
+            try
+            {
+                var evt = new Tether.Shared.Events.TetherEvent
+                {
+                    EventType = e.ReasonSessionEnding == ReasonSessionEnding.Logoff
+                        ? Tether.Shared.Events.TetherEventType.POWER_EVENT_DETECTED
+                        : Tether.Shared.Events.TetherEventType.SHUTDOWN_INITIATED,
+                    Source = "DesktopUI.SessionEnding",
+                    PayloadJson = e.ReasonSessionEnding == ReasonSessionEnding.Logoff
+                        ? "{\"eventType\":\"LOGOFF\"}"
+                        : "{\"eventType\":\"SHUTDOWN\"}"
+                };
+                string json = System.Text.Json.JsonSerializer.Serialize(evt);
+                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(json);
+                using var client = new NamedPipeClientStream(
+                    serverName: ".",
+                    pipeName: Tether.Shared.IPC.IpcConstants.PipeName,
+                    direction: PipeDirection.InOut,
+                    options: PipeOptions.Asynchronous,
+                    impersonationLevel: System.Security.Principal.TokenImpersonationLevel.Impersonation);
+                client.Connect(300);
+                client.Write(bytes, 0, bytes.Length);
+                client.Flush();
+            }
+            catch { }
         }
 
         public static void ProcessLaunchArgs(string[] args) => ProcessLaunchArgs(args, out _);

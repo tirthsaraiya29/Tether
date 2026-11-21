@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -13,6 +13,28 @@ namespace Tether.SessionHelper;
 
 internal sealed class ScreenCaptureEngine
 {
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLong", SetLastError = true)]
+    private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
+
+    private static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex)
+    {
+        return IntPtr.Size == 8 ? GetWindowLongPtr64(hWnd, nIndex) : new IntPtr(GetWindowLong32(hWnd, nIndex));
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
+
+    private const int GWL_STYLE = -16;
+    private const int GWL_EXSTYLE = -20;
+    private const long WS_VISIBLE = 0x10000000L;
+    private const long WS_CHILD = 0x40000000L;
+    private const long WS_EX_TOOLWINDOW = 0x00000080L;
+    private const long WS_EX_NOREDIRECTIONBITMAP = 0x00200000L;
+    private const int DWMWA_CLOAKED = 14;
+
     [DllImport("user32.dll")]
     private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
@@ -49,6 +71,61 @@ internal sealed class ScreenCaptureEngine
 
     [DllImport("gdi32.dll")]
     private static extern int SetStretchBltMode(IntPtr hdc, int nStretchMode);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CURSORINFO
+    {
+        public int cbSize;
+        public int flags;
+        public IntPtr hCursor;
+        public POINT ptScreenPos;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ICONINFO
+    {
+        public bool fIcon;
+        public int xHotspot;
+        public int yHotspot;
+        public IntPtr hbmMask;
+        public IntPtr hbmColor;
+    }
+
+    private const int CURSOR_SHOWING = 0x00000001;
+    private const uint DI_NORMAL = 0x0003;
+
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorInfo(out CURSORINFO pci);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetIconInfo(IntPtr hIcon, out ICONINFO piconinfo);
+
+    [DllImport("user32.dll")]
+    private static extern bool DrawIconEx(IntPtr hdc, int xLeft, int yTop, IntPtr hIcon, int cxWidth, int cyWidth, uint istepIfAniCur, IntPtr hbrFlickerFreeDraw, uint diFlags);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(IntPtr hObject);
+
+    [DllImport("gdi32.dll")]
+    private static extern int GetObject(IntPtr hgdiobj, int cbBuffer, out BITMAP lpvObject);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAP
+    {
+        public int bmType;
+        public int bmWidth;
+        public int bmHeight;
+        public int bmWidthBytes;
+        public short bmPlanes;
+        public short bmBitsPixel;
+        public IntPtr bmBits;
+    }
 
     private const int SRCCOPY = 0x00CC0020;
     private const int HALFTONE = 4;
@@ -71,7 +148,13 @@ internal sealed class ScreenCaptureEngine
     {
         try
         {
-            var bounds = Screen.PrimaryScreen?.Bounds ?? new Rectangle(0, 0, 1920, 1080);
+            // Capture virtual desktop screen spanning multi-monitors and negative coordinate offsets
+            Rectangle bounds = SystemInformation.VirtualScreen;
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+            {
+                bounds = Screen.PrimaryScreen?.Bounds ?? new Rectangle(0, 0, 1920, 1080);
+            }
+
             float ratio = Math.Min(1f, Math.Min((float)maxWidth / Math.Max(1, bounds.Width), (float)maxHeight / Math.Max(1, bounds.Height)));
             int targetW = Math.Max(1, (int)(bounds.Width * ratio));
             int targetH = Math.Max(1, (int)(bounds.Height * ratio));
@@ -85,7 +168,38 @@ internal sealed class ScreenCaptureEngine
                 try
                 {
                     SetStretchBltMode(destHdc, HALFTONE);
-                    StretchBlt(destHdc, 0, 0, targetW, targetH, srcHdc, bounds.X, bounds.Y, bounds.Width, bounds.Height, SRCCOPY);
+                    StretchBlt(destHdc, 0, 0, targetW, targetH, srcHdc, bounds.Left, bounds.Top, bounds.Width, bounds.Height, SRCCOPY);
+                    var ci = new CURSORINFO { cbSize = Marshal.SizeOf<CURSORINFO>() };
+                    if (GetCursorInfo(out ci) && (ci.flags & CURSOR_SHOWING) != 0)
+                    {
+                        if (GetIconInfo(ci.hCursor, out ICONINFO ii))
+                        {
+                            try
+                            {
+                                int rawCursorW = 32;
+                                int rawCursorH = 32;
+                                IntPtr hBitmapForDim = ii.hbmColor != IntPtr.Zero ? ii.hbmColor : ii.hbmMask;
+                                if (hBitmapForDim != IntPtr.Zero && GetObject(hBitmapForDim, Marshal.SizeOf<BITMAP>(), out BITMAP bm) > 0)
+                                {
+                                    rawCursorW = bm.bmWidth;
+                                    rawCursorH = ii.hbmColor != IntPtr.Zero ? bm.bmHeight : (bm.bmHeight / 2);
+                                }
+
+                                int cursorX = ci.ptScreenPos.x - bounds.Left - ii.xHotspot;
+                                int cursorY = ci.ptScreenPos.y - bounds.Top - ii.yHotspot;
+                                int scaledX = (int)(cursorX * ratio);
+                                int scaledY = (int)(cursorY * ratio);
+                                int cursorW = Math.Max(1, (int)(rawCursorW * ratio));
+                                int cursorH = Math.Max(1, (int)(rawCursorH * ratio));
+                                DrawIconEx(destHdc, scaledX, scaledY, ci.hCursor, cursorW, cursorH, 0, IntPtr.Zero, DI_NORMAL);
+                            }
+                            finally
+                            {
+                                if (ii.hbmMask != IntPtr.Zero) DeleteObject(ii.hbmMask);
+                                if (ii.hbmColor != IntPtr.Zero) DeleteObject(ii.hbmColor);
+                            }
+                        }
+                    }
                 }
                 finally
                 {
@@ -144,10 +258,22 @@ internal sealed class ScreenCaptureEngine
             {
                 if (!IsWindowVisible(hWnd)) return true;
 
+                // Filter out non-toplevel or child windows
+                long style = GetWindowLongPtr(hWnd, GWL_STYLE).ToInt64();
+                if ((style & WS_CHILD) != 0) return true;
+
+                // Filter out tool windows or overlay helper windows (e.g., ASUS ScreenXpert, NUSA Nudge, floating bars)
+                long exStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE).ToInt64();
+                if ((exStyle & WS_EX_TOOLWINDOW) != 0) return true;
+
+                // Filter out windows cloaked by DWM (virtual desktop switches, hidden modern UWP apps)
+                int hr = DwmGetWindowAttribute(hWnd, DWMWA_CLOAKED, out int cloaked, sizeof(int));
+                if (hr == 0 && cloaked != 0) return true;
+
                 var sb = new StringBuilder(256);
                 GetWindowText(hWnd, sb, 256);
                 string title = sb.ToString().Trim();
-                if (string.IsNullOrEmpty(title) || title == "Program Manager") return true;
+                if (string.IsNullOrEmpty(title) || title == "Program Manager" || title == "Windows Input Experience") return true;
 
                 GetWindowRect(hWnd, out var r);
                 if (r.Width < 50 || r.Height < 50) return true;
@@ -160,6 +286,10 @@ internal sealed class ScreenCaptureEngine
                     procName = proc.ProcessName;
                 }
                 catch { }
+
+                // Exclude system shell background processes and known overlay tools
+                string lowerProc = procName.ToLowerInvariant();
+                if (lowerProc is "shellexperiencehost" or "searchhost" or "startmenuexperiencehost" or "lockapp" or "screenxpert" or "nusanudge") return true;
 
                 string? winIconB64 = ApplicationManager.GetWindowIconBase64(hWnd, (int)pid);
                 list.Add(new WindowInfo

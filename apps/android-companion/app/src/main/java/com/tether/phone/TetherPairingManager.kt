@@ -117,7 +117,16 @@ class TetherPairingManager(
             val phoneFingerprint = securityEngine.computePublicKeyFingerprint(phonePubKeyBytes)
             val phonePubKeyBase64 = Base64.encodeToString(phonePubKeyBytes, Base64.NO_WRAP)
 
-            val pinnedKeyBytes = securityEngine.getPinnedKeyDecrypted(context)
+            val pinnedResult = securityEngine.getPinnedKeyResult(context)
+            val pinnedKeyBytes = when (pinnedResult) {
+                is PinnedKeyResult.Present -> pinnedResult.keyBytes
+                is PinnedKeyResult.Corrupted -> {
+                    Log.e(TAG, "SECURITY ALERT: Stored pinned key is corrupted or inaccessible!")
+                    return PairingResult.Error("Stored trusted key is corrupted or inaccessible. Full interactive re-pairing required.")
+                }
+                is PinnedKeyResult.Unprovisioned -> null
+            }
+
             val pinnedFingerprint = securityEngine.computePublicKeyFingerprint(pinnedKeyBytes)
             val isAlreadyPinned = ((pinnedKeyBytes != null) && pinnedKeyBytes.isNotEmpty())
 
@@ -131,7 +140,7 @@ class TetherPairingManager(
                 put("publicKey", phonePubKeyBase64)
                 put("nonce", Base64.encodeToString(clientNonce, Base64.NO_WRAP))
                 put("isPairingRequested", isUserInitiatedPairing || !isAlreadyPinned)
-                put("capabilities", "CLIPBOARD,FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,WINDOWS_ADMIN,APP_MANAGEMENT,AUTOMATION")
+                put("capabilities", "FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,WINDOWS_ADMIN,APP_MANAGEMENT")
             }
 
             val initJsonStr = initJson.toString()
@@ -184,75 +193,64 @@ class TetherPairingManager(
                 respBytes,
             )
 
-            // =========================================================================
-            // PATH 1: KNOWN PAIRED DEVICE RECONNECT
-            // =========================================================================
-            if (isAlreadyPinned) {
-                if (!MessageDigest.isEqual(winPubKeyBytes, pinnedKeyBytes)) {
-                    Log.e(TAG, "SECURITY ALERT: Windows identity key mismatch! Presented: $winFingerprint, Pinned: $pinnedFingerprint")
-                    return PairingResult.KeyMismatch(
-                        presentedFingerprint = winFingerprint,
-                        pinnedFingerprint = pinnedFingerprint,
+            when (pairingStatus) {
+                "PAIRED", "PAIRING_ACCEPTED" -> {
+                    // Fail closed if device has no pinned key locally (TETH-003 FIX 2)
+                    if (pinnedKeyBytes == null) {
+                        Log.e(TAG, "SECURITY ALERT: Windows host reported PAIRED status, but device has no pinned key locally. Refusing auto-pinning.")
+                        return PairingResult.Error("Windows host claims paired status, but no trusted key is pinned locally. Full interactive pairing required.")
+                    }
+
+                    if (!MessageDigest.isEqual(winPubKeyBytes, pinnedKeyBytes)) {
+                        Log.e(TAG, "SECURITY ALERT: Windows identity key mismatch! Presented: $winFingerprint, Pinned: $pinnedFingerprint")
+                        return PairingResult.KeyMismatch(
+                            presentedFingerprint = winFingerprint,
+                            pinnedFingerprint = pinnedFingerprint,
+                        )
+                    }
+
+                    val serverNonceB64 = respJson.optString("serverNonce", "")
+                    if (serverNonceB64.isBlank()) {
+                        return PairingResult.Error("Windows host did not provide serverNonce challenge")
+                    }
+                    val serverNonce = Base64.decode(serverNonceB64, Base64.NO_WRAP)
+
+                    val transcript = buildHandshakeTranscript(
+                        serverNonce,
+                        clientNonce,
+                        winPubKeyBase64,
+                        phonePubKeyBase64,
+                    )
+
+                    val signature = securityEngine.signWithIdentityKey(transcript)
+                    val signatureBase64 = Base64.encodeToString(signature, Base64.NO_WRAP)
+
+                    val proofJson = JSONObject().apply {
+                        put("type", "HANDSHAKE_PROOF")
+                        put("signature", signatureBase64)
+                        put("clientNonce", Base64.encodeToString(clientNonce, Base64.NO_WRAP))
+                    }
+                    Log.i(TAG, "Transmitting HANDSHAKE_PROOF cryptographic challenge response...")
+                    transport.sendFrame(proofJson.toString().toByteArray(StandardCharsets.UTF_8))
+
+                    val verifiedBytes = try { transport.readFrame() } catch (e: Exception) { null }
+                    if (verifiedBytes == null) {
+                        return PairingResult.Error("Windows host closed connection during HANDSHAKE_PROOF verification")
+                    }
+                    val verifiedJson = JSONObject(String(verifiedBytes, StandardCharsets.UTF_8))
+                    if (verifiedJson.optString("type") != "HANDSHAKE_VERIFIED" ||
+                        verifiedJson.optString("status") != "OK") {
+                        return PairingResult.Error("Windows host rejected HANDSHAKE_PROOF")
+                    }
+
+                    Log.i(TAG, "Cryptographic proof-of-possession verified against pinned Windows key!")
+                    return PairingResult.Authenticated(
+                        peerDeviceId = winDeviceId,
+                        peerFingerprint = winFingerprint,
+                        peerCapabilities = winCapabilities,
                     )
                 }
 
-                if (pairingStatus != "PAIRED") {
-                    Log.w(TAG, "Windows host returned unexpected status '$safeStatus' for pinned device")
-                    return PairingResult.Error("Unexpected status '$safeStatus' from pinned Windows host")
-                }
-
-                val serverNonceB64 = respJson.optString("serverNonce", "")
-                if (serverNonceB64.isBlank()) {
-                    return PairingResult.Error("Windows host did not provide serverNonce challenge")
-                }
-                val serverNonce = Base64.decode(serverNonceB64, Base64.NO_WRAP)
-
-                val transcript = buildHandshakeTranscript(
-                    serverNonce,
-                    clientNonce,
-                    winPubKeyBase64,
-                    phonePubKeyBase64,
-                )
-
-                val signature = securityEngine.signWithIdentityKey(transcript)
-                val signatureBase64 = Base64.encodeToString(signature, Base64.NO_WRAP)
-
-                val proofJson = JSONObject().apply {
-                    put("type", "HANDSHAKE_PROOF")
-                    put("signature", signatureBase64)
-                    put("clientNonce", Base64.encodeToString(clientNonce, Base64.NO_WRAP))
-                }
-                Log.i(TAG, "Transmitting HANDSHAKE_PROOF cryptographic challenge response...")
-                transport.sendFrame(proofJson.toString().toByteArray(StandardCharsets.UTF_8))
-
-                val verifiedBytes = try { transport.readFrame() } catch (e: Exception) { null }
-                if (verifiedBytes == null) {
-                    return PairingResult.Error("Windows host closed connection during HANDSHAKE_PROOF verification")
-                }
-                val verifiedJson = JSONObject(String(verifiedBytes, StandardCharsets.UTF_8))
-                if (verifiedJson.optString("type") != "HANDSHAKE_VERIFIED" ||
-                    verifiedJson.optString("status") != "OK") {
-                    return PairingResult.Error("Windows host rejected HANDSHAKE_PROOF")
-                }
-
-                Log.i(TAG, "Cryptographic proof-of-possession verified against pinned Windows key!")
-                return PairingResult.Authenticated(
-                    peerDeviceId = winDeviceId,
-                    peerFingerprint = winFingerprint,
-                    peerCapabilities = winCapabilities,
-                )
-            }
-
-            // =========================================================================
-            // PATH 2: UNPINNED FIRST-CONTACT / NEW PAIRING (FAIL-CLOSED)
-            // =========================================================================
-            // TETH-003 FIX 2: Never allow an unpinned device to auto-authenticate on PAIRED status
-            if (pairingStatus == "PAIRED" || pairingStatus == "PAIRING_ACCEPTED") {
-                Log.e(TAG, "SECURITY ALERT: Windows host reported PAIRED status, but device has no pinned key locally. Refusing auto-pinning.")
-                return PairingResult.Error("Windows host claims paired status, but no trusted key is pinned locally. Full interactive pairing required.")
-            }
-
-            when (pairingStatus) {
                 "PAIRING_PENDING" -> {
                     val reqId = respJson.optString("requestId", "REQ_UNKNOWN")
                     val safeReqId = sanitizeLog(reqId)
@@ -266,10 +264,12 @@ class TetherPairingManager(
                         transcriptHash = transcriptHash,
                     )
                 }
+
                 "PAIRING_DENIED" -> {
                     Log.w(TAG, "Pairing request rejected by Windows host.")
                     return PairingResult.PairingDenied("Pairing request rejected on Windows PC")
                 }
+
                 else -> {
                     return PairingResult.Error("Unrecognized handshake status from Windows host: $safeStatus")
                 }

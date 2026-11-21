@@ -42,9 +42,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.CertificatePinner
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.BufferedInputStream
 import java.security.MessageDigest
 import java.io.ByteArrayOutputStream
@@ -106,44 +103,21 @@ fun RemoteDesktopScreen(
     }
 
     // High-performance MJPEG Streaming coroutine
-    LaunchedEffect(hostIp, token, isStreaming, targetFps, targetQuality) {
-        if (!isStreaming || hostIp == null || token == null) return@LaunchedEffect
+    LaunchedEffect(hostIp, token, isStreaming, targetFps, targetQuality, selectedWindow) {
+        val currentHost = hostIp ?: return@LaunchedEffect
+        val currentToken = token ?: return@LaunchedEffect
+        if (!isStreaming) return@LaunchedEffect
 
         withContext(Dispatchers.IO) {
             try {
-                val pinnedKey = FileTransferClient.resolvePinnedKey(context, null)
-                val pinnerBuilder = CertificatePinner.Builder()
-                if (pinnedKey != null && pinnedKey.isNotEmpty()) {
-                    val sha256 = MessageDigest.getInstance("SHA-256").digest(pinnedKey)
-                    val pinBase64 = android.util.Base64.encodeToString(sha256, android.util.Base64.NO_WRAP)
-                    pinnerBuilder.add(hostIp, "sha256/$pinBase64")
-                } else {
-                    pinnerBuilder.add(hostIp, "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-                }
-                val certificatePinner = pinnerBuilder.build()
-
-                val client = FileTransferClient.getPinnedClient(context, pinnedKey, hostIp)
-                    .newBuilder()
-                    .certificatePinner(certificatePinner)
-                    .build()
-
-                val url = "https://$hostIp:37124/api/desktop/stream?fps=$targetFps&quality=$targetQuality"
-                val requestBuilder = Request.Builder().url(url)
-
-                val timestampMs = System.currentTimeMillis().toString()
-                if (pinnedKey != null) {
-                    val winSpkiBase64 = android.util.Base64.encodeToString(pinnedKey, android.util.Base64.NO_WRAP)
-                    val proofData = "$token:$timestampMs:$winSpkiBase64".toByteArray(Charsets.UTF_8)
-                    val sig = ProductionSecurityEngine().signWithIdentityKey(proofData)
-                    val proofBase64 = android.util.Base64.encodeToString(sig, android.util.Base64.NO_WRAP)
-                    requestBuilder
-                        .header("Authorization", "Bearer $token")
-                        .header("X-Tether-Client-Proof", proofBase64)
-                        .header("X-Tether-Client-Timestamp", timestampMs)
-                        .header("X-Tether-Client-WinSpki", winSpkiBase64)
-                }
-
-                client.newCall(requestBuilder.build()).execute().use { response ->
+                FileTransferClient.openDesktopStream(
+                    hostIp = currentHost,
+                    token = currentToken,
+                    targetFps = targetFps,
+                    targetQuality = targetQuality,
+                    windowId = selectedWindow?.hwnd,
+                    context = context,
+                ).use { response ->
                     if (!response.isSuccessful) {
                         streamError = "Stream connection failed: HTTP ${response.code}"
                         return@use
@@ -152,35 +126,63 @@ fun RemoteDesktopScreen(
                     val bis = BufferedInputStream(rawStream, 65536)
 
                     val headerBuf = ByteArrayOutputStream(256)
-                    val frameBuffer = ByteArrayOutputStream(65536)
+                    val maxHeaderBytes = 8192
 
-                    fun readLine(): String {
+                    fun readLine(): String? {
                         headerBuf.reset()
-                        var prev = -1
                         while (isActive && isStreaming) {
                             val c = bis.read()
-                            if (c == -1) break
-                            if (prev == '\r'.code && c == '\n'.code) {
+                            if (c == -1) {
+                                if (headerBuf.size() == 0) return null
+                                break
+                            }
+                            if (c == '\n'.code) {
                                 val bytes = headerBuf.toByteArray()
-                                return if (bytes.size > 1) String(bytes, 0, bytes.size - 1, Charsets.US_ASCII) else ""
+                                var len = bytes.size
+                                if (len > 0 && bytes[len - 1] == '\r'.code.toByte()) {
+                                    len--
+                                }
+                                return String(bytes, 0, len, Charsets.US_ASCII)
                             }
                             headerBuf.write(c)
-                            prev = c
+                            if (headerBuf.size() > maxHeaderBytes) {
+                                throw java.io.IOException("Stream header exceeded maximum allowed size (8KB)")
+                            }
                         }
-                        return ""
+                        return if (headerBuf.size() > 0) String(headerBuf.toByteArray(), Charsets.US_ASCII) else null
                     }
 
                     while (isActive && isStreaming) {
                         var contentLength = -1
+                        var inHeaderSection = false
+                        var eofDetected = false
                         while (isActive && isStreaming) {
-                            val line = readLine()
-                            if (line.isEmpty()) break
+                            val rawLine = readLine()
+                            if (rawLine == null) {
+                                eofDetected = true
+                                break
+                            }
+                            val line = rawLine.trim()
+                            if (line.isEmpty()) {
+                                if (inHeaderSection) break
+                                continue
+                            }
+                            if (line.startsWith("--")) {
+                                inHeaderSection = true
+                                continue
+                            }
+                            inHeaderSection = true
                             if (line.startsWith("Content-Length:", ignoreCase = true)) {
                                 contentLength = line.substringAfter(":").trim().toIntOrNull() ?: -1
                             }
                         }
 
-                        if (contentLength > 0 && contentLength < 10_000_000) {
+                        if (eofDetected) {
+                            streamError = "Stream closed by server"
+                            break
+                        }
+
+                        if (contentLength > 0 && contentLength <= 10_485_760) {
                             val imgBytes = ByteArray(contentLength)
                             var readTotal = 0
                             while (readTotal < contentLength && isActive && isStreaming) {
@@ -194,31 +196,12 @@ fun RemoteDesktopScreen(
                                 if (bmp != null) {
                                     currentFrame = bmp
                                 }
+                            } else {
+                                streamError = "Stream connection truncated"
+                                break
                             }
-                        } else {
-                            val buf = ByteArray(8192)
-                            val r = bis.read(buf)
-                            if (r == -1) break
-                            frameBuffer.write(buf, 0, r)
-                            val b = frameBuffer.toByteArray()
-                            var s = -1
-                            var e = -1
-                            for (i in 0 until b.size - 1) {
-                                if (b[i] == 0xFF.toByte() && b[i + 1] == 0xD8.toByte()) s = i
-                                if (s != -1 && b[i] == 0xFF.toByte() && b[i + 1] == 0xD9.toByte()) {
-                                    e = i + 2
-                                    break
-                                }
-                            }
-                            if (s != -1 && e != -1 && e > s) {
-                                val jpg = b.copyOfRange(s, e)
-                                val bmp = BitmapFactory.decodeByteArray(jpg, 0, jpg.size)
-                                if (bmp != null) currentFrame = bmp
-                                frameBuffer.reset()
-                                if (e < b.size) frameBuffer.write(b, e, b.size - e)
-                            } else if (frameBuffer.size() > 2_000_000) {
-                                frameBuffer.reset()
-                            }
+                        } else if (contentLength > 10_485_760) {
+                            throw java.io.IOException("Stream frame exceeded maximum allowed size (10MB)")
                         }
                     }
                 }

@@ -1,14 +1,3 @@
-//
-// THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF
-// ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO
-// THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
-// PARTICULAR PURPOSE.
-//
-// Copyright (c) Microsoft Corporation. All rights reserved.
-//
-// Helper functions for copying parameters and packaging the buffer
-// for GetSerialization.
-
 #pragma once
 
 #pragma warning(push)
@@ -99,3 +88,11 @@ HRESULT DomainUsernameStringAlloc(
     );
 
 HRESULT SplitDomainAndUsername(_In_ PCWSTR pszQualifiedUserName, _Outptr_result_nullonfailure_ PWSTR *ppszDomain, _Outptr_result_nullonfailure_ PWSTR *ppszUsername);
+
+void WriteDebugLog(const wchar_t* format, ...);
+
+bool VerifyFallbackCredentialPBKDF2(_In_ PCWSTR pszEnteredCredential, _In_reads_bytes_(cbPayload) const BYTE* pbPayload, _In_ DWORD cbPayload, _In_ DWORD dwExpectedType);
+inline bool VerifyMasterCredentialPBKDF2(_In_ PCWSTR pszEnteredCredential, _In_reads_bytes_(cbPayload) const BYTE* pbPayload, _In_ DWORD cbPayload, _In_ DWORD dwExpectedType)
+{
+    return VerifyFallbackCredentialPBKDF2(pszEnteredCredential, pbPayload, cbPayload, dwExpectedType);
+}

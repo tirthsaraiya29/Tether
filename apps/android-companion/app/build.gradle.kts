@@ -11,8 +11,8 @@ android {
         applicationId = "com.tether.phone"
         minSdk = 27
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 4
+        versionName = "1.2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -37,7 +37,7 @@ android {
         release {
             isMinifyEnabled = false
             val relConfig = signingConfigs.getByName("release")
-            signingConfig = if (relConfig.storeFile != null && relConfig.storeFile!!.exists()) relConfig else signingConfigs.getByName("debug")
+            signingConfig = if (relConfig.storeFile != null && relConfig.storeFile!!.exists()) relConfig else null
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

@@ -26,22 +26,32 @@ public sealed record TrustedPhone
 
 public sealed class TrustStore
 {
-    private static readonly string DataDir =
+    private static readonly string DefaultDataDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether");
-    private static readonly string DataFile = Path.Combine(DataDir, "trust.json");
+    private readonly string _dataDir;
+    private readonly string _dataFile;
 
     private static readonly byte[] DpapiEntropy = "Tether_TrustStore_DPAPI_Entropy_v1"u8.ToArray();
+    private static readonly object _fileLock = new();
     private readonly ITetherLogger _logger;
     private readonly object _gate = new();
     private readonly Dictionary<string, TrustedPhone> _byFingerprint = new(StringComparer.OrdinalIgnoreCase);
 
-    public TrustStore(ITetherLogger logger)
+    public TrustStore(ITetherLogger logger, string? customDataDir = null)
     {
         _logger = logger;
+        _dataDir = customDataDir ?? DefaultDataDir;
+        _dataFile = Path.Combine(_dataDir, "trust.json");
         Load();
     }
 
-    public bool IsEmpty => _byFingerprint.Count == 0;
+    public bool IsEmpty
+    {
+        get
+        {
+            lock (_gate) return _byFingerprint.Count == 0;
+        }
+    }
 
     public IReadOnlyCollection<TrustedPhone> All()
     {
@@ -125,12 +135,71 @@ public sealed class TrustStore
     {
         try
         {
-            Directory.CreateDirectory(DataDir);
-            EnsureStorageAcls();
+            var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var currentSid = WindowsIdentity.GetCurrent().User;
 
-            if (!File.Exists(DataFile)) return;
+            if (Directory.Exists(_dataDir))
+            {
+                var di = new DirectoryInfo(_dataDir);
+                if ((di.Attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    _logger.Warning($"TrustStore: Reparse point detected on DataDir '{_dataDir}'. Removing junction.");
+                    Directory.Delete(_dataDir, false);
+                }
+                else
+                {
+                    try
+                    {
+                        var dirSec = di.GetAccessControl(AccessControlSections.Owner);
+                        var dirOwner = dirSec.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+                        bool isDirOwnerTrusted = dirOwner != null &&
+                            (dirOwner.Equals(systemSid) || dirOwner.Equals(adminSid) || (currentSid != null && dirOwner.Equals(currentSid)));
+                        if (!isDirOwnerTrusted)
+                        {
+                            _logger.Warning($"TrustStore: Untrusted owner '{dirOwner}' on DataDir '{_dataDir}'. Recreating directory.");
+                            Directory.Delete(_dataDir, true);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"TrustStore: Could not verify DataDir owner: {ex.Message}");
+                    }
+                }
+            }
 
-            byte[] rawBytes = File.ReadAllBytes(DataFile);
+            Directory.CreateDirectory(_dataDir);
+            EnsureStorageAcls(_dataDir);
+
+            if (!File.Exists(_dataFile)) return;
+
+            var fi = new FileInfo(_dataFile);
+            if ((fi.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                _logger.Warning($"TrustStore: Reparse point detected on DataFile '{_dataFile}'. Removing file.");
+                File.Delete(_dataFile);
+                return;
+            }
+
+            try
+            {
+                var fileSec = fi.GetAccessControl(AccessControlSections.Owner);
+                var fileOwner = fileSec.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+                bool isFileOwnerTrusted = fileOwner != null &&
+                    (fileOwner.Equals(systemSid) || fileOwner.Equals(adminSid) || (currentSid != null && fileOwner.Equals(currentSid)));
+                if (!isFileOwnerTrusted)
+                {
+                    _logger.Warning($"TrustStore: Untrusted owner '{fileOwner}' on DataFile '{_dataFile}'. Discarding untrusted store.");
+                    File.Delete(_dataFile);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"TrustStore: Could not verify DataFile owner: {ex.Message}");
+            }
+
+            byte[] rawBytes = File.ReadAllBytes(_dataFile);
             if (rawBytes.Length == 0) return;
 
             string json;
@@ -156,6 +225,19 @@ public sealed class TrustStore
                 _byFingerprint.Clear();
                 foreach (var entry in list)
                 {
+                    if (string.IsNullOrWhiteSpace(entry.PublicKeySpkiBase64))
+                    {
+                        _logger.Warning($"TrustStore: Entry '{entry.DisplayName}' has empty SPKI key. Discarding.");
+                        continue;
+                    }
+
+                    string? computedFp = ComputeFingerprintOrNull(entry.PublicKeySpkiBase64);
+                    if (computedFp == null || !string.Equals(computedFp, entry.Fingerprint, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.Warning($"TrustStore: Fingerprint mismatch for entry '{entry.DisplayName}' (stored: '{entry.Fingerprint}', computed: '{computedFp}'). Discarding.");
+                        continue;
+                    }
+
                     _byFingerprint[entry.Fingerprint] = entry;
                 }
             }
@@ -175,38 +257,41 @@ public sealed class TrustStore
 
     private void Save()
     {
-        try
+        lock (_fileLock)
         {
-            Directory.CreateDirectory(DataDir);
-            EnsureStorageAcls();
-
-            var snapshot = All();
-            var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
-            byte[] plainBytes = Encoding.UTF8.GetBytes(json);
-            byte[] cipherBytes = ProtectedData.Protect(plainBytes, DpapiEntropy, DataProtectionScope.LocalMachine);
-
-            string tempFile = Path.Combine(DataDir, $"trust_{Guid.NewGuid():N}.tmp");
-            File.WriteAllBytes(tempFile, cipherBytes);
-
-            if (File.Exists(DataFile))
+            try
             {
-                File.SetAttributes(DataFile, FileAttributes.Normal);
-            }
+                Directory.CreateDirectory(_dataDir);
+                EnsureStorageAcls(_dataDir);
 
-            File.Move(tempFile, DataFile, overwrite: true);
-            EnsureFileAcl(DataFile);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Trust store save failed: {ex.Message}");
+                var snapshot = All();
+                var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+                byte[] plainBytes = Encoding.UTF8.GetBytes(json);
+                byte[] cipherBytes = ProtectedData.Protect(plainBytes, DpapiEntropy, DataProtectionScope.LocalMachine);
+
+                string tempFile = Path.Combine(_dataDir, $"trust_{Guid.NewGuid():N}.tmp");
+                File.WriteAllBytes(tempFile, cipherBytes);
+
+                if (File.Exists(_dataFile))
+                {
+                    File.SetAttributes(_dataFile, FileAttributes.Normal);
+                }
+
+                File.Move(tempFile, _dataFile, overwrite: true);
+                EnsureFileAcl(_dataFile);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Trust store save failed: {ex.Message}");
+            }
         }
     }
 
-    private static void EnsureStorageAcls()
+    private static void EnsureStorageAcls(string dir)
     {
         try
         {
-            var di = new DirectoryInfo(DataDir);
+            var di = new DirectoryInfo(dir);
             var sec = new DirectorySecurity();
             // Explicitly strip inherited and stale entries
             sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);

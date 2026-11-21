@@ -34,7 +34,10 @@ namespace Tether.Shared.Events
         FILE_TRANSFER_ENQUEUE_REQUESTED,
         FS_DB_SYNC_REQUESTED,
         HARDWARE_SYNC_REQUESTED,
-        VAULT_UPDATE
+        VAULT_UPDATE,
+        SHUTDOWN_INITIATED,
+        RESTART_INITIATED,
+        POWER_EVENT_DETECTED
     }
 
     public class TetherEvent
@@ -43,5 +46,7 @@ namespace Tether.Shared.Events
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
         public string? Source { get; set; }
         public string? PayloadJson { get; set; }
+        public string? SessionId { get; set; }
+        public long SequenceNumber { get; set; }
     }
 }

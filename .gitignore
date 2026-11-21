@@ -44,6 +44,7 @@ captures/
 *.zip
 
 *.rc
+!TetherCredentialProvider/resources.rc
 release/
 
 # C++ / Visual Studio C++ Artifacts
@@ -74,6 +75,7 @@ data/logs/
 data/secure-storage/
 *.docx
 "codes copier.py"
+/skills/
 
 # -----------------------------------------------------------------------------
 # Inno Setup — installer build artifacts
@@ -103,3 +105,16 @@ build.bat
 keystore.properties
 *.secret
 .aider*
+
+# Security audit and remediation notes
+AUDIT_FIXES.md
+SECURITY_FIXES.md
+CHANGELOG.md
+
+# Teamwork subagent workspace state
+.agents/
+
+# Serverless env (secrets live in Vercel project settings, never in the repo)
+.env
+.env*.local
+.vercel

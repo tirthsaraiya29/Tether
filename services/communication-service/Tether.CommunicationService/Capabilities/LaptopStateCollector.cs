@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -21,6 +21,9 @@ public sealed record LaptopSnapshot
     [JsonPropertyName("lockState")] public string LockState { get; init; } = "UNKNOWN";
     [JsonPropertyName("wallpaperB64")] public string? WallpaperB64 { get; init; }
     [JsonPropertyName("wallpaperHash")] public string? WallpaperHash { get; init; }
+    [JsonPropertyName("volumeLevel")] public int VolumeLevel { get; init; } = -1;
+    [JsonPropertyName("isMuted")] public bool IsMuted { get; init; }
+    [JsonPropertyName("brightnessLevel")] public int BrightnessLevel { get; init; } = -1;
 }
 
 public static class LaptopStateCollector
@@ -58,7 +61,7 @@ public static class LaptopStateCollector
 
     private const int TokenUserClass = 1;
 
-    private static string? GetActiveConsoleUserProfilePath()
+    public static string? GetActiveConsoleUserProfilePath()
     {
         uint activeSessionId = WTSGetActiveConsoleSessionId();
         if (activeSessionId == 0xFFFFFFFF) return null;
@@ -103,6 +106,7 @@ public static class LaptopStateCollector
     }
 
     private static readonly object _lock = new();
+    private static readonly System.Threading.SemaphoreSlim _broadcastGate = new(1, 1);
     private static SessionManager? _sessionManager;
     private static ITetherLogger? _logger;
     private static bool _eventsSubscribed = false;
@@ -129,15 +133,24 @@ public static class LaptopStateCollector
 
     private static void OnPowerModeOrSessionChanged(object? sender, EventArgs e)
     {
-        if (_sessionManager != null && _logger != null)
+        var sessionManager = _sessionManager;
+        var logger = _logger;
+        if (sessionManager == null || logger == null) return;
+
+        System.Threading.Tasks.Task.Run(async () =>
         {
+            if (!await _broadcastGate.WaitAsync(TimeSpan.FromSeconds(2))) return;
             try
             {
-                var snap = GetLaptopSnapshot(_logger);
-                _sessionManager.BroadcastLaptopState(snap);
+                var snap = GetLaptopSnapshot(logger);
+                sessionManager.BroadcastLaptopState(snap);
             }
             catch { }
-        }
+            finally
+            {
+                _broadcastGate.Release();
+            }
+        });
     }
 
     private static string DetectLockStateDirect()
@@ -324,13 +337,21 @@ public static class LaptopStateCollector
             }
         }
 
+        int volLevel = HardwareExecutor.GetSystemVolumeLevelInUserSession(logger);
+        if (volLevel < 0) volLevel = HardwareExecutor.GetSystemVolumeLevel(logger);
+        bool isMuted = HardwareExecutor.GetSystemMuteInUserSession(logger);
+        int briLevel = HardwareExecutor.GetSystemBrightnessLevelInUserSession(logger);
+
         return new LaptopSnapshot
         {
             BatteryLevel = batteryLevel,
             IsCharging = isCharging,
             LockState = lockState,
             WallpaperB64 = wallpaperB64,
-            WallpaperHash = wallpaperHash
+            WallpaperHash = wallpaperHash,
+            VolumeLevel = volLevel,
+            IsMuted = isMuted,
+            BrightnessLevel = briLevel
         };
     }
 }

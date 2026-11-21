@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.ServiceProcess;
 using Tether.CommunicationService;
-using Tether.CommunicationService.Automation;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.Discovery;
@@ -18,12 +17,10 @@ using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
 using Tether.CommunicationService.Trust;
-using Tether.EnforcementEngine;
 using Tether.EventBus;
-using Tether.PanicEngine;
-using Tether.RecoveryEngine;
 using Tether.Shared.Logging;
 using Tether.TrustEngine;
+using Tether.PanicEngine;
 
 var builder = Host.CreateDefaultBuilder(args);
 
@@ -62,9 +59,6 @@ var host = builder
         services.AddSingleton<PowerEventWatcher>();
         services.AddSingleton<PowerEventNotifier>();
         services.AddSingleton<WindowsAdminManager>();
-        services.AddSingleton<AutomationEngine>();
-        services.AddHostedService(sp => sp.GetRequiredService<AutomationEngine>());
-
         services.AddSingleton<TokenStore>();
         services.AddHostedService<FileTransferServer>();
 
@@ -76,9 +70,8 @@ var host = builder
         services.AddHostedService<SessionHelperDaemon>();
 
         services.AddSingleton<TrustStateManager>();
-        services.AddSingleton<EnforcementManager>();
+        services.AddSingleton<SafeCredentialFilterManager>();
         services.AddSingleton<PanicManager>();
-        services.AddSingleton<RecoveryManager>();
 
         services.AddSingleton<PipeServer>();
         services.AddSingleton<IpcEventRelay>();

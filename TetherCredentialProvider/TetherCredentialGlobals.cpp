@@ -1,4 +1,4 @@
-// CSampleCredentialGlobals.cpp
+// TetherCredentialGlobals.cpp
 #include "TetherCredentialGlobals.h"
 
 std::atomic<DWORD> g_dwSelectedMethod{ 0 };

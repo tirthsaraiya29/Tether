@@ -19,7 +19,7 @@ Windows APIs / SYSTEM operations
 BLE                 → NOT USED FOR COMMAND TRANSPORT
 Internet            → NOT REQUIRED
 Cloud Relay         → NOT USED
-Mobile Hotspot      → NOT SUPPORTED
+Mobile Hotspot      → SUPPORTED (Transparent SoftAP)
 VPN / Port Forward  → NOT SUPPORTED
 ```
 
@@ -27,20 +27,23 @@ VPN / Port Forward  → NOT SUPPORTED
 
 ## Core Transport Requirements & Network Boundaries
 
-### 1. Same Local Wi-Fi / LAN Requirement
-- **Local Infrastructure Client**: Both the Android device and Windows host must be connected as Wi-Fi clients on the exact same local Wi-Fi / LAN infrastructure network.
-- **Local Network Discovery**: Discovery occurs locally over the active Wi-Fi interface using Android Network Service Discovery (mDNS/NSD service type `_tether._tcp.`) and UDP broadcast scanning on port `37123`.
-- **No Internet Dependency**: Communication is local-only. Internet access is not required and no third-party cloud servers or WebSocket relays are involved.
+### 1. Supported Network Topologies
+- **Same Local Wi-Fi / LAN Infrastructure**: Both the Android device and Windows workstation connected as clients to the same Wi-Fi router or wired local subnet.
+- **Android Mobile Hotspot (Direct SoftAP)**: The Android phone acts as the Wi-Fi hotspot access point and the Windows workstation connects directly to that hotspot. Tether discovers and establishes mutual TLS 1.3 connectivity transparently with zero user configuration.
+- **Local Network Discovery**: Discovery occurs over local interfaces using Android Network Service Discovery (mDNS `_tether._tcp.`) and UDP broadcast/unicast discovery on port `37124` (including gateway and candidate client unicast probing for hotspot environments where multicast/broadcast is restricted).
+- **No Internet Dependency**: Communication is local-only. Internet access is not required, and no third-party cloud servers, external telemetry beacons, or relay services are ever contacted.
 - **Unsupported Configurations**:
-  - Android on cellular + Windows on Wi-Fi
-  - Android on one Wi-Fi network + Windows on another Wi-Fi network
-  - Android connected via mobile hotspot / tethering AP
+  - Android on cellular while Windows is on an unrelated Wi-Fi network
+  - Android and Windows on separate, non-routed physical subnets
   - Connections routed via public WAN, VPN, or port forwarding
   - Bluetooth command transport / Bluetooth fallback
 
-### 2. Mobile Hotspot / Tethering Exclusion
-- Tether Canary strictly **rejects Mobile Hotspot mode**. Operating the phone as a mobile Wi-Fi Access Point (AP) or tethering hotspot is explicitly classified as an unsupported configuration.
-- The Android client checks network capabilities and Wi-Fi AP state. If Mobile Hotspot mode is detected, the transport transitions to `HOTSPOT_UNSUPPORTED` state and refuses socket establishment. Both devices must be clients on an established Wi-Fi infrastructure network.
+### 2. Mobile Hotspot Architecture & Gateway Discovery
+- Tether provides transparent, production-grade Android Hotspot support. When the Android phone enables mobile hotspot and the Windows laptop joins it, Windows resolves the default gateway (which is the Android phone) and sends discovery announcements directly to the gateway on UDP port `37124`.
+- The Android client dynamically monitors Wi-Fi client and AP/tether interface states using standard broadcast intents (`WIFI_AP_STATE_CHANGED`, `TETHER_STATE_CHANGED`) and standard `NetworkInterface` inspection (no hidden API reflection), resolves local subnets, probes candidate DHCP client addresses bounded by actual subnet masks (/16, /24, /28, /30), and receives gateway discovery packets.
+- Network isolation strictly excludes cellular (`rmnet*`, `ccmni*`), VPN (`tun*`, `tap*`, `ppp*`), virtual adapters, and CGNAT space (`100.64.0.0/10`).
+- Inbound UDP discovery strictly validates payload length (10 to 1024 bytes), source IPs (RFC 1918 private IPv4 only), device fingerprints (`^[a-zA-Z0-9_\-\.:]{1,128}$`), TCP ports (1024..65535), and enforces per-IP rate limiting (5 probes/sec). Probes only trigger rate-limited datagram responses and never spawn unsolicited outbound TCP connections or misleading pairing prompts.
+- All communications remain strictly authenticated via hardware-backed ECDSA P-256 keys and encrypted over mutual TLS 1.3. Joining the phone's hotspot never confers automatic trust.
 
 ---
 

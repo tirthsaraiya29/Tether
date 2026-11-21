@@ -3,14 +3,12 @@ package com.tether.phone
 import android.util.Log
 
 enum class TetherCapability(val scopeName: String, val isElevated: Boolean) {
-    CLIPBOARD("CLIPBOARD", false),
     NOTIFICATIONS("NOTIFICATIONS", false),
     MEDIA("MEDIA", false),
     TERMINAL("TERMINAL", true),
     POWER_ELEVATED("POWER_ELEVATED", true),
     WINDOWS_ADMIN("WINDOWS_ADMIN", true),
-    APP_MANAGEMENT("APP_MANAGEMENT", false),
-    AUTOMATION("AUTOMATION", false);
+    APP_MANAGEMENT("APP_MANAGEMENT", false);
 
     companion object {
         fun fromScopeName(name: String): TetherCapability? {
@@ -25,14 +23,12 @@ class TetherCapabilityManager {
         private const val TAG = "TetherCapabilityManager"
 
         val DEFAULT_ANDROID_CAPABILITIES = setOf(
-            TetherCapability.CLIPBOARD,
             TetherCapability.NOTIFICATIONS,
             TetherCapability.MEDIA,
             TetherCapability.TERMINAL,
             TetherCapability.POWER_ELEVATED,
             TetherCapability.WINDOWS_ADMIN,
             TetherCapability.APP_MANAGEMENT,
-            TetherCapability.AUTOMATION,
         )
     }
 
@@ -69,12 +65,10 @@ class TetherCapabilityManager {
         val requiredCap = when {
             cmdLower in setOf("shutdown", "reboot", "sleep", "halt", "lock_now", "unlock", "lock") -> TetherCapability.POWER_ELEVATED
             cmdLower in setOf("cmd", "powershell", "powershell7", "wsl", "bash") || cmdLower.startsWith("terminal_") -> TetherCapability.TERMINAL
-            cmdLower in setOf("copy", "paste", "clipboard") || cmdLower.startsWith("clipboard_") -> TetherCapability.CLIPBOARD
             cmdLower.startsWith("notification_") -> TetherCapability.NOTIFICATIONS
             cmdLower.startsWith("admin_") || cmdLower.startsWith("service_") || cmdLower.startsWith("power_plan") ||
                 cmdLower in setOf("battery_health_get", "printers_get", "usb_devices_get", "services_get", "updates_check") -> TetherCapability.WINDOWS_ADMIN
             cmdLower.startsWith("app_") || cmdLower.startsWith("launch_") -> TetherCapability.APP_MANAGEMENT
-            cmdLower.startsWith("workflow_") -> TetherCapability.AUTOMATION
             (cmdLower in setOf("volume_up", "volume_down", "volume_mute", "volume_get", "vol_get", "get_volume", "set_volume", "brightness_up", "brightness_down", "bright_up", "bright_down", "brightness_get", "bright_get", "get_brightness", "set_brightness")) ||
                 cmdLower.startsWith("volume_set:") || cmdLower.startsWith("set_volume:") || cmdLower.startsWith("vol_set:") ||
                 cmdLower.startsWith("brightness_set:") || cmdLower.startsWith("set_brightness:") || cmdLower.startsWith("bright_set:") ||

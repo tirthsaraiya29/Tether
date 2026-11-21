@@ -10,9 +10,10 @@
 #include "resource.h"
 #include "TetherCredentialGlobals.h"
 
-class CSampleProvider;
+class CTetherProvider;
+typedef CTetherProvider CSampleProvider;
 
-class CSampleCredential : public ICredentialProviderCredential2,
+class CTetherCredential : public ICredentialProviderCredential2,
     public ICredentialProviderCredentialWithFieldOptions
 {
 public:
@@ -26,15 +27,15 @@ public:
     IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv)
     {
         static const QITAB qit[] = {
-            QITABENT(CSampleCredential, ICredentialProviderCredential),
-            QITABENT(CSampleCredential, ICredentialProviderCredential2),
-            QITABENT(CSampleCredential, ICredentialProviderCredentialWithFieldOptions),
+            QITABENT(CTetherCredential, ICredentialProviderCredential),
+            QITABENT(CTetherCredential, ICredentialProviderCredential2),
+            QITABENT(CTetherCredential, ICredentialProviderCredentialWithFieldOptions),
             {0},
         };
         return QISearch(this, qit, riid, ppv);
     }
 
-    void SetProvider(CSampleProvider* pProvider) { _pProvider = pProvider; }
+    void SetProvider(CTetherProvider* pProvider) { _pProvider = pProvider; }
 
     IFACEMETHODIMP Advise(ICredentialProviderCredentialEvents* pcpce);
     IFACEMETHODIMP UnAdvise();
@@ -68,65 +69,62 @@ public:
         const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* rgcpfd,
         const FIELD_STATE_PAIR* rgfsp,
         ICredentialProviderUser* pcpUser);
-    HRESULT LoadStoredPasswordHashFromTpm();
-    CSampleCredential();
+    CTetherCredential();
 
 private:
-    virtual ~CSampleCredential();
+    virtual ~CTetherCredential();
 
     void _StartBackgroundIPCListeners();
-    static void CALLBACK _OnIPCEventSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
     static void CALLBACK _OnAppEventSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
-    static void CALLBACK _OnScreenEventSignaled(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
-    static LRESULT CALLBACK WebAuthMsgProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-    void _CreateMessageWindow();
-    void _DestroyMessageWindow();
     void _BeginUnlockPromptCooldown();
     static void CALLBACK _OnCooldownTimerFired(PTP_CALLBACK_INSTANCE Instance, PVOID lpParameter, PTP_TIMER Timer);
+    static void CALLBACK _OnStatusTimerFired(PTP_CALLBACK_INSTANCE Instance, PVOID lpParameter, PTP_TIMER Timer);
     void _OnCooldownTick();
     void _SetStatusText(PCWSTR pszStatus);
+    void _CheckStatusAndRefreshUi();
+    void _PerformServiceActionAsync();
+    ICredentialProviderCredentialEvents* _GetCredentialEventsSafe();
 
     HRESULT _PackActualPasswordCredential(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
         CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
         PCWSTR pszPassword);
     HRESULT _GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
         CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs);
-    HRESULT _GetManualPasswordAndPack(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
-        CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs);
-    HRESULT _VerifySaltedPassword(PCWSTR pwzEnteredPassword);
     bool _IsEncryptedPasswordBlobPresent();
+    void _LoadFallbackAuthConfiguration();
 
 private:
-    long                                    _cRef;
+    std::atomic<long>                       _cRef;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO      _cpus;
     CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR    _rgCredProvFieldDescriptors[SFI_NUM_FIELDS];
     FIELD_STATE_PAIR                        _rgFieldStatePairs[SFI_NUM_FIELDS];
     PWSTR                                   _rgFieldStrings[SFI_NUM_FIELDS];
     PWSTR                                   _pszUserSid;
     PWSTR                                   _pszQualifiedUserName;
-    ICredentialProviderCredentialEvents* _pCredProvCredentialEvents;
 
-    BOOL                                    _fChecked;
-    DWORD                                   _dwComboIndex;
-    bool                                    _fShowControls;
+    CRITICAL_SECTION                        _csCredentialEvents;
+    ICredentialProviderCredentialEvents*    _pCredProvCredentialEvents;
+
     bool                                    _fIsLocalUser;
-    DWORD                                   _dwSelectedMethod;
-    bool                                    _fBypassEnabled;
-    PWSTR                                   _pszStoredPasswordHash;
+    CTetherProvider*                        _pProvider;
 
-    HRESULT                                 _VerifyTpmPassword(PCWSTR pwzEnteredPassword);
-    CSampleProvider* _pProvider;
-
-    HANDLE                                  _hAppEvent;
-    HANDLE                                  _hScreenEvent;
-    HANDLE                                  _hWaitApp;
-    HANDLE                                  _hWaitScreen;
-    HWND                                    _hWndMessage;
+    HANDLE                                  _hAppEvent{ nullptr };
+    HANDLE                                  _hWaitApp{ nullptr };
 
     PTP_TIMER                               _pCooldownTimer{ nullptr };
+    PTP_TIMER                               _pStatusTimer{ nullptr };
 
     std::atomic<bool>                       _isValid{ true };
     std::atomic<bool>                       _fInstancePhoneAppTriggered{ false };
     std::atomic<bool>                       _fInstanceAutoLogonReady{ false };
     std::atomic<long long>                  _promptCooldownEndMs{ 0 };
+    std::atomic<bool>                       _fPhoneConnected{ false };
+    std::atomic<bool>                       _fServiceRunning{ false };
+    std::atomic<bool>                       _prevServiceRunning{ false };
+    std::atomic<bool>                       _prevPhoneConnected{ false };
+    std::atomic<bool>                       _fServiceActionInProgress{ false };
+
+    DWORD                                   _dwFallbackAuthType{ 0 };
+    std::vector<DWORD>                      _availableMethods;
+    DWORD                                   _dwSelectedMethodIndex{ 0 };
 };

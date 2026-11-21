@@ -1,6 +1,7 @@
 package com.tether.phone.ui.screens
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import android.content.Intent
 import android.graphics.RenderEffect
 import android.graphics.Shader
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
@@ -80,7 +82,48 @@ fun TetherAppScreen(
 ) {
     val scrollState = rememberScrollState()
     var visible by remember { mutableStateOf(value = false) }
+    var showPanicConfirm by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
+
+    if (showPanicConfirm) {
+        AlertDialog(
+            onDismissRequest = { showPanicConfirm = false },
+            title = {
+                Text(
+                    text = "Activate Emergency Panic Mode?",
+                    color = AlertRed,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "This will immediately terminate all active remote sessions, enforce workstation lockdown, and alert security logs.",
+                    color = TextPrimary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showPanicConfirm = false
+                        onPanicClick()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AlertRed)
+                ) {
+                    Text("ACTIVATE PANIC", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showPanicConfirm = false },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary)
+                ) {
+                    Text("Cancel")
+                }
+            },
+            containerColor = DeepSpace,
+            tonalElevation = 8.dp
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -171,7 +214,7 @@ fun TetherAppScreen(
                                         TacticalAction(
                                             label = stringResource(R.string.label_panic),
                                             accentColor = AlertRed,
-                                            onClick = onPanicClick,
+                                            onClick = { showPanicConfirm = true },
                                             modifier = Modifier.weight(1f),
                                         )
                                     }
@@ -575,7 +618,8 @@ fun SettingsScreen(
     phoneFingerprint: String = "",
     windowsFingerprint: String = "",
     onRestartServer: () -> Unit,
-    onForgetTrust: () -> Unit = {}
+    onForgetTrust: () -> Unit = {},
+    onCheckForUpdates: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
@@ -740,6 +784,46 @@ fun SettingsScreen(
                         ) {
                             Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp), tint = LiquidCyan)
                             Text(text = stringResource(R.string.label_restart_server), color = LiquidCyan, style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = 450)) + 
+                    slideInVertically(animationSpec = tween(durationMillis = 600, delayMillis = 450)) { it / 3 }
+        ) {
+            ProfessionalGlassSurface {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "SECURITY & SOFTWARE UPDATES",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "Installed version: v${BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
+                    Button(
+                        onClick = onCheckForUpdates,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan.copy(alpha = 0.12f)),
+                        border = BorderStroke(width = 0.5.dp, color = LiquidCyan),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp), tint = LiquidCyan)
+                            Text(text = "CHECK FOR UPDATES", color = LiquidCyan, style = MaterialTheme.typography.labelLarge)
                         }
                     }
                 }
@@ -983,9 +1067,8 @@ fun PairingScreen(
                                 OutlinedTextField(
                                     value = pinInput,
                                     onValueChange = { input ->
-                                        if ((input.length <= 6) && input.all { it.isDigit() }) {
-                                            pinInput = input
-                                        }
+                                        val digitsOnly = input.filter { it.isDigit() }.take(6)
+                                        pinInput = digitsOnly
                                     },
                                     modifier = Modifier.fillMaxWidth(),
                                     textStyle = androidx.compose.ui.text.TextStyle(
@@ -1178,6 +1261,7 @@ fun TetherNavigationShell(
     onCancelPairing: () -> Unit = {},
     onConfirmPairing: (String) -> Unit = {},
     onForgetTrust: () -> Unit = {},
+    onCheckForUpdates: () -> Unit = {},
     permissionItems: List<PermissionItemState> = emptyList(),
     showPermissionsBanner: Boolean = false,
     missingPermissionsCount: Int = 0,
@@ -1189,6 +1273,14 @@ fun TetherNavigationShell(
     val scope = rememberCoroutineScope()
     var currentScreen by remember { mutableStateOf(AppScreen.TELEMETRY_DASHBOARD) }
     var showLinkControlDialog by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = drawerState.isOpen) {
+        scope.launch { drawerState.close() }
+    }
+
+    BackHandler(enabled = !drawerState.isOpen && currentScreen != AppScreen.TELEMETRY_DASHBOARD) {
+        currentScreen = AppScreen.TELEMETRY_DASHBOARD
+    }
 
     if (showLinkControlDialog) {
         LinkServiceDialog(
@@ -1210,14 +1302,7 @@ fun TetherNavigationShell(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(DeepSpace.copy(alpha = 0.85f))
-                            .graphicsLayer {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    renderEffect = RenderEffect
-                                        .createBlurEffect(40f, 40f, Shader.TileMode.CLAMP)
-                                        .asComposeRenderEffect()
-                                }
-                            }
+                            .background(DeepSpace.copy(alpha = 0.94f))
                     )
                     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState())) {
                         Spacer(modifier = Modifier.height(64.dp))
@@ -1231,13 +1316,11 @@ fun TetherNavigationShell(
                         val navItems = listOf(
                             Triple(stringResource(R.string.nav_dashboard), Icons.Default.Home, AppScreen.TELEMETRY_DASHBOARD),
                             Triple("REMOTE DESKTOP", Icons.Default.DesktopWindows, AppScreen.REMOTE_DESKTOP),
-                            Triple("ADVANCED AUDIO", Icons.Default.VolumeUp, AppScreen.ADVANCED_AUDIO),
+                            Triple("ADVANCED AUDIO", Icons.AutoMirrored.Filled.VolumeUp, AppScreen.ADVANCED_AUDIO),
                             Triple("REMOTE TERMINAL", Icons.Default.Terminal, AppScreen.REMOTE_TERMINAL),
-                            Triple("CLIPBOARD SYNC", Icons.Default.ContentPaste, AppScreen.CLIPBOARD),
                             Triple("NOTIFICATIONS", Icons.Default.Notifications, AppScreen.NOTIFICATIONS),
                             Triple("WINDOWS ADMIN", Icons.Default.AdminPanelSettings, AppScreen.WINDOWS_ADMIN),
                             Triple("APP MANAGER", Icons.Default.Apps, AppScreen.APP_MANAGEMENT),
-                            Triple("AUTOMATION", Icons.Default.AutoFixHigh, AppScreen.AUTOMATION),
                             Triple("FILE SHARING", Icons.Default.Folder, AppScreen.FILE_TRANSFER),
                             Triple("REMOTE INPUT", Icons.Default.TouchApp, AppScreen.REMOTE_INPUT),
                             Triple("PERMISSIONS", Icons.Default.CheckCircle, AppScreen.PERMISSIONS),
@@ -1345,7 +1428,8 @@ fun TetherNavigationShell(
                             phoneFingerprint = phoneFingerprint,
                             windowsFingerprint = windowsFingerprint,
                             onRestartServer = onRestartServer,
-                            onForgetTrust = onForgetTrust
+                            onForgetTrust = onForgetTrust,
+                            onCheckForUpdates = onCheckForUpdates
                         )
                         AppScreen.LAPTOP_CONTROL -> LaptopControlScreen(
                             isConnected = isConnected,
@@ -1384,9 +1468,6 @@ fun TetherNavigationShell(
                         AppScreen.REMOTE_TERMINAL -> RemoteTerminalScreen(
                             onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
                         )
-                        AppScreen.CLIPBOARD -> ClipboardScreen(
-                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
-                        )
                         AppScreen.NOTIFICATIONS -> NotificationSyncScreen(
                             onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
                         )
@@ -1394,9 +1475,6 @@ fun TetherNavigationShell(
                             onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
                         )
                         AppScreen.APP_MANAGEMENT -> ApplicationManagementScreen(
-                            onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
-                        )
-                        AppScreen.AUTOMATION -> AutomationScreen(
                             onBack = { currentScreen = AppScreen.TELEMETRY_DASHBOARD }
                         )
                     }

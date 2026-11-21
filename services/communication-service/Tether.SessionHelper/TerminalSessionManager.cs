@@ -1,11 +1,16 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
+using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 
 namespace Tether.SessionHelper;
 
@@ -20,14 +25,16 @@ internal sealed class TerminalSessionManager
         public StreamWriter Stdin { get; }
         public List<string> HistoryBuffer { get; } = new(500);
         public object Lock { get; } = new();
+        public string OwnerDeviceId { get; }
 
-        public TerminalSession(string id, string shellType, string currentDirectory, Process process, StreamWriter stdin)
+        public TerminalSession(string id, string shellType, string currentDirectory, Process process, StreamWriter stdin, string ownerDeviceId)
         {
             Id = id;
             ShellType = shellType;
             CurrentDirectory = currentDirectory;
             Process = process;
             Stdin = stdin;
+            OwnerDeviceId = ownerDeviceId;
         }
 
         public void AppendHistory(string text)
@@ -65,158 +72,951 @@ internal sealed class TerminalSessionManager
         "takeown", "icacls /grant"
     };
 
+    private const int MaxActiveSessions = 8;
+    private readonly object _sessionLock = new();
     private readonly ConcurrentDictionary<string, TerminalSession> _sessions = new();
-    private readonly Action<string, string, string> _onOutputReceived;
+    private readonly Action<string, string, string, string> _onOutputReceived;
 
-    public TerminalSessionManager(Action<string, string, string> onOutputReceived)
+    public TerminalSessionManager(Action<string, string, string> legacyCallback)
+        : this((id, text, dir, _) => legacyCallback(id, text, dir))
+    {
+    }
+
+    public TerminalSessionManager(Action<string, string, string, string> onOutputReceived)
     {
         _onOutputReceived = onOutputReceived;
     }
 
-    private const int MaxActiveSessions = 8;
+    #region Win32 Process Creation with Limited User Token
 
-    public TerminalSessionInfo StartSession(string shellType, string? initialDir = null, string? customId = null)
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(IntPtr TokenHandle, int TokenInformationClass, IntPtr TokenInformation, uint TokenInformationLength, out uint ReturnLength);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool DuplicateTokenEx(IntPtr hExistingToken, uint dwDesiredAccess, IntPtr lpTokenAttributes, int ImpersonationLevel, int TokenType, out IntPtr phNewToken);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool CreateRestrictedToken(
+        IntPtr ExistingTokenHandle,
+        uint Flags,
+        uint DisableSidCount,
+        IntPtr SidsToDisable,
+        uint DeletePrivilegeCount,
+        IntPtr PrivilegesToDelete,
+        uint RestrictedSidCount,
+        IntPtr SidsToRestrict,
+        out IntPtr NewTokenHandle);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern IntPtr GetSidSubAuthority(IntPtr pSid, uint nSubAuthority);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern IntPtr GetSidSubAuthorityCount(IntPtr pSid);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CreatePipe(out IntPtr hReadPipe, out IntPtr hWritePipe, ref SECURITY_ATTRIBUTES lpPipeAttributes, uint nSize);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetHandleInformation(IntPtr hObject, uint dwMask, uint dwFlags);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool CreateProcessWithTokenW(
+        IntPtr hToken,
+        uint dwLogonFlags,
+        string? lpApplicationName,
+        string lpCommandLine,
+        uint dwCreationFlags,
+        IntPtr lpEnvironment,
+        string? lpCurrentDirectory,
+        ref STARTUPINFO lpStartupInfo,
+        out PROCESS_INFORMATION lpProcessInformation);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool CreateProcessW(
+        string? lpApplicationName,
+        string lpCommandLine,
+        IntPtr lpProcessAttributes,
+        IntPtr lpThreadAttributes,
+        bool bInheritHandles,
+        uint dwCreationFlags,
+        IntPtr lpEnvironment,
+        string? lpCurrentDirectory,
+        ref STARTUPINFO lpStartupInfo,
+        out PROCESS_INFORMATION lpProcessInformation);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct STARTUPINFOEX
     {
-        // Evict exited processes
-        foreach (var kvp in _sessions)
-        {
-            if (kvp.Value.Process.HasExited)
-            {
-                if (_sessions.TryRemove(kvp.Key, out var dead)) dead.Dispose();
-            }
-        }
+        public STARTUPINFO StartupInfo;
+        public IntPtr lpAttributeList;
+    }
 
-        if (_sessions.Count >= MaxActiveSessions)
-        {
-            throw new InvalidOperationException($"Maximum terminal session capacity ({MaxActiveSessions}) reached.");
-        }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool InitializeProcThreadAttributeList(
+        IntPtr lpAttributeList,
+        int dwAttributeCount,
+        int dwFlags,
+        ref IntPtr lpSize);
 
-        string id = string.IsNullOrEmpty(customId) ? Guid.NewGuid().ToString("N")[..8] : customId;
-        string workingDir = !string.IsNullOrEmpty(initialDir) && Directory.Exists(initialDir)
-            ? initialDir
-            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool UpdateProcThreadAttribute(
+        IntPtr lpAttributeList,
+        uint dwFlags,
+        IntPtr Attribute,
+        IntPtr lpValue,
+        IntPtr cbSize,
+        IntPtr lpPreviousValue,
+        IntPtr lpReturnSize);
 
-        string exeName = shellType.ToLowerInvariant() switch
-        {
-            "cmd" => "cmd.exe",
-            "powershell" or "powershell5" or "winpowershell" => "powershell.exe",
-            "pwsh" or "powershell7" => "pwsh.exe",
-            "wsl" or "bash" => "wsl.exe",
-            _ => "powershell.exe"
-        };
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool DeleteProcThreadAttributeList(IntPtr lpAttributeList);
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = exeName,
-            WorkingDirectory = workingDir,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
 
-        if (exeName == "powershell.exe" || exeName == "pwsh.exe")
-        {
-            psi.Arguments = "-NoLogo -NoExit";
-        }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SECURITY_ATTRIBUTES
+    {
+        public int nLength;
+        public IntPtr lpSecurityDescriptor;
+        public bool bInheritHandle;
+    }
 
-        Process proc;
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct STARTUPINFO
+    {
+        public int cb;
+        public string? lpReserved;
+        public string? lpDesktop;
+        public string? lpTitle;
+        public int dwX;
+        public int dwY;
+        public int dwXSize;
+        public int dwYSize;
+        public int dwXCountChars;
+        public int dwYCountChars;
+        public int dwFillAttribute;
+        public int dwFlags;
+        public short wShowWindow;
+        public short cbReserved2;
+        public IntPtr lpReserved2;
+        public IntPtr hStdInput;
+        public IntPtr hStdOutput;
+        public IntPtr hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_INFORMATION
+    {
+        public IntPtr hProcess;
+        public IntPtr hThread;
+        public int dwProcessId;
+        public int dwThreadId;
+    }
+
+    private const int STARTF_USESTDHANDLES = 0x00000100;
+    private const uint CREATE_NO_WINDOW = 0x08000000;
+    private const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
+    private const uint PROCESS_CREATE_PROCESS = 0x0080;
+    private static readonly IntPtr PROC_THREAD_ATTRIBUTE_PARENT_PROCESS = (IntPtr)0x00020000;
+    private static readonly IntPtr PROC_THREAD_ATTRIBUTE_HANDLE_LIST = (IntPtr)0x00020002;
+    private const uint HANDLE_FLAG_INHERIT = 0x00000001;
+    private const uint TOKEN_QUERY = 0x0008;
+    private const uint TOKEN_DUPLICATE = 0x0002;
+    private const uint MAXIMUM_ALLOWED = 0x02000000;
+    private const int TokenElevationType = 18;
+    private const int TokenLinkedToken = 19;
+    private const int TokenUser = 1;
+    private const int TokenElevation = 20;
+    private const int TokenIntegrityLevel = 25;
+    private const int SECURITY_MANDATORY_MEDIUM_RID = 0x00002000;
+    private const uint LUA_TOKEN = 0x00000004;
+
+    private static bool IsTokenSafeAndLimited(IntPtr hToken)
+    {
+        if (hToken == IntPtr.Zero) return false;
+
+        IntPtr pInfo = IntPtr.Zero;
         try
         {
-            proc = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to spawn {exeName}");
-        }
-        catch (Exception ex)
-        {
-            if (exeName != "cmd.exe")
+            // 1. Verify User SID: Must NOT be SYSTEM (S-1-5-18), LocalService (S-1-5-19), or NetworkService (S-1-5-20)
+            GetTokenInformation(hToken, TokenUser, IntPtr.Zero, 0, out uint userLenNeeded);
+            if (userLenNeeded > 0)
             {
-                psi.FileName = "cmd.exe";
-                psi.Arguments = "";
-                proc = Process.Start(psi) ?? throw new InvalidOperationException($"Fallback to cmd failed: {ex.Message}");
-                exeName = "cmd.exe";
+                pInfo = Marshal.AllocHGlobal((int)userLenNeeded);
+                if (GetTokenInformation(hToken, TokenUser, pInfo, userLenNeeded, out _))
+                {
+                    IntPtr pUserSid = Marshal.ReadIntPtr(pInfo); // TOKEN_USER.User.Sid
+                    if (pUserSid != IntPtr.Zero)
+                    {
+                        var sid = new SecurityIdentifier(pUserSid);
+                        string sidStr = sid.Value;
+                        if (sidStr.Equals("S-1-5-18", StringComparison.OrdinalIgnoreCase) ||
+                            sidStr.Equals("S-1-5-19", StringComparison.OrdinalIgnoreCase) ||
+                            sidStr.Equals("S-1-5-20", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return false; // Prohibit service/SYSTEM accounts
+                        }
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+                Marshal.FreeHGlobal(pInfo);
+                pInfo = IntPtr.Zero;
             }
             else
             {
+                return false;
+            }
+
+            // 2. Verify elevation is strictly FALSE
+            pInfo = Marshal.AllocHGlobal(sizeof(int));
+            if (GetTokenInformation(hToken, TokenElevation, pInfo, sizeof(int), out _))
+            {
+                int isElevated = Marshal.ReadInt32(pInfo);
+                if (isElevated != 0) return false;
+            }
+            else
+            {
+                return false;
+            }
+            Marshal.FreeHGlobal(pInfo);
+            pInfo = IntPtr.Zero;
+
+            // 3. Verify integrity level is <= Medium (RID <= 0x2000)
+            GetTokenInformation(hToken, TokenIntegrityLevel, IntPtr.Zero, 0, out uint lenNeeded);
+            if (lenNeeded == 0) return false;
+
+            pInfo = Marshal.AllocHGlobal((int)lenNeeded);
+            if (!GetTokenInformation(hToken, TokenIntegrityLevel, pInfo, lenNeeded, out _))
+            {
+                return false;
+            }
+
+            IntPtr pSid = Marshal.ReadIntPtr(pInfo); // Label.Sid
+            if (pSid == IntPtr.Zero) return false;
+
+            IntPtr pSubAuthCount = GetSidSubAuthorityCount(pSid);
+            if (pSubAuthCount == IntPtr.Zero) return false;
+            byte subAuthCount = Marshal.ReadByte(pSubAuthCount);
+            if (subAuthCount == 0) return false;
+
+            IntPtr pSubAuth = GetSidSubAuthority(pSid, (uint)(subAuthCount - 1));
+            if (pSubAuth == IntPtr.Zero) return false;
+            int integrityRid = Marshal.ReadInt32(pSubAuth);
+
+            if (integrityRid > SECURITY_MANDATORY_MEDIUM_RID)
+            {
+                return false; // Rejects High, System, or untrusted higher-integrity tokens
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            if (pInfo != IntPtr.Zero) Marshal.FreeHGlobal(pInfo);
+        }
+    }
+
+    private static bool TryGetLimitedUserToken(out IntPtr limitedToken)
+    {
+        limitedToken = IntPtr.Zero;
+        IntPtr hProcessToken = IntPtr.Zero;
+        IntPtr pInfo = IntPtr.Zero;
+
+        try
+        {
+            if (!OpenProcessToken(Process.GetCurrentProcess().Handle, TOKEN_QUERY | TOKEN_DUPLICATE | 0x0008, out hProcessToken))
+            {
+                return false;
+            }
+
+            // Query TokenElevationType
+            pInfo = Marshal.AllocHGlobal(sizeof(int));
+            int elevType = 0;
+            if (GetTokenInformation(hProcessToken, TokenElevationType, pInfo, sizeof(int), out _))
+            {
+                elevType = Marshal.ReadInt32(pInfo);
+            }
+            Marshal.FreeHGlobal(pInfo);
+            pInfo = IntPtr.Zero;
+
+            // Elevated process (elevType == 2): retrieve medium linked token
+            if (elevType == 2)
+            {
+                pInfo = Marshal.AllocHGlobal(IntPtr.Size);
+                if (GetTokenInformation(hProcessToken, TokenLinkedToken, pInfo, (uint)IntPtr.Size, out _))
+                {
+                    IntPtr rawLinked = Marshal.ReadIntPtr(pInfo);
+                    if (rawLinked != IntPtr.Zero)
+                    {
+                        try
+                        {
+                            if (DuplicateTokenEx(rawLinked, MAXIMUM_ALLOWED, IntPtr.Zero, 2, 1, out IntPtr candidate))
+                            {
+                                if (IsTokenSafeAndLimited(candidate))
+                                {
+                                    limitedToken = candidate;
+                                    return true;
+                                }
+                                CloseHandle(candidate);
+                            }
+                        }
+                        finally
+                        {
+                            CloseHandle(rawLinked);
+                        }
+                    }
+                }
+                Marshal.FreeHGlobal(pInfo);
+                pInfo = IntPtr.Zero;
+
+                // Fallback for elevated: create restricted LUA token
+                if (CreateRestrictedToken(hProcessToken, LUA_TOKEN, 0, IntPtr.Zero, 0, IntPtr.Zero, 0, IntPtr.Zero, out IntPtr hRestricted))
+                {
+                    try
+                    {
+                        if (DuplicateTokenEx(hRestricted, MAXIMUM_ALLOWED, IntPtr.Zero, 2, 1, out IntPtr candidate))
+                        {
+                            if (IsTokenSafeAndLimited(candidate))
+                            {
+                                limitedToken = candidate;
+                                return true;
+                            }
+                            CloseHandle(candidate);
+                        }
+                    }
+                    finally
+                    {
+                        CloseHandle(hRestricted);
+                    }
+                }
+                return false;
+            }
+
+            // Non-elevated process (elevType == 1 or 3): duplicate current token directly if already limited
+            if (DuplicateTokenEx(hProcessToken, MAXIMUM_ALLOWED, IntPtr.Zero, 2, 1, out IntPtr dupCurrent))
+            {
+                if (IsTokenSafeAndLimited(dupCurrent))
+                {
+                    limitedToken = dupCurrent;
+                    return true;
+                }
+                CloseHandle(dupCurrent);
+            }
+
+            // Create restricted LUA token
+            if (CreateRestrictedToken(hProcessToken, LUA_TOKEN, 0, IntPtr.Zero, 0, IntPtr.Zero, 0, IntPtr.Zero, out IntPtr restricted))
+            {
+                try
+                {
+                    if (DuplicateTokenEx(restricted, MAXIMUM_ALLOWED, IntPtr.Zero, 2, 1, out IntPtr candidate))
+                    {
+                        if (IsTokenSafeAndLimited(candidate))
+                        {
+                            limitedToken = candidate;
+                            return true;
+                        }
+                        CloseHandle(candidate);
+                    }
+                }
+                finally
+                {
+                    CloseHandle(restricted);
+                }
+            }
+
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            if (pInfo != IntPtr.Zero) Marshal.FreeHGlobal(pInfo);
+            if (hProcessToken != IntPtr.Zero) CloseHandle(hProcessToken);
+        }
+    }
+
+    private static bool TrySpawnLimitedProcess(
+        string exeName,
+        string arguments,
+        string workingDir,
+        out Process proc,
+        out StreamWriter stdin,
+        out StreamReader stdout,
+        out StreamReader stderr)
+    {
+        proc = null!;
+        stdin = null!;
+        stdout = null!;
+        stderr = null!;
+
+        if (!TryGetLimitedUserToken(out IntPtr hLimitedToken))
+        {
+            return false;
+        }
+
+        IntPtr hChildStdinRead = IntPtr.Zero;
+        IntPtr hParentStdinWrite = IntPtr.Zero;
+        IntPtr hParentStdoutRead = IntPtr.Zero;
+        IntPtr hChildStdoutWrite = IntPtr.Zero;
+        IntPtr hParentStderrRead = IntPtr.Zero;
+        IntPtr hChildStderrWrite = IntPtr.Zero;
+        PROCESS_INFORMATION pi = default;
+
+        try
+        {
+            var sa = new SECURITY_ATTRIBUTES
+            {
+                nLength = Marshal.SizeOf<SECURITY_ATTRIBUTES>(),
+                bInheritHandle = true,
+                lpSecurityDescriptor = IntPtr.Zero
+            };
+
+            if (!CreatePipe(out hChildStdinRead, out hParentStdinWrite, ref sa, 0))
+            {
+                int err = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"TerminalSessionManager: Failed to create stdin pipe (Win32 Error: {err}).");
+                return false;
+            }
+            if (!CreatePipe(out hParentStdoutRead, out hChildStdoutWrite, ref sa, 0))
+            {
+                int err = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"TerminalSessionManager: Failed to create stdout pipe (Win32 Error: {err}).");
+                return false;
+            }
+            if (!CreatePipe(out hParentStderrRead, out hChildStderrWrite, ref sa, 0))
+            {
+                int err = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"TerminalSessionManager: Failed to create stderr pipe (Win32 Error: {err}).");
+                return false;
+            }
+
+            if (!SetHandleInformation(hParentStdinWrite, HANDLE_FLAG_INHERIT, 0))
+            {
+                int err = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"TerminalSessionManager: Failed to configure StdinWrite handle inheritance (Win32 Error: {err}).");
+                return false;
+            }
+            if (!SetHandleInformation(hParentStdoutRead, HANDLE_FLAG_INHERIT, 0))
+            {
+                int err = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"TerminalSessionManager: Failed to configure StdoutRead handle inheritance (Win32 Error: {err}).");
+                return false;
+            }
+            if (!SetHandleInformation(hParentStderrRead, HANDLE_FLAG_INHERIT, 0))
+            {
+                int err = Marshal.GetLastWin32Error();
+                Console.Error.WriteLine($"TerminalSessionManager: Failed to configure StderrRead handle inheritance (Win32 Error: {err}).");
+                return false;
+            }
+
+            var si = new STARTUPINFO
+            {
+                cb = Marshal.SizeOf<STARTUPINFO>(),
+                dwFlags = STARTF_USESTDHANDLES,
+                hStdInput = hChildStdinRead,
+                hStdOutput = hChildStdoutWrite,
+                hStdError = hChildStderrWrite
+            };
+
+            string cmdLine = string.IsNullOrEmpty(arguments) ? ("\"" + exeName + "\"") : ("\"" + exeName + "\" " + arguments);
+
+            bool processCreated = false;
+
+            // Strategy 1: Attempt to spawn with explicit restricted/limited token via CreateProcessWithTokenW.
+            // This works when running in a context with SeImpersonatePrivilege.
+            if (hLimitedToken != IntPtr.Zero)
+            {
+                if (CreateProcessWithTokenW(
+                    hLimitedToken,
+                    0,
+                    null,
+                    cmdLine,
+                    CREATE_NO_WINDOW,
+                    IntPtr.Zero,
+                    workingDir,
+                    ref si,
+                    out pi))
+                {
+                    processCreated = true;
+                }
+                else
+                {
+                    int err = Marshal.GetLastWin32Error();
+                    Console.Error.WriteLine($"TerminalSessionManager: CreateProcessWithTokenW failed with Win32 Error: {err}.");
+                }
+            }
+
+            // Strategy 2: If CreateProcessWithTokenW failed (e.g. Win32 Error 1314 ERROR_PRIVILEGE_NOT_HELD
+            // because standard interactive user sessions do not hold SeImpersonatePrivilege):
+            // Fall back to CreateProcessW ONLY IF the current hosting process itself is verified
+            // to be safe and limited (non-SYSTEM, non-elevated, Medium/Low integrity).
+            if (!processCreated)
+            {
+                bool isCurrentSafe = false;
+                if (OpenProcessToken(Process.GetCurrentProcess().Handle, TOKEN_QUERY, out IntPtr hCurrentToken))
+                {
+                    try
+                    {
+                        isCurrentSafe = IsTokenSafeAndLimited(hCurrentToken);
+                    }
+                    finally
+                    {
+                        CloseHandle(hCurrentToken);
+                    }
+                }
+
+                if (isCurrentSafe)
+                {
+                    if (CreateProcessW(
+                        null,
+                        cmdLine,
+                        IntPtr.Zero,
+                        IntPtr.Zero,
+                        true, // bInheritHandles must be true for stdin/stdout/stderr pipes
+                        CREATE_NO_WINDOW,
+                        IntPtr.Zero,
+                        workingDir,
+                        ref si,
+                        out pi))
+                    {
+                        // Fail-closed verification: inspect the spawned child process token directly
+                        // to guarantee that it is strictly safe and non-elevated.
+                        bool childSafe = false;
+                        if (OpenProcessToken(pi.hProcess, TOKEN_QUERY, out IntPtr hChildToken))
+                        {
+                            try
+                            {
+                                childSafe = IsTokenSafeAndLimited(hChildToken);
+                            }
+                            finally
+                            {
+                                CloseHandle(hChildToken);
+                            }
+                        }
+
+                        if (childSafe)
+                        {
+                            processCreated = true;
+                        }
+                        else
+                        {
+                            Console.Error.WriteLine("TerminalSessionManager: Spawned child token failed safety verification (fail-closed).");
+                            try { TerminateProcess(pi.hProcess, 1); } catch { }
+                            CloseHandle(pi.hProcess);
+                            CloseHandle(pi.hThread);
+                            pi.hProcess = IntPtr.Zero;
+                            pi.hThread = IntPtr.Zero;
+                        }
+                    }
+                    else
+                    {
+                        int err = Marshal.GetLastWin32Error();
+                        Console.Error.WriteLine($"TerminalSessionManager: CreateProcessW failed with Win32 Error: {err}.");
+                    }
+                }
+                else
+                {
+                    Console.Error.WriteLine("TerminalSessionManager: Current process token is not safe and limited; refusing unverified CreateProcessW.");
+                }
+            }
+
+            // Strategy 3: If the hosting process is elevated and CreateProcessWithTokenW failed,
+            // spawn the non-elevated terminal process under the interactive user's shell (explorer.exe)
+            // using PROC_THREAD_ATTRIBUTE_PARENT_PROCESS and PROC_THREAD_ATTRIBUTE_HANDLE_LIST.
+            if (!processCreated)
+            {
+                try
+                {
+                    int currentSessionId = Process.GetCurrentProcess().SessionId;
+                    var explorer = Process.GetProcessesByName("explorer")
+                        .FirstOrDefault(p => p.SessionId == currentSessionId);
+
+                    if (explorer != null)
+                    {
+                        IntPtr hExplorer = OpenProcess(PROCESS_CREATE_PROCESS, false, explorer.Id);
+                        if (hExplorer != IntPtr.Zero)
+                        {
+                            try
+                            {
+                                IntPtr size = IntPtr.Zero;
+                                InitializeProcThreadAttributeList(IntPtr.Zero, 2, 0, ref size);
+                                IntPtr pAttrList = Marshal.AllocHGlobal(size);
+                                try
+                                {
+                                    if (InitializeProcThreadAttributeList(pAttrList, 2, 0, ref size))
+                                    {
+                                        IntPtr pParent = Marshal.AllocHGlobal(IntPtr.Size);
+                                        Marshal.WriteIntPtr(pParent, hExplorer);
+                                        try
+                                        {
+                                            if (UpdateProcThreadAttribute(pAttrList, 0, PROC_THREAD_ATTRIBUTE_PARENT_PROCESS, pParent, (IntPtr)IntPtr.Size, IntPtr.Zero, IntPtr.Zero))
+                                            {
+                                                IntPtr[] handlesToInherit = new[] { hChildStdinRead, hChildStdoutWrite, hChildStderrWrite };
+                                                GCHandle gch = GCHandle.Alloc(handlesToInherit, GCHandleType.Pinned);
+                                                try
+                                                {
+                                                    if (UpdateProcThreadAttribute(pAttrList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, gch.AddrOfPinnedObject(), (IntPtr)(handlesToInherit.Length * IntPtr.Size), IntPtr.Zero, IntPtr.Zero))
+                                                    {
+                                                        var siex = new STARTUPINFOEX
+                                                        {
+                                                            StartupInfo = si,
+                                                            lpAttributeList = pAttrList
+                                                        };
+                                                        siex.StartupInfo.cb = Marshal.SizeOf<STARTUPINFOEX>();
+
+                                                        if (CreateProcessW(
+                                                            null,
+                                                            cmdLine,
+                                                            IntPtr.Zero,
+                                                            IntPtr.Zero,
+                                                            true,
+                                                            CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
+                                                            IntPtr.Zero,
+                                                            workingDir,
+                                                            ref siex.StartupInfo,
+                                                            out pi))
+                                                        {
+                                                            bool childSafe = false;
+                                                            if (OpenProcessToken(pi.hProcess, TOKEN_QUERY, out IntPtr hChildToken))
+                                                            {
+                                                                try
+                                                                {
+                                                                    childSafe = IsTokenSafeAndLimited(hChildToken);
+                                                                }
+                                                                finally
+                                                                {
+                                                                    CloseHandle(hChildToken);
+                                                                }
+                                                            }
+
+                                                            if (childSafe)
+                                                            {
+                                                                processCreated = true;
+                                                            }
+                                                            else
+                                                            {
+                                                                Console.Error.WriteLine("TerminalSessionManager: Explorer-parented child failed safety check (fail-closed).");
+                                                                try { TerminateProcess(pi.hProcess, 1); } catch { }
+                                                                CloseHandle(pi.hProcess);
+                                                                CloseHandle(pi.hThread);
+                                                                pi.hProcess = IntPtr.Zero;
+                                                                pi.hThread = IntPtr.Zero;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                finally
+                                                {
+                                                    gch.Free();
+                                                }
+                                            }
+                                        }
+                                        finally
+                                        {
+                                            Marshal.FreeHGlobal(pParent);
+                                        }
+                                    }
+                                }
+                                finally
+                                {
+                                    DeleteProcThreadAttributeList(pAttrList);
+                                    Marshal.FreeHGlobal(pAttrList);
+                                }
+                            }
+                            finally
+                            {
+                                CloseHandle(hExplorer);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"TerminalSessionManager: Strategy 3 (explorer parent) exception: {ex.Message}");
+                }
+            }
+
+            if (!processCreated)
+            {
+                return false;
+            }
+
+            CloseHandle(pi.hThread);
+            pi.hThread = IntPtr.Zero;
+
+            CloseHandle(hChildStdinRead);
+            CloseHandle(hChildStdoutWrite);
+            CloseHandle(hChildStderrWrite);
+            hChildStdinRead = IntPtr.Zero;
+            hChildStdoutWrite = IntPtr.Zero;
+            hChildStderrWrite = IntPtr.Zero;
+
+            proc = Process.GetProcessById(pi.dwProcessId);
+            CloseHandle(pi.hProcess);
+            pi.hProcess = IntPtr.Zero;
+
+            SafeFileHandle? safeIn = null;
+            SafeFileHandle? safeOut = null;
+            SafeFileHandle? safeErr = null;
+            FileStream? stdinStream = null;
+            FileStream? stdoutStream = null;
+            FileStream? stderrStream = null;
+            StreamWriter? stdinWriter = null;
+            StreamReader? stdoutReader = null;
+            StreamReader? stderrReader = null;
+
+            try
+            {
+                safeIn = new SafeFileHandle(hParentStdinWrite, true);
+                hParentStdinWrite = IntPtr.Zero;
+                safeOut = new SafeFileHandle(hParentStdoutRead, true);
+                hParentStdoutRead = IntPtr.Zero;
+                safeErr = new SafeFileHandle(hParentStderrRead, true);
+                hParentStderrRead = IntPtr.Zero;
+
+                stdinStream = new FileStream(safeIn, FileAccess.Write, 4096, false);
+                stdoutStream = new FileStream(safeOut, FileAccess.Read, 4096, false);
+                stderrStream = new FileStream(safeErr, FileAccess.Read, 4096, false);
+
+                stdinWriter = new StreamWriter(stdinStream, new UTF8Encoding(false)) { AutoFlush = true };
+                stdoutReader = new StreamReader(stdoutStream, Encoding.UTF8);
+                stderrReader = new StreamReader(stderrStream, Encoding.UTF8);
+                stdin = stdinWriter;
+                stdout = stdoutReader;
+                stderr = stderrReader;
+                return true;
+            }
+            catch
+            {
+                stdinWriter?.Dispose();
+                stdoutReader?.Dispose();
+                stderrReader?.Dispose();
+                stdinStream?.Dispose();
+                stdoutStream?.Dispose();
+                stderrStream?.Dispose();
+                safeIn?.Dispose();
+                safeOut?.Dispose();
+                safeErr?.Dispose();
                 throw;
             }
         }
-
-        var session = new TerminalSession(id, exeName, workingDir, proc, proc.StandardInput);
-        _sessions[id] = session;
-
-        Task.Run(() => ReadStreamLoop(proc.StandardOutput, id, session));
-        Task.Run(() => ReadStreamLoop(proc.StandardError, id, session));
-
-        string intro = $"Tether Remote Console [{exeName}]\r\nWorking Directory: {workingDir}\r\nSession ID: {id}\r\n\r\n";
-        session.AppendHistory(intro);
-        _onOutputReceived(id, intro, workingDir);
-
-        return new TerminalSessionInfo
+        catch (Exception ex)
         {
-            Id = id,
-            ShellType = exeName,
-            WorkingDir = workingDir
-        };
+            Console.Error.WriteLine($"TerminalSessionManager: Process spawn failed: {ex.Message}");
+            if (pi.hProcess != IntPtr.Zero)
+            {
+                try { TerminateProcess(pi.hProcess, 1); } catch { }
+                CloseHandle(pi.hProcess);
+                pi.hProcess = IntPtr.Zero;
+            }
+            if (pi.hThread != IntPtr.Zero)
+            {
+                CloseHandle(pi.hThread);
+                pi.hThread = IntPtr.Zero;
+            }
+            if (proc != null)
+            {
+                try { if (!proc.HasExited) proc.Kill(true); } catch { }
+                try { proc.Dispose(); } catch { }
+                proc = null!;
+            }
+            return false;
+        }
+        finally
+        {
+            if (hChildStdinRead != IntPtr.Zero) CloseHandle(hChildStdinRead);
+            if (hParentStdinWrite != IntPtr.Zero) CloseHandle(hParentStdinWrite);
+            if (hParentStdoutRead != IntPtr.Zero) CloseHandle(hParentStdoutRead);
+            if (hChildStdoutWrite != IntPtr.Zero) CloseHandle(hChildStdoutWrite);
+            if (hParentStderrRead != IntPtr.Zero) CloseHandle(hParentStderrRead);
+            if (hChildStderrWrite != IntPtr.Zero) CloseHandle(hChildStderrWrite);
+            if (hLimitedToken != IntPtr.Zero) CloseHandle(hLimitedToken);
+        }
     }
 
-    public bool SendInput(string sessionId, string input)
+    #endregion
+
+    public TerminalSessionInfo StartSession(string shellType, string? initialDir = null, string? customId = null, string? ownerDeviceId = null)
     {
+        if (string.IsNullOrWhiteSpace(ownerDeviceId))
+        {
+            throw new ArgumentException("Terminal session owner device ID is mandatory.", nameof(ownerDeviceId));
+        }
+
+        lock (_sessionLock)
+        {
+            string effectiveOwner = ownerDeviceId.Trim();
+
+            // Evict exited processes
+            foreach (var kvp in _sessions)
+            {
+                if (kvp.Value.Process.HasExited)
+                {
+                    if (_sessions.TryRemove(kvp.Key, out var dead)) dead.Dispose();
+                }
+            }
+
+            if (_sessions.Count >= MaxActiveSessions)
+            {
+                throw new InvalidOperationException($"Maximum terminal session capacity ({MaxActiveSessions}) reached.");
+            }
+
+            string id;
+            if (!string.IsNullOrEmpty(customId) && Regex.IsMatch(customId, @"^[a-zA-Z0-9_\-]{1,32}$"))
+            {
+                if (_sessions.TryGetValue(customId, out var existing))
+                {
+                    if (!string.Equals(existing.OwnerDeviceId, effectiveOwner, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new UnauthorizedAccessException($"Terminal session '{customId}' is owned by another device.");
+                    }
+
+                    if (!existing.Process.HasExited)
+                    {
+                        string history;
+                        lock (existing.Lock)
+                        {
+                            history = string.Join("", existing.HistoryBuffer);
+                        }
+                        if (!string.IsNullOrEmpty(history))
+                        {
+                            _onOutputReceived(existing.Id, history, existing.CurrentDirectory, existing.OwnerDeviceId);
+                        }
+
+                        return new TerminalSessionInfo
+                        {
+                            Id = existing.Id,
+                            ShellType = existing.ShellType,
+                            WorkingDir = existing.CurrentDirectory,
+                            OwnerDeviceId = existing.OwnerDeviceId
+                        };
+                    }
+                    _sessions.TryRemove(customId, out _);
+                    existing.Dispose();
+                }
+                id = customId;
+            }
+            else
+            {
+                byte[] randomBytes = new byte[16];
+                RandomNumberGenerator.Fill(randomBytes);
+                id = Convert.ToHexString(randomBytes).ToLowerInvariant();
+            }
+
+            string workingDir = !string.IsNullOrEmpty(initialDir) && Directory.Exists(initialDir)
+                ? initialDir
+                : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+            string exeName = shellType.ToLowerInvariant() switch
+            {
+                "cmd" => "cmd.exe",
+                "powershell" or "powershell5" or "winpowershell" => "powershell.exe",
+                "pwsh" or "powershell7" => "pwsh.exe",
+                "wsl" or "bash" => "wsl.exe",
+                _ => "powershell.exe"
+            };
+
+            string arguments = (exeName == "powershell.exe" || exeName == "pwsh.exe") ? "-NoLogo -NoExit" : "";
+
+            if (!TrySpawnLimitedProcess(exeName, arguments, workingDir, out var proc, out var stdinWriter, out var stdoutReader, out var stderrReader))
+            {
+                throw new System.Security.SecurityException("Failed to launch remote terminal: cannot acquire a verified restricted token. Elevating terminal processes is strictly prohibited (fail-closed).");
+            }
+
+            var session = new TerminalSession(id, exeName, workingDir, proc, stdinWriter, effectiveOwner);
+            _sessions[id] = session;
+
+            Task.Run(() => ReadStreamLoop(stdoutReader, id, session));
+            Task.Run(() => ReadStreamLoop(stderrReader, id, session));
+
+            string intro = $"Tether Remote Console [{exeName}]\r\nWorking Directory: {workingDir}\r\nSession ID: {id}\r\n\r\n";
+            session.AppendHistory(intro);
+            _onOutputReceived(id, intro, workingDir, session.OwnerDeviceId);
+
+            return new TerminalSessionInfo
+            {
+                Id = id,
+                ShellType = exeName,
+                WorkingDir = workingDir,
+                OwnerDeviceId = effectiveOwner
+            };
+        }
+    }
+
+    public bool SendInput(string sessionId, string input, string? ownerDeviceId = null)
+    {
+        if (string.IsNullOrWhiteSpace(ownerDeviceId) || string.IsNullOrEmpty(sessionId) || input == null || input.Contains('\0')) return false;
         TerminalSession? session = null;
         if (!string.IsNullOrEmpty(sessionId) && _sessions.TryGetValue(sessionId, out var s))
         {
             session = s;
         }
-        else if (_sessions.Count > 0)
+
+        if (session == null || session.Process.HasExited)
         {
-            // Fallback to the first active session if sessionId is "default" or mismatch
-            foreach (var active in _sessions.Values)
+            return false;
+        }
+
+        if (!string.Equals(session.OwnerDeviceId, ownerDeviceId.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        string lower = input.ToLowerInvariant();
+        foreach (var pattern in RestrictedAdminPatterns)
+        {
+            if (lower.Contains(pattern))
             {
-                if (!active.Process.HasExited)
-                {
-                    session = active;
-                    break;
-                }
+                string alert = $"\r\n[Security Notice] Command blocked: administrative elevation ({pattern}) is restricted in remote terminal.\r\n";
+                session.AppendHistory(alert);
+                _onOutputReceived(session.Id, alert, session.CurrentDirectory, session.OwnerDeviceId);
+                return false;
             }
         }
 
-        if (session == null)
+        try
         {
-            // Auto-start a default session if none exists
-            var newSession = StartSession("powershell", null, string.IsNullOrEmpty(sessionId) || sessionId == "default" ? null : sessionId);
-            _sessions.TryGetValue(newSession.Id, out session);
-        }
-
-        if (session != null)
-        {
-            string lower = input.ToLowerInvariant();
-            foreach (var pattern in RestrictedAdminPatterns)
-            {
-                if (lower.Contains(pattern))
-                {
-                    string alert = $"\r\n[Security Notice] Command blocked: administrative elevation ({pattern}) is restricted in remote terminal.\r\n";
-                    session.AppendHistory(alert);
-                    _onOutputReceived(session.Id, alert, session.CurrentDirectory);
-                    return false;
-                }
-            }
-
-            try
+            lock (session.Lock)
             {
                 session.Stdin.Write(input);
                 session.Stdin.Flush();
-                return true;
             }
-            catch { }
+            return true;
         }
+        catch { }
+
         return false;
     }
 
-    public List<string> GetHistory(string sessionId)
+    public List<string> GetHistory(string sessionId, string? ownerDeviceId = null)
     {
+        if (string.IsNullOrWhiteSpace(ownerDeviceId) || string.IsNullOrEmpty(sessionId)) return new List<string>();
         if (_sessions.TryGetValue(sessionId, out var session))
         {
+            if (!string.Equals(session.OwnerDeviceId, ownerDeviceId.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return new List<string>();
+            }
+
             lock (session.Lock)
             {
                 return new List<string>(session.HistoryBuffer);
@@ -225,27 +1025,44 @@ internal sealed class TerminalSessionManager
         return new List<string>();
     }
 
-    public bool CloseSession(string sessionId)
+    public bool CloseSession(string sessionId, string? ownerDeviceId = null)
     {
-        if (_sessions.TryRemove(sessionId, out var session))
+        if (string.IsNullOrWhiteSpace(ownerDeviceId) || string.IsNullOrEmpty(sessionId)) return false;
+        if (_sessions.TryGetValue(sessionId, out var existing))
         {
-            session.Dispose();
-            return true;
+            if (!string.Equals(existing.OwnerDeviceId, ownerDeviceId.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (_sessions.TryRemove(sessionId, out var session))
+            {
+                session.Dispose();
+                return true;
+            }
         }
         return false;
     }
 
-    public List<TerminalSessionInfo> ListSessions()
+    public List<TerminalSessionInfo> ListSessions(string? ownerDeviceId = null)
     {
+        if (string.IsNullOrWhiteSpace(ownerDeviceId)) return new List<TerminalSessionInfo>();
         var list = new List<TerminalSessionInfo>();
+        string trimmedOwner = ownerDeviceId.Trim();
         foreach (var s in _sessions.Values)
         {
+            if (!string.Equals(s.OwnerDeviceId, trimmedOwner, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             list.Add(new TerminalSessionInfo
             {
                 Id = s.Id,
                 ShellType = s.ShellType,
                 WorkingDir = s.CurrentDirectory,
-                IsAlive = !s.Process.HasExited
+                IsAlive = !s.Process.HasExited,
+                OwnerDeviceId = s.OwnerDeviceId
             });
         }
         return list;
@@ -256,7 +1073,9 @@ internal sealed class TerminalSessionManager
         var buffer = new char[4096];
         try
         {
-            while (true)
+            using (reader)
+            {
+                while (true)
             {
                 int read = await reader.ReadAsync(buffer, 0, buffer.Length);
                 if (read <= 0) break;
@@ -265,7 +1084,7 @@ internal sealed class TerminalSessionManager
                 session.AppendHistory(text);
 
                 // Detect prompt directory changes
-                var match = System.Text.RegularExpressions.Regex.Match(text, @"(?:PS\s+)?([a-zA-Z]:\\[^\r\n<>]+)>");
+                var match = Regex.Match(text, @"(?:PS\s+)?([a-zA-Z]:\\[^\r\n<>]+)>");
                 if (match.Success)
                 {
                     string parsedDir = match.Groups[1].Value.Trim();
@@ -275,7 +1094,8 @@ internal sealed class TerminalSessionManager
                     }
                 }
 
-                _onOutputReceived(sessionId, text, session.CurrentDirectory);
+                _onOutputReceived(sessionId, text, session.CurrentDirectory, session.OwnerDeviceId);
+            }
             }
         }
         catch { }
@@ -289,4 +1109,5 @@ public sealed class TerminalSessionInfo
     public string ShellType { get; set; } = string.Empty;
     public string WorkingDir { get; set; } = string.Empty;
     public bool IsAlive { get; set; } = true;
+    public string OwnerDeviceId { get; set; } = string.Empty;
 }

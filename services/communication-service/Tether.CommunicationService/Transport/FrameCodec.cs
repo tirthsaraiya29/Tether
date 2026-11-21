@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
 using System.Text;
@@ -14,10 +15,18 @@ public static class FrameCodec
 
     public static async Task<byte[]?> ReadFrameAsync(Stream stream, CancellationToken ct)
     {
-        var lenBuf = new byte[4];
-        if (!await ReadExactAsync(stream, lenBuf, 0, 4, ct)) return null;
+        byte[] lenBuf = ArrayPool<byte>.Shared.Rent(4);
+        int len;
+        try
+        {
+            if (!await ReadExactAsync(stream, lenBuf, 0, 4, ct)) return null;
+            len = BinaryPrimitives.ReadInt32BigEndian(lenBuf);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(lenBuf);
+        }
 
-        var len = BinaryPrimitives.ReadInt32BigEndian(lenBuf);
         if (len <= 0 || len > MaxFrameBytes) return null;
 
         var body = new byte[len];
@@ -38,11 +47,18 @@ public static class FrameCodec
         if (body.Length <= 0 || body.Length > MaxFrameBytes)
             throw new InvalidOperationException($"Frame size {body.Length} out of range.");
 
-        var lenBuf = new byte[4];
-        BinaryPrimitives.WriteInt32BigEndian(lenBuf, body.Length);
-        await stream.WriteAsync(lenBuf, 0, 4, ct);
-        await stream.WriteAsync(body, 0, body.Length, ct);
-        await stream.FlushAsync(ct);
+        byte[] lenBuf = ArrayPool<byte>.Shared.Rent(4);
+        try
+        {
+            BinaryPrimitives.WriteInt32BigEndian(lenBuf, body.Length);
+            await stream.WriteAsync(lenBuf.AsMemory(0, 4), ct);
+            await stream.WriteAsync(body.AsMemory(), ct);
+            await stream.FlushAsync(ct);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(lenBuf);
+        }
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new()

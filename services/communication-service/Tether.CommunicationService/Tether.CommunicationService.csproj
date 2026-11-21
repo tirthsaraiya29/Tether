@@ -11,6 +11,7 @@
 		<SelfContained>true</SelfContained>
 		<PublishSingleFile>true</PublishSingleFile>
 		<PublishReadyToRun>true</PublishReadyToRun>
+		<ApplicationIcon>assets\tether.ico</ApplicationIcon>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -41,9 +42,13 @@
 		<Copy
 		  SourceFiles="@(SessionHelperFiles)"
 		  DestinationFolder="$(OutDir)"
-		  SkipUnchangedFiles="true" />
+		  SkipUnchangedFiles="true"
+		  ContinueOnError="true" />
 	</Target>
 	<ItemGroup>
 		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+	</ItemGroup>
+	<ItemGroup>
+		<InternalsVisibleTo Include="Tether.Tests" />
 	</ItemGroup>
 </Project>

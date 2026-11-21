@@ -1,9 +1,8 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Tether.CommunicationService.Automation;
 using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.FileTransfer;
@@ -12,6 +11,7 @@ using Tether.CommunicationService.Transport;
 using Tether.EventBus;
 using Tether.Shared.Events;
 using Tether.Shared.Logging;
+using Tether.PanicEngine;
 
 namespace Tether.CommunicationService.Protocol;
 
@@ -23,8 +23,8 @@ public sealed class PacketRouter
     private readonly TokenStore _tokenStore;
     private readonly InputForwarder _inputForwarder;
     private readonly WindowsAdminManager _adminManager;
-    private readonly AutomationEngine _automationEngine;
     private readonly SessionManager _sessionManager;
+    private readonly PanicManager _panicManager;
 
     public PacketRouter(
         ITetherLogger logger,
@@ -33,8 +33,8 @@ public sealed class PacketRouter
         TokenStore tokenStore,
         InputForwarder inputForwarder,
         WindowsAdminManager adminManager,
-        AutomationEngine automationEngine,
-        SessionManager sessionManager)
+        SessionManager sessionManager,
+        PanicManager? panicManager = null)
     {
         _logger = logger;
         _capabilityManager = capabilityManager;
@@ -42,17 +42,43 @@ public sealed class PacketRouter
         _tokenStore = tokenStore;
         _inputForwarder = inputForwarder;
         _adminManager = adminManager;
-        _automationEngine = automationEngine;
         _sessionManager = sessionManager;
+        _panicManager = panicManager ?? new PanicManager(eventBus, logger);
 
         // Relay events from SessionHelper (Windows desktop) to connected phone sessions
         _inputForwarder.OnHelperEventReceived += rawJson =>
         {
             try
             {
+                using var doc = JsonDocument.Parse(rawJson);
+                string type = doc.RootElement.TryGetProperty("type", out var tProp) ? (tProp.GetString() ?? "") : "";
+                if (type == "TERMINAL_OUTPUT")
+                {
+                    string targetDeviceId = doc.RootElement.TryGetProperty("deviceId", out var dProp) ? (dProp.GetString() ?? "") : "";
+                    if (!string.IsNullOrWhiteSpace(targetDeviceId))
+                    {
+                        _sessionManager.SendRawFrameToDevice(targetDeviceId, rawJson);
+                    }
+                    else
+                    {
+                        Console.WriteLine("[Security Alert] TERMINAL_OUTPUT frame dropped: missing target deviceId. Refusing to broadcast.");
+                    }
+                    return;
+                }
+
                 _sessionManager.BroadcastRawFrame(rawJson);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                if (rawJson != null && (rawJson.Contains("TERMINAL_OUTPUT", StringComparison.OrdinalIgnoreCase) ||
+                                       rawJson.Contains("terminalId", StringComparison.OrdinalIgnoreCase)))
+                {
+                    Console.WriteLine($"[Security Alert] Rejected unparseable terminal frame: {ex.Message}");
+                    return;
+                }
+
+                Console.WriteLine($"[PacketRouter] Error processing helper event: {ex.Message}");
+            }
         };
     }
 
@@ -63,7 +89,7 @@ public sealed class PacketRouter
         catch { return; }
 
         string reqId = doc.RootElement.TryGetProperty("requestId", out var rProp) ? (rProp.GetString() ?? "") : "";
-        if (string.IsNullOrEmpty(reqId))
+        if (string.IsNullOrEmpty(reqId) || reqId.Length > 64)
         {
             reqId = Guid.NewGuid().ToString("N")[..8];
         }
@@ -95,15 +121,21 @@ public sealed class PacketRouter
 
             case "FILE_TRANSFER_TOKEN_REQUEST":
                 _logger.Info($"PacketRouter: Received FILE_TRANSFER_TOKEN_REQUEST from '{device.DisplayName}'. Generating token for fingerprint '{device.Fingerprint}'.");
-                var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(60), device.Fingerprint);
-                await session.WriteJsonFrameSafeAsync(new { type = "FILE_TRANSFER_TOKEN_RESPONSE", requestId = reqId, token = token, validForMinutes = 60 }, ct);
+                if (!_capabilityManager.HasCapability(device, "FILES"))
+                {
+                    _logger.Warning($"PacketRouter: Device '{device.DisplayName}' denied file transfer token (missing FILES capability).");
+                    await session.WriteJsonFrameSafeAsync(new { type = "FILE_TRANSFER_TOKEN_RESPONSE", requestId = reqId, success = false, reason = "FILES capability required" }, ct);
+                    break;
+                }
+                var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(60), device.Fingerprint, device.Capabilities);
+                await session.WriteJsonFrameSafeAsync(new { type = "FILE_TRANSFER_TOKEN_RESPONSE", requestId = reqId, success = true, token = token, validForMinutes = 60 }, ct);
                 break;
 
             case "FS_LIST_RESULT":
             case "FS_DOWNLOAD_RESULT":
             case "FS_UPLOAD_RESULT":
             case "FS_TRANSFER_STATUS":
-                FileTransferServer.HandleRemoteResponse(type, doc.RootElement.GetRawText());
+                FileTransferServer.HandleRemoteResponse(type, doc.RootElement.GetRawText(), session.Device?.Fingerprint, session.SessionId);
                 break;
 
             // Terminal Frames
@@ -116,9 +148,13 @@ public sealed class PacketRouter
                     await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Terminal capability required" }, ct);
                     return;
                 }
+
+                var termPayload = JsonSerializer.Deserialize<Dictionary<string, object>>(doc.RootElement.GetRawText()) ?? new();
+                termPayload["deviceId"] = device.DeviceId;
+
                 if (type == "TERMINAL_START" || type == "TERMINAL_LIST")
                 {
-                    string? tRes = await _inputForwarder.RequestAsync(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!, reqId, TimeSpan.FromSeconds(5), ct);
+                    string? tRes = await _inputForwarder.RequestAsync(termPayload, reqId, TimeSpan.FromSeconds(5), ct);
                     if (tRes != null)
                     {
                         await session.WriteRawFrameSafeAsync(System.Text.Encoding.UTF8.GetBytes(tRes), ct);
@@ -126,36 +162,7 @@ public sealed class PacketRouter
                 }
                 else
                 {
-                    _inputForwarder.PostToHelper(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!);
-                }
-                break;
-
-            // Clipboard Frames
-            case "CLIPBOARD_SYNC":
-            case "CLIPBOARD_SET":
-            case "CLIPBOARD_GET":
-            case "CLIPBOARD_SIMULATE_COPY":
-            case "CLIPBOARD_SIMULATE_PASTE":
-                if (!_capabilityManager.CanDeviceExecuteCommand(device, "clipboard"))
-                {
-                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Clipboard capability required" }, ct);
-                    return;
-                }
-                if (type == "CLIPBOARD_GET")
-                {
-                    string? cRes = await _inputForwarder.RequestAsync(new { type = "CLIPBOARD_GET", requestId = reqId }, reqId, TimeSpan.FromSeconds(3), ct);
-                    if (cRes != null)
-                    {
-                        await session.WriteRawFrameSafeAsync(System.Text.Encoding.UTF8.GetBytes(cRes), ct);
-                    }
-                }
-                else
-                {
-                    _inputForwarder.PostToHelper(JsonSerializer.Deserialize<object>(doc.RootElement.GetRawText())!);
-                    if (reqId != "")
-                    {
-                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = true }, ct);
-                    }
+                    _inputForwarder.PostToHelper(termPayload);
                 }
                 break;
 
@@ -434,52 +441,16 @@ public sealed class PacketRouter
                 }, ct);
                 break;
 
-            // Automation Frames
             case "WORKFLOW_LIST":
             case "GET_WORKFLOWS":
-                if (!_capabilityManager.HasCapability(device, "AUTOMATION"))
-                {
-                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Automation capability required" }, ct);
-                    break;
-                }
-                var wfList = _automationEngine.GetWorkflows();
-                await session.WriteJsonFrameSafeAsync(new { type = "WORKFLOW_LIST_RESPONSE", requestId = reqId, workflows = wfList }, ct);
-                break;
-
             case "WORKFLOW_SAVE":
             case "SAVE_WORKFLOW":
-                if (!_capabilityManager.HasCapability(device, "AUTOMATION"))
-                {
-                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Automation capability required" }, ct);
-                    break;
-                }
-                var wfObj = JsonSerializer.Deserialize<TetherWorkflow>(doc.RootElement.GetProperty("workflow").GetRawText());
-                if (wfObj != null) _automationEngine.SaveWorkflow(wfObj);
-                await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = wfObj != null }, ct);
-                break;
-
             case "WORKFLOW_DELETE":
             case "DELETE_WORKFLOW":
-                if (!_capabilityManager.HasCapability(device, "AUTOMATION"))
-                {
-                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Automation capability required" }, ct);
-                    break;
-                }
-                string wfDelId = doc.RootElement.GetProperty("id").GetString() ?? "";
-                bool delOk = _automationEngine.DeleteWorkflow(wfDelId);
-                await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = delOk }, ct);
-                break;
-
             case "WORKFLOW_RUN":
             case "RUN_WORKFLOW":
-                if (!_capabilityManager.HasCapability(device, "AUTOMATION"))
-                {
-                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Automation capability required" }, ct);
-                    break;
-                }
-                string wfRunId = doc.RootElement.GetProperty("id").GetString() ?? "";
-                var runRes = await _automationEngine.RunWorkflowAsync(wfRunId, ct);
-                await session.WriteJsonFrameSafeAsync(new { type = "WORKFLOW_STATUS", requestId = reqId, result = runRes }, ct);
+                _logger.Warning($"PacketRouter: Workflow protocol '{type}' rejected — workflow feature removed.");
+                await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Workflow feature not supported" }, ct);
                 break;
 
             default:
@@ -512,16 +483,9 @@ public sealed class PacketRouter
         _logger.Info($"PacketRouter: Command accepted for '{device.DisplayName}': {cmd.Command} (requestId={cmd.RequestId}).");
 
         string cmdLower = cmd.Command.Trim().ToLowerInvariant();
-        if (cmdLower is "clipboard_copy")
+        if (cmdLower is "clipboard_copy" || cmdLower is "clipboard_paste")
         {
-            _inputForwarder.PostToHelper(new { type = "CLIPBOARD_SIMULATE_COPY" });
-            await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_COMMAND", confirmedCommand = cmd.Command, success = true, reason = "OK" }, ct);
-            return;
-        }
-        if (cmdLower is "clipboard_paste")
-        {
-            _inputForwarder.PostToHelper(new { type = "CLIPBOARD_SIMULATE_PASTE" });
-            await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_COMMAND", confirmedCommand = cmd.Command, success = true, reason = "OK" }, ct);
+            await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_COMMAND", confirmedCommand = cmd.Command, success = false, reason = "Clipboard sync removed" }, ct);
             return;
         }
         if (cmdLower is "notification_dismiss")
@@ -577,6 +541,7 @@ public sealed class PacketRouter
         }
 
         bool executed = HardwareExecutor.ExecuteCommand(cmd.Command, _logger, out int currentVol);
+        int currentBri = -1;
 
         _eventBus.Publish(new TetherEvent
         {
@@ -590,8 +555,37 @@ public sealed class PacketRouter
             })
         });
 
-        if (currentVol < 0) currentVol = HardwareExecutor.GetSystemVolumeLevel(_logger);
-        int currentBri = HardwareExecutor.GetSystemBrightnessLevelInUserSession(_logger);
+        if (cmdLower == "panic")
+        {
+            long.TryParse(cmd.RequestId, out long seq);
+            string panicSessionId = _panicManager.TriggerPanic(sequenceNumber: seq);
+            _logger.Warning($"PacketRouter: Triggered panic lock with session {panicSessionId}");
+        }
+        else if (cmdLower == "unlock")
+        {
+            _eventBus.Publish(new TetherEvent
+            {
+                EventType = TetherEventType.PHONE_UNLOCKED,
+                Source = "PacketRouter",
+                PayloadJson = JsonSerializer.Serialize(new { command = "unlock" })
+            });
+
+            if (_panicManager.ActivePanicSessionId != null)
+            {
+                long.TryParse(cmd.RequestId, out long seq);
+                _panicManager.ClearPanic(_panicManager.ActivePanicSessionId, sequenceNumber: seq);
+                _logger.Info("PacketRouter: Cleared panic lock upon workstation unlock.");
+            }
+        }
+        else if (cmdLower.StartsWith("deny_provider:") || cmdLower.StartsWith("deny_cred_provider:"))
+        {
+            string guidStr = cmd.Command.Substring(cmd.Command.IndexOf(':') + 1).Trim();
+            if (Guid.TryParse(guidStr, out var provGuid))
+            {
+                _panicManager.RecordIndependentDenial(provGuid);
+                _logger.Warning($"PacketRouter: Recorded independent denial for provider {provGuid}");
+            }
+        }
 
         if (cmdLower.StartsWith("volume_") || cmdLower.StartsWith("set_volume:") || cmdLower.StartsWith("vol_") ||
             cmdLower.StartsWith("brightness_") || cmdLower.StartsWith("set_brightness:") || cmdLower.StartsWith("bright_") ||
@@ -600,13 +594,20 @@ public sealed class PacketRouter
             cmd.Command.Equals("get_volume", StringComparison.OrdinalIgnoreCase) ||
             cmd.Command.Equals("brightness_get", StringComparison.OrdinalIgnoreCase) ||
             cmd.Command.Equals("bright_get", StringComparison.OrdinalIgnoreCase) ||
-            cmd.Command.Equals("get_brightness", StringComparison.OrdinalIgnoreCase))
+            cmd.Command.Equals("get_brightness", StringComparison.OrdinalIgnoreCase) ||
+            cmd.Command.Equals("laptop_state_get", StringComparison.OrdinalIgnoreCase) ||
+            cmd.Command.Equals("get_laptop_state", StringComparison.OrdinalIgnoreCase))
         {
+            if (currentVol < 0) currentVol = HardwareExecutor.GetSystemVolumeLevel(_logger);
+            currentBri = HardwareExecutor.GetSystemBrightnessLevelInUserSession(_logger);
+            bool isMuted = HardwareExecutor.GetSystemMuteInUserSession(_logger);
+
             var snap = LaptopStateCollector.GetLaptopSnapshot(_logger);
             await session.WriteJsonFrameSafeAsync(new
             {
                 type = "HARDWARE_METRICS",
                 volumeLevel = currentVol,
+                isMuted = isMuted,
                 brightnessLevel = currentBri,
                 batteryLevel = snap.BatteryLevel,
                 batteryPercent = snap.BatteryLevel,
@@ -619,10 +620,12 @@ public sealed class PacketRouter
         await session.WriteJsonFrameSafeAsync(new
         {
             type = "CONFIRM_COMMAND",
+            requestId = cmd.RequestId,
             confirmedCommand = cmd.Command,
             success = executed,
             reason = executed ? "OK" : "Hardware execution failed",
             volumeLevel = currentVol,
+            isMuted = HardwareExecutor.GetSystemMuteInUserSession(_logger),
             brightnessLevel = currentBri
         }, ct);
     }

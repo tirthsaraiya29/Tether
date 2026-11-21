@@ -28,11 +28,15 @@ Discovery packets carry no secrets. An attacker observing or spoofing mDNS can a
 
 ---
 
-## 3. Secure Transport Layer
+## 3. Secure Transport Layer & Certificate Pinning
 
 - **Protocol:** TLS 1.3 direct TCP connection on port `37123`.
-- **Windows Engine:** .NET 8 `SslStream` backed by Windows Schannel / CNG.
-- **Android Engine:** Android platform `SSLSocket` / Conscrypt.
+- **Windows Engine:** .NET 10 `SslStream` backed by Windows Schannel / CNG.
+- **Android Engine:** Android platform `SSLSocket` / Conscrypt with `TetherTransportTrustManager`.
+- **Certificate Pinning & Identity Validation:**
+  - `TetherTransportTrustManager` enforces strict cryptographic pinning on all TLS connections: verifying against locally stored pinned identity keys for persistent paired connections, or against mDNS/UDP-announced identity fingerprints for initial pairing. Certificate chains are strictly validated for non-empty chains, validity periods, end-entity identity (non-CA) leaf status, and valid EC/ECDSA public keys. Accepting an unpinned certificate at the TLS layer during first-contact pairing allows the handshake to proceed to the interactive PIN pairing protocol; TLS layer acceptance does NOT authenticate the peer, and pairing requires successful PIN interactive authentication and mutual cryptographic proof before persisting identity trust. Storage or decryption errors in stored pins fail closed (`PinnedKeyResult.Corrupted`).
+  - `FileTransferClient` / `RemoteDesktopScreen` enforce OkHttp `CertificatePinner` and `TetherPinnedTrustManager` for HTTPS file transfer and MJPEG desktop streaming on port `37124`.
+  - `network_security_config.xml` restricts base system trust anchors to system CAs only (`<certificates src="system" />`), preventing user-installed CA MITM on standard HTTPS connections.
 - **Cipher Suites:** Enforces TLS 1.3 cipher suites (`TLS_AES_128_GCM_SHA256`, `TLS_AES_256_GCM_SHA384`, `TLS_CHACHA20_POLY1805_SHA256`). Disables weak/obsolete TLS versions.
 - **Properties:** End-to-end confidentiality, integrity, replay protection, and forward secrecy.
 
@@ -129,9 +133,9 @@ Commands are authorized against granted capabilities prior to execution:
 
 | Capability Scope | Granted Actions / Commands | Risk Level |
 | :--- | :--- | :--- |
-| `MEDIA` | Volume adjustment, brightness, playback control | Low |
+| `MEDIA` | Volume adjustment, brightness, playback control, app mixer | Low |
 | `CLIPBOARD` | Read / write clipboard contents | Low |
-| `FILES` | Direct file transfers, file browsing (Discarded / Excluded) | Medium |
+| `FILES` | Direct HTTPS file transfer & Share-to-PC intent receiver | Medium |
 | `NOTIFICATIONS` | Notification mirror & dismissal | Medium |
 | `TERMINAL` | Interactive CMD, PowerShell, WSL access | High |
 | `POWER_ELEVATED` | Shutdown, Reboot, Sleep, System Halt | High / Critical |

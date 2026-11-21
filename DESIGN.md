@@ -30,6 +30,7 @@ Tether is designed to defend against network eavesdropping, local workstation ta
 | **Local Registry Secret Theft** | Unprivileged local malware reading stored credentials. | Credentials stored in `HKLM\SOFTWARE\Tether\Secrets` with `VaultDaclVersion=2` DACL restriction and encrypted via **DPAPI** using system-bound entropy (`Tether_System_Bound_Vault_v1`). |
 | **Compromised Mobile Device** | Rooted Android device or malware attempting unauthorized unlock. | `DeviceIntegrityRegistry` performs hardware root checks (`su` binary, `test-keys`), audits developer options, and mandates **BiometricPrompt** cryptographic challenge. |
 | **Credential Provider Exception Crashing** | Malicious input causing logon UI crashes in Winlogon. | Native C++ COM interface methods (`ICredentialProvider`, `ICredentialProviderCredential2`) catch all exceptions, log diagnostic errors, and clear secrets via `SecureZeroMemory()`. |
+| **Credential Provider Restoration Tampering** | Rogue local processes or race conditions unhiding unauthorized or filtered third-party providers upon panic unlock. | `SafeCredentialFilterManager` captures pre-filter visibility, persists tracked states under `HKLM\SOFTWARE\Tether\State\CredentialFilter` (restricted to LocalSystem/Admin), and restores exclusively Tether-hidden providers while leaving pre-hidden providers suppressed. |
 
 ---
 
@@ -82,11 +83,11 @@ Tether employs a dual-channel network architecture for control and high-throughp
 ```
 
 ### Protocol Specifications
-* **Control Channel**: TCP Port `37123` (Dual-stack IPv6/IPv4). Enforces TLS 1.3 with mutual public key pinning.
+* **Control Channel**: TCP Port `37123` (Dual-stack IPv6/IPv4). Enforces TLS 1.3 with mutual public key pinning. Firewall rules scope inbound traffic to `remoteip=localsubnet profile=any`.
 * **Discovery Channels**:
   * **mDNS**: Advertises service type `_tether._tcp.` over UDP Port `5353`.
-  * **UDP Broadcast**: Port `37124` for instant peer discovery on local subnets.
-* **File Transfer Channel**: TCP Port `37124`. Driven by Kestrel HTTPS server with `FileTransferAuthMiddleware`, `TokenStore` short-lived token authorization, 4GB size limits, Win32 handle resolution to prevent symlink escape, and public key certificate pinning (`TetherPinnedTrustManager`).
+  * **UDP Broadcast & Gateway Discovery**: Port `37124` for instant peer discovery on local subnets, directed subnet broadcasts, and default gateway/candidate client probing (supporting both standard Wi-Fi LANs and direct Android Mobile Hotspot networks without external routers). Inbound packets undergo strict RFC 1918 private IPv4 validation (rejecting CGNAT `100.64.0.0/10`, loopback, WAN), payload bounds enforcement (10 to 1024 bytes), bounded rate limiting via `DiscoveryRateLimiter` (5 probes/sec per IP, 30/sec global with bounded 256-entry source tracking and inactive entry eviction), strict control port verification (requiring TCP port `37123`), device ID validation, and interface filtering (excluding cellular and VPN adapters). Probing avoids global broadcast (`255.255.255.255`), instead dispatching directed subnet broadcasts and subnet-validated ARP candidates through interface-bound sockets. Android hotspot state is managed by `HotspotStateTracker` to guarantee clean activation/deactivation synchronization across broadcasts and interface lifecycles.
+* **File Transfer Channel**: TCP Port `37124`. Driven by Kestrel HTTPS server with `FileTransferAuthMiddleware`, `TokenStore` short-lived token authorization, active console user profile path confinement (preventing cross-user confused deputy access), strict 4GB size limits, Win32 handle resolution to prevent symlink and reparse-point escape, resumable chunk upload validation, and public key certificate pinning (`TetherPinnedTrustManager`). Inbound firewall rules restrict access strictly to `remoteip=localsubnet`. Loopback `LOCAL_UI` tokens are restricted strictly to remote proxy and desktop preview endpoints.
 
 ### Frame Structure & Packet Codec
 Network payloads are framed using length-prefixed encoding (`FrameCodec.cs`):
@@ -100,7 +101,7 @@ Network payloads are framed using length-prefixed encoding (`FrameCodec.cs`):
 The JSON payload contains standard routing attributes such as `type` (identifying the message opcode/command), `requestId`, and command-specific parameters.
 
 ### Pairing Handshake Lifecycle
-1. **Discovery**: Android discovers Windows workstation via mDNS or UDP broadcast.
+1. **Discovery**: Android discovers Windows workstation via mDNS, UDP broadcast, or Hotspot gateway discovery.
 2. **Session Initiation**: Android opens TCP TLS connection to Port `37123`.
 3. **Short Authentication String (SAS)**: A 6-digit numeric pairing code is displayed on `Tether.DesktopUI`.
 4. **Key Exchange & Signing**: Android sends its EC public key (`TetherIdentityKey_v1`). Windows verifies the SAS code, verifies its self-signed ECDSA P-256 identity certificate (`CN=Tether Windows Identity`), signs the handshake nonce, and stores the trusted device record in `TrustStore`.
@@ -125,9 +126,8 @@ Because Session 0 is isolated from user desktop sessions:
   * **Screen Capture Engine**: `ScreenCaptureEngine.cs` captures desktop displays and individual HWND windows using GDI `BitBlt` and `PrintWindow` with configurable JPEG quality compression and multi-monitor bounds resolution.
   * **Advanced Audio Management**: `AdvancedAudioController.cs` implements COM interop for `IAudioSessionManager2`, `IAudioSessionControl2`, and `ISimpleAudioVolume` to adjust per-application audio session levels, switch default audio playback and capture endpoints via `IPolicyConfig`, and configure microphone gain and mute states.
   * **System Media Transport Controls (SMTC)**: `MediaSessionController.cs` integrates with WinRT `GlobalSystemMediaTransportControlsSessionManager` to extract real-time media title, artist, album, and Base64 thumbnail art, while providing play, pause, skip, and timeline seek controls with fallback to synthetic virtual media keys.
-  * **STA Clipboard Listener**: `ClipboardController.cs` creates a hidden Win32 message-only window on a dedicated STA thread using `AddClipboardFormatListener`, syncing clipboard text bidirectionally with SHA-256 loop suppression and remote copy/paste simulation.
   * **Notification Forwarding and Toast Display**: `NotificationController.cs` reads Windows toast notifications via WinRT `UserNotificationListener` with remote dismissal support, and displays desktop toast alerts for mirrored Android notifications.
-  * **Interactive Terminal Manager**: `TerminalSessionManager.cs` orchestrates background pseudoterminal sessions for PowerShell, cmd.exe, pwsh.exe, and WSL with UTF-8 redirected I/O streams and 500-line history buffers.
+  * **Interactive Terminal Manager**: `TerminalSessionManager.cs` orchestrates background pseudoterminal sessions for PowerShell, cmd.exe, pwsh.exe, and WSL with UTF-8 redirected I/O streams and 500-line history buffers. Sessions are launched under limited user tokens (medium integrity) to decouple remote shell execution from elevated helper privileges, with locked session capacity and strict session ID routing.
   * **Application and Window Management**: `ApplicationManager.cs` scans Start Menu shortcuts (`.lnk`), launches applications into the user session, and manages running top-level windows (`EnumWindows`, `SetForegroundWindow`, `SetWindowPos` snap, maximize, minimize, close, and force terminate).
   * **Lock Detection**: Registers for session notifications (`WTSRegisterSessionNotification`) to monitor workstation lock and unlock transitions.
 
@@ -151,8 +151,18 @@ The automation subsystem hosts an in-memory scheduler persisted to `%ProgramData
 A native C++ Win32 COM DLL registered in `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}`:
 * Implements `ICredentialProvider` and `ICredentialProviderCredential2`.
 * Enumerates a custom logon tile on the Windows logon/unlock screen.
-* Listens on named pipe signal events (`_hAppEvent`, `_hScreenEvent`).
+* Listens on secure global synchronization events (`Global\TetherPhoneAppUnlocked`, `Global\TetherUnlockPromptRequested`), verifying LocalSystem and Builtin Administrators object ownership and enforcing strict SDDL DACLs to prevent pre-creation spoofing.
 * When an authenticated unlock command is received from the paired Android device, the provider decrypts the DPAPI-protected user credentials, populates `KERB_INTERACTIVE_UNLOCK_LOGON` structures, and serializes the credential to Winlogon for seamless desktop unlock.
+
+### 4.6 Panic Subsystem & Safe Credential Provider Restoration (`Tether.PanicEngine`)
+The panic engine handles emergency lockdown and safe restoration:
+* **`PanicManager.cs`**: Orchestrates workstation panic lockdown (locking session, muting audio, blanking displays) and initiates safe credential provider filtering.
+* **`SafeCredentialFilterManager.cs`**: Implements Microsoft `ICredentialProviderFilter` lifecycle semantics:
+  * Captures pre-filter visibility state of all enumerated providers before applying lockdown filters.
+  * Tracks ownership of filtered tiles: only providers that were initially visible and explicitly suppressed by Tether are flagged for restoration.
+  * Never unhides providers that were already suppressed by the user, Windows, or third-party group policies.
+  * Persists tracking records across LogonUI re-enumeration, service restarts, and concurrent requests via atomic registry state under `HKLM\SOFTWARE\Tether\State\CredentialFilter` protected with strict LocalSystem/Administrator DACLs.
+  * Guarantees idempotent restoration during repeated unlock attempts or abnormal session terminations.
 
 ---
 

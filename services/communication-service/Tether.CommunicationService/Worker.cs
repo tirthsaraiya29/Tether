@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Tether.CommunicationService.Capabilities;
+using Tether.CommunicationService.Devices;
 using Tether.CommunicationService.Discovery;
 using Tether.CommunicationService.Ipc;
 using Tether.CommunicationService.Power;
@@ -13,32 +14,29 @@ using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Sessions;
 using Tether.CommunicationService.Transport;
 using Tether.CommunicationService.Trust;
-using Tether.EnforcementEngine;
 using Tether.EventBus;
-using Tether.PanicEngine;
-using Tether.RecoveryEngine;
 using Tether.Shared.Events;
 using Tether.Shared.Logging;
+using Tether.Shared.Network;
 using Tether.TrustEngine;
+using Tether.PanicEngine;
 
 namespace Tether.CommunicationService;
 
 public sealed class Worker : BackgroundService
 {
-    private const string AdvertisedCaps = "CLIPBOARD,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,WINDOWS_ADMIN,APP_MANAGEMENT,AUTOMATION";
+    private const string AdvertisedCaps = "NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,WINDOWS_ADMIN,APP_MANAGEMENT";
 
     // Legacy rules to purge
     private const string RuleLegacyExe = "Tether Service Exe";
-    private const string RuleLegacyTcp = "Tether TCP 37123";
-    private const string RuleLegacyUdp = "Tether UDP 37124";
-    private const string RuleLegacyQuicUdp = "Tether QUIC UDP 37125";
-    private const string RuleLegacyQuicTcp = "Tether QUIC TCP 37125";
+    private static readonly string RuleLegacyTcp = $"Tether TCP {NetworkConstants.ControlPort}";
+    private static readonly string RuleLegacyUdp = $"Tether UDP {NetworkConstants.DiscoveryPort}";
 
     // Active port rules
-    private const string RuleControlTcp = "Tether Control (TCP-In 37123)";
-    private const string RuleDiscoveryUdp = "Tether Discovery (UDP-In 37124)";
-    private const string RuleMdnsUdp = "Tether mDNS (UDP-In 5353)";
-    private const string RuleFileTransferTcp = "Tether File Transfer (TCP-In 37124)";
+    private static readonly string RuleControlTcp = $"Tether Control (TCP-In {NetworkConstants.ControlPort})";
+    private static readonly string RuleDiscoveryUdp = $"Tether Discovery (UDP-In {NetworkConstants.DiscoveryPort})";
+    private static readonly string RuleMdnsUdp = $"Tether mDNS (UDP-In {NetworkConstants.MdnsPort})";
+    private static readonly string RuleFileTransferTcp = $"Tether File Transfer (TCP-In {NetworkConstants.FileTransferPort})";
 
     private readonly ILogger<Worker> _logger;
     private readonly ITetherLogger _tetherLogger;
@@ -48,6 +46,7 @@ public sealed class Worker : BackgroundService
     private readonly UdpDiscovery _udpDiscovery;
     private readonly WindowsIdentity _identity;
     private readonly SessionManager _sessionManager;
+    private readonly DeviceManager _deviceManager;
     private readonly PowerEventWatcher _powerWatcher;
     private readonly PowerEventNotifier _powerNotifier;
     private readonly TrustStore _trustStore;
@@ -61,15 +60,14 @@ public sealed class Worker : BackgroundService
         UdpDiscovery udpDiscovery,
         WindowsIdentity identity,
         SessionManager sessionManager,
+        DeviceManager deviceManager,
         PowerEventWatcher powerWatcher,
         PowerEventNotifier powerNotifier,
         TrustStateManager trustStateManager,
-        EnforcementManager enforcementManager,
-        PanicManager panicManager,
-        RecoveryManager recoveryManager,
         IpcEventRelay ipcEventRelay,
         IEventBus eventBus,
-        TrustStore trustStore)
+        TrustStore trustStore,
+        PanicManager panicManager)
     {
         _logger = logger;
         _tetherLogger = tetherLogger;
@@ -79,15 +77,17 @@ public sealed class Worker : BackgroundService
         _udpDiscovery = udpDiscovery;
         _identity = identity;
         _sessionManager = sessionManager;
+        _deviceManager = deviceManager;
         _powerWatcher = powerWatcher;
         _powerNotifier = powerNotifier;
         _trustStore = trustStore;
-        _ = trustStateManager; _ = enforcementManager; _ = panicManager; _ = recoveryManager; _ = ipcEventRelay;
+        _ = trustStateManager; _ = ipcEventRelay; _ = panicManager;
 
         eventBus.Subscribe(evt =>
         {
             if (evt.EventType == TetherEventType.TELEMETRY_SYNC_REQUESTED)
             {
+                SyncFallbackAuthRegistry();
                 PublishPairedDevicesList(eventBus);
                 if (_sessionManager.ActiveSessionCount > 0)
                 {
@@ -159,8 +159,9 @@ public sealed class Worker : BackgroundService
                     if (!string.IsNullOrEmpty(fingerprint))
                     {
                         _trustStore.Remove(fingerprint);
+                        _deviceManager.RemoveDevice(fingerprint);
                         _sessionManager.DisconnectDevice(fingerprint, "Unpaired by user");
-                        _tetherLogger.Info($"Device with fingerprint {fingerprint} was removed from TrustStore and disconnected.");
+                        _tetherLogger.Info($"Device with fingerprint {fingerprint} was removed from TrustStore, DeviceManager and disconnected.");
                         PublishPairedDevicesList(eventBus);
                     }
                 }
@@ -205,6 +206,8 @@ public sealed class Worker : BackgroundService
         PowerEventHub.Watcher = _powerWatcher;
 
         EnsureFirewallRulesExist();
+        EnsureVaultStructure();
+        SyncFallbackAuthRegistry();
 
         _pipeServer.Start();
         _tcpServer.Start();
@@ -216,7 +219,7 @@ public sealed class Worker : BackgroundService
             name: _identity.DeviceName,
             caps: AdvertisedCaps,
             pqc: false,
-            ftPort: 37124);
+            ftPort: NetworkConstants.FileTransferPort);
 
         _tetherLogger.Info($"Transport up. DeviceId={_identity.DeviceId}");
 
@@ -227,7 +230,14 @@ public sealed class Worker : BackgroundService
             {
                 if (_sessionManager.ActiveSessionCount > 0)
                 {
-                    _powerNotifier.FlushToSession(json => _sessionManager.BroadcastRawFrame(json));
+                    if (evt.Type is Power.TetherPowerEventType.Shutdown or Power.TetherPowerEventType.Restart)
+                    {
+                        _powerNotifier.FlushToSession(json => _sessionManager.TryBroadcastRawFrameBlocking(json, TimeSpan.FromMilliseconds(500)));
+                    }
+                    else
+                    {
+                        _powerNotifier.FlushToSession(json => _sessionManager.BroadcastRawFrame(json));
+                    }
                 }
             }
             catch (Exception ex)
@@ -239,7 +249,7 @@ public sealed class Worker : BackgroundService
 
         LaptopStateCollector.Initialize(_sessionManager, _tetherLogger);
 
-        StartUnlockPromptRelay();
+        InitializeUnlockEvents();
 
         _ = Task.Run(async () =>
         {
@@ -288,12 +298,81 @@ public sealed class Worker : BackgroundService
 
     private EventWaitHandle? _unlockPromptEvent;
     private RegisteredWaitHandle? _unlockPromptWait;
+    private EventWaitHandle? _appUnlockedEvent;
+    private EventWaitHandle? _phoneConnectedEvent;
 
     /// <summary>
     /// Relays unlock-prompt requests from the credential provider (LogonUI secure desktop)
     /// to the paired phone as UNLOCK_PROMPT frames over the TLS control channel.
     /// The CP signals Global\TetherUnlockPromptRequested; we broadcast once per signal.
     /// </summary>
+    private void InitializeUnlockEvents()
+    {
+        try
+        {
+            var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
+            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
+            _appUnlockedEvent = EventWaitHandleAcl.Create(
+                false, EventResetMode.ManualReset, @"Global\TetherPhoneAppUnlocked", out bool createdNewUnlocked, sec);
+            if (!createdNewUnlocked)
+            {
+                var ac = _appUnlockedEvent.GetAccessControl();
+                var owner = ac.GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
+                if (owner == null || (!owner.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid) && !owner.IsWellKnown(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid)))
+                {
+                    _tetherLogger.Warning($"Worker: Untrusted owner '{owner?.Value}' on unlock event. Discarding.");
+                    _appUnlockedEvent.Dispose();
+                    _appUnlockedEvent = null;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _tetherLogger.Error($"Worker: could not create Global\\TetherPhoneAppUnlocked: {ex.Message}");
+        }
+
+        try
+        {
+            var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
+            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
+            _phoneConnectedEvent = EventWaitHandleAcl.Create(
+                false, EventResetMode.ManualReset, @"Global\TetherPhoneConnected", out bool createdNewConnected, sec);
+            if (!createdNewConnected)
+            {
+                var ac = _phoneConnectedEvent.GetAccessControl();
+                var owner = ac.GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
+                if (owner == null || (!owner.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid) && !owner.IsWellKnown(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid)))
+                {
+                    _tetherLogger.Warning($"Worker: Untrusted owner '{owner?.Value}' on phone connected event. Discarding.");
+                    _phoneConnectedEvent.Dispose();
+                    _phoneConnectedEvent = null;
+                }
+            }
+
+            if (_phoneConnectedEvent != null)
+            {
+                _phoneConnectedEvent.Reset();
+
+                _sessionManager.ActiveSessionCountChanged += count =>
+                {
+                    if (count > 0)
+                    {
+                        _phoneConnectedEvent?.Set();
+                    }
+                    else
+                    {
+                        _phoneConnectedEvent?.Reset();
+                    }
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _tetherLogger.Error($"Worker: could not create Global\\TetherPhoneConnected: {ex.Message}");
+        }
+
+        StartUnlockPromptRelay();
+    }
     private void StartUnlockPromptRelay()
     {
         try
@@ -303,7 +382,19 @@ public sealed class Worker : BackgroundService
             // ManualReset: the CP can't safely Set+Reset from the secure desktop
             // (lost-signal race), so we consume the signal here.
             _unlockPromptEvent = EventWaitHandleAcl.Create(
-                false, EventResetMode.ManualReset, @"Global\TetherUnlockPromptRequested", out _, sec);
+                false, EventResetMode.ManualReset, @"Global\TetherUnlockPromptRequested", out bool createdNewPrompt, sec);
+            if (!createdNewPrompt)
+            {
+                var ac = _unlockPromptEvent.GetAccessControl();
+                var owner = ac.GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
+                if (owner == null || (!owner.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid) && !owner.IsWellKnown(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid)))
+                {
+                    _tetherLogger.Warning($"UnlockPromptRelay: Untrusted owner '{owner?.Value}' on request event. Relay aborted.");
+                    _unlockPromptEvent.Dispose();
+                    _unlockPromptEvent = null;
+                    return;
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -357,25 +448,23 @@ public sealed class Worker : BackgroundService
 
             // 1. Purge legacy wide-open rules
             DeleteFirewallRule(RuleLegacyExe);
-            DeleteFirewallRule(RuleLegacyQuicUdp);
-            DeleteFirewallRule(RuleLegacyQuicTcp);
             DeleteFirewallRule(RuleLegacyTcp);
             DeleteFirewallRule(RuleLegacyUdp);
 
             // 2. Add port-specific rules scoped to executable and Private/Domain profiles
-            // Port 37123 TCP: Primary TLS Control Channel
-            AddPortRule(RuleControlTcp, "TCP", 37123, exePath);
+            // Primary TLS Control Channel
+            AddPortRule(RuleControlTcp, "TCP", NetworkConstants.ControlPort, exePath);
 
-            // Port 37124 UDP: Local Broadcast Discovery
-            AddPortRule(RuleDiscoveryUdp, "UDP", 37124, exePath);
+            // Local Broadcast Discovery
+            AddPortRule(RuleDiscoveryUdp, "UDP", NetworkConstants.DiscoveryPort, exePath);
 
-            // Port 5353 UDP: Multicast DNS (mDNS for Android NsdManager)
-            AddPortRule(RuleMdnsUdp, "UDP", 5353, exePath);
+            // Multicast DNS (mDNS for Android NsdManager)
+            AddPortRule(RuleMdnsUdp, "UDP", NetworkConstants.MdnsPort, exePath);
 
-            // Port 37124 TCP: HTTPS File Transfer API
-            AddPortRule(RuleFileTransferTcp, "TCP", 37124, exePath);
+            // HTTPS File Transfer API
+            AddPortRule(RuleFileTransferTcp, "TCP", NetworkConstants.FileTransferPort, exePath);
 
-            _tetherLogger.Info("Firewall rules synchronized: Scoped strictly to TCP 37123, UDP 37124, UDP 5353, TCP 37124 on Private/Domain profiles.");
+            _tetherLogger.Info($"Firewall rules synchronized: Scoped strictly to TCP {NetworkConstants.ControlPort}, UDP {NetworkConstants.DiscoveryPort}, UDP {NetworkConstants.MdnsPort}, TCP {NetworkConstants.FileTransferPort} on LocalSubnet across all profiles.");
         }
         catch (Exception ex)
         {
@@ -383,10 +472,17 @@ public sealed class Worker : BackgroundService
         }
     }
 
+    internal static string BuildFirewallRuleArguments(string ruleName, string protocol, int port, string exePath)
+    {
+        // Public profile required: Android hotspot networks are categorized Public by Windows.
+        // remoteip=localsubnet remains the security boundary, so Public inbound is still subnet-scoped.
+        return $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=allow protocol={protocol} localport={port} program=\"{exePath}\" profile=private,domain,public remoteip=localsubnet enable=yes";
+    }
+
     private void AddPortRule(string ruleName, string protocol, int port, string exePath)
     {
         DeleteFirewallRule(ruleName);
-        string arguments = $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=allow protocol={protocol} localport={port} program=\"{exePath}\" profile=private,domain enable=yes";
+        string arguments = BuildFirewallRuleArguments(ruleName, protocol, port, exePath);
         RunNetshCommand(arguments, isDelete: false);
     }
 
@@ -436,8 +532,11 @@ public sealed class Worker : BackgroundService
 
         try
         {
+            _phoneConnectedEvent?.Reset();
+            _phoneConnectedEvent?.Dispose();
             _unlockPromptWait?.Unregister(null);
             _unlockPromptEvent?.Dispose();
+            _appUnlockedEvent?.Dispose();
         }
         catch { }
 
@@ -446,5 +545,52 @@ public sealed class Worker : BackgroundService
         _tcpServer.Stop();
         _pipeServer.Dispose();
         await base.StopAsync(cancellationToken);
+    }
+
+    private void EnsureVaultStructure()
+    {
+        try
+        {
+            using var baseKey = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64);
+            using var rootKey = baseKey.CreateSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
+            if (rootKey != null)
+            {
+                var val = rootKey.GetValue("VaultDaclVersion");
+                if (val == null || (val is int v && v < 2))
+                {
+                    rootKey.SetValue("VaultDaclVersion", 2, Microsoft.Win32.RegistryValueKind.DWord);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed ensuring CredentialProvider vault structure.");
+        }
+    }
+
+    private void SyncFallbackAuthRegistry()
+    {
+        try
+        {
+            using var baseKey = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64);
+            using var secretsKey = baseKey.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider\Secrets", false);
+            if (secretsKey != null)
+            {
+                var val = secretsKey.GetValue("FallbackAuthType") ?? secretsKey.GetValue("MasterAuthType");
+                if (val is int authType)
+                {
+                    using var rootKey = baseKey.OpenSubKey(@"SOFTWARE\Tether\CredentialProvider", true);
+                    if (rootKey != null)
+                    {
+                        rootKey.SetValue("FallbackAuthType", authType, Microsoft.Win32.RegistryValueKind.DWord);
+                        rootKey.SetValue("MasterAuthType", authType, Microsoft.Win32.RegistryValueKind.DWord);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed synchronizing FallbackAuthType registry value.");
+        }
     }
 }

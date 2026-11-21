@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.security.keystore.UserNotAuthenticatedException
 import android.util.Base64
 import android.util.Log
 import androidx.biometric.BiometricPrompt
@@ -11,7 +12,6 @@ import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.KeyPairGenerator
-import java.security.SecureRandom
 import java.security.Signature
 import java.security.cert.X509Certificate
 import java.util.Locale
@@ -21,11 +21,25 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.security.auth.x500.X500Principal
 
+sealed class PinnedKeyResult {
+    object Unprovisioned : PinnedKeyResult()
+    data class Present(val keyBytes: ByteArray) : PinnedKeyResult() {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is Present) return false
+            return keyBytes.contentEquals(other.keyBytes)
+        }
+        override fun hashCode(): Int = keyBytes.contentHashCode()
+    }
+    data class Corrupted(val exception: Throwable? = null) : PinnedKeyResult()
+}
+
 class ProductionSecurityEngine {
 
     companion object {
         private const val TAG = "ProductionSecurityEngine"
-        private const val EC_IDENTITY_ALIAS = "TetherIdentityKey_v1"
+        private const val EC_IDENTITY_ALIAS = "TetherIdentityKey_v2"
+        private const val LEGACY_EC_IDENTITY_ALIAS = "TetherIdentityKey_v1"
         private const val STORAGE_KEY_ALIAS = "TetherStorageKey_v2"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val PREFS_NAME = "tether_secure_prefs"
@@ -34,8 +48,20 @@ class ProductionSecurityEngine {
         private const val GCM_IV_LENGTH_BYTES = 12
         private const val GCM_TAG_LENGTH_BITS = 128
 
+        // Time-boxed auth window so one device unlock/biometric authorizes all
+        // background signing (pairing, reconnect, transfer proofs) within it.
+        private const val AUTH_VALIDITY_SECONDS = 300
+
+        private val keyCacheLock = Any()
+
         @Volatile
         private var cachedPublicKeyBytes: ByteArray? = null
+        @Volatile
+        private var cachedPinnedKeyBytes: ByteArray? = null
+        @Volatile
+        private var cachedPinnedKeyResult: PinnedKeyResult? = null
+        @Volatile
+        private var pinnedKeyLoaded = false
     }
 
     private val keyStore: KeyStore by lazy {
@@ -44,6 +70,41 @@ class ProductionSecurityEngine {
 
     @Synchronized
     private fun ensureIdentityKeyPairExists() {
+        // Legacy v1 keys were generated with per-operation auth and cannot sign in
+        // background flows; drop them so a usable v2 key is generated instead.
+        try {
+            if (keyStore.containsAlias(LEGACY_EC_IDENTITY_ALIAS)) {
+                keyStore.deleteEntry(LEGACY_EC_IDENTITY_ALIAS)
+                cachedPublicKeyBytes = null
+            }
+        } catch (_: Exception) {}
+
+        if (keyStore.containsAlias(EC_IDENTITY_ALIAS)) {
+            try {
+                val privateKey = keyStore.getKey(EC_IDENTITY_ALIAS, null) as? PrivateKey
+                if (privateKey != null) {
+                    try {
+                        val testSig = Signature.getInstance("SHA256withECDSA")
+                        testSig.initSign(privateKey)
+                        testSig.update(byteArrayOf(1, 2, 3))
+                        testSig.sign()
+                    } catch (_: UserNotAuthenticatedException) {
+                        // Key is intact; only the auth gate blocked the self-test.
+                    }
+                } else {
+                    keyStore.deleteEntry(EC_IDENTITY_ALIAS)
+                    cachedPublicKeyBytes = null
+                }
+            } catch (e: UserNotAuthenticatedException) {
+                // Same as above — do not destroy the key over an auth gate.
+            } catch (_: Exception) {
+                try {
+                    keyStore.deleteEntry(EC_IDENTITY_ALIAS)
+                    cachedPublicKeyBytes = null
+                } catch (_: Exception) {}
+            }
+        }
+
         if (!keyStore.containsAlias(EC_IDENTITY_ALIAS)) {
             Log.i(TAG, "Generating new hardware-backed EC identity key pair in AndroidKeyStore...")
             val kpg = KeyPairGenerator.getInstance(
@@ -51,31 +112,42 @@ class ProductionSecurityEngine {
                 ANDROID_KEYSTORE,
             )
 
-            val builder = KeyGenParameterSpec.Builder(
-                EC_IDENTITY_ALIAS,
-                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
-            )
-                .setCertificateSubject(X500Principal("CN=TetherAndroidDevice, O=Tether, OU=Mobile"))
-                .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
-                .setKeySize(256)
-                .setUserAuthenticationRequired(true)
-                .setInvalidatedByBiometricEnrollment(true)
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                builder.setUserAuthenticationParameters(
-                    0,
-                    KeyProperties.AUTH_BIOMETRIC_STRONG
+            fun createSpec(useStrongBox: Boolean): KeyGenParameterSpec {
+                val builder = KeyGenParameterSpec.Builder(
+                    EC_IDENTITY_ALIAS,
+                    KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
                 )
-            } else {
-                @Suppress("DEPRECATION")
-                builder.setUserAuthenticationValidityDurationSeconds(-1)
+                    .setCertificateSubject(X500Principal("CN=TetherAndroidDevice, O=Tether, OU=Mobile"))
+                    .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
+                    .setKeySize(256)
+                    .setUserAuthenticationRequired(true)
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    builder.setUserAuthenticationParameters(
+                        AUTH_VALIDITY_SECONDS,
+                        KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
+                    )
+                } else {
+                    builder.setUserAuthenticationValidityDurationSeconds(AUTH_VALIDITY_SECONDS)
+                }
+
+                if (useStrongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    builder.setIsStrongBoxBacked(true)
+                }
+                return builder.build()
             }
 
-            val parameterSpec = builder.build()
-
-            kpg.initialize(parameterSpec)
-            kpg.generateKeyPair()
-            Log.i(TAG, "EC identity key pair successfully created.")
+            try {
+                kpg.initialize(createSpec(useStrongBox = true))
+                kpg.generateKeyPair()
+                Log.i(TAG, "EC identity key pair successfully created in hardware enclave (StrongBox preference).")
+            } catch (e: Exception) {
+                Log.w(TAG, "StrongBox unavailable for identity key (${e.message}); using standard AndroidKeyStore TEE...")
+                kpg.initialize(createSpec(useStrongBox = false))
+                kpg.generateKeyPair()
+                Log.i(TAG, "EC identity key pair successfully created in AndroidKeyStore.")
+            }
+            cachedPublicKeyBytes = null
         }
     }
 
@@ -87,18 +159,32 @@ class ProductionSecurityEngine {
                 KeyProperties.KEY_ALGORITHM_AES,
                 ANDROID_KEYSTORE,
             )
-            val parameterSpec = KeyGenParameterSpec.Builder(
-                STORAGE_KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setRandomizedEncryptionRequired(true)
-                .setKeySize(256)
-                .build()
 
-            keyGenerator.init(parameterSpec)
-            keyGenerator.generateKey()
+            fun createStorageSpec(useStrongBox: Boolean): KeyGenParameterSpec {
+                val builder = KeyGenParameterSpec.Builder(
+                    STORAGE_KEY_ALIAS,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                )
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setRandomizedEncryptionRequired(true)
+                    .setKeySize(256)
+
+                if (useStrongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    builder.setIsStrongBoxBacked(true)
+                }
+                return builder.build()
+            }
+
+            try {
+                keyGenerator.init(createStorageSpec(useStrongBox = true))
+                keyGenerator.generateKey()
+                Log.i(TAG, "AES-256 storage key successfully created with StrongBox preference.")
+            } catch (e: Exception) {
+                Log.w(TAG, "StrongBox unavailable for storage key (${e.message}); using standard AndroidKeyStore TEE...")
+                keyGenerator.init(createStorageSpec(useStrongBox = false))
+                keyGenerator.generateKey()
+            }
         }
     }
 
@@ -122,6 +208,20 @@ class ProductionSecurityEngine {
             BiometricPrompt.CryptoObject(cipher)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create CryptoObject for biometric auth: ${e.message}")
+            null
+        }
+    }
+
+    fun createSignatureCryptoObject(): BiometricPrompt.CryptoObject? {
+        return try {
+            ensureIdentityKeyPairExists()
+            val privateKey = keyStore.getKey(EC_IDENTITY_ALIAS, null) as? PrivateKey
+                ?: return null
+            val signature = Signature.getInstance("SHA256withECDSA")
+            signature.initSign(privateKey)
+            BiometricPrompt.CryptoObject(signature)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create Signature CryptoObject: ${e.message}")
             null
         }
     }
@@ -181,23 +281,69 @@ class ProductionSecurityEngine {
         }
     }
 
-    fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray): Boolean {
-        return try {
+    fun getPinnedKeyResult(context: Context): PinnedKeyResult = synchronized(keyCacheLock) {
+        cachedPinnedKeyResult?.let { cached ->
+            return@synchronized when (cached) {
+                is PinnedKeyResult.Present -> PinnedKeyResult.Present(cached.keyBytes.copyOf())
+                else -> cached
+            }
+        }
+
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (!prefs.contains(PINNED_WINDOWS_KEY_PREF)) {
+            val result = PinnedKeyResult.Unprovisioned
+            cachedPinnedKeyResult = result
+            return@synchronized result
+        }
+
+        val encodedStr = prefs.getString(PINNED_WINDOWS_KEY_PREF, null)
+        if (encodedStr.isNullOrBlank()) {
+            val result = PinnedKeyResult.Unprovisioned
+            cachedPinnedKeyResult = result
+            return@synchronized result
+        }
+
+        return@synchronized try {
+            val decrypted = decryptString(encodedStr)
+            if (decrypted != null && decrypted.isNotEmpty()) {
+                val result = PinnedKeyResult.Present(decrypted)
+                cachedPinnedKeyResult = result
+                result
+            } else {
+                Log.e(TAG, "Decrypted pinned key is null or empty, treating stored pin as corrupted.")
+                val result = PinnedKeyResult.Corrupted(IllegalStateException("Decryption returned empty pin data"))
+                cachedPinnedKeyResult = result
+                result
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to decrypt pinned key from storage: ${e.message}", e)
+            val result = PinnedKeyResult.Corrupted(e)
+            cachedPinnedKeyResult = result
+            result
+        }
+    }
+
+    fun storePinnedKeySecurely(context: Context, publicKeyBytes: ByteArray): Boolean = synchronized(keyCacheLock) {
+        try {
+            cachedPinnedKeyResult = null
             val encodedStr = encryptBytes(publicKeyBytes)
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val committed = prefs.edit().putString(PINNED_WINDOWS_KEY_PREF, encodedStr).commit()
             if (!committed) {
                 Log.e(TAG, "Failed committing pinned Windows key to storage")
-                return false
+                return@synchronized false
             }
 
-            val readBack = getPinnedKeyDecrypted(context)
-            if (readBack == null || !MessageDigest.isEqual(readBack, publicKeyBytes)) {
+            val readBackResult = getPinnedKeyResult(context)
+            if (readBackResult !is PinnedKeyResult.Present || !MessageDigest.isEqual(readBackResult.keyBytes, publicKeyBytes)) {
                 Log.e(TAG, "Read-back verification of pinned Windows key failed")
-                return false
+                return@synchronized false
             }
 
             Log.i(TAG, "Pinned Windows public identity key encrypted, saved, and verified in secure storage.")
+            cachedPinnedKeyResult = PinnedKeyResult.Present(publicKeyBytes.copyOf())
+            cachedPinnedKeyBytes = publicKeyBytes.copyOf()
+            pinnedKeyLoaded = true
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to store pinned key securely: ${e.message}", e)
@@ -205,16 +351,24 @@ class ProductionSecurityEngine {
         }
     }
 
-    fun getPinnedKeyDecrypted(context: Context): ByteArray? {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val encodedStr = prefs.getString(PINNED_WINDOWS_KEY_PREF, null)
-        return decryptString(encodedStr)
+    fun getPinnedKeyDecrypted(context: Context): ByteArray? = synchronized(keyCacheLock) {
+        when (val result = getPinnedKeyResult(context)) {
+            is PinnedKeyResult.Present -> result.keyBytes.copyOf()
+            is PinnedKeyResult.Unprovisioned -> null
+            is PinnedKeyResult.Corrupted -> throw SecurityException(
+                "Stored pinned key is corrupted or cannot be decrypted",
+                result.exception
+            )
+        }
     }
 
-    fun clearPinnedKey(context: Context) {
+    fun clearPinnedKey(context: Context) = synchronized(keyCacheLock) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit().remove(PINNED_WINDOWS_KEY_PREF).commit()
+            prefs.edit().remove(PINNED_WINDOWS_KEY_PREF).apply()
+            cachedPinnedKeyBytes = null
+            cachedPinnedKeyResult = PinnedKeyResult.Unprovisioned
+            pinnedKeyLoaded = false
             FileTransferClient.clearCache()
             Log.i(TAG, "Cleared pinned Windows public keys from storage.")
         } catch (e: Exception) {

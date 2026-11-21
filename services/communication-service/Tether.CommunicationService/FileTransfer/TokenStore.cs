@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
@@ -11,7 +12,7 @@ namespace Tether.CommunicationService.FileTransfer;
 
 public class TokenStore
 {
-    private sealed record TokenMetaData(DateTimeOffset Expiry, string? DeviceFingerprint);
+    private sealed record TokenMetaData(DateTimeOffset Expiry, string? DeviceFingerprint, IReadOnlySet<string> Capabilities);
 
     private readonly ConcurrentDictionary<string, TokenMetaData> _tokens = new(StringComparer.Ordinal);
     private string? _localUiToken;
@@ -21,7 +22,6 @@ public class TokenStore
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Tether");
     private static readonly string LocalTokenFile = Path.Combine(DataDir, "local_ui_token.txt");
 
-    // FIX: WTSGetActiveConsoleSessionId is exported by kernel32.dll, NOT wtsapi32.dll
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint WTSGetActiveConsoleSessionId();
 
@@ -33,13 +33,17 @@ public class TokenStore
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CloseHandle(IntPtr hObject);
 
-    public string GenerateToken(TimeSpan validFor, string? deviceFingerprint = null)
+    public string GenerateToken(TimeSpan validFor, string? deviceFingerprint = null, IEnumerable<string>? capabilities = null)
     {
         byte[] bytes = new byte[32];
         RandomNumberGenerator.Fill(bytes);
         var token = Convert.ToHexString(bytes).ToLowerInvariant();
 
-        _tokens[token] = new TokenMetaData(DateTimeOffset.UtcNow.Add(validFor), deviceFingerprint);
+        var capSet = capabilities != null
+            ? new HashSet<string>(capabilities, StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        _tokens[token] = new TokenMetaData(DateTimeOffset.UtcNow.Add(validFor), deviceFingerprint, capSet);
         Cleanup();
         return token;
     }
@@ -64,7 +68,7 @@ public class TokenStore
                     if (!string.IsNullOrEmpty(existing) && existing.Length >= 32)
                     {
                         _localUiToken = existing;
-                        _tokens[_localUiToken] = new TokenMetaData(DateTimeOffset.UtcNow.AddDays(7), "LOCAL_UI");
+                        _tokens[_localUiToken] = new TokenMetaData(DateTimeOffset.UtcNow.AddDays(7), "LOCAL_UI", new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "*", "FILES" });
                         return _localUiToken;
                     }
                 }
@@ -82,7 +86,7 @@ public class TokenStore
             }
             catch { }
 
-            _tokens[_localUiToken] = new TokenMetaData(DateTimeOffset.UtcNow.AddDays(7), "LOCAL_UI");
+            _tokens[_localUiToken] = new TokenMetaData(DateTimeOffset.UtcNow.AddDays(7), "LOCAL_UI", new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "*", "FILES" });
             return _localUiToken;
         }
     }
@@ -134,13 +138,43 @@ public class TokenStore
         return false;
     }
 
-    public bool TryGetTokenMetadata(string token, out (DateTimeOffset Expiry, string? DeviceFingerprint) metadata)
+    public bool ValidateToken(string token, string? expectedDeviceFingerprint, string requiredCapability)
+    {
+        if (!ValidateToken(token, expectedDeviceFingerprint)) return false;
+        if (!string.IsNullOrEmpty(requiredCapability))
+        {
+            if (_tokens.TryGetValue(token, out var meta))
+            {
+                return meta.Capabilities.Contains("*") || meta.Capabilities.Contains(requiredCapability);
+            }
+            return false;
+        }
+        return true;
+    }
+
+    public bool TryGetTokenMetadata(string token, out (DateTimeOffset Expiry, string? DeviceFingerprint, IReadOnlySet<string> Capabilities) metadata)
     {
         metadata = default;
         if (string.IsNullOrWhiteSpace(token)) return false;
         if (_tokens.TryGetValue(token, out var data))
         {
-            metadata = (data.Expiry, data.DeviceFingerprint);
+            metadata = (data.Expiry, data.DeviceFingerprint, data.Capabilities);
+            return true;
+        }
+        return false;
+    }
+
+    public bool TryGetTokenMetadata(string token, out DateTimeOffset expiry, out string? deviceFingerprint, out IReadOnlySet<string> capabilities)
+    {
+        expiry = default;
+        deviceFingerprint = null;
+        capabilities = new HashSet<string>();
+        if (string.IsNullOrWhiteSpace(token)) return false;
+        if (_tokens.TryGetValue(token, out var data))
+        {
+            expiry = data.Expiry;
+            deviceFingerprint = data.DeviceFingerprint;
+            capabilities = data.Capabilities;
             return true;
         }
         return false;

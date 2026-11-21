@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tether.phone.FileNode
 import com.tether.phone.FileTransferClient
+import com.tether.phone.FileTransferNotificationManager
 import com.tether.phone.ui.components.DeepSpaceCanvasVisualizer
 import com.tether.phone.ui.components.ProfessionalGlassSurface
 import com.tether.phone.ui.theme.*
@@ -62,6 +63,7 @@ fun FileTransferScreen(
     var token by remember { mutableStateOf<String?>(null) }
     val service = com.tether.phone.TetherLanService.instance
     val hostIp = service?.connectedHostAddress
+    val transferState by FileTransferNotificationManager.transferState.collectAsState()
 
     DisposableEffect(Unit) {
         service?.isHeavyTaskActive = true
@@ -140,12 +142,10 @@ fun FileTransferScreen(
                 coroutineScope.launch {
                     try {
                         if (hostIp == null || token == null) throw Exception("Not connected or no token")
-                        isLoading = true
                         FileTransferClient.downloadFile(hostIp, fileNode.path, destUri, context, token!!)
                     } catch (e: Exception) {
                         errorMessage = e.message
                     } finally {
-                        isLoading = false
                         pendingDownloadFile = null
                     }
                 }
@@ -154,19 +154,18 @@ fun FileTransferScreen(
     }
 
     val uploadLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let { sourceUri ->
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
             coroutineScope.launch {
                 try {
                     if (hostIp == null || token == null) throw Exception("Not connected or no token")
-                    isLoading = true
-                    FileTransferClient.uploadFile(hostIp, sourceUri, currentPath ?: "", context, token!!)
+                    for (sourceUri in uris) {
+                        FileTransferClient.uploadFile(hostIp, sourceUri, currentPath ?: "", context, token!!)
+                    }
                     refreshFileList()
                 } catch (e: Exception) {
                     errorMessage = e.message
-                } finally {
-                    isLoading = false
                 }
             }
         }
@@ -253,6 +252,9 @@ fun FileTransferScreen(
                                 tint = LiquidCyan
                             )
                         }
+                        IconButton(onClick = { refreshFileList() }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = LiquidCyan)
+                        }
                         IconButton(onClick = { showNewFolderDialog = true }) {
                             Icon(Icons.Default.CreateNewFolder, contentDescription = "New Folder", tint = TextPrimary)
                         }
@@ -282,14 +284,97 @@ fun FileTransferScreen(
             },
             containerColor = Color.Transparent
         ) { padding ->
-            Box(
+            Column(
                 modifier = Modifier
                     .padding(padding)
                     .fillMaxSize()
             ) {
-                if (isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = LiquidCyan)
-                } else if (errorMessage != null) {
+                if (transferState.isTransferring || transferState.savedPath != null || transferState.error != null) {
+                    ProfessionalGlassSurface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val icon = when {
+                                    transferState.error != null -> Icons.Default.Warning
+                                    transferState.savedPath != null -> Icons.Default.CheckCircle
+                                    transferState.isUpload -> Icons.Default.Upload
+                                    else -> Icons.Default.Download
+                                }
+                                val tint = when {
+                                    transferState.error != null -> AlertRed
+                                    transferState.savedPath != null -> IntegrityGreen
+                                    else -> LiquidCyan
+                                }
+                                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    val title = when {
+                                        transferState.error != null -> "Transfer Failed"
+                                        transferState.savedPath != null -> if (transferState.isUpload) "Uploaded ${transferState.fileName}" else "Downloaded ${transferState.fileName}"
+                                        transferState.isUpload -> "Uploading ${transferState.fileName}"
+                                        else -> "Downloading ${transferState.fileName}"
+                                    }
+                                    Text(title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
+                                    val subtext = when {
+                                        transferState.error != null -> transferState.error!!
+                                        transferState.savedPath != null -> "Saved to: ${transferState.savedPath}"
+                                        else -> {
+                                            val percent = if (transferState.totalBytes > 0) ((transferState.bytesTransferred * 100) / transferState.totalBytes).toInt() else 0
+                                            val speed = FileTransferNotificationManager.formatSpeed(transferState.speedBps)
+                                            val eta = FileTransferNotificationManager.formatEta(transferState.etaSec)
+                                            val bytesStr = if (transferState.totalBytes > 0) "${FileTransferNotificationManager.formatBytes(transferState.bytesTransferred)} / ${FileTransferNotificationManager.formatBytes(transferState.totalBytes)}" else FileTransferNotificationManager.formatBytes(transferState.bytesTransferred)
+                                            "$percent% ($bytesStr) • $speed • $eta"
+                                        }
+                                    }
+                                    Text(subtext, color = TextMuted, fontSize = 11.5.sp, maxLines = 2)
+                                }
+                                if (!transferState.isTransferring) {
+                                    IconButton(
+                                        onClick = { FileTransferNotificationManager.clearState() },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = TextMuted, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                            if (transferState.isTransferring) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                val progress = if (transferState.totalBytes > 0) {
+                                    (transferState.bytesTransferred.toFloat() / transferState.totalBytes.toFloat()).coerceIn(0f, 1f)
+                                } else 0f
+                                if (transferState.totalBytes > 0) {
+                                    LinearProgressIndicator(
+                                        progress = { progress },
+                                        modifier = Modifier.fillMaxWidth().height(6.dp),
+                                        color = LiquidCyan,
+                                        trackColor = Color.White.copy(alpha = 0.1f)
+                                    )
+                                } else {
+                                    LinearProgressIndicator(
+                                        modifier = Modifier.fillMaxWidth().height(6.dp),
+                                        color = LiquidCyan,
+                                        trackColor = Color.White.copy(alpha = 0.1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    if (isLoading && files.isEmpty() && !transferState.isTransferring) {
+                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = LiquidCyan)
+                    } else if (errorMessage != null) {
                     Column(
                         modifier = Modifier
                             .align(Alignment.Center)
@@ -314,6 +399,35 @@ fun FileTransferScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = LiquidCyan)
                         ) {
                             Text("Re-authenticate & Refresh", color = DeepSpace, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else if (files.isEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.FolderOpen,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(56.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (isSearchActive) "No matching files found" else "Directory is empty",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedButton(
+                            onClick = { refreshFileList() },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = LiquidCyan)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Refresh", fontSize = 12.sp)
                         }
                     }
                 } else {
@@ -351,8 +465,12 @@ fun FileTransferScreen(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(file.name, fontWeight = FontWeight.Bold, color = TextPrimary, maxLines = 1)
                                         if (!file.isDirectory) {
-                                            val sizeKb = file.size / 1024.0
-                                            val sizeStr = if (sizeKb > 1024.0) String.format("%.2f MB", sizeKb / 1024.0) else String.format("%.1f KB", sizeKb)
+                                            val sizeStr = when {
+                                                file.size < 1024 -> "${file.size} B"
+                                                file.size < 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f KB", file.size / 1024.0)
+                                                file.size < 1024L * 1024 * 1024 -> String.format(java.util.Locale.US, "%.2f MB", file.size / (1024.0 * 1024.0))
+                                                else -> String.format(java.util.Locale.US, "%.2f GB", file.size / (1024.0 * 1024.0 * 1024.0))
+                                            }
                                             Text(sizeStr, style = MaterialTheme.typography.bodySmall, color = TextMuted)
                                         }
                                     }
@@ -370,6 +488,7 @@ fun FileTransferScreen(
             }
         }
     }
+}
 
     // Context Action Dialog
     if (showActionMenu && selectedItemForAction != null) {

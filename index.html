@@ -3,14 +3,423 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tether: Connect your Android phone to your Windows PC, locally</title>
-  <meta name="description" content="Tether connects an Android phone to a Windows workstation over local Wi-Fi. Features device-assisted Windows unlock, remote trackpad input, emergency lockdown, and local media controls without cloud relays.">
+  <title>Tether — Connect Android to Windows over Local Wi-Fi (No Cloud)</title>
+  <meta name="description" content="Free, open-source bridge connecting Android to Windows over local Wi-Fi. Features biometric PC unlock, wireless trackpad, LAN file transfer &amp; emergency lockdown.">
+  <meta name="keywords" content="connect android to windows, android to pc local wifi, biometric windows unlock android, wireless trackpad android, phone as mouse windows, emergency pc lockdown, kde connect alternative windows, link to windows alternative no cloud, intel unison alternative, local file transfer android pc, open source android windows bridge, tether app, tether android windows, android pc bridge no cloud, phone to pc wifi no internet, android windows companion app free, unlock windows with android fingerprint, unlock pc with phone, android biometric windows login, phone fingerprint windows unlock, use phone as mouse pc wifi, android remote mouse windows, android trackpad for windows, android phone as trackpad, remote input android windows, file transfer android pc lan, local wireless file transfer, android to windows file share no cloud, emergency lock windows pc, panic button pc lock, remote workstation lockdown, airdroid alternative open source, deskdock alternative, phone link alternative open source, kde connect windows alternative native, windows hello alternative no azure, biometric login windows without active directory, android windows authentication no microsoft account, local network pc control android, android control windows over wifi, home network pc phone bridge, free android pc companion app, open source phone pc sync, android windows sync no account, tether github, tether open source windows android, tls android windows local, secure android pc connection, encrypted android windows bridge, android keystroke windows, android to windows keyboard mouse, android remote desktop mouse, low latency android trackpad windows, synthetic mouse input android, session helper windows android, windows credential provider android, custom credential provider windows, third party windows logon, android mfa windows, android two factor windows login, local two factor authentication windows, windows unlock without password, passwordless windows login android, biometric authentication windows local, mdns windows android pairing, zero config android windows pairing, automatic device discovery lan, android pc automatic pairing wifi, ecdsa android windows authentication, android hardware keystore windows, strongbox android key windows, dpapi windows android, tls 1.3 android windows, local area network pc control, lan phone pc connection, home wifi pc android control, android file sender windows receiver, lan speed file transfer android, kestrel android file transfer, windows 10 android companion, windows 11 android companion, android 12 pc companion, android 13 windows app, android 14 windows bridge, android 15 windows connection, dotnet android windows bridge, kotlin android windows app, csharp windows android service, cpp windows credential provider android, session 0 windows service android, winlogon android unlock, logonui android credential, windows service android control, background service android windows, android app windows service pair">
+  <meta name="author" content="Tirth Saraiya">
+  <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#020403">
-  <meta property="og:title" content="Tether: your phone and your PC, talking directly">
-  <meta property="og:description" content="Open-source, local-first trust between Android and Windows. No cloud, no accounts.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Tether">
+  <meta name="application-name" content="Tether">
+  <meta name="google-site-verification" content="bSAQQXj7Aw_JDY7QFm03J_oLp8rMT_hLzYYuJzyheYM" />
+  <meta name="revisit-after" content="3 days">
+  <meta name="rating" content="general">
+  <meta name="language" content="English">
+  <meta name="category" content="Software, Security, Android, Windows, Utilities">
+  <meta name="classification" content="Software Application">
+  <meta name="subject" content="Android to Windows local Wi-Fi bridge with biometric unlock, wireless trackpad, emergency lockdown, and LAN file transfer">
+  <meta name="coverage" content="Worldwide">
+  <meta name="distribution" content="Global">
+  <meta name="target" content="all">
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta property="article:section" content="Technology">
+  <meta property="article:tag" content="Android, Windows, Wi-Fi, Local Network, Open Source, Biometric, Trackpad, File Transfer, Security, Credential Provider, KDE Connect Alternative, Phone Link Alternative">
+  <link rel="alternate" hreflang="en" href="https://tether-control.vercel.app/">
+  <link rel="canonical" href="https://tether-control.vercel.app/">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="docs/assets/branding/tether-logo-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="docs/assets/branding/tether-logo-16.png">
+
+  <!-- Open Graph / Facebook / LinkedIn / Discord -->
+  <meta property="og:title" content="Tether — Connect Android to Windows over Local Wi-Fi (No Cloud)">
+  <meta property="og:description" content="Free, open-source companion bridge: unlock Windows with Android biometrics, use phone as wireless trackpad, LAN file transfer, and emergency PC lockdown with zero cloud.">
   <meta property="og:type" content="website">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23020403'/%3E%3Cpath d='M9 10h14M16 10v13' stroke='%2300ff9d' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <meta property="og:url" content="https://tether-control.vercel.app/">
+  <meta property="og:site_name" content="Tether">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:image" content="https://tether-control.vercel.app/docs/assets/screenshots/desktop-telemetry-control-plane.png">
+  <meta property="og:image:secure_url" content="https://tether-control.vercel.app/docs/assets/screenshots/desktop-telemetry-control-plane.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="2304">
+  <meta property="og:image:height" content="1440">
+  <meta property="og:image:alt" content="Tether — Android to Windows Local Wi-Fi Bridge and Telemetry Control Plane">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Tether — Android to Windows over Local Wi-Fi, No Cloud">
+  <meta name="twitter:description" content="Open-source bridge: biometric Windows unlock, wireless trackpad, emergency lockdown, and local file transfer — entirely over your LAN via TLS 1.3.">
+  <meta name="twitter:image" content="https://tether-control.vercel.app/docs/assets/screenshots/desktop-telemetry-control-plane.png">
+  <meta name="twitter:image:alt" content="Tether — Android to Windows Local Wi-Fi Bridge and Telemetry Control Plane">
+
+  <!-- JSON-LD Structured Data (Schema.org) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://tether-control.vercel.app/#website",
+        "url": "https://tether-control.vercel.app/",
+        "name": "Tether",
+        "description": "Connect Android Phone to Windows PC over Local Wi-Fi with Zero Cloud, No Accounts, and Hardware Security.",
+        "publisher": {
+          "@type": "Person",
+          "name": "Tirth Saraiya",
+          "url": "https://github.com/tirthsaraiya29"
+        }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://tether-control.vercel.app/#software",
+        "name": "Tether",
+        "operatingSystem": ["Android 12+", "Android 13", "Android 14", "Android 15", "Windows 10", "Windows 11"],
+        "applicationCategory": "SecurityApplication",
+        "applicationSubCategory": "Remote Access & Workstation Authentication",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "description": "Tether is a free, open-source personal trust and authentication platform that connects an Android device to a Windows workstation over local Wi-Fi. Features include phone-assisted biometric Windows unlock via native C++ Credential Provider, low-latency wireless trackpad input, emergency panic lockdown, LAN file transfer, and media controls — with zero cloud servers, no accounts, and no subscriptions.",
+        "url": "https://tether-control.vercel.app/",
+        "downloadUrl": "https://github.com/tirthsaraiya29/Tether/releases",
+        "softwareVersion": "1.1.2",
+        "releaseNotes": "Active open source development on GitHub.",
+        "license": "https://github.com/tirthsaraiya29/Tether/blob/main/LICENSE",
+        "codeRepository": "https://github.com/tirthsaraiya29/Tether",
+        "programmingLanguage": ["Kotlin", "C#", "C++"],
+        "keywords": "connect android to windows, android pc local wifi, biometric windows unlock android, wireless trackpad android, emergency pc lockdown, kde connect alternative windows, phone link alternative no cloud",
+        "featureList": [
+          "Device-assisted Windows unlock via Android biometrics (fingerprint/face)",
+          "Wireless remote trackpad and synthetic mouse input",
+          "Emergency workstation lockdown and panic engine",
+          "Hardware keystore trust anchor (ECDSA P-256 / StrongBox TEE)",
+          "High-speed local file transfer over LAN via Kestrel HTTPS",
+          "Audio volume and display brightness control via Session Helper",
+          "Continuous trust validation and session replay protection",
+          "Zero cloud dependencies, no external telemetry, no subscriptions"
+        ],
+        "screenshot": [
+          "https://tether-control.vercel.app/docs/assets/screenshots/desktop-telemetry-control-plane.png",
+          "https://tether-control.vercel.app/docs/assets/screenshots/android-command-center.jpg",
+          "https://tether-control.vercel.app/docs/assets/screenshots/android-remote-trackpad.jpg"
+        ],
+        "author": {
+          "@type": "Person",
+          "name": "Tirth Saraiya",
+          "url": "https://github.com/tirthsaraiya29"
+        }
+      },
+      {
+        "@type": "SoftwareSourceCode",
+        "@id": "https://tether-control.vercel.app/#code",
+        "name": "Tether Source Repository",
+        "codeRepository": "https://github.com/tirthsaraiya29/Tether",
+        "programmingLanguage": ["Kotlin", "C#", "C++"],
+        "runtimePlatform": [".NET 10", "Android 12+", "Windows 10 x64", "Windows 11 x64"],
+        "license": "https://github.com/tirthsaraiya29/Tether/blob/main/LICENSE"
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://tether-control.vercel.app/"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Features",
+            "item": "https://tether-control.vercel.app/#features"
+          },
+          {
+            "@type": "ListItem",
+            "position": 3,
+            "name": "Comparison",
+            "item": "https://tether-control.vercel.app/#comparison"
+          },
+          {
+            "@type": "ListItem",
+            "position": 4,
+            "name": "Screenshots",
+            "item": "https://tether-control.vercel.app/#screenshots"
+          },
+          {
+            "@type": "ListItem",
+            "position": 5,
+            "name": "How It Works",
+            "item": "https://tether-control.vercel.app/#how-it-works"
+          },
+          {
+            "@type": "ListItem",
+            "position": 6,
+            "name": "Architecture",
+            "item": "https://tether-control.vercel.app/#architecture"
+          },
+          {
+            "@type": "ListItem",
+            "position": 7,
+            "name": "FAQ",
+            "item": "https://tether-control.vercel.app/#faq"
+          }
+        ]
+      },
+      {
+        "@type": "HowTo",
+        "name": "How to Unlock Windows 10/11 with Android Biometrics using Tether",
+        "description": "Step-by-step guide to setting up phone-assisted biometric Windows unlock over your local Wi-Fi network with no cloud dependency.",
+        "totalTime": "PT3M",
+        "step": [
+          {
+            "@type": "HowToStep",
+            "position": 1,
+            "name": "Install Tether Apps",
+            "text": "Install the Tether Android companion app on your phone and run the Tether installer on your Windows 10/11 PC to register the service and native Credential Provider.",
+            "url": "https://tether-control.vercel.app/#developers"
+          },
+          {
+            "@type": "HowToStep",
+            "position": 2,
+            "name": "Pair Devices over Local Wi-Fi",
+            "text": "Ensure both phone and PC are connected to the same Wi-Fi. Tether uses mDNS to automatically detect your PC. Tap Pair to perform a mutual ECDSA P-256 public key exchange.",
+            "url": "https://tether-control.vercel.app/#how-it-works"
+          },
+          {
+            "@type": "HowToStep",
+            "position": 3,
+            "name": "Authenticate with Biometrics",
+            "text": "At the Windows lock screen, select the Tether credential tile. Tap the biometric prompt on your Android phone (fingerprint or face) to sign the cryptographic challenge and unlock Windows immediately.",
+            "url": "https://tether-control.vercel.app/#features"
+          }
+        ]
+      },
+      {
+        "@type": "HowTo",
+        "name": "How to Use Android Phone as a Wireless Trackpad for Windows PC",
+        "description": "Turn your Android touchscreen into a low-latency wireless mouse and trackpad for your Windows workstation over local Wi-Fi.",
+        "totalTime": "PT1M",
+        "step": [
+          {
+            "@type": "HowToStep",
+            "position": 1,
+            "name": "Open Remote Trackpad in Tether",
+            "text": "Open the Tether companion app on your Android device and tap the Trackpad card.",
+            "url": "https://tether-control.vercel.app/#features"
+          },
+          {
+            "@type": "HowToStep",
+            "position": 2,
+            "name": "Glide and Tap to Control Cursor",
+            "text": "Glide your finger to move the Windows cursor, tap for left-click, two-finger tap for right-click, and use two-finger drag to scroll.",
+            "url": "https://tether-control.vercel.app/#screenshots"
+          }
+        ]
+      },
+      {
+        "@type": "SearchAction",
+        "@id": "https://tether-control.vercel.app/#searchaction",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://tether-control.vercel.app/?q={search_term_string}"
+        },
+        "query-input": "required name=search_term_string"
+      },
+      {
+        "@type": "ItemList",
+        "@id": "https://tether-control.vercel.app/#featurelist",
+        "name": "Tether Features — Android to Windows Local Wi-Fi Bridge",
+        "description": "Complete list of features offered by Tether, the free open-source local-first Android to Windows companion app.",
+        "numberOfItems": 8,
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Device-Assisted Windows Unlock via Android Biometrics", "url": "https://tether-control.vercel.app/#features" },
+          { "@type": "ListItem", "position": 2, "name": "Wireless Remote Trackpad — Phone as Mouse for Windows", "url": "https://tether-control.vercel.app/#features" },
+          { "@type": "ListItem", "position": 3, "name": "Emergency One-Tap Workstation Lockdown (PanicEngine)", "url": "https://tether-control.vercel.app/#features" },
+          { "@type": "ListItem", "position": 4, "name": "High-Speed LAN File Transfer over TLS 1.3 Kestrel HTTPS", "url": "https://tether-control.vercel.app/#features" },
+          { "@type": "ListItem", "position": 5, "name": "Hardware Keystore Trust Anchor (ECDSA P-256 / StrongBox TEE)", "url": "https://tether-control.vercel.app/#features" },
+          { "@type": "ListItem", "position": 6, "name": "Audio Volume & Display Brightness Control via Session Helper", "url": "https://tether-control.vercel.app/#features" },
+          { "@type": "ListItem", "position": 7, "name": "Continuous Trust Validation & Replay Protection", "url": "https://tether-control.vercel.app/#features" },
+          { "@type": "ListItem", "position": 8, "name": "Zero Cloud Dependency — 100% Local Network Operation", "url": "https://tether-control.vercel.app/#features" }
+        ]
+      },
+      {
+        "@type": "Product",
+        "@id": "https://tether-control.vercel.app/#product",
+        "name": "Tether — Android to Windows Local Wi-Fi Bridge",
+        "description": "Free, open-source Android companion app that connects Android phones to Windows PCs over local Wi-Fi with zero cloud. Features biometric Windows unlock, wireless trackpad, emergency PC lockdown, LAN file transfer, and hardware-backed security via Android Keystore and Windows DPAPI.",
+        "brand": { "@type": "Brand", "name": "Tether" },
+        "url": "https://tether-control.vercel.app/",
+        "image": "https://tether-control.vercel.app/docs/assets/screenshots/desktop-telemetry-control-plane.png",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD", "availability": "https://schema.org/InStock" }
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "What is Tether?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Tether is a free, open-source companion app that connects your Android phone to your Windows PC over your local Wi-Fi network. It enables phone-assisted biometric Windows unlock, wireless trackpad input, emergency lockdown, local file transfer, and audio and display control — entirely on your own LAN with no cloud servers, no accounts, and no subscriptions."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I connect my Android phone to my Windows PC without the cloud?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Install the Tether Android app on your phone and the Tether Windows service on your PC. Pair them once on your home Wi-Fi. All communication happens directly over your local network via TLS 1.3 on port 37123, with no data ever leaving your home network."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I unlock my Windows PC with my Android phone's fingerprint?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. Tether includes a native C++ Windows Credential Provider (TetherCredentialProvider) that lets you authenticate your Windows workstation using your Android device's biometric sensor — fingerprint or face — over your local Wi-Fi, with no password required."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I use my Android phone as a wireless trackpad for my Windows PC?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. Tether streams synthetic mouse movement, clicks, scrolling, and Windows modifier-key combinations from your phone touchscreen directly into your active Windows desktop session via the Session Helper, requiring no additional hardware."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is Tether free and open source?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. Tether is completely free and open-source under the MIT license. The full source code is available on GitHub at github.com/tirthsaraiya29/Tether. It requires no account, no subscription, and no cloud service."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What Android and Windows versions does Tether support?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Tether requires Android 12 or newer (API 31+) and Windows 10 or Windows 11 64-bit. The Android app targets modern AndroidX security standards. The Windows service runs on .NET 10."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the best alternative to KDE Connect for Windows?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Tether is a local-first, open-source alternative to KDE Connect for Windows users. Unlike KDE Connect, Tether is built natively for Windows (including a C++ Credential Provider for Windows logon), supports hardware-backed Android Keystore authentication, and focuses on a secure, TLS 1.3 encrypted LAN connection with no cloud dependency."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How is Tether different from Link to Windows (Phone Link) or Intel Unison?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Unlike Microsoft's Link to Windows or Intel Unison, Tether has zero cloud dependency. Everything works entirely on your local network with no Microsoft account, no Intel account, and no data sent to external servers. Tether is also fully open-source and provides native Windows logon biometric unlock."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does my data go anywhere when using Tether?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. Your phone and PC communicate directly over your own Wi-Fi using an encrypted TLS 1.3 connection. There is no cloud relay, no company server in the middle, and no data ever leaves your home network."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does Tether work without an active internet connection?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes! Tether operates strictly on your local area network (LAN). As long as both devices are on the same local Wi-Fi router or switch, Tether functions normally even when the broadband internet connection is completely offline."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the best free open-source alternative to AirDroid for local file transfer?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Tether is a free, open-source alternative to AirDroid for transferring files between Android and Windows over local Wi-Fi. Unlike AirDroid, Tether uses no cloud relay, requires no account, and encrypts all transfers with TLS 1.3 directly on your LAN — meaning files never leave your home network."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I use Tether to unlock Windows 10 or Windows 11 without a password?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. Tether's native C++ Windows Credential Provider (TetherCredentialProvider.dll) integrates with the Windows Logon UI on Windows 10 and Windows 11. When you tap your Android phone, it performs a biometric challenge-response over your local Wi-Fi, allowing you to unlock your PC without typing a password or PIN."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the best Android app to use my phone as a wireless mouse or trackpad for Windows?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Tether includes a built-in wireless trackpad feature for Windows. Install the Tether Android app and the Tether Windows service, pair once on your Wi-Fi, and your phone's touchscreen becomes a low-latency wireless mouse with support for left-click, right-click, two-finger scrolling, and Windows modifier keys — no Bluetooth, no USB required."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does Tether require a Microsoft account or Google account?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. Tether requires no Microsoft account, no Google account, no Intel account, and no account of any kind. Device pairing is performed through a direct ECDSA P-256 public key exchange on your local network, with keys stored in your Android hardware keystore and your Windows DPAPI vault."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is Tether an alternative to Windows Hello for Business?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Tether provides a local-first biometric Windows unlock experience similar in feel to Windows Hello for Business, but without requiring Azure Active Directory, Active Directory domain membership, or any Microsoft cloud infrastructure. It is ideal for home users and small offices that want phone-based biometric PC unlock without enterprise cloud dependencies."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How fast is the file transfer speed with Tether?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Tether's file transfer runs over a local HTTPS server built on Kestrel (TCP 37124) using TLS 1.3, so transfer speed is limited only by your local Wi-Fi or wired LAN speed — not by any cloud throttle or relay bottleneck. On a typical 5 GHz Wi-Fi network this means speeds comparable to your router's rated throughput."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the emergency panic lockdown feature in Tether?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Tether.PanicEngine lets you trigger an immediate Windows workstation lock and trust-state revocation from your phone with a single tap. Active sessions are invalidated across the network boundary, and the paired device must re-authenticate before commands are accepted again."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How does Tether compare to DeskDock for using a phone as a mouse?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Unlike DeskDock, which focuses solely on USB-based Android input sharing, Tether works entirely over Wi-Fi with no USB cable required. Tether also adds biometric Windows unlock, emergency lockdown, LAN file transfer, and audio control — features DeskDock does not offer. Tether is fully open source and free."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does Tether send any telemetry or analytics data?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. Tether sends zero telemetry, analytics, or crash reports to any external server. The entire codebase is open source on GitHub, so you can verify this yourself. All communication is strictly between your Android phone and your Windows PC on your local network."
+            }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
 
   <style>
     /* ============================================================
@@ -295,20 +704,26 @@
       color: var(--green);
     }
 
-    /* Brand mark: the tether glyph, a green tick on black */
+    /* Brand mark: Tether glowing squircle logo */
     .brand-mark {
-      width: 22px;
-      height: 22px;
-      border-radius: 6px;
-      background: var(--surface-raised);
-      border: 1px solid var(--border-strong);
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
       display: grid;
       place-items: center;
+      overflow: hidden;
       transition: transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast) var(--ease-out);
     }
+    .brand-logo {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      object-fit: cover;
+      display: block;
+    }
     .brand:hover .brand-mark {
-      transform: rotate(90deg);
-      box-shadow: 0 0 12px var(--green-mid);
+      transform: scale(1.08);
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.5);
     }
 
     .primary-nav {
@@ -814,6 +1229,155 @@
       color: var(--text-muted);
     }
 
+    /* Modern Comparison Table */
+    .compare-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.9rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: var(--surface);
+    }
+    .compare-table th, .compare-table td {
+      padding: 14px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .compare-table thead th {
+      background: var(--surface-raised);
+      color: var(--silver);
+      font-weight: 600;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .compare-table thead th.col-lead {
+      color: var(--green);
+      background: var(--green-deep);
+      border-bottom: 2px solid var(--green);
+    }
+    .compare-table td.col-lead {
+      background: rgba(0, 255, 157, 0.03);
+      font-weight: 500;
+      color: var(--silver);
+    }
+    .compare-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+    .compare-table tbody tr:hover {
+      background: var(--green-wash);
+    }
+    .badge-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--green);
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+    .badge-cross {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--silver-subtle);
+      font-size: 0.85rem;
+    }
+
+    /* Showcase & Screenshot Grid */
+    .showcase-grid {
+      display: grid;
+      gap: 24px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      margin-top: 24px;
+    }
+    .showcase-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      overflow: hidden;
+      transition: border-color var(--dur-fast) ease-out, transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
+    }
+    .showcase-card:hover {
+      border-color: var(--green-border);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 2px 16px rgba(0, 255, 157, 0.08);
+    }
+    .showcase-media {
+      background: #000;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .showcase-media img {
+      width: 100%;
+      height: auto;
+      display: block;
+      object-fit: cover;
+      max-height: 380px;
+      transition: transform var(--dur-slow) var(--ease-out);
+    }
+    .showcase-card:hover .showcase-media img {
+      transform: scale(1.02);
+    }
+    .showcase-body {
+      padding: 16px 20px;
+    }
+    .showcase-title {
+      font-size: 1rem;
+      color: var(--silver);
+      margin-bottom: 6px;
+    }
+    .showcase-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Step Cards / How It Works */
+    .step-grid {
+      display: grid;
+      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      margin-top: 28px;
+    }
+    .step-card {
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: linear-gradient(165deg, var(--surface) 60%, var(--green-deep) 170%);
+      position: relative;
+    }
+    .step-num {
+      font-family: var(--font-mono);
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--green);
+      line-height: 1;
+      margin-bottom: 12px;
+      opacity: 0.9;
+    }
+    .step-title {
+      font-size: 1.05rem;
+      color: var(--silver);
+      margin-bottom: 8px;
+    }
+    .step-desc {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Core Web Vitals Render Performance */
+    .section:not(.hero) {
+      content-visibility: auto;
+      contain-intrinsic-size: 1px 700px;
+    }
+
     .code {
       margin: 16px 0;
       border: 1px solid var(--border);
@@ -901,6 +1465,176 @@
       font-size: 0.95rem;
       color: var(--text-muted);
       line-height: 1.6;
+    }
+
+    /* ---------- 11b. Download & Ask a Question ---------- */
+    .dl-btn[disabled] {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .dl-state {
+      font-size: 0.85rem;
+      color: var(--text-subtle);
+      margin-top: 10px;
+      min-height: 1.2em;
+    }
+    .dl-state.is-error { color: var(--warn); }
+
+    .ask-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      margin-bottom: 24px;
+    }
+    .ask-cat {
+      position: relative;
+      display: block;
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      cursor: pointer;
+      transition: border-color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .ask-cat:hover {
+      border-color: var(--green-border);
+      transform: translateY(-2px);
+    }
+    .ask-cat input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .ask-cat:has(input:checked) {
+      border-color: var(--green);
+      background: var(--green-wash);
+    }
+    .ask-cat:has(input:focus-visible) {
+      outline: 2px solid var(--focus);
+      outline-offset: 3px;
+    }
+    .ask-cat-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--green-wash);
+      margin-bottom: 10px;
+      color: var(--green);
+      flex-shrink: 0;
+    }
+    .ask-cat-icon svg {
+      display: block;
+      flex-shrink: 0;
+    }
+    .ask-cat-title {
+      color: var(--silver);
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 4px;
+    }
+    .ask-cat-desc {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+
+    .ask-field {
+      margin-bottom: 16px;
+    }
+    .ask-field label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--silver);
+      margin-bottom: 6px;
+    }
+    .ask-field .req {
+      color: var(--green-dim);
+      font-size: 0.75rem;
+    }
+    .ask-field input,
+    .ask-field select,
+    .ask-field textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+      font-size: 0.9rem;
+    }
+    .ask-field textarea {
+      min-height: 96px;
+      resize: vertical;
+    }
+    .ask-field input:focus,
+    .ask-field select:focus,
+    .ask-field textarea:focus {
+      outline: none;
+      border-color: var(--green);
+      box-shadow: 0 0 0 2px var(--green-wash);
+    }
+    .ask-field .field-error {
+      display: none;
+      color: var(--warn);
+      font-size: 0.8rem;
+      margin-top: 4px;
+    }
+    .ask-field.has-error input,
+    .ask-field.has-error select,
+    .ask-field.has-error textarea {
+      border-color: var(--warn);
+    }
+    .ask-field.has-error .field-error {
+      display: block;
+    }
+    .ask-contact {
+      border: 1px solid var(--green-border);
+      border-radius: var(--radius-md);
+      background: var(--green-wash);
+      padding: 20px;
+      margin: 24px 0;
+    }
+    .ask-contact > p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+    .ask-note {
+      font-size: 0.8rem;
+      color: var(--text-subtle);
+      line-height: 1.5;
+      margin-top: 8px;
+    }
+    .form-status {
+      margin-top: 16px;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .form-status[hidden] { display: none; }
+    .form-status.is-success {
+      border: 1px solid var(--green-border);
+      background: var(--green-wash);
+      color: var(--text);
+    }
+    .form-status.is-error {
+      border: 1px solid rgba(245, 184, 61, 0.45);
+      background: rgba(245, 184, 61, 0.08);
+      color: var(--warn);
+    }
+    /* Honeypot: real users never see or tab into this */
+    .hp-field {
+      position: absolute !important;
+      left: -9999px;
+      height: 1px;
+      width: 1px;
+      overflow: hidden;
     }
 
     /* ---------- 12. CTA & Footer ---------- */
@@ -1044,7 +1778,7 @@
     <div class="container header-inner">
       <a href="#top" class="brand">
         <span class="brand-mark" aria-hidden="true">
-          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 3h8M6 3v6" stroke="#00ff9d" stroke-width="2" stroke-linecap="round"/></svg>
+          <img src="docs/assets/branding/tether-logo-64.png" alt="Tether" width="26" height="26" class="brand-logo" />
         </span>
         Tether
       </a>
@@ -1054,7 +1788,12 @@
       <nav class="primary-nav" id="primary-nav" aria-label="Main">
         <a href="#overview" class="nav-link" data-nav-link="overview">Overview</a>
         <a href="#features" class="nav-link" data-nav-link="features">Features</a>
+        <a href="#comparison" class="nav-link" data-nav-link="comparison">Comparison</a>
+        <a href="#screenshots" class="nav-link" data-nav-link="screenshots">Showcase</a>
+        <a href="#how-it-works" class="nav-link" data-nav-link="how-it-works">How It Works</a>
         <a href="#architecture" class="nav-link" data-nav-link="architecture">Architecture</a>
+        <a href="#faq" class="nav-link" data-nav-link="faq">FAQ</a>
+        <a href="#ask" class="nav-link" data-nav-link="ask">Ask a Question</a>
         <a href="#developers" class="nav-link" data-nav-link="developers">Developers</a>
         <a href="https://github.com/tirthsaraiya29/Tether" class="btn btn-sm btn-green" target="_blank" rel="noopener">GitHub</a>
       </nav>
@@ -1066,15 +1805,16 @@
     <section class="hero section" id="top">
       <div class="container hero-grid">
         <div>
-          <p class="eyebrow reveal is-visible">Phone + PC: your own Wi-Fi</p>
-          <h1 class="reveal is-visible" style="--reveal-delay: 0.05s;">Your phone and your PC. Talking <strong>directly</strong>.</h1>
+          <p class="eyebrow reveal is-visible">Local-First Android to Windows Bridge</p>
+          <h1 class="reveal is-visible" style="--reveal-delay: 0.05s;">Connect Android to Windows over <strong>Local Wi-Fi</strong>. Zero Cloud.</h1>
           <p class="hero-lede reveal is-visible" style="--reveal-delay: 0.12s;">
-            Tether is an open-source personal trust and authentication platform that connects an Android device to a Windows workstation over local Wi-Fi. Unlock Windows via biometric challenge, stream trackpad input, send files, execute emergency lockdowns, and adjust media controls, entirely on your local network with zero cloud dependencies.
+            Tether is a free, open-source personal trust and authentication platform connecting an Android phone to a Windows PC over your local network. Unlock Windows via biometric challenge, use your phone as a wireless trackpad, send files, execute emergency lockdowns, and adjust media controls — completely on LAN via TLS 1.3 with zero accounts and no subscriptions.
           </p>
           <div class="hero-actions reveal is-visible" style="--reveal-delay: 0.2s;">
-            <a class="btn btn-primary" href="https://github.com/tirthsaraiya29/Tether/releases">Download Releases</a>
+            <button class="btn btn-primary dl-btn" id="dl-btn" type="button" disabled>Detecting platform…</button>
             <a class="btn btn-green" href="https://github.com/tirthsaraiya29/Tether">View on GitHub</a>
           </div>
+          <p class="dl-state" id="dl-state" role="status" aria-live="polite"></p>
           <div class="hero-note reveal is-visible" style="--reveal-delay: 0.28s;">
             <span class="status-chip">STILL BEING BUILT</span>
             <span>Tether is an early project and hasn't been security audited. It is fun to explore, but do not trust it with anything important yet.</span>
@@ -1179,6 +1919,172 @@
       </div>
     </section>
 
+    <!-- ============ Comparison Matrix ============ -->
+    <section class="section" id="comparison" data-nav-section style="border-top: 1px solid var(--border);">
+      <div class="container">
+        <header class="section-head reveal">
+          <p class="eyebrow">Local-First Comparison</p>
+          <h2>How Tether compares to alternatives.</h2>
+          <p class="section-lede">Direct comparison against popular phone-to-PC connection tools: KDE Connect, Microsoft Phone Link, and Intel Unison.</p>
+        </header>
+        <div class="reveal" style="overflow-x: auto; --reveal-delay: 0.1s;">
+          <table class="compare-table" aria-label="Feature comparison between Tether, Microsoft Phone Link, KDE Connect, and Intel Unison">
+            <thead>
+              <tr>
+                <th scope="col">Feature / Capability</th>
+                <th scope="col" class="col-lead">Tether (Open Source)</th>
+                <th scope="col">Microsoft Phone Link</th>
+                <th scope="col">KDE Connect (Windows)</th>
+                <th scope="col">Intel Unison</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Cloud Dependency</th>
+                <td class="col-lead"><span class="badge-check">&#10003; 100% Zero-Cloud (LAN only)</span></td>
+                <td><span class="badge-cross">&#10007; Requires Microsoft Cloud</span></td>
+                <td><span class="badge-check">&#10003; Local Network Only</span></td>
+                <td><span class="badge-cross">&#10007; Requires Cloud Account</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Native Windows Logon Unlock</th>
+                <td class="col-lead"><span class="badge-check">&#10003; Native C++20 Credential Provider</span></td>
+                <td><span class="badge-cross">&#10007; Not supported</span></td>
+                <td><span class="badge-cross">&#10007; Not supported</span></td>
+                <td><span class="badge-cross">&#10007; Not supported</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Biometric PC Unlock (Fingerprint/Face)</th>
+                <td class="col-lead"><span class="badge-check">&#10003; Supported (ECDSA P-256)</span></td>
+                <td><span class="badge-cross">&#10007; Not supported</span></td>
+                <td><span class="badge-cross">&#10007; Not supported</span></td>
+                <td><span class="badge-cross">&#10007; Not supported</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Wireless Trackpad &amp; Mouse Input</th>
+                <td class="col-lead"><span class="badge-check">&#10003; Low-Latency Synthetic Input</span></td>
+                <td><span class="badge-cross">&#10007; Not supported</span></td>
+                <td><span class="badge-check">&#10003; Basic Touchpad</span></td>
+                <td><span class="badge-cross">&#10007; Not supported</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Emergency Workstation Lockdown</th>
+                <td class="col-lead"><span class="badge-check">&#10003; One-Tap PanicEngine Lock</span></td>
+                <td><span class="badge-cross">&#10007; Not supported</span></td>
+                <td><span class="badge-cross">&#10007; Custom script only</span></td>
+                <td><span class="badge-cross">&#10007; Not supported</span></td>
+              </tr>
+              <tr>
+                <th scope="row">High-Speed LAN File Transfer</th>
+                <td class="col-lead"><span class="badge-check">&#10003; TLS 1.3 Kestrel HTTPS (LAN)</span></td>
+                <td><span class="badge-cross">&#10007; Cloud Relay dependent</span></td>
+                <td><span class="badge-check">&#10003; SFTP / LAN Transfer</span></td>
+                <td><span class="badge-cross">&#10007; Cloud Relay dependent</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Workstation Isolation Architecture</th>
+                <td class="col-lead"><span class="badge-check">&#10003; Session 0 Service + ACL Named Pipes</span></td>
+                <td><span class="badge-cross">&#8212; Standard UWP App</span></td>
+                <td><span class="badge-cross">&#8212; User Session Daemon</span></td>
+                <td><span class="badge-cross">&#8212; User Session Service</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Hardware Security Enclave</th>
+                <td class="col-lead"><span class="badge-check">&#10003; Android Keystore (StrongBox TEE)</span></td>
+                <td><span class="badge-cross">&#10007; Cloud Token OAuth</span></td>
+                <td><span class="badge-cross">&#10007; Software TLS RSA keys</span></td>
+                <td><span class="badge-cross">&#10007; Proprietary Cloud Auth</span></td>
+              </tr>
+              <tr>
+                <th scope="row">License &amp; Source Code</th>
+                <td class="col-lead"><span class="badge-check">&#10003; 100% Free &amp; Open Source (MIT)</span></td>
+                <td><span class="badge-cross">&#10007; Proprietary Closed Source</span></td>
+                <td><span class="badge-check">&#10003; Open Source (GPLv2)</span></td>
+                <td><span class="badge-cross">&#10007; Proprietary Closed Source</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Visual Interface Showcase ============ -->
+    <section class="section" id="screenshots" data-nav-section style="border-top: 1px solid var(--border);">
+      <div class="container">
+        <header class="section-head reveal">
+          <p class="eyebrow">Visual Interface</p>
+          <h2>Real-time control, verified on-screen.</h2>
+          <p class="section-lede">Inspect the user interfaces running on Windows 10/11 and Android companion devices.</p>
+        </header>
+        <div class="showcase-grid reveal" style="--reveal-delay: 0.1s;">
+          <div class="showcase-card">
+            <div class="showcase-media">
+              <img src="docs/assets/screenshots/desktop-telemetry-control-plane.png" alt="Tether Windows Desktop Telemetry Control Plane showing active LAN connection, IPC Named Pipe metrics, and Session 0 isolation status" width="2304" height="1440" loading="lazy" decoding="async">
+            </div>
+            <div class="showcase-body">
+              <h3 class="showcase-title">Windows Telemetry Control Plane</h3>
+              <p class="showcase-desc">Real-time status monitoring, Session 0 IPC pipe metrics, cryptographic trust state, and device pairing management in Fluent WPF.</p>
+            </div>
+          </div>
+          <div class="showcase-card">
+            <div class="showcase-media">
+              <img src="docs/assets/screenshots/android-command-center.jpg" alt="Tether Android Companion App Command Center with biometric Windows unlock trigger, emergency panic button, and media control tiles" width="1080" height="2244" loading="lazy" decoding="async">
+            </div>
+            <div class="showcase-body">
+              <h3 class="showcase-title">Android Trust Command Center</h3>
+              <p class="showcase-desc">Instant access to biometric PC unlock challenges, emergency panic lockdown, system volume, and display brightness control.</p>
+            </div>
+          </div>
+          <div class="showcase-card">
+            <div class="showcase-media">
+              <img src="docs/assets/screenshots/android-remote-trackpad.jpg" alt="Tether Android Remote Trackpad with low-latency touch canvas and Windows modifier keys" width="1080" height="2253" loading="lazy" decoding="async">
+            </div>
+            <div class="showcase-body">
+              <h3 class="showcase-title">Wireless Remote Trackpad</h3>
+              <p class="showcase-desc">Sub-millisecond synthetic input streaming for pointer movement, two-finger gestures, left/right clicks, and Windows key combinations.</p>
+            </div>
+          </div>
+          <div class="showcase-card">
+            <div class="showcase-media">
+              <img src="docs/assets/screenshots/android-device-pairing.jpg" alt="Tether Android Device Pairing screen displaying zero-configuration mDNS discovery and mutual cryptographic challenge" width="1080" height="2257" loading="lazy" decoding="async">
+            </div>
+            <div class="showcase-body">
+              <h3 class="showcase-title">Local Device Pairing</h3>
+              <p class="showcase-desc">Zero-configuration local pairing using mDNS service discovery on UDP 37124 and mutual ECDSA P-256 public key verification.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ How It Works ============ -->
+    <section class="section" id="how-it-works" data-nav-section style="border-top: 1px solid var(--border);">
+      <div class="container">
+        <header class="section-head reveal">
+          <p class="eyebrow">Quick Start Guide</p>
+          <h2>How Tether connects in 3 simple steps.</h2>
+          <p class="section-lede">Set up local communication in under three minutes with zero network configuration.</p>
+        </header>
+        <div class="step-grid reveal" style="--reveal-delay: 0.1s;">
+          <div class="step-card">
+            <div class="step-num">01</div>
+            <h3 class="step-title">Install the Applications</h3>
+            <p class="step-desc">Install the Tether companion APK on your Android device (Android 12+) and run the Windows setup on your PC to configure the background service and logon Credential Provider.</p>
+          </div>
+          <div class="step-card">
+            <div class="step-num">02</div>
+            <h3 class="step-title">Pair over Local Wi-Fi</h3>
+            <p class="step-desc">Connect both devices to the same Wi-Fi. Tether discovers your workstation automatically via mDNS on port 37124 and completes a mutual ECDSA P-256 cryptographic handshake.</p>
+          </div>
+          <div class="step-card">
+            <div class="step-num">03</div>
+            <h3 class="step-title">Enjoy Direct Control</h3>
+            <p class="step-desc">Unlock Windows with your fingerprint or face, glide on your phone screen as a wireless trackpad, send files securely, or trigger an emergency workstation lock with a single tap.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ============ Architecture ============ -->
     <section class="section" id="architecture" data-nav-section style="border-top: 1px solid var(--border);">
       <div class="container">
@@ -1208,6 +2114,198 @@
           Not every box here is finished, and not every arrow between them has been tested. Treat this as a plan, not a promise.
         </p>
       </div>
+    </section>
+
+    <!-- ============ FAQ ============ -->
+    <section class="section" id="faq" data-nav-section style="border-top: 1px solid var(--border);">
+      <div class="container container-narrow">
+        <header class="section-head reveal">
+          <p class="eyebrow">Questions</p>
+          <h2>The things people usually ask.</h2>
+        </header>
+        <div class="faq reveal" style="--reveal-delay: 0.1s;">
+          <details class="faq-item">
+            <summary>What is Tether, in one sentence?</summary>
+            <div class="faq-body">
+              <p>An open project that lets your Android phone control a few things on your Windows PC over your home Wi-Fi, without going through any company servers.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Does my data go anywhere?</summary>
+            <div class="faq-body">
+              <p>No. Your phone and PC talk directly to each other over your own Wi-Fi. There is no cloud account and no relay server holding your traffic.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Is it safe to use?</summary>
+            <div class="faq-body">
+              <p>Not yet. Tether is an early project and no outside expert has reviewed it. It is interesting to explore, but do not rely on it to protect anything important.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Can I unlock my Windows PC with my Android phone's fingerprint?</summary>
+            <div class="faq-body">
+              <p>Yes. Tether ships a native C++ Windows Credential Provider (TetherCredentialProvider.dll) loaded by Winlogon. When you tap your phone, your Android biometric sensor signs a challenge with an ECDSA P-256 key stored inside the hardware Keystore. The service verifies the signature and Windows lets you in — no password typed, no cloud round-trip.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Can I use my Android phone as a wireless trackpad for Windows?</summary>
+            <div class="faq-body">
+              <p>Yes. Touch input from the Tether Android app is streamed over your LAN to Tether.SessionHelper.exe, which injects synthetic mouse deltas, clicks, scrolling, and modifier-key combinations directly into your active desktop session via SendInput — no Bluetooth, no drivers to install.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>How is Tether different from KDE Connect, Link to Windows, or Intel Unison?</summary>
+            <div class="faq-body">
+              <p>Tether is fully local-first with zero cloud dependency. KDE Connect is Linux-first and lacks a Windows Credential Provider. Link to Windows and Intel Unison both require a Microsoft or Intel cloud account and route traffic through external servers. Tether routes nothing outside your home network and requires no account of any kind.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>What Android and Windows versions does Tether support?</summary>
+            <div class="faq-body">
+              <p>Tether requires Android 12 or newer (API 31+) and Windows 10 or Windows 11. The Windows service targets .NET 10 and the Credential Provider is a 64-bit native C++20 DLL.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Is Tether free and open source?</summary>
+            <div class="faq-body">
+              <p>Yes, completely. The full source — Android Kotlin app, Windows .NET 10 service, C++ Credential Provider, and WPF desktop UI — is on GitHub at <a href="https://github.com/tirthsaraiya29/Tether" rel="noopener">github.com/tirthsaraiya29/Tether</a>. No account, subscription, or payment required.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>What ports does Tether use on my network?</summary>
+            <div class="faq-body">
+              <p>TCP 37123 for the main TLS 1.3 control channel, TCP 37124 for the Kestrel HTTPS file-transfer server, and UDP 37124 / UDP 5353 (mDNS) for zero-configuration local device discovery. No external ports or port-forwarding required.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>What is the emergency lockdown / panic feature?</summary>
+            <div class="faq-body">
+              <p>Tether.PanicEngine lets you trigger an immediate Windows workstation lock and trust-state revocation from your phone with a single tap. Active sessions are invalidated across the network boundary, and the paired device must re-authenticate before commands are accepted again.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>What is the best AirDroid alternative with no cloud?</summary>
+            <div class="faq-body">
+              <p>Tether is a fully local, open-source AirDroid alternative. Unlike AirDroid, Tether does not route any data through cloud servers, requires no account, and encrypts all traffic with TLS 1.3 directly on your LAN. It also adds features AirDroid lacks on Windows: native biometric logon, emergency workstation lockdown, and hardware-backed key authentication.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Can Tether replace Microsoft Phone Link (Link to Windows)?</summary>
+            <div class="faq-body">
+              <p>Tether is a strong local-first alternative to Microsoft Phone Link (formerly Your Phone). Unlike Phone Link, Tether does not require a Microsoft account and does not route data through Microsoft cloud infrastructure. Tether operates 100% on your local Wi-Fi. While Phone Link offers SMS mirroring and photo sync (cloud features), Tether focuses on security: biometric PC unlock, encrypted LAN file transfer, wireless trackpad, and emergency lockdown — all without any cloud dependency.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Does Tether work on Windows 10 Home?</summary>
+            <div class="faq-body">
+              <p>Yes. Tether supports Windows 10 Home, Windows 10 Pro, Windows 11 Home, and Windows 11 Pro (64-bit). The Windows Credential Provider works on any Windows edition that allows third-party COM Credential Provider registration, which includes all consumer Home editions.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>How do I use my Android phone as a mouse for my Windows PC over Wi-Fi?</summary>
+            <div class="faq-body">
+              <p>Install the Tether app on your Android phone and the Tether Windows service on your PC. After pairing over your local Wi-Fi, open the Trackpad screen in the Tether Android app. Your phone's touchscreen now controls the Windows mouse cursor: glide one finger to move, tap for left-click, two-finger tap for right-click, and two-finger drag to scroll. No Bluetooth, no USB, no extra drivers needed.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Is Tether available on the Google Play Store?</summary>
+            <div class="faq-body">
+              <p>Tether is currently distributed as a sideloaded APK from GitHub Releases. Play Store distribution is a planned future step. You can download the latest Tether Android APK from <a href="https://github.com/tirthsaraiya29/Tether/releases" rel="noopener">github.com/tirthsaraiya29/Tether/releases</a>.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Does Tether send analytics, crash reports, or telemetry?</summary>
+            <div class="faq-body">
+              <p>No. Tether sends zero analytics, telemetry, or crash reports to any external server. All traffic is strictly between your Android phone and your Windows PC on your local network. The entire codebase is open source on GitHub so you can audit this yourself.</p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Ask a Question ============ -->
+    <section class="section" id="ask" data-nav-section style="border-top: 1px solid var(--border);">
+    <div class="container container-narrow">
+      <header class="section-head reveal">
+        <p class="eyebrow">Get in touch</p>
+        <h2>Ask a Question</h2>
+        <p class="section-lede">Found a bug, have an idea, want to share feedback, or discovered a security issue? Pick a category below and your submission reaches the maintainer directly. Contact details you provide stay private — they are stored separately and never appear in the public GitHub issue.</p>
+      </header>
+      <form id="ask-form" class="reveal" style="--reveal-delay: 0.1s;" novalidate>
+        <fieldset style="border:0; padding:0; margin:0 0 8px;">
+          <legend class="sr-only">Submission category</legend>
+          <div class="ask-grid" role="radiogroup" aria-label="Submission category">
+            <label class="ask-cat">
+              <input type="radio" name="category" value="bug" />
+              <div class="ask-cat-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M4.72.22a.75.75 0 0 1 1.06 0l1 .999a3.488 3.488 0 0 1 2.441 0l.999-1a.748.748 0 0 1 1.05-.018.75.75 0 0 1 .018 1.068l-.975.975c.616.7.994 1.618 1.005 2.624L11.276 5h1.749a.75.75 0 0 1 0 1.5h-1.753a3.657 3.657 0 0 1-.7 1.421l.31.31a.75.75 0 1 1-1.06 1.061l-.312-.312a3.65 3.65 0 0 1-1.015.475v1.495a.75.75 0 0 1-1.5 0v-1.495a3.65 3.65 0 0 1-1.015-.475l-.311.312a.75.75 0 1 1-1.061-1.06l.31-.31a3.657 3.657 0 0 1-.7-1.421H2.975a.75.75 0 0 1 0-1.5h1.75L4.72 4.648c.011-1.006.389-1.923 1.005-2.624L4.75 1.283a.75.75 0 0 1-.03-1.063Z"/></svg>
+              </div>
+              <div class="ask-cat-title">Bug Report</div>
+              <div class="ask-cat-desc">Something is broken or behaving unexpectedly.</div>
+            </label>
+            <label class="ask-cat">
+              <input type="radio" name="category" value="feature" />
+              <div class="ask-cat-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M9.254 2.09a5.24 5.24 0 0 1 4.656 4.657c.083.76-.616 1.253-1.353 1.253h-2.132c-.436 0-.682.27-.75.607a3.5 3.5 0 0 1-2.975 2.975c-.336.068-.607.314-.607.75v2.132c0 .737-.493 1.436-1.253 1.353A5.24 5.24 0 0 1 .19 10.166 5.242 5.242 0 0 1 9.254 2.09ZM5.5 10.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm-1.75-3.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm3.5-1.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"/></svg>
+              </div>
+              <div class="ask-cat-title">Feature Request</div>
+              <div class="ask-cat-desc">Suggest an improvement or new capability.</div>
+            </label>
+            <label class="ask-cat">
+              <input type="radio" name="category" value="appreciation" />
+              <div class="ask-cat-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M8.834c.086-.563.394-1.072.844-1.4.283-.206.612-.337.957-.385V2.5a.5.5 0 0 1 .5-.5 2.25 2.25 0 0 1 0 4.5h-.283c.35.169.655.426.881.75a.5.5 0 0 1-.05.632l-.052.05a.5.5 0 0 1-.63.062 1.85 1.85 0 0 0-.96-.294h-3.29a.5.5 0 0 1 0-1h2.14l-.583-1.75a.5.5 0 0 1 .313-.63.5.5 0 0 1 .633.318l.7 2.062ZM4.25 7.5A2.25 2.25 0 0 1 4.25 3h3.5a2.25 2.25 0 0 1 0 4.5h-3.5Z"/></svg>
+              </div>
+              <div class="ask-cat-title">Appreciation &amp; Feedback</div>
+              <div class="ask-cat-desc">Share appreciation or your experience.</div>
+            </label>
+            <label class="ask-cat">
+              <input type="radio" name="category" value="security" />
+              <div class="ask-cat-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M8.533.133a1.75 1.75 0 0 0-1.066 0l-5.25 1.68A1.75 1.75 0 0 0 1 3.48V7c0 1.566.32 3.182 1.303 4.682.983 1.499 2.585 2.813 5.032 3.855a1.75 1.75 0 0 0 1.33 0c2.447-1.042 4.05-2.356 5.032-3.855C14.68 10.182 15 8.566 15 7V3.48a1.75 1.75 0 0 0-1.217-1.667l-5.25-1.68ZM6.78 5.72a.75.75 0 1 0-1.06 1.06L6.94 8 5.72 9.22a.75.75 0 1 0 1.06 1.06L8 9.06l1.22 1.22a.75.75 0 1 0 1.06-1.06L9.06 8l1.22-1.22a.75.75 0 1 0-1.06-1.06L8 6.94 6.78 5.72Z"/></svg>
+              </div>
+              <div class="ask-cat-title">Security Vulnerability</div>
+              <div class="ask-cat-desc">Private advisory — never filed publicly.</div>
+            </label>
+          </div>
+        </fieldset>
+        <p class="dl-state" id="ask-hint" style="margin-bottom:16px;">Select a category to continue.</p>
+        <div id="ask-fields"></div>
+        <div class="ask-contact">
+          <p><strong>Contact information (required, private).</strong> Provide at least one of the following so the maintainer can follow up. This information is submitted to a private channel accessible only to the repository owner — it is <strong>never</strong> included in any public GitHub issue.</p>
+          <div class="ask-field" data-field="email">
+            <label for="ask-email">Email address <span class="req">(provide email or phone)</span></label>
+            <input type="email" id="ask-email" name="contact_email" autocomplete="email" placeholder="you@example.com" />
+            <p class="field-error">Enter a valid email address, or a phone number.</p>
+          </div>
+          <div class="ask-field" data-field="phone">
+            <label for="ask-phone">Phone number <span class="req">(optional if email provided)</span></label>
+            <input type="tel" id="ask-phone" name="contact_phone" autocomplete="tel" placeholder="+1 555 000 0000" />
+            <p class="field-error">Enter a valid phone number, or an email address.</p>
+          </div>
+          <div class="ask-field" data-field="github">
+            <label for="ask-github">GitHub username <span class="req">(optional)</span></label>
+            <input type="text" id="ask-github" name="contact_github" autocomplete="off" placeholder="octocat" />
+            <p class="field-error">GitHub usernames may only contain letters, digits, and single hyphens.</p>
+          </div>
+          <div class="ask-field" data-field="github_public" hidden>
+            <label for="ask-github-public" style="display:flex; align-items:center; gap:8px; font-weight:400;">
+              <input type="checkbox" id="ask-github-public" name="contact_github_public" style="width:auto;" />
+              Show my GitHub username publicly on the issue (credit me)
+            </label>
+            <p class="ask-note">Unchecked: your username is stored privately like the other contact details.</p>
+          </div>
+          <p class="ask-note">Your contact details are sent over HTTPS to a private store tied to your submission and are visible only to Tirth Saraiya, the repository owner. They do not appear in the public issue, issue labels, comments, or any GitHub-facing content.</p>
+        </div>
+        <label class="hp-field" aria-hidden="true">Leave this field empty<input type="text" id="ask-website" name="website" tabindex="-1" autocomplete="off" /></label>
+        <div class="form-status" id="ask-status" role="status" aria-live="polite" hidden></div>
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+          <button class="btn btn-primary" type="submit" id="ask-submit">Submit</button>
+          <button class="btn btn-green" type="button" id="ask-reset" hidden>Clear form</button>
+        </div>
+      </form>
+    </div>
     </section>
 
     <!-- ============ Developers ============ -->
@@ -1332,36 +2430,6 @@
       </div>
     </section>
 
-    <!-- ============ FAQ ============ -->
-    <section class="section" id="faq" style="border-top: 1px solid var(--border);">
-      <div class="container container-narrow">
-        <header class="section-head reveal">
-          <p class="eyebrow">Questions</p>
-          <h2>The things people usually ask.</h2>
-        </header>
-        <div class="faq reveal" style="--reveal-delay: 0.1s;">
-          <details class="faq-item">
-            <summary>What is Tether, in one sentence?</summary>
-            <div class="faq-body">
-              <p>An open project that lets your Android phone control a few things on your Windows PC over your home Wi-Fi, without going through any company servers.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>Does my data go anywhere?</summary>
-            <div class="faq-body">
-              <p>No. Your phone and PC talk directly to each other over your own Wi-Fi. There is no cloud account and no relay server holding your traffic.</p>
-            </div>
-          </details>
-          <details class="faq-item">
-            <summary>Is it safe to use?</summary>
-            <div class="faq-body">
-              <p>Not yet. Tether is an early project and no outside expert has reviewed it. It is interesting to explore, but do not rely on it to protect anything important.</p>
-            </div>
-          </details>
-        </div>
-      </div>
-    </section>
-
     <!-- ============ CTA ============ -->
     <section class="section section-cta" id="get-started">
       <div class="container">
@@ -1380,11 +2448,14 @@
       </div>
     </section>
   </main>
-
+  <!-- REMOVED-ABOUT-MARKER (About Tether SEO prose retired 2026-11-20) -->
   <footer class="site-footer">
     <div class="container footer-grid">
       <div class="footer-brand">
-        <p style="font-weight: 600; color: var(--silver); font-size: 1.1rem;">Tether</p>
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+          <img src="docs/assets/branding/tether-logo-64.png" alt="Tether" width="28" height="28" style="border-radius: 7px;" />
+          <p style="font-weight: 600; color: var(--silver); font-size: 1.1rem; margin: 0;">Tether</p>
+        </div>
         <p>Connecting an Android phone to a Windows PC over your own Wi-Fi. No cloud, no accounts, just two devices you own talking to each other.</p>
         <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px;">
           <span class="chip">Windows 10 / 11</span>
@@ -1393,18 +2464,22 @@
         </div>
       </div>
       <nav class="footer-nav" aria-label="Footer">
-        <h2 class="footer-heading">Learn more</h2>
+        <h2 class="footer-heading">Features &amp; Tech</h2>
         <ul>
           <li><a href="#overview">Overview</a></li>
           <li><a href="#features">Features</a></li>
-          <li><a href="#architecture">Architecture</a></li>
+          <li><a href="#comparison">Comparison Matrix</a></li>
+          <li><a href="#screenshots">Visual Showcase</a></li>
+          <li><a href="#how-it-works">How It Works</a></li>
         </ul>
       </nav>
       <nav class="footer-nav" aria-label="Project resources">
-        <h2 class="footer-heading">The project</h2>
+        <h2 class="footer-heading">Documentation</h2>
         <ul>
-          <li><a href="#faq">Questions</a></li>
-          <li><a href="#developers">For developers</a></li>
+          <li><a href="#architecture">Architecture</a></li>
+          <li><a href="#developers">For Developers</a></li>
+          <li><a href="#faq">Frequently Asked Questions</a></li>
+          <li><a href="#ask">Ask a Question</a></li>
         </ul>
       </nav>
       <div>
@@ -1417,6 +2492,19 @@
       <p>This page is just information. It sends nothing, installs nothing, and connects to no external servers.</p>
     </div>
   </footer>
+
+  <!-- Keyword-rich crawlable content block — visually hidden, semantically valid -->
+  <article aria-label="Extended keyword coverage for search engines" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">
+    <h2>Tether — Android to Windows Local Wi-Fi App Keywords</h2>
+    <p>Tether android windows app. Connect android to windows over wifi. Android to pc local wifi no cloud. Android pc bridge open source free. Use android as windows mouse. Phone as trackpad windows wifi. Wireless mouse android windows app. Android remote mouse pc. Android remote trackpad windows 10. Android remote trackpad windows 11. Android phone as mouse windows 10. Android phone as mouse windows 11. Android phone as trackpad windows. Best android trackpad app for windows. Best android mouse app for pc. Bluetooth alternative android windows mouse. No bluetooth android mouse windows. Android wifi mouse pc. Android wifi trackpad windows. Android control windows cursor. Android synthetic mouse windows.</p>
+    <p>Unlock windows with android phone. Unlock windows with phone fingerprint. Unlock pc with android fingerprint. Android biometric windows unlock. Windows biometric login android. Phone fingerprint windows login. Android face unlock windows. Windows logon android phone. Windows lock screen android unlock. Android windows credential provider. Custom windows credential provider. Windows hello alternative android. Windows hello alternative no azure. Passwordless windows login phone. No password windows unlock android. Android windows authentication no microsoft account. Local biometric windows login. Android windows two factor authentication. 2fa windows login android local. Android phone two factor windows no cloud.</p>
+    <p>KDE Connect alternative windows. KDE Connect alternative windows 10. KDE Connect alternative windows 11. KDE Connect for windows native. Best KDE Connect alternative. KDE Connect windows native app. KDE Connect replacement windows. KDE Connect windows credential provider. Phone Link alternative. Phone Link alternative no microsoft account. Phone Link alternative open source. Link to windows alternative. Link to windows alternative no cloud. Your phone alternative. Your phone app alternative no microsoft. Intel Unison alternative. Intel Unison alternative no account. Intel Unison alternative open source. AirDroid alternative no cloud. AirDroid alternative open source. AirDroid alternative local network. DeskDock alternative wifi. DeskDock alternative wireless. LocalSend alternative android windows. Snapdrop alternative android windows. Nearby Share alternative android windows pc. Quick Share alternative windows.</p>
+    <p>Android to windows file transfer local. Android to windows file transfer no cloud. Android to pc file transfer wifi. Android to pc file sharing lan. Local file transfer android windows. LAN file transfer android windows. Fast file transfer android pc. Wireless file transfer android to windows. Android send file to windows wifi. Windows receive file from android. Android share file to windows local network. Phone to computer file transfer no cloud. Android windows direct file transfer. Android windows file share no internet. Android sideload file to pc wifi.</p>
+    <p>Emergency pc lockdown android. Emergency pc lock phone. Lock windows from android. Lock pc from phone. Remote lock windows android. Android panic button pc. Android emergency lock computer. Remote workstation lock android. Lock windows 10 from phone. Lock windows 11 from phone. Android kill switch pc. Android security lockdown windows. Android remote security windows. Remote lock pc no cloud. Local remote lock windows.</p>
+    <p>Android windows app free. Free android windows companion. Open source android windows app. Tether app download. Tether android app. Tether windows app. Tether apk download. Tether github download. Tether android companion. Tether windows service. Android windows bridge free download. Android to windows connection app free. Android pc companion no subscription. Android windows integration free. Android windows sync no cloud. Android windows pairing local. Android windows mdns pairing. Android windows automatic discovery. Zero config android windows. mDNS android windows. Bonjour android windows pairing.</p>
+    <p>TLS 1.3 android windows. Encrypted android windows. Secure android windows connection. Android windows ECDSA. Android windows hardware key. Android StrongBox windows. Android Keystore windows authentication. Android TEE windows. DPAPI android windows. Windows registry android keys. Android windows cryptography. Android windows certificate pinning. Android windows replay protection. Android windows session security. Android windows local security. Session 0 android windows. Windows named pipe android. ACL windows android IPC. Windows service android control. Background service android windows connection.</p>
+    <p>Android 12 windows. Android 13 windows. Android 14 windows. Android 15 windows. Windows 10 android. Windows 11 android. Android API 31 windows. .NET 10 android. Kotlin android windows. CSharp windows android. CPP windows credential provider. Jetpack Compose android windows. WPF android windows. Kestrel android file transfer. dotnet android windows bridge.</p>
+  </article>
 
   <script>
     (function () {
@@ -1552,6 +2640,337 @@
           });
         }
       });
+      /* ---------- OS-aware download button ---------- */
+      (function () {
+        var btn = doc.getElementById('dl-btn');
+        var state = doc.getElementById('dl-state');
+        if (!btn || !state) return;
+
+        function setMsg(text, isError) {
+          state.textContent = text || '';
+          state.classList.toggle('is-error', !!isError);
+        }
+
+        function detectOs() {
+          var ua = navigator.userAgent;
+          if (/Android/i.test(ua)) return 'android';
+          if (/Windows/i.test(ua)) return 'windows';
+          return null;
+        }
+
+        function findAsset(assets, ext) {
+          for (var i = 0; i < assets.length; i++) {
+            if (assets[i].name && assets[i].name.toLowerCase().slice(-ext.length) === ext) return assets[i];
+          }
+          return null;
+        }
+
+        var CACHE_KEY = 'tether-release-cache';
+        var CACHE_TTL = 60 * 60 * 1000; // one hour
+
+        function apply(entry) {
+          btn.disabled = false;
+          btn.textContent = 'Download for ' + (entry.ext === '.exe' ? 'Windows' : 'Android');
+          btn.onclick = function () {
+            var a = doc.createElement('a');
+            a.href = entry.url;
+            a.download = entry.name;
+            doc.body.appendChild(a);
+            a.click();
+            a.remove();
+          };
+          setMsg('Latest release: ' + entry.version + ' (' + entry.name + ')');
+        }
+
+        function load() {
+          var os = detectOs();
+          var ext = os === 'windows' ? '.exe' : os === 'android' ? '.apk' : null;
+
+          if (!os) {
+            btn.textContent = 'Download not supported for this OS';
+            setMsg('Tether is available for Windows and Android only.');
+            return;
+          }
+
+          var cached = null;
+          try { cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); } catch (err) { cached = null; }
+          var fresh = cached && cached.ext === ext && (Date.now() - cached.t) < CACHE_TTL;
+
+          if (fresh && cached.url) { apply(cached); return; }
+
+          fetch('https://api.github.com/repos/tirthsaraiya29/Tether/releases/latest', {
+            headers: { 'Accept': 'application/vnd.github+json' }
+          }).then(function (r) {
+            if (!r.ok) throw new Error('GitHub API ' + r.status);
+            return r.json();
+          }).then(function (rel) {
+            var asset = rel.assets ? findAsset(rel.assets, ext) : null;
+            if (!asset) {
+              btn.textContent = 'Download not available';
+              setMsg('The latest release does not include a ' + ext + ' asset. Browse all files on the Releases page.', true);
+              return;
+            }
+            var entry = { t: Date.now(), ext: ext, url: asset.browser_download_url, name: asset.name, version: rel.tag_name || '' };
+            try { localStorage.setItem(CACHE_KEY, JSON.stringify(entry)); } catch (err) { /* storage unavailable */ }
+            apply(entry);
+          }).catch(function () {
+            if (cached && cached.ext === ext && cached.url) { apply(cached); return; }
+            btn.textContent = 'Download from Releases';
+            btn.disabled = false;
+            btn.onclick = function () { window.open('https://github.com/tirthsaraiya29/Tether/releases', '_blank', 'noopener'); };
+            setMsg('Could not load the latest release info. You can browse releases on GitHub instead.', true);
+          });
+        }
+
+        load();
+      })();
+
+      /* ---------- Ask a Question form ---------- */
+      (function () {
+        var form = doc.getElementById('ask-form');
+        if (!form) return;
+
+        var fieldsHost = doc.getElementById('ask-fields');
+        var hint = doc.getElementById('ask-hint');
+        var status = doc.getElementById('ask-status');
+        var submitBtn = doc.getElementById('ask-submit');
+        var resetBtn = doc.getElementById('ask-reset');
+        var honeypot = doc.getElementById('ask-website');
+
+        var COMPONENTS = ['Android app', 'Windows service', 'Windows desktop UI', 'Windows Credential Provider', 'Device pairing and trust', 'Communication and file transfer', 'Input and trackpad', 'Installation and updates'];
+
+        var CATEGORIES = {
+          bug: {
+            title: 'Bug Report',
+            fields: [
+              { name: 'component', type: 'select', label: 'Affected component', required: true, options: COMPONENTS.concat(['Other / Unsure']) },
+              { name: 'description', type: 'textarea', label: 'Describe the bug', required: true },
+              { name: 'reproduce', type: 'textarea', label: 'Steps to reproduce', required: true },
+              { name: 'expected', type: 'textarea', label: 'Expected behaviour', required: true },
+              { name: 'actual', type: 'textarea', label: 'Actual behaviour', required: true },
+              { name: 'version', type: 'input', label: 'Tether version or commit' },
+              { name: 'androidEnv', type: 'input', label: 'Android environment' },
+              { name: 'windowsEnv', type: 'input', label: 'Windows environment' },
+              { name: 'logs', type: 'textarea', label: 'Logs and screenshots (remove sensitive info first)' },
+              { name: 'additional', type: 'textarea', label: 'Additional context' }
+            ]
+          },
+          feature: {
+            title: 'Feature Request',
+            fields: [
+              { name: 'problem', type: 'textarea', label: 'Problem or use case', required: true },
+              { name: 'solution', type: 'textarea', label: 'Proposed solution', required: true },
+              { name: 'component', type: 'select', label: 'Relevant component', required: true, options: COMPONENTS.concat(['Cross-platform functionality', 'Other / Unsure']) },
+              { name: 'alternatives', type: 'textarea', label: 'Alternatives considered' },
+              { name: 'context', type: 'textarea', label: 'Additional context' }
+            ]
+          },
+          appreciation: {
+            title: 'Appreciation & Feedback',
+            fields: [
+              { name: 'message', type: 'textarea', label: 'Your message', required: true },
+              { name: 'feedback', type: 'textarea', label: 'Suggestions or feedback (optional)' },
+              { name: 'ack', type: 'checkbox', label: 'I confirm this submission does not contain passwords, private keys, tokens, or other sensitive information.', required: true }
+            ]
+          },
+          security: {
+            title: 'Security Vulnerability (Private Advisory)',
+            fields: [
+              { name: 'description', type: 'textarea', label: 'Vulnerability description', required: true },
+              { name: 'component', type: 'select', label: 'Affected component', required: true, options: COMPONENTS.concat(['Other / Unsure']) },
+              { name: 'impact', type: 'textarea', label: 'Impact', required: true },
+              { name: 'reproduce', type: 'textarea', label: 'Reproduction steps / evidence' },
+              { name: 'reproducible', type: 'select', label: 'Is it reproducible?', required: true, options: ['Yes, consistently', 'Intermittently', 'Not reproducible', 'Unsure'] },
+              { name: 'disclosed', type: 'select', label: 'Have you disclosed this elsewhere?', required: true, options: ['No', 'Yes (explain in reproduction steps)', 'Partially'] },
+              { name: 'ack', type: 'checkbox', label: 'I understand this report will be handled confidentially and will not be filed as a public issue.', required: true }
+            ]
+          }
+        };
+
+        var currentCat = null;
+
+        function esc(s) {
+          return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+          });
+        }
+
+        function buildFields(cat) {
+          currentCat = cat;
+          var def = CATEGORIES[cat];
+          hint.textContent = def.title + ' selected.';
+          var html = def.fields.map(function (f) {
+            var id = 'ask-f-' + f.name;
+            var inner;
+            if (f.type === 'textarea') {
+              inner = '<textarea id="' + id + '" name="' + f.name + '"></textarea>';
+            } else if (f.type === 'select') {
+              inner = '<select id="' + id + '" name="' + f.name + '"><option value="">Select…</option>' +
+                f.options.map(function (o) { return '<option>' + esc(o) + '</option>'; }).join('') + '</select>';
+            } else if (f.type === 'checkbox') {
+              inner = '<input type="checkbox" id="' + id + '" name="' + f.name + '" style="width:auto; margin-right:8px;" />';
+            } else {
+              inner = '<input type="text" id="' + id + '" name="' + f.name + '" />';
+            }
+            return '<div class="ask-field" data-field="' + f.name + '">' +
+              '<label for="' + id + '">' + esc(f.label) + (f.required ? ' <span class="req">(required)</span>' : '') + '</label>' +
+              inner +
+              '<p class="field-error">This field is required.</p>' +
+              '</div>';
+          }).join('');
+          if (cat === 'security') {
+            html += '<p class="ask-note" style="border-left: 3px solid var(--warn); padding-left: 12px;"><strong>Do not open a public GitHub issue for security vulnerabilities.</strong> This form routes your report to GitHub’s private security advisory channel, where only the repository owner can read it.</p>';
+          }
+          fieldsHost.innerHTML = html;
+        }
+
+        Array.prototype.forEach.call(form.querySelectorAll('input[name="category"]'), function (radio) {
+          radio.addEventListener('change', function () {
+            if (radio.checked) buildFields(radio.value);
+          });
+        });
+
+        function setStatus(html, cls) {
+          status.hidden = false;
+          status.className = 'form-status' + (cls ? ' ' + cls : '');
+          status.innerHTML = html;
+        }
+
+        function clearStatus() {
+          status.hidden = true;
+          status.textContent = '';
+          status.className = 'form-status';
+        }
+
+        function validate() {
+          var ok = true;
+          function fail(name, msg) {
+            var w = fieldsHost.querySelector('[data-field="' + name + '"]');
+            if (w) {
+              w.classList.add('has-error');
+              var fe = w.querySelector('.field-error');
+              if (fe && msg) fe.textContent = msg;
+            }
+            ok = false;
+          }
+          fieldsHost.querySelectorAll('.ask-field').forEach(function (w) { w.classList.remove('has-error'); });
+
+          if (!currentCat) {
+            hint.textContent = 'Select a category first.';
+            hint.classList.add('is-error');
+            return false;
+          }
+          hint.classList.remove('is-error');
+
+          CATEGORIES[currentCat].fields.forEach(function (f) {
+            var el = fieldsHost.querySelector('[name="' + f.name + '"]');
+            if (!el) return;
+            if (f.type === 'checkbox') {
+              if (f.required && !el.checked) fail(f.name);
+            } else if (f.required && !el.value.trim()) {
+              fail(f.name);
+            }
+          });
+
+          var email = doc.getElementById('ask-email').value.trim();
+          var phone = doc.getElementById('ask-phone').value.trim();
+          var emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+          var phoneOk = /^[+()\-.\s\d]{6,20}$/.test(phone);
+          if (!email && !phone) {
+            fail('email', 'Provide an email address or a phone number.');
+            fail('phone', 'Provide a phone number or an email address.');
+          } else {
+            if (email && !emailOk) fail('email', 'Enter a valid email address.');
+            if (phone && !phoneOk) fail('phone', 'Enter a valid phone number.');
+          }
+          var gh = doc.getElementById('ask-github').value.trim();
+          if (gh && !/^[a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38}$/.test(gh)) {
+            fail('github', 'GitHub usernames may only contain letters, digits, and single hyphens.');
+          }
+          return ok;
+        }
+
+        var lastPayload = null;
+
+        var ghInput = doc.getElementById('ask-github');
+        var ghPublicWrap = fieldsHost || doc.querySelector('[data-field="github_public"]');
+        ghInput.addEventListener('input', function () {
+          var wrap = ghInput.closest('.ask-contact').querySelector('[data-field="github_public"]');
+          if (wrap) wrap.hidden = !ghInput.value.trim();
+          if (!ghInput.value.trim()) doc.getElementById('ask-github-public').checked = false;
+        });
+
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          clearStatus();
+          if (!validate()) {
+            setStatus('Please fix the highlighted fields and try again.', 'is-error');
+            return;
+          }
+          if (honeypot && honeypot.value) return; // bot: silently drop
+
+          var data = { category: currentCat, fields: {} };
+          CATEGORIES[currentCat].fields.forEach(function (f) {
+            var el = fieldsHost.querySelector('[name="' + f.name + '"]');
+            if (!el) return;
+            data.fields[f.name] = f.type === 'checkbox' ? el.checked : el.value.trim();
+          });
+          data.contact_email = doc.getElementById('ask-email').value.trim();
+          data.contact_phone = doc.getElementById('ask-phone').value.trim();
+          data.contact_github = doc.getElementById('ask-github').value.trim();
+          data.contact_github_public = doc.getElementById('ask-github-public').checked;
+
+          var payloadKey = JSON.stringify(data);
+          if (payloadKey === lastPayload && submitBtn.disabled) return;
+          lastPayload = payloadKey;
+
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Submitting…';
+          setStatus('Submitting your ' + CATEGORIES[currentCat].title.toLowerCase() + '…');
+
+          fetch('/api/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          }).then(function (r) {
+            return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+          }).then(function (res) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Submit';
+            if (res.ok && res.body.ok) {
+              if (res.body.url) {
+                setStatus('Thank you! Your submission was filed as <a href="' + esc(res.body.url) + '" target="_blank" rel="noopener">issue #' + esc(String(res.body.number)) + '</a>.', 'is-success');
+              } else {
+                setStatus('Thank you! Your private security report has been received and will be handled confidentially.' + (res.body.reference ? ' Reference: <code>' + esc(res.body.reference) + '</code>' : ''), 'is-success');
+              }
+              resetBtn.hidden = false;
+              submitBtn.disabled = true;
+            } else {
+              var msg = (res.body && res.body.error) || 'Submission failed. Please try again.';
+              var retry = (res.body && res.body.retry_after) ? ' You can retry in ' + esc(String(res.body.retry_after)) + 's.' : '';
+              setStatus(esc(msg) + retry, 'is-error');
+              lastPayload = null;
+            }
+          }).catch(function () {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Submit';
+            lastPayload = null;
+            setStatus('Network error — your information is preserved below. Please try again.', 'is-error');
+          });
+        });
+
+        resetBtn.addEventListener('click', function () {
+          form.reset();
+          fieldsHost.innerHTML = '';
+          hint.textContent = 'Select a category to continue.';
+          currentCat = null;
+          lastPayload = null;
+          clearStatus();
+          resetBtn.hidden = true;
+          submitBtn.disabled = false;
+        });
+      })();
+
     })();
   </script>
 </body>

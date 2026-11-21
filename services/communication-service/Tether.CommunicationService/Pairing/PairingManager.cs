@@ -46,7 +46,7 @@ public sealed class PairingManager
         out uint pResponse,
         bool bWait);
     public const int MaxFailedAttempts = 3;
-    private const int ExpirationSeconds = 120;
+    public const int ExpirationSeconds = 120;
 
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
@@ -127,8 +127,6 @@ public sealed class PairingManager
         int pinNum = RandomNumberGenerator.GetInt32(100000, 1000000);
         string pin = pinNum.ToString("D6");
 
-        // FIX TETH-001: Do NOT transmit a PIN hash/commitment over the wire.
-        // Leaving Commitment empty completely removes the offline oracle.
         var respPayload = new HandshakeResponse
         {
             DeviceId = winDeviceId,
@@ -167,7 +165,6 @@ public sealed class PairingManager
 
         _pending[requestId] = pending;
 
-        // FIX TETH-011: Do NOT write the PIN to disk or plaintext logs.
         _logger.Info($"PairingManager: Generated pairing request {requestId} for phone '{phoneDisplayName}' ({phoneFingerprint}).");
 
         // TETHER-2026-005: Do NOT broadcast cleartext PIN over IPC event bus.
@@ -262,7 +259,7 @@ public sealed class PairingManager
             pending.PhoneFingerprint,
             pending.DisplayName,
             pending.PhoneSpkiBase64,
-            new[] { "CLIPBOARD", "FILES", "NOTIFICATIONS", "MEDIA", "TERMINAL", "POWER_ELEVATED", "INPUT", "WINDOWS_ADMIN", "APP_MANAGEMENT", "AUTOMATION" });
+            new[] { "FILES", "NOTIFICATIONS", "MEDIA", "TERMINAL", "POWER_ELEVATED", "INPUT", "WINDOWS_ADMIN", "APP_MANAGEMENT" });
 
         // 4. Construct mutual server proof
         byte[] winProof = ComputeServerProof(pending.Pin, expectedAuthKey, winSpkiDer, pending.PhoneSpkiDer);
@@ -283,32 +280,48 @@ public sealed class PairingManager
 
     private static byte[] ComputeAuthKey(string pin, byte[] transcriptHash, string requestId, byte[] winSpki, byte[] phoneSpki)
     {
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(pin.Trim()));
-        byte[] label = Encoding.UTF8.GetBytes("TETHER-PAIRING-v2");
-        byte[] reqIdBytes = Encoding.UTF8.GetBytes(requestId);
+        byte[] pinBytes = Encoding.UTF8.GetBytes(pin.Trim());
+        try
+        {
+            using var hmac = new HMACSHA256(pinBytes);
+            byte[] label = Encoding.UTF8.GetBytes("TETHER-PAIRING-v2");
+            byte[] reqIdBytes = Encoding.UTF8.GetBytes(requestId);
 
-        using var ms = new MemoryStream();
-        ms.Write(label);
-        ms.Write(transcriptHash);
-        ms.Write(reqIdBytes);
-        ms.Write(winSpki);
-        ms.Write(phoneSpki);
+            using var ms = new MemoryStream();
+            ms.Write(label);
+            ms.Write(transcriptHash);
+            ms.Write(reqIdBytes);
+            ms.Write(winSpki);
+            ms.Write(phoneSpki);
 
-        return hmac.ComputeHash(ms.ToArray());
+            return hmac.ComputeHash(ms.ToArray());
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(pinBytes);
+        }
     }
 
     private static byte[] ComputeServerProof(string pin, byte[] authKey, byte[] winSpki, byte[] phoneSpki)
     {
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(pin.Trim()));
-        byte[] label = Encoding.UTF8.GetBytes("SERVER-OK");
+        byte[] pinBytes = Encoding.UTF8.GetBytes(pin.Trim());
+        try
+        {
+            using var hmac = new HMACSHA256(pinBytes);
+            byte[] label = Encoding.UTF8.GetBytes("SERVER-OK");
 
-        using var ms = new MemoryStream();
-        ms.Write(label);
-        ms.Write(authKey);
-        ms.Write(winSpki);
-        ms.Write(phoneSpki);
+            using var ms = new MemoryStream();
+            ms.Write(label);
+            ms.Write(authKey);
+            ms.Write(winSpki);
+            ms.Write(phoneSpki);
 
-        return hmac.ComputeHash(ms.ToArray());
+            return hmac.ComputeHash(ms.ToArray());
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(pinBytes);
+        }
     }
 
     private static bool TryUnpackProof(byte[] payload, out byte[] authKey, out byte[] signature)
@@ -348,16 +361,6 @@ public sealed class PairingManager
             return false;
         }
     }
-    public bool TryGetPin(string requestId, out string pin)
-    {
-        pin = "";
-        if (!string.IsNullOrEmpty(requestId) && _pending.TryGetValue(requestId, out var pending))
-        {
-            pin = pending.Pin;
-            return true;
-        }
-        return false;
-    }
 
     private readonly SemaphoreSlim _pairingPromptGate = new(1, 1);
 
@@ -385,7 +388,7 @@ public sealed class PairingManager
                             0x00000040 /* MB_OK | MB_ICONINFORMATION */,
                             60,
                             out _,
-                            true);
+                            false);
                     }
                 }
                 finally

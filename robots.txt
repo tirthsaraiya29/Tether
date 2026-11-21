@@ -1,0 +1,100 @@
+# AI models and AI crawlers are not permitted on this site.
+# They may read /ai-summary.txt only.
+
+# Default: allow all standard crawlers (search engines, etc.)
+User-agent: *
+Allow: /
+
+# --- AI crawlers: blocked everywhere except the summary ---
+User-agent: GPTBot
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: OAI-SearchBot
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: ChatGPT-User
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: ClaudeBot
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: Claude-Web
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: anthropic-ai
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: CCBot
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: Google-Extended
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: PerplexityBot
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: Bytespider
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: Amazonbot
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: Applebot-Extended
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: meta-externalagent
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: meta-externalfetcher
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: Diffbot
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: YouBot
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: cohere-ai
+Disallow: /
+Allow: /ai-summary.txt
+
+User-agent: ImagesiftBot
+Disallow: /
+Allow: /ai-summary.txt
+
+# --- Regular search engines remain permitted (indexes, not AI training) ---
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+User-agent: Slurp
+Allow: /
+
+User-agent: YandexBot
+Allow: /
+
+User-agent: Bravebot
+Allow: /
+
+Sitemap: https://tether-control.vercel.app/sitemap.xml

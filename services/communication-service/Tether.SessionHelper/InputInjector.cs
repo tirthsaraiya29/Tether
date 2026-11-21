@@ -263,7 +263,11 @@ internal sealed class InputInjector : IDisposable
 
     private void HandleAbsoluteMove(ushort normX, ushort normY)
     {
-        var bounds = System.Windows.Forms.Screen.PrimaryScreen?.Bounds ?? new System.Drawing.Rectangle(0, 0, 1920, 1080);
+        var bounds = System.Windows.Forms.SystemInformation.VirtualScreen;
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            bounds = System.Windows.Forms.Screen.PrimaryScreen?.Bounds ?? new System.Drawing.Rectangle(0, 0, 1920, 1080);
+        }
         int targetX = bounds.Left + (int)((long)normX * bounds.Width / 65535);
         int targetY = bounds.Top + (int)((long)normY * bounds.Height / 65535);
         var input = new INPUT
@@ -596,14 +600,14 @@ internal sealed class InputInjector : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct INPUT
+    internal struct INPUT
     {
         public uint type;
         public InputUnion u;
     }
 
     [StructLayout(LayoutKind.Explicit)]
-    private struct InputUnion
+    internal struct InputUnion
     {
         [FieldOffset(0)] public MOUSEINPUT mi;
         [FieldOffset(0)] public KEYBDINPUT ki;
@@ -611,7 +615,7 @@ internal sealed class InputInjector : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct MOUSEINPUT
+    internal struct MOUSEINPUT
     {
         public int dx;
         public int dy;
@@ -622,7 +626,7 @@ internal sealed class InputInjector : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct KEYBDINPUT
+    internal struct KEYBDINPUT
     {
         public ushort wVk;
         public ushort wScan;
@@ -632,7 +636,7 @@ internal sealed class InputInjector : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct HARDWAREINPUT
+    internal struct HARDWAREINPUT
     {
         public uint uMsg;
         public ushort wParamL;

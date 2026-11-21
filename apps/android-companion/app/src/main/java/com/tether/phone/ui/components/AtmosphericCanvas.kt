@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -17,7 +18,7 @@ import com.tether.phone.ui.theme.*
 @Composable
 fun DeepSpaceCanvasVisualizer() {
     val density = LocalDensity.current
-    val gridStep = remember { with(density) { 60.dp.toPx() } }
+    val gridStep = remember(density) { with(density) { 60.dp.toPx() } }
 
     val transition = rememberInfiniteTransition(label = "Atmosphere")
     val shift by transition.animateFloat(
@@ -28,18 +29,9 @@ fun DeepSpaceCanvasVisualizer() {
         ),
         label = "Shift",
     )
-    val nebAlpha by transition.animateFloat(
-        initialValue = 0.04f,
-        targetValue = 0.18f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(15000, easing = TetherEase),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "Nebula",
-    )
     val starShimmer by transition.animateFloat(
-        initialValue = 0.1f,
-        targetValue = 0.6f,
+        initialValue = 0.15f,
+        targetValue = 0.55f,
         animationSpec = infiniteRepeatable(
             animation = tween(4000, easing = TetherEase),
             repeatMode = RepeatMode.Reverse,
@@ -47,78 +39,75 @@ fun DeepSpaceCanvasVisualizer() {
         label = "Stars",
     )
 
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        drawRect(color = DeepSpace)
-
-        var x = (shift % gridStep) - gridStep
-        while (x < (size.width + gridStep)) {
-            val distortion = kotlin.math.sin((x + shift) / 150.0).toFloat() * 6f
-            drawLine(
-                color = LiquidCyan.copy(alpha = 0.04f),
-                start = Offset(x + distortion, 0f),
-                end = Offset(x + distortion, size.height),
-                strokeWidth = 0.5.dp.toPx(),
-            )
-            x += gridStep
-        }
-        var y = (shift % gridStep) - gridStep
-        while (y < (size.height + gridStep)) {
-            val distortion = kotlin.math.cos((y + shift) / 150.0).toFloat() * 6f
-            drawLine(
-                color = LiquidCyan.copy(alpha = 0.04f),
-                start = Offset(0f, y + distortion),
-                end = Offset(size.width, y + distortion),
-                strokeWidth = 0.5.dp.toPx(),
-            )
-            y += gridStep
-        }
-
-        drawCircle(
-            brush = Brush.radialGradient(
-                0.0f to LiquidCyan.copy(alpha = nebAlpha),
-                0.6f to LiquidCyan.copy(alpha = nebAlpha * 0.3f),
-                1.0f to Color.Transparent,
-                center = Offset(size.width * 0.2f, size.height * 0.2f),
-                radius = 1200.dp.toPx(),
-            ),
-            center = Offset(size.width * 0.2f, size.height * 0.2f),
-            radius = 1200.dp.toPx(),
-        )
-
-        drawCircle(
-            brush = Brush.radialGradient(
-                0.0f to IntegrityGreen.copy(alpha = nebAlpha * 0.7f),
-                0.7f to IntegrityGreen.copy(alpha = nebAlpha * 0.1f),
-                1.0f to Color.Transparent,
-                center = Offset(size.width * 0.8f, size.height * 0.8f),
-                radius = 1000.dp.toPx(),
-            ),
-            center = Offset(size.width * 0.8f, size.height * 0.8f),
-            radius = 1000.dp.toPx(),
-        )
-
-        drawCircle(
-            brush = Brush.radialGradient(
-                0.0f to AlertRed.copy(alpha = nebAlpha * 0.4f),
-                0.8f to Color.Transparent,
-                center = Offset(size.width * 0.9f, size.height * 0.4f),
-                radius = 800.dp.toPx(),
-            ),
-            center = Offset(size.width * 0.9f, size.height * 0.4f),
-            radius = 800.dp.toPx(),
-        )
-
+    val starSeeds = remember {
         val rnd = java.util.Random(42)
-        repeat(60) {
-            val px = rnd.nextFloat() * size.width
-            val py = rnd.nextFloat() * size.height
-            val radius = rnd.nextFloat() * 1.8.dp.toPx()
-            val individualShimmer = rnd.nextFloat() * starShimmer
-            drawCircle(
-                color = Color.White.copy(alpha = individualShimmer),
-                radius = radius,
-                center = Offset(px, py),
-            )
+        Array(48) {
+            floatArrayOf(rnd.nextFloat(), rnd.nextFloat(), rnd.nextFloat(), rnd.nextFloat())
         }
     }
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .drawWithCache {
+                val strokePx = 0.5.dp.toPx()
+                val maxStarRadius = 1.8.dp.toPx()
+                val neb1 = Brush.radialGradient(
+                    0.0f to LiquidCyan.copy(alpha = 0.11f),
+                    0.6f to LiquidCyan.copy(alpha = 0.035f),
+                    1.0f to Color.Transparent,
+                    center = Offset(size.width * 0.2f, size.height * 0.2f),
+                    radius = 1200.dp.toPx(),
+                )
+                val neb2 = Brush.radialGradient(
+                    0.0f to IntegrityGreen.copy(alpha = 0.08f),
+                    0.7f to IntegrityGreen.copy(alpha = 0.015f),
+                    1.0f to Color.Transparent,
+                    center = Offset(size.width * 0.8f, size.height * 0.8f),
+                    radius = 1000.dp.toPx(),
+                )
+                val neb3 = Brush.radialGradient(
+                    0.0f to AlertRed.copy(alpha = 0.045f),
+                    0.8f to Color.Transparent,
+                    center = Offset(size.width * 0.9f, size.height * 0.4f),
+                    radius = 800.dp.toPx(),
+                )
+                val gridColor = LiquidCyan.copy(alpha = 0.04f)
+                onDrawBehind {
+                    drawRect(color = DeepSpace)
+                    drawCircle(brush = neb1, center = Offset(size.width * 0.2f, size.height * 0.2f), radius = 1200.dp.toPx())
+                    drawCircle(brush = neb2, center = Offset(size.width * 0.8f, size.height * 0.8f), radius = 1000.dp.toPx())
+                    drawCircle(brush = neb3, center = Offset(size.width * 0.9f, size.height * 0.4f), radius = 800.dp.toPx())
+
+                    var x = (shift % gridStep) - gridStep
+                    while (x < (size.width + gridStep)) {
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(x, 0f),
+                            end = Offset(x, size.height),
+                            strokeWidth = strokePx,
+                        )
+                        x += gridStep
+                    }
+                    var y = (shift % gridStep) - gridStep
+                    while (y < (size.height + gridStep)) {
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, y),
+                            end = Offset(size.width, y),
+                            strokeWidth = strokePx,
+                        )
+                        y += gridStep
+                    }
+
+                    for (star in starSeeds) {
+                        drawCircle(
+                            color = Color.White.copy(alpha = star[3] * starShimmer),
+                            radius = star[2] * maxStarRadius,
+                            center = Offset(star[0] * size.width, star[1] * size.height),
+                        )
+                    }
+                }
+            },
+    ) {}
 }

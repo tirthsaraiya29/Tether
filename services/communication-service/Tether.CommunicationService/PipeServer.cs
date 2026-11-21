@@ -44,6 +44,43 @@ public class PipeServer : IDisposable
         uint TokenInformationLength,
         out uint ReturnLength);
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DATA_BLOB
+    {
+        public int cbData;
+        public IntPtr pbData;
+    }
+
+    [DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern bool CryptUnprotectData(
+        ref DATA_BLOB pDataIn,
+        StringBuilder? ppszDataDescr,
+        ref DATA_BLOB pOptionalEntropy,
+        IntPtr pvReserved,
+        IntPtr pPromptStruct,
+        uint dwFlags,
+        ref DATA_BLOB pDataOut);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool LogonUser(
+        string lpszUsername,
+        string? lpszDomain,
+        string lpszPassword,
+        int dwLogonType,
+        int dwLogonProvider,
+        out IntPtr phToken);
+
+    [DllImport("kernel32.dll", SetLastError = false)]
+    private static extern void RtlZeroMemory(IntPtr dest, IntPtr size);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr LocalFree(IntPtr hMem);
+
+    private const uint CRYPTPROTECT_UI_FORBIDDEN = 0x1;
+    private const uint CRYPTPROTECT_LOCAL_MACHINE = 0x4;
+    private const int LOGON32_LOGON_INTERACTIVE = 2;
+    private const int LOGON32_PROVIDER_DEFAULT = 0;
+
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
     private CancellationTokenSource? _cts;
@@ -61,7 +98,10 @@ public class PipeServer : IDisposable
         type == TetherEventType.HARDWARE_SYNC_REQUESTED ||
         type == TetherEventType.FORGET_PHONE ||
         type == TetherEventType.VAULT_UPDATE ||
-        type == TetherEventType.TELEMETRY_SYNC_REQUESTED;
+        type == TetherEventType.TELEMETRY_SYNC_REQUESTED ||
+        type == TetherEventType.SHUTDOWN_INITIATED ||
+        type == TetherEventType.RESTART_INITIATED ||
+        type == TetherEventType.POWER_EVENT_DETECTED;
 
     public void Start()
     {
@@ -167,14 +207,18 @@ public class PipeServer : IDisposable
         return 0xFFFFFFFF;
     }
 
-    private bool AuthenticateClient(NamedPipeServerStream pipeStream, out string clientSid, out uint clientSessionId)
+    private bool AuthenticateClient(NamedPipeServerStream pipeStream, out string clientSid, out uint clientSessionId) =>
+        AuthenticateClient(pipeStream, out clientSid, out clientSessionId, out _);
+
+    private bool AuthenticateClient(NamedPipeServerStream pipeStream, out string clientSid, out uint clientSessionId, out bool isClientSystem)
     {
         clientSid = string.Empty;
         clientSessionId = GetClientSessionId(pipeStream);
+        isClientSystem = false;
 
         bool clientAuthorized = false;
         string? extractedSid = null;
-        bool isClientSystem = false;
+        bool localIsClientSystem = false;
         uint tokenSessionId = 0xFFFFFFFF;
 
         try
@@ -185,7 +229,7 @@ public class PipeServer : IDisposable
                 if (clientIdentity.User != null)
                 {
                     extractedSid = clientIdentity.User.Value;
-                    isClientSystem = clientIdentity.User.IsWellKnown(WellKnownSidType.LocalSystemSid);
+                    localIsClientSystem = clientIdentity.User.IsWellKnown(WellKnownSidType.LocalSystemSid);
 
                     if (GetTokenInformation(clientIdentity.Token, 12, out uint sessionInfo, sizeof(uint), out _))
                     {
@@ -199,6 +243,8 @@ public class PipeServer : IDisposable
             _logger.Error($"Failed to collect client identification tokens: {ex.Message}");
             return false;
         }
+
+        isClientSystem = localIsClientSystem;
 
         if (string.IsNullOrEmpty(extractedSid))
         {
@@ -220,30 +266,193 @@ public class PipeServer : IDisposable
         else
         {
             uint consoleSessionId = WTSGetActiveConsoleSessionId();
-            uint[] sessionIdsToCheck = new[] { tokenSessionId, clientSessionId, consoleSessionId };
-
-            foreach (var sid in sessionIdsToCheck)
+            if (consoleSessionId == 0xFFFFFFFF)
             {
-                if (sid != 0xFFFFFFFF && WTSQueryUserToken(sid, out IntPtr userToken))
+                _logger.Warning("PipeServer: No active console session found. Rejecting non-SYSTEM client.");
+                return false;
+            }
+
+            if (clientSessionId != consoleSessionId || tokenSessionId != consoleSessionId)
+            {
+                _logger.Warning($"PipeServer: Access denied. Client session {clientSessionId} or token session {tokenSessionId} does not match active console session {consoleSessionId}.");
+                return false;
+            }
+
+            if (WTSQueryUserToken(consoleSessionId, out IntPtr userToken))
+            {
+                try
                 {
-                    try
+                    using var tokenIdentity = new WindowsIdentity(userToken);
+                    if (tokenIdentity.User != null && clientSid.Equals(tokenIdentity.User.Value, StringComparison.OrdinalIgnoreCase))
                     {
-                        using var tokenIdentity = new WindowsIdentity(userToken);
-                        if (tokenIdentity.User != null && clientSid.Equals(tokenIdentity.User.Value, StringComparison.OrdinalIgnoreCase))
-                        {
-                            clientAuthorized = true;
-                            break;
-                        }
+                        clientAuthorized = true;
                     }
-                    finally
-                    {
-                        CloseHandle(userToken);
-                    }
+                }
+                finally
+                {
+                    CloseHandle(userToken);
                 }
             }
         }
 
         return clientAuthorized;
+    }
+
+    internal static bool IsActiveConsoleUser(string clientSid)
+    {
+        try
+        {
+            uint consoleSessionId = WTSGetActiveConsoleSessionId();
+            if (consoleSessionId == 0xFFFFFFFF) return false;
+            if (WTSQueryUserToken(consoleSessionId, out IntPtr userToken))
+            {
+                try
+                {
+                    using var tokenIdentity = new WindowsIdentity(userToken);
+                    return tokenIdentity.User != null && clientSid.Equals(tokenIdentity.User.Value, StringComparison.OrdinalIgnoreCase);
+                }
+                finally
+                {
+                    CloseHandle(userToken);
+                }
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    private static bool ValidateVaultSecretPayload(byte[] protectedPayload, string clientSid, string? username)
+    {
+        if (protectedPayload == null || protectedPayload.Length == 0) return false;
+
+        byte[] entropyBytes = Encoding.UTF8.GetBytes("Tether_System_Bound_Vault_v1");
+        IntPtr unmanagedIn = Marshal.AllocHGlobal(protectedPayload.Length);
+        IntPtr unmanagedEntropy = Marshal.AllocHGlobal(entropyBytes.Length);
+        DATA_BLOB dataOut = new DATA_BLOB();
+
+        try
+        {
+            Marshal.Copy(protectedPayload, 0, unmanagedIn, protectedPayload.Length);
+            Marshal.Copy(entropyBytes, 0, unmanagedEntropy, entropyBytes.Length);
+
+            var dataIn = new DATA_BLOB { cbData = protectedPayload.Length, pbData = unmanagedIn };
+            var entropy = new DATA_BLOB { cbData = entropyBytes.Length, pbData = unmanagedEntropy };
+
+            if (!CryptUnprotectData(ref dataIn, null, ref entropy, IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, ref dataOut) &&
+                !CryptUnprotectData(ref dataIn, null, ref entropy, IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN, ref dataOut))
+            {
+                return false;
+            }
+
+            if (dataOut.pbData == IntPtr.Zero || dataOut.cbData <= 0)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(username))
+            {
+                try
+                {
+                    var account = new NTAccount(username);
+                    var sid = (SecurityIdentifier)account.Translate(typeof(SecurityIdentifier));
+                    if (!sid.Value.Equals(clientSid, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+                catch (IdentityNotMappedException)
+                {
+                    // Translation can fail for local/MS account format; LogonUser token SID check below validates
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            string targetUser = username ?? string.Empty;
+            string? targetDomain = null;
+
+            if (string.IsNullOrEmpty(targetUser))
+            {
+                try
+                {
+                    var sidObj = new SecurityIdentifier(clientSid);
+                    var account = (NTAccount)sidObj.Translate(typeof(NTAccount));
+                    targetUser = account.Value;
+                }
+                catch { }
+            }
+
+            if (targetUser.Contains('\\'))
+            {
+                var parts = targetUser.Split('\\', 2);
+                targetDomain = parts[0];
+                targetUser = parts[1];
+            }
+            else if (targetUser.Contains('@'))
+            {
+                var parts = targetUser.Split('@', 2);
+                targetUser = parts[0];
+                targetDomain = parts[1];
+            }
+
+            int charCount = dataOut.cbData / sizeof(char);
+            while (charCount > 0 && Marshal.ReadInt16(dataOut.pbData, (charCount - 1) * sizeof(char)) == 0)
+            {
+                charCount--;
+            }
+
+            string password = Marshal.PtrToStringUni(dataOut.pbData, charCount);
+
+            bool logonOk = false;
+            IntPtr tokenHandle = IntPtr.Zero;
+            try
+            {
+                if (LogonUser(targetUser, targetDomain, password, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, out tokenHandle) ||
+                    (string.IsNullOrEmpty(targetDomain) && LogonUser(targetUser, ".", password, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, out tokenHandle)) ||
+                    (!string.IsNullOrEmpty(targetDomain) && LogonUser(targetUser, null, password, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, out tokenHandle)))
+                {
+                    using var tokenIdentity = new WindowsIdentity(tokenHandle);
+                    string? tokenUserSid = tokenIdentity.User?.Value;
+                    if (string.Equals(tokenUserSid, clientSid, StringComparison.OrdinalIgnoreCase))
+                    {
+                        logonOk = true;
+                    }
+                }
+            }
+            finally
+            {
+                if (tokenHandle != IntPtr.Zero)
+                {
+                    CloseHandle(tokenHandle);
+                }
+            }
+
+            return logonOk;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            if (dataOut.pbData != IntPtr.Zero && dataOut.cbData > 0)
+            {
+                RtlZeroMemory(dataOut.pbData, (IntPtr)dataOut.cbData);
+                LocalFree(dataOut.pbData);
+            }
+            if (unmanagedIn != IntPtr.Zero)
+            {
+                RtlZeroMemory(unmanagedIn, (IntPtr)protectedPayload.Length);
+                Marshal.FreeHGlobal(unmanagedIn);
+            }
+            if (unmanagedEntropy != IntPtr.Zero)
+            {
+                RtlZeroMemory(unmanagedEntropy, (IntPtr)entropyBytes.Length);
+                Marshal.FreeHGlobal(unmanagedEntropy);
+            }
+        }
     }
 
     private static void SaveVaultSecret(byte[] encryptedPassword, string clientSid, string? username)
@@ -280,16 +489,11 @@ public class PipeServer : IDisposable
         using (pipeStream)
         using (var clientCts = CancellationTokenSource.CreateLinkedTokenSource(serviceCt))
         {
-            // Immediate client authentication prior to accepting any data
-            if (!AuthenticateClient(pipeStream, out string clientSid, out uint clientSessionId))
-            {
-                _logger.Warning($"Rejected unauthorized named pipe client (SID: {clientSid}, Session: {clientSessionId}). Closing connection.");
-                return;
-            }
-
-            _logger.Info($"Authorized client connected to pipe (SID: {clientSid}, Session: {clientSessionId}).");
-
             var buffer = new byte[IpcConstants.PipeBufferSize];
+            bool isAuthenticated = false;
+            string clientSid = string.Empty;
+            uint clientSessionId = 0xFFFFFFFF;
+            bool isClientSystem = false;
 
             while (pipeStream.IsConnected && !clientCts.IsCancellationRequested)
             {
@@ -302,6 +506,18 @@ public class PipeServer : IDisposable
                     if (read == 0)
                     {
                         break;
+                    }
+
+                    if (!isAuthenticated)
+                    {
+                        if (!AuthenticateClient(pipeStream, out clientSid, out clientSessionId, out isClientSystem))
+                        {
+                            _logger.Warning($"Rejected unauthorized named pipe client (SID: {clientSid}, Session: {clientSessionId}). Closing connection.");
+                            return;
+                        }
+
+                        isAuthenticated = true;
+                        _logger.Info($"Authorized client connected to pipe (SID: {clientSid}, Session: {clientSessionId}).");
                     }
 
                     var json = Encoding.UTF8.GetString(buffer, 0, read);
@@ -324,18 +540,36 @@ public class PipeServer : IDisposable
 
                         if (evt.EventType == TetherEventType.VAULT_UPDATE)
                         {
+                            if (!isClientSystem && !IsActiveConsoleUser(clientSid))
+                            {
+                                _logger.Warning($"Security Block: Rejected VAULT_UPDATE from non-active console user SID {clientSid}.");
+                                continue;
+                            }
+
                             try
                             {
                                 using var doc = JsonDocument.Parse(evt.PayloadJson ?? "{}");
                                 var root = doc.RootElement;
                                 string? hexPayload = root.TryGetProperty("hexPayload", out var hexProp) ? hexProp.GetString() : null;
                                 string? username = root.TryGetProperty("username", out var userProp) ? userProp.GetString() : null;
+                                string? domain = root.TryGetProperty("domain", out var domProp) ? domProp.GetString() : null;
+                                if (!string.IsNullOrEmpty(domain) && !string.IsNullOrEmpty(username) && !username.Contains('\\') && !username.Contains('@'))
+                                {
+                                    username = $"{domain}\\{username}";
+                                }
 
                                 if (!string.IsNullOrEmpty(hexPayload))
                                 {
                                     byte[] protectedPayload = Convert.FromHexString(hexPayload);
-                                    SaveVaultSecret(protectedPayload, clientSid, username);
-                                    _logger.Info($"Vault secret updated securely over IPC for client SID: {clientSid}");
+                                    if (ValidateVaultSecretPayload(protectedPayload, clientSid, username))
+                                    {
+                                        SaveVaultSecret(protectedPayload, clientSid, username);
+                                        _logger.Info($"Vault secret verified and updated securely over IPC for client SID: {clientSid}");
+                                    }
+                                    else
+                                    {
+                                        _logger.Warning($"Security Block: Rejected VAULT_UPDATE from client SID {clientSid} because password validation failed.");
+                                    }
                                 }
                                 else
                                 {
@@ -347,6 +581,31 @@ public class PipeServer : IDisposable
                                 _logger.Error($"Failed to process VAULT_UPDATE: {ex.Message}", ex);
                             }
                             continue;
+                        }
+
+                        if (evt.EventType == TetherEventType.FORGET_PHONE)
+                        {
+                            if (!isClientSystem && !IsActiveConsoleUser(clientSid))
+                            {
+                                _logger.Warning($"Security Block: Rejected FORGET_PHONE from non-active console user SID {clientSid}.");
+                                continue;
+                            }
+                        }
+
+                        if (evt.EventType == TetherEventType.SHUTDOWN_INITIATED)
+                        {
+                            Power.PowerEventHub.Watcher?.RecordInitiated(Power.TetherPowerEventType.Shutdown, evt.Source ?? "IPC.DesktopUI");
+                        }
+                        else if (evt.EventType == TetherEventType.RESTART_INITIATED)
+                        {
+                            Power.PowerEventHub.Watcher?.RecordInitiated(Power.TetherPowerEventType.Restart, evt.Source ?? "IPC.DesktopUI");
+                        }
+                        else if (evt.EventType == TetherEventType.POWER_EVENT_DETECTED)
+                        {
+                            var powerType = Power.TetherPowerEventType.Shutdown;
+                            if (!string.IsNullOrEmpty(evt.PayloadJson) && evt.PayloadJson.Contains("restart", StringComparison.OrdinalIgnoreCase))
+                                powerType = Power.TetherPowerEventType.Restart;
+                            Power.PowerEventHub.Watcher?.RecordInitiated(powerType, evt.Source ?? "IPC.DesktopUI");
                         }
 
                         _logger.Debug($"IPC received event: {evt.EventType} from Desktop UI");

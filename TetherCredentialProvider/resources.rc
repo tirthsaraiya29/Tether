@@ -1,0 +1,7 @@
+#include "Resource.h"
+
+// Icons:
+IDI_ICON1           ICON        "tether.ico"
+
+// Bitmaps:
+IDB_TILE_IMAGE      BITMAP      DISCARDABLE "tileimage.bmp"

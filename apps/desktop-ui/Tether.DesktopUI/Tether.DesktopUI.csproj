@@ -7,6 +7,7 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<UseWPF>true</UseWPF>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
+		<ApplicationIcon>assets\tether.ico</ApplicationIcon>
 
 		<!-- Memory & JIT Performance Optimizations -->
 		<TieredPGO>true</TieredPGO>
@@ -14,6 +15,10 @@
 		<ServerGarbageCollection>false</ServerGarbageCollection>
 		<GarbageCollectionAdaptationMode>1</GarbageCollectionAdaptationMode>
 	</PropertyGroup>
+
+	<ItemGroup>
+		<Resource Include="assets\**\*" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\..\..\shared\Tether.Shared\Tether.Shared.csproj" />

@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGradient" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+      <stop offset="0%" stop-color="#0a1526" />
+      <stop offset="50%" stop-color="#060c18" />
+      <stop offset="100%" stop-color="#020408" />
+    </radialGradient>
+
+    <!-- Glowing Blue Filter -->
+    <filter id="intenseGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="12" result="blur1" />
+      <feGaussianBlur stdDeviation="6" result="blur2" />
+      <feGaussianBlur stdDeviation="2" result="blur3" />
+      <feMerge>
+        <feMergeNode in="blur1" />
+        <feMergeNode in="blur2" />
+        <feMergeNode in="blur3" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Metallic Edge Gradient -->
+    <linearGradient id="metalEdge" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#cbd5e1" />
+      <stop offset="50%" stop-color="#64748b" />
+      <stop offset="100%" stop-color="#94a3b8" />
+    </linearGradient>
+
+    <!-- Neon Tether Gradient -->
+    <linearGradient id="tetherGlow" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#00e5ff" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+  </defs>
+
+  <!-- Squircle Base with Soft Shadow -->
+  <rect x="16" y="16" width="480" height="480" rx="108" ry="108" fill="url(#bgGradient)" stroke="#1e293b" stroke-width="2.5" />
+
+  <!-- Radar Waves / Pulse Rings -->
+  <g opacity="0.35">
+    <circle cx="256" cy="256" r="65" fill="none" stroke="#0284c7" stroke-width="1.8" stroke-dasharray="4,6" />
+    <circle cx="256" cy="256" r="115" fill="none" stroke="#0369a1" stroke-width="2" />
+    <circle cx="256" cy="256" r="165" fill="none" stroke="#0284c7" stroke-width="1.8" stroke-dasharray="6,8" />
+    <circle cx="256" cy="256" r="210" fill="none" stroke="#075985" stroke-width="1.5" opacity="0.6" />
+  </g>
+
+  <!-- Phone Silhouette (Left) -->
+  <g id="phone" filter="url(#softGlow)">
+    <!-- Phone Body -->
+    <rect x="52" y="164" width="76" height="152" rx="16" ry="16" fill="#030712" stroke="url(#metalEdge)" stroke-width="4.5" />
+    <!-- Speaker slit -->
+    <line x1="80" y1="174" x2="100" y2="174" stroke="#475569" stroke-width="2.5" stroke-linecap="round" />
+  </g>
+
+  <!-- Laptop Silhouette (Right) -->
+  <g id="laptop" filter="url(#softGlow)">
+    <!-- Laptop Screen -->
+    <rect x="296" y="176" width="166" height="114" rx="8" ry="8" fill="#030712" stroke="url(#metalEdge)" stroke-width="4.5" />
+    <!-- Laptop Base / Keyboard deck -->
+    <path d="M 276 304 L 482 304 L 470 316 L 288 316 Z" fill="#1e293b" stroke="url(#metalEdge)" stroke-width="3" stroke-linejoin="round" />
+    <!-- Base trackpad notch -->
+    <rect x="359" y="304" width="40" height="3" rx="1.5" fill="#475569" />
+  </g>
+
+  <!-- Glowing Tether Wave (Connecting Curve) -->
+  <g id="tetherCurve" filter="url(#intenseGlow)">
+    <!-- Deep Outer Bloom -->
+    <path d="M 90 240 C 175 195, 235 295, 379 233" fill="none" stroke="#0077b6" stroke-width="26" opacity="0.35" stroke-linecap="round" />
+    <!-- Vibrant Cyan Halo -->
+    <path d="M 90 240 C 175 195, 235 295, 379 233" fill="none" stroke="#00b4d8" stroke-width="14" opacity="0.75" stroke-linecap="round" />
+    <!-- Electric Blue Mid-Core -->
+    <path d="M 90 240 C 175 195, 235 295, 379 233" fill="none" stroke="#38bdf8" stroke-width="7" opacity="0.95" stroke-linecap="round" />
+    <!-- High-Intensity White Core -->
+    <path d="M 90 240 C 175 195, 235 295, 379 233" fill="none" stroke="#f0f9ff" stroke-width="3" stroke-linecap="round" />
+  </g>
+
+  <!-- Connection Pulse Nodes -->
+  <!-- Phone Node -->
+  <g id="phoneNode" filter="url(#intenseGlow)">
+    <circle cx="90" cy="240" r="16" fill="#00b4d8" opacity="0.4" />
+    <circle cx="90" cy="240" r="10" fill="#38bdf8" opacity="0.8" />
+    <circle cx="90" cy="240" r="6" fill="#ffffff" />
+  </g>
+
+  <!-- Laptop Node -->
+  <g id="laptopNode" filter="url(#intenseGlow)">
+    <circle cx="379" cy="233" r="16" fill="#00b4d8" opacity="0.4" />
+    <circle cx="379" cy="233" r="10" fill="#38bdf8" opacity="0.8" />
+    <circle cx="379" cy="233" r="6" fill="#ffffff" />
+  </g>
+</svg>

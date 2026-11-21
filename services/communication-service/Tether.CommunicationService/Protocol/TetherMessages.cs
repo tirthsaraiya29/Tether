@@ -60,6 +60,9 @@ public sealed record LaptopStateFrame
     [JsonPropertyName("lockState")] public string LockState { get; init; } = "UNKNOWN";
     [JsonPropertyName("wallpaperB64")] public string? WallpaperB64 { get; init; }
     [JsonPropertyName("wallpaperHash")] public string? WallpaperHash { get; init; }
+    [JsonPropertyName("volumeLevel")] public int VolumeLevel { get; init; } = -1;
+    [JsonPropertyName("isMuted")] public bool IsMuted { get; init; }
+    [JsonPropertyName("brightnessLevel")] public int BrightnessLevel { get; init; } = -1;
     [JsonPropertyName("timestamp")] public long Timestamp { get; init; }
 }
 

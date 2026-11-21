@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.IO.Pipes;
 using System.Management;
@@ -78,6 +78,17 @@ internal static class Program
                 case "toggle-mute":
                     AudioController.ToggleMute();
                     return Task.FromResult(0);
+
+                case "get-mute":
+                    return Task.FromResult(AudioController.GetMute() ? 1 : 0);
+
+                case "set-mute":
+                    if (args.Length >= 2 && bool.TryParse(args[1], out bool muteVal))
+                    {
+                        AudioController.SetMute(muteVal);
+                        return Task.FromResult(0);
+                    }
+                    return Task.FromResult(-1);
 
                 case "brightness-up":
                     return Task.FromResult(AdjustBrightness(args.Length >= 2 ? args[1] : "10"));
@@ -250,6 +261,8 @@ internal static class Program
 
         int currentSessionId = System.Diagnostics.Process.GetCurrentProcess().SessionId;
         string perSessionPipeName = $"{InputPipeName}.{currentSessionId}";
+        bool hasConnectedOnce = false;
+        int failedReconnects = 0;
 
         while (!cts.IsCancellationRequested)
         {
@@ -270,6 +283,9 @@ internal static class Program
                     continue;
                 }
 
+                hasConnectedOnce = true;
+                failedReconnects = 0;
+
                 await RunSessionBridgeLoopAsync(pipe, injector, cts.Token);
                 injector.ReleaseAllHeld();
             }
@@ -279,6 +295,27 @@ internal static class Program
             }
             catch
             {
+            }
+
+            if (hasConnectedOnce)
+            {
+                failedReconnects++;
+                try
+                {
+                    var commServices = System.Diagnostics.Process.GetProcessesByName("Tether.CommunicationService");
+                    bool serviceAlive = false;
+                    foreach (var s in commServices)
+                    { 
+                        try { if (!s.HasExited && s.SessionId == 0) { serviceAlive = true; break; } }
+                        catch { }
+                        finally { s.Dispose(); }
+                    }
+                    if (!serviceAlive || failedReconnects >= 5)
+                    {
+                        break;
+                    }
+                }
+                catch { }
             }
 
             try { await Task.Delay(1000, cts.Token); }
@@ -318,21 +355,37 @@ internal static class Program
             catch { }
         }
 
-        // Initialize Clipboard Controller on STA Thread
-        ClipboardController? clipboardController = null;
-        var clipThread = new Thread(() =>
+        var shutdownThread = new Thread(() =>
         {
-            clipboardController = new ClipboardController(text =>
+            var shutdownForm = new ShutdownListenerForm(eventType =>
             {
-                _ = SendJsonFrameAsync(new { type = "CLIPBOARD_SYNC", text, source = "PC" });
+                _ = SendJsonFrameAsync(new { type = "POWER_EVENT", eventType, source = "SessionHelper.WM_QUERYENDSESSION" });
+                try
+                {
+                    using var client = new NamedPipeClientStream(
+                        serverName: ".",
+                        pipeName: "TetherPipe",
+                        direction: PipeDirection.InOut,
+                        options: PipeOptions.Asynchronous,
+                        impersonationLevel: System.Security.Principal.TokenImpersonationLevel.Impersonation);
+                    client.Connect(300);
+                    byte[] b = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+                    {
+                        EventType = 32, // SHUTDOWN_INITIATED
+                        Source = "SessionHelper.WM_QUERYENDSESSION"
+                    }));
+                    client.Write(b, 0, b.Length);
+                    client.Flush();
+                }
+                catch { }
             });
-            System.Windows.Forms.Application.Run(clipboardController);
-        });
-        clipThread.SetApartmentState(ApartmentState.STA);
-        clipThread.IsBackground = true;
-        clipThread.Start();
 
-        // Initialize Notification Controller
+            System.Windows.Forms.Application.Run(shutdownForm);
+        });
+        shutdownThread.SetApartmentState(ApartmentState.STA);
+        shutdownThread.IsBackground = true;
+        shutdownThread.Start();
+
         _ = NotificationController.InitializeAsync(notif =>
         {
             _ = SendJsonFrameAsync(new
@@ -347,7 +400,6 @@ internal static class Program
             });
         });
 
-        // Initialize Media Session Controller
         _ = MediaSessionController.InitializeAsync(meta =>
         {
             _ = SendJsonFrameAsync(new
@@ -363,14 +415,14 @@ internal static class Program
             });
         });
 
-        // Initialize Terminal Session Manager
-        var terminalMgr = new TerminalSessionManager((sessionId, data, workingDir) =>
+        var terminalMgr = new TerminalSessionManager((sessionId, data, workingDir, ownerDeviceId) =>
         {
             _ = SendJsonFrameAsync(new
             {
                 type = "TERMINAL_OUTPUT",
                 terminalId = sessionId,
                 sessionId = sessionId,
+                deviceId = ownerDeviceId,
                 workingDir,
                 data
             });
@@ -426,13 +478,16 @@ internal static class Program
                             streamCts = new CancellationTokenSource();
                             int fps = Math.Clamp(doc.RootElement.TryGetProperty("fps", out var fProp) ? fProp.GetInt32() : 15, 1, 30);
                             int streamQual = Math.Clamp(doc.RootElement.TryGetProperty("quality", out var sqProp) ? sqProp.GetInt32() : 50, 10, 90);
+                            long targetHwnd = doc.RootElement.TryGetProperty("hwnd", out var streamHwndProp) ? streamHwndProp.GetInt64() : (doc.RootElement.TryGetProperty("windowId", out var streamWinProp) ? streamWinProp.GetInt64() : 0L);
                             int delayMs = 1000 / fps;
                             var sToken = streamCts.Token;
                             _ = Task.Run(async () =>
                             {
                                 while (!sToken.IsCancellationRequested && !ct.IsCancellationRequested)
                                 {
-                                    var frame = ScreenCaptureEngine.CaptureFullScreen(streamQual, 1280, 720);
+                                    var frame = targetHwnd > 0
+                                        ? ScreenCaptureEngine.CaptureWindow(new IntPtr(targetHwnd), streamQual)
+                                        : ScreenCaptureEngine.CaptureFullScreen(streamQual, 1280, 720);
                                     if (frame != null)
                                     {
                                         string frameB64 = Convert.ToBase64String(frame);
@@ -455,8 +510,9 @@ internal static class Program
                             break;
 
                         case "AUDIO_APP_VOLUME_SET":
+                        case "SET_APP_VOLUME":
                             int appPid = doc.RootElement.GetProperty("pid").GetInt32();
-                            int volPct = doc.RootElement.GetProperty("volume").GetInt32();
+                            int volPct = doc.RootElement.TryGetProperty("volume", out var vProp) ? vProp.GetInt32() : (doc.RootElement.TryGetProperty("volumePercent", out var vpProp) ? vpProp.GetInt32() : 50);
                             bool volOk = AdvancedAudioController.SetAppVolume(appPid, volPct);
                             await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = volOk });
                             break;
@@ -519,28 +575,6 @@ internal static class Program
                             });
                             break;
 
-                        case "CLIPBOARD_SET":
-                        case "CLIPBOARD_SYNC":
-                            string clipText = doc.RootElement.TryGetProperty("text", out var tTextProp) ? (tTextProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("content", out var cProp) ? (cProp.GetString() ?? "") : "");
-                            clipboardController?.SetText(clipText);
-                            await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = true });
-                            break;
-
-                        case "CLIPBOARD_GET":
-                            string curText = ClipboardController.GetCurrentText();
-                            await SendJsonFrameAsync(new { type = "CLIPBOARD_SYNC", requestId = reqId, text = curText, content = curText, source = "PC" });
-                            break;
-
-                        case "CLIPBOARD_SIMULATE_COPY":
-                            ClipboardController.SimulateCopy();
-                            await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = true });
-                            break;
-
-                        case "CLIPBOARD_SIMULATE_PASTE":
-                            ClipboardController.SimulatePaste();
-                            await SendJsonFrameAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = true });
-                            break;
-
                         case "NOTIFICATION_DISMISS":
                             uint notifId = doc.RootElement.GetProperty("id").GetUInt32();
                             bool disOk = await NotificationController.DismissNotificationAsync(notifId);
@@ -555,27 +589,50 @@ internal static class Program
                             break;
 
                         case "TERMINAL_START":
+                            string? termDevId = doc.RootElement.TryGetProperty("deviceId", out var didProp) ? didProp.GetString() : null;
+                            if (string.IsNullOrWhiteSpace(termDevId))
+                            {
+                                await SendJsonFrameAsync(new { type = "TERMINAL_START_RESPONSE", requestId = reqId, success = false, reason = "Missing authenticated deviceId" });
+                                break;
+                            }
                             string shell = doc.RootElement.TryGetProperty("shell", out var shProp) ? (shProp.GetString() ?? "powershell") : (doc.RootElement.TryGetProperty("shellType", out var stProp) ? (stProp.GetString() ?? "powershell") : "powershell");
                             string? initialDir = doc.RootElement.TryGetProperty("initialDir", out var idProp) ? idProp.GetString() : (doc.RootElement.TryGetProperty("workingDir", out var wdProp) ? wdProp.GetString() : null);
                             string? termId = doc.RootElement.TryGetProperty("terminalId", out var tidProp) ? tidProp.GetString() : (doc.RootElement.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetString() : null);
-                            var tInfo = terminalMgr.StartSession(shell, initialDir, termId);
-                            await SendJsonFrameAsync(new { type = "TERMINAL_START_RESPONSE", requestId = reqId, terminal = tInfo, sessionId = tInfo.Id });
+                            try
+                            {
+                                var tInfo = terminalMgr.StartSession(shell, initialDir, termId, termDevId);
+                                await SendJsonFrameAsync(new { type = "TERMINAL_START_RESPONSE", requestId = reqId, terminal = tInfo, sessionId = tInfo.Id, deviceId = termDevId, success = true });
+                            }
+                            catch (Exception ex)
+                            {
+                                await SendJsonFrameAsync(new { type = "TERMINAL_START_RESPONSE", requestId = reqId, success = false, reason = ex.Message, deviceId = termDevId });
+                            }
                             break;
 
                         case "TERMINAL_INPUT":
+                            string? inDevId = doc.RootElement.TryGetProperty("deviceId", out var inDidProp) ? inDidProp.GetString() : null;
+                            if (string.IsNullOrWhiteSpace(inDevId)) break;
                             string targetTermId = doc.RootElement.TryGetProperty("terminalId", out var ttidProp) ? (ttidProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("sessionId", out var tsidProp) ? (tsidProp.GetString() ?? "") : "");
                             string termInput = doc.RootElement.GetProperty("data").GetString() ?? "";
-                            terminalMgr.SendInput(targetTermId, termInput);
+                            terminalMgr.SendInput(targetTermId, termInput, inDevId);
                             break;
 
                         case "TERMINAL_CLOSE":
+                            string? closeDevId = doc.RootElement.TryGetProperty("deviceId", out var cDidProp) ? cDidProp.GetString() : null;
+                            if (string.IsNullOrWhiteSpace(closeDevId)) break;
                             string closeTermId = doc.RootElement.TryGetProperty("terminalId", out var ctidProp) ? (ctidProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("sessionId", out var csidProp) ? (csidProp.GetString() ?? "") : "");
-                            terminalMgr.CloseSession(closeTermId);
+                            terminalMgr.CloseSession(closeTermId, closeDevId);
                             break;
 
                         case "TERMINAL_LIST":
-                            var termList = terminalMgr.ListSessions();
-                            await SendJsonFrameAsync(new { type = "TERMINAL_LIST_RESPONSE", requestId = reqId, sessions = termList });
+                            string? listDevId = doc.RootElement.TryGetProperty("deviceId", out var lDidProp) ? lDidProp.GetString() : null;
+                            if (string.IsNullOrWhiteSpace(listDevId))
+                            {
+                                await SendJsonFrameAsync(new { type = "TERMINAL_LIST_RESPONSE", requestId = reqId, sessions = Array.Empty<TerminalSessionInfo>() });
+                                break;
+                            }
+                            var termList = terminalMgr.ListSessions(listDevId);
+                            await SendJsonFrameAsync(new { type = "TERMINAL_LIST_RESPONSE", requestId = reqId, sessions = termList, deviceId = listDevId });
                             break;
 
                         case "APP_GET_INSTALLED":
@@ -736,5 +793,33 @@ internal static class Program
             read += n;
         }
         return true;
+    }
+
+    private sealed class ShutdownListenerForm : System.Windows.Forms.Form
+    {
+        private const int WM_QUERYENDSESSION = 0x0011;
+        private const int WM_ENDSESSION = 0x0016;
+        private readonly Action<string> _onShutdown;
+
+        public ShutdownListenerForm(Action<string> onShutdown)
+        {
+            _onShutdown = onShutdown;
+            ShowInTaskbar = false;
+            FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
+            WindowState = System.Windows.Forms.FormWindowState.Minimized;
+            Opacity = 0;
+        }
+
+        protected override void SetVisibleCore(bool value) => base.SetVisibleCore(false);
+
+        protected override void WndProc(ref System.Windows.Forms.Message m)
+        {
+            if (m.Msg == WM_QUERYENDSESSION || m.Msg == WM_ENDSESSION)
+            {
+                bool isLogoff = (m.LParam.ToInt64() & 0x80000000) != 0;
+                _onShutdown(isLogoff ? "LOGOFF" : "SHUTDOWN");
+            }
+            base.WndProc(ref m);
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.tether.phone.ui.screens
 
 import androidx.compose.foundation.Canvas
+import java.util.Locale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -280,6 +281,7 @@ fun RemoteInputScreen(
                                 if (!isConnected) return@pointerInput
 
                                 awaitPointerEventScope {
+                                    val screenEntryTime = System.currentTimeMillis()
                                     var touchStartTime = 0L
                                     var totalDragDistance = 0f
                                     var maxPointers = 0
@@ -343,8 +345,9 @@ fun RemoteInputScreen(
                                             inputEngine.resetAccumulators()
                                             val now = System.currentTimeMillis()
                                             val duration = now - touchStartTime
+                                            val isGracePeriod = (now - screenEntryTime) < 350L
 
-                                            if (!isDragging && totalDragDistance <= touchSlopPx && duration < 350L) {
+                                            if (!isGracePeriod && !isDragging && totalDragDistance <= touchSlopPx && duration in 30L..350L) {
                                                 if (maxPointers == 2) {
                                                     // Two-finger tap -> Right Click
                                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -813,7 +816,7 @@ fun SensitivityBottomSheet(
 
             // Scroll Sensitivity
             Text(
-                text = "Scroll Speed: ${String.format("%.1f", inputEngine.scrollSensitivity)}x",
+                text = "Scroll Speed: ${String.format(Locale.US, "%.1f", inputEngine.scrollSensitivity)}x",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextPrimary
             )
@@ -833,7 +836,7 @@ fun SensitivityBottomSheet(
 
             // Air Mouse Sensitivity
             Text(
-                text = "Air Mouse Sensitivity: ${String.format("%.1f", inputEngine.airMouseSensitivity)}x",
+                text = "Air Mouse Sensitivity: ${String.format(Locale.US, "%.1f", inputEngine.airMouseSensitivity)}x",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextPrimary
             )

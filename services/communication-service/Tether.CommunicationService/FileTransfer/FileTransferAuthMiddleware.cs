@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
+using Tether.CommunicationService.Capabilities;
 using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Trust;
 using Tether.Shared.Logging;
@@ -75,12 +76,12 @@ public class FileTransferAuthMiddleware
             if (_tokenStore.ValidateToken(token, "LOCAL_UI"))
             {
                 var path = context.Request.Path.Value ?? "";
-                if (path.StartsWith("/api/fs/download", StringComparison.OrdinalIgnoreCase) ||
-                    path.StartsWith("/api/fs/upload", StringComparison.OrdinalIgnoreCase))
+                string normalizedReqPath = "/" + path.Trim('/').ToLowerInvariant();
+                if (normalizedReqPath.StartsWith("/api/fs") && !normalizedReqPath.StartsWith("/api/fs/remote"))
                 {
                     _logger?.Warning($"FileTransferAuthMiddleware: Rejected privileged direct filesystem access via LOCAL_UI token from {remoteIp} for {path}");
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                    await context.Response.WriteAsync("Forbidden: Local UI tokens are not authorized for direct file read/write endpoints");
+                    await context.Response.WriteAsync("Forbidden: Local UI tokens are not authorized for direct server filesystem endpoints");
                     return;
                 }
 
@@ -100,36 +101,6 @@ public class FileTransferAuthMiddleware
                 context.User = new ClaimsPrincipal(identity);
                 await _next(context);
                 return;
-            }
-        }
-
-        var clientCert = context.Connection.ClientCertificate;
-        if (clientCert == null)
-        {
-            try { clientCert = await context.Connection.GetClientCertificateAsync(); } catch { }
-        }
-
-        if (clientCert != null)
-        {
-            var now = DateTime.UtcNow;
-            if (clientCert.NotBefore.ToUniversalTime() <= now && clientCert.NotAfter.ToUniversalTime() >= now)
-            {
-                string spkiBase64 = Convert.ToBase64String(ExportSpki(clientCert));
-                string clientFingerprint = TrustStore.ComputeFingerprintOrNull(spkiBase64) ?? "";
-
-                if (_trustStore == null || _trustStore.FindBySpkiBase64(spkiBase64) != null)
-                {
-                    if (_tokenStore.ValidateToken(token, clientFingerprint))
-                    {
-                        var identity = new ClaimsIdentity(new[] {
-                            new Claim(ClaimTypes.Name, "TetherRemoteClient"),
-                            new Claim("DeviceFingerprint", clientFingerprint)
-                        }, "Bearer");
-                        context.User = new ClaimsPrincipal(identity);
-                        await _next(context);
-                        return;
-                    }
-                }
             }
         }
 
@@ -180,8 +151,29 @@ public class FileTransferAuthMiddleware
 
                             if (validProof)
                             {
-                                if (_tokenStore.ValidateToken(token, pairedPhone.Fingerprint) || _tokenStore.ValidateToken(token))
+                                if (_tokenStore.ValidateToken(token, pairedPhone.Fingerprint))
                                 {
+                                    var reqPath = context.Request.Path.Value ?? "";
+                                    string normalizedReqPath = "/" + reqPath.Trim('/').ToLowerInvariant();
+                                    if (normalizedReqPath.StartsWith("/api/fs"))
+                                    {
+                                        if (meta.Capabilities != null && !meta.Capabilities.Contains("FILES") && !meta.Capabilities.Contains("*"))
+                                        {
+                                            _logger?.Warning($"FileTransferAuthMiddleware: Token for client '{pairedPhone.Fingerprint}' missing FILES capability for {reqPath}");
+                                            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                                            await context.Response.WriteAsync("Forbidden: Token lacks FILES capability");
+                                            return;
+                                        }
+
+                                        if (!CapabilityManager.HasCapability(pairedPhone.Capabilities, "FILES"))
+                                        {
+                                            _logger?.Warning($"FileTransferAuthMiddleware: Paired device '{pairedPhone.DisplayName}' missing FILES capability for {reqPath}");
+                                            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                                            await context.Response.WriteAsync("Forbidden: Device lacks FILES capability");
+                                            return;
+                                        }
+                                    }
+
                                     _logger?.Info($"FileTransferAuthMiddleware: Authorized client '{pairedPhone.DisplayName}' ({pairedPhone.Fingerprint}) for {context.Request.Path}");
                                     var identity = new ClaimsIdentity(new[] {
                                         new Claim(ClaimTypes.Name, "TetherRemoteClient"),
@@ -253,16 +245,5 @@ public class FileTransferAuthMiddleware
         {
             return false;
         }
-    }
-
-    private static byte[] ExportSpki(X509Certificate2 cert)
-    {
-        using var ec = cert.GetECDsaPublicKey();
-        if (ec != null) return ec.ExportSubjectPublicKeyInfo();
-
-        using var rsa = cert.GetRSAPublicKey();
-        if (rsa != null) return rsa.ExportSubjectPublicKeyInfo();
-
-        return Array.Empty<byte>();
     }
 }

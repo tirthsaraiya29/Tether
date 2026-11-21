@@ -114,14 +114,17 @@ reg.exe add "HKLM\SOFTWARE\Classes\CLSID\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}\
 
 # Register with Windows Credential Providers
 reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}" /ve /t REG_SZ /d "TetherCredentialProvider" /f
+
+# Register with Windows Credential Provider Filters
+reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{c8c8d282-f4f1-451d-96fc-a8b1f783117b}" /ve /t REG_SZ /d "TetherCredentialProvider" /f
 ```
 
 ### 3. Add Windows Firewall Rules
 ```powershell
-netsh advfirewall firewall add rule name="Tether Control (TCP-In 37123)" dir=in action=allow protocol=TCP localport=37123
-netsh advfirewall firewall add rule name="Tether Discovery (UDP-In 37124)" dir=in action=allow protocol=UDP localport=37124
-netsh advfirewall firewall add rule name="Tether mDNS (UDP-In 5353)" dir=in action=allow protocol=UDP localport=5353
-netsh advfirewall firewall add rule name="Tether File Transfer (TCP-In 37124)" dir=in action=allow protocol=TCP localport=37124
+netsh advfirewall firewall add rule name="Tether Control (TCP-In 37123)" dir=in action=allow protocol=TCP localport=37123 profile=any remoteip=localsubnet
+netsh advfirewall firewall add rule name="Tether Discovery (UDP-In 37124)" dir=in action=allow protocol=UDP localport=37124 profile=any remoteip=localsubnet
+netsh advfirewall firewall add rule name="Tether mDNS (UDP-In 5353)" dir=in action=allow protocol=UDP localport=5353 profile=any remoteip=localsubnet
+netsh advfirewall firewall add rule name="Tether File Transfer (TCP-In 37124)" dir=in action=allow protocol=TCP localport=37124 profile=any remoteip=localsubnet
 ```
 
 ---
@@ -193,8 +196,7 @@ Once paired, test the primary workflows:
 
 | Issue / Symptom | Root Cause | Resolution |
 |---|---|---|
-| `HOTSPOT_UNSUPPORTED` | Mobile device is operating in Wi-Fi Hotspot / Access Point mode. | Disable Hotspot. Connect both Windows and Android to the same home/office Wi-Fi router. |
-| `DISCOVERY_FAILED` | Router Client Isolation is enabled or UDP ports blocked. | Disable Client Isolation on router settings. Verify Windows Firewall allows UDP `37124` and UDP `5353`. |
+| `DISCOVERY_FAILED` | Router Client Isolation is enabled or UDP ports blocked. | Disable Client Isolation on router settings. Verify Windows Firewall allows UDP `37124` and UDP `5353`. On hotspot, verify laptop is connected to phone hotspot. |
 | `Connection Timeout` | `TetherCommService` is stopped or TCP `37123` blocked. | Open `services.msc`, start `Tether Communication Service`, and check firewall rules. |
 | `TLS Handshake Error` | Stale or mismatched device certificate pinning. | Open Tether Desktop UI, tap **Reset Pairing**, clear stored key on Android, and pair again. |
 | `HELPER_NOT_FOUND` | `Tether.SessionHelper.exe` missing from installation path. | Reinstall Tether or verify file exists in `C:\Program Files\Tether\Tether.SessionHelper.exe`. |

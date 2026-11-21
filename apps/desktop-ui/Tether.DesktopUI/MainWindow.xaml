@@ -7,6 +7,7 @@
         xmlns:updates="clr-namespace:Tether.DesktopUI.Updates"
 
         Title="Tether"
+        Icon="assets/tether-32.png"
 
         Height="840" Width="1220"
 
@@ -27,6 +28,8 @@
         TextOptions.TextFormattingMode="Display"
 
         TextOptions.TextRenderingMode="ClearType"
+
+        PreviewKeyDown="MainWindow_PreviewKeyDown"
 
         Loaded="MainWindow_Loaded">
 
@@ -107,29 +110,17 @@
 
 
                     <Border Grid.Column="0"
-
                             Width="26" Height="26"
-
                             CornerRadius="6"
-
                             Background="{StaticResource AccentPillBackgroundBrush}"
-
                             BorderBrush="{StaticResource AccentPillBorderBrush}"
-
-                            BorderThickness="1">
-
-                        <TextBlock Text="&#xE72E;"
-
-                                   FontFamily="{StaticResource IconFontFamily}"
-
-                                   FontSize="12.5"
-
-                                   Foreground="{StaticResource SystemAccentBrush}"
-
-                                   HorizontalAlignment="Center"
-
-                                   VerticalAlignment="Center"/>
-
+                            BorderThickness="1"
+                            ClipToBounds="True">
+                        <Image Source="assets/tether-32.png"
+                               Width="18" Height="18"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Border>
 
 
@@ -638,6 +629,14 @@
 
                       Grid.ColumnSpan="3">
 
+                    <Grid.RowDefinitions>
+
+                        <RowDefinition Height="*"/>
+
+                        <RowDefinition Height="Auto"/>
+
+                    </Grid.RowDefinitions>
+
                     <Grid.ColumnDefinitions>
 
                         <ColumnDefinition Width="*"/>
@@ -652,7 +651,7 @@
 
                     <!-- Local Windows Storage Pane -->
 
-                    <Border Grid.Column="0"
+                    <Border Grid.Row="0" Grid.Column="0"
 
                             Style="{StaticResource GlassPanel}"
 
@@ -888,7 +887,7 @@
 
                     <!-- Remote Phone Storage Pane -->
 
-                    <Border Grid.Column="2"
+                    <Border Grid.Row="0" Grid.Column="2"
 
                             Style="{StaticResource GlassPanel}"
 
@@ -1138,6 +1137,44 @@
 
                         </Grid>
 
+                    </Border>
+
+                    <!-- File Transfer Progress & Status Banner -->
+                    <Border x:Name="CardFileTransferProgress"
+                            Grid.Row="1"
+                            Grid.Column="0"
+                            Grid.ColumnSpan="3"
+                            Style="{StaticResource GlassPanel}"
+                            Margin="0,14,0,0"
+                            Padding="16,12"
+                            Visibility="Collapsed">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Border Grid.Row="0" Grid.RowSpan="2" Width="36" Height="36" CornerRadius="8" Background="{StaticResource AccentPillBackgroundBrush}" Margin="0,0,12,0" VerticalAlignment="Center">
+                                <TextBlock x:Name="IconTransferDirection" Text="&#xE898;" FontFamily="{StaticResource IconFontFamily}" FontSize="16" Foreground="{StaticResource SystemAccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+
+                            <StackPanel Grid.Column="1" Grid.Row="0" VerticalAlignment="Center">
+                                <TextBlock x:Name="TxtTransferFileName" Text="Transfer in progress..." FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <TextBlock x:Name="TxtTransferMetrics" Text="Connecting..." FontSize="11.5" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" Grid.Row="0" Grid.RowSpan="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="BtnOpenSavedLocation" Content="Open Folder" Style="{StaticResource StandardButton}" Margin="0,0,8,0" Visibility="Collapsed" Click="BtnOpenSavedLocation_Click"/>
+                                <Button x:Name="BtnDismissTransferProgress" Content="&#xE711;" FontFamily="{StaticResource IconFontFamily}" Style="{StaticResource StandardButton}" Width="28" Height="28" Padding="0" Visibility="Collapsed" Click="BtnDismissTransferProgress_Click"/>
+                            </StackPanel>
+
+                            <ProgressBar x:Name="ProgressFileTransfer" Grid.Row="1" Grid.Column="1" Height="5" Margin="0,8,12,0" Minimum="0" Maximum="100" Value="0" Foreground="{StaticResource SystemAccentBrush}"/>
+                        </Grid>
                     </Border>
 
                 </Grid>
@@ -1582,6 +1619,10 @@
 
                                                 Maximum="100"
 
+                                                AutoToolTipPlacement="TopLeft"
+
+                                                AutoToolTipPrecision="0"
+
                                                 ValueChanged="SliderVolume_ValueChanged"/>
 
                                     </StackPanel>
@@ -1653,6 +1694,10 @@
                                                 Minimum="0"
 
                                                 Maximum="100"
+
+                                                AutoToolTipPlacement="TopLeft"
+
+                                                AutoToolTipPrecision="0"
 
                                                 ValueChanged="SliderBrightness_ValueChanged"/>
 
@@ -1794,6 +1839,386 @@
 
                         </Border>
 
+                        <!-- 3B. Fallback PIN / Password Card -->
+                        <Border x:Name="CardFallbackAuth"
+                                Style="{StaticResource GlassPanel}"
+                                Margin="0,14,0,0">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,6">
+                                    <StackPanel>
+                                        <TextBlock Text="SECURITY FALLBACK"
+                                                   Style="{StaticResource SectionEyebrowTextStyle}"/>
+                                        <TextBlock Text="Fallback Authentication"
+                                                   Style="{StaticResource CardTitleTextStyle}"/>
+                                    </StackPanel>
+                                    <Border x:Name="PillFallbackAuthBadge"
+                                            Style="{StaticResource BadgePillBorderStyle}"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Top">
+                                        <TextBlock x:Name="TxtFallbackAuthBadge"
+                                                   Text="DISABLED"
+                                                   FontFamily="{StaticResource MonoFontFamily}"
+                                                   FontSize="9.5"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                                    </Border>
+                                </Grid>
+
+                                <TextBlock Text="Configure a local Fallback PIN or Password to unlock this PC with the Tether Credential Provider even if your phone is away or offline."
+                                           FontFamily="{StaticResource FluentFontFamily}"
+                                           FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Margin="0,0,0,14"
+                                           TextWrapping="Wrap"/>
+
+                                <!-- 1. Active Configured Status Summary Panel -->
+                                <Border x:Name="PnlFallbackActiveSummary"
+                                        Visibility="Collapsed"
+                                        Background="#0A38BDF8"
+                                        BorderBrush="#3038BDF8"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="14,12"
+                                        Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <Grid Margin="0,0,0,12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="12"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0"
+                                                    Width="36" Height="36"
+                                                    CornerRadius="18"
+                                                    Background="#1510B981"
+                                                    BorderBrush="#4010B981"
+                                                    BorderThickness="1">
+                                                <TextBlock Text="&#xE73E;"
+                                                           FontFamily="{StaticResource IconFontFamily}"
+                                                           FontSize="16"
+                                                           Foreground="{StaticResource StatusHealthyBrush}"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                                <TextBlock x:Name="TxtFallbackActiveTitle"
+                                                           Text="Fallback Credential Active"
+                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                           FontSize="13"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                <TextBlock x:Name="TxtFallbackActiveDesc"
+                                                           Text="Local workstation fallback unlock is enabled and protected."
+                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                           FontSize="11.5"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           Margin="0,2,0,0"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                            <Button x:Name="BtnForgotFallbackCred"
+                                                    Style="{StaticResource StandardButton}"
+                                                    Height="34"
+                                                    Padding="16,0"
+                                                    Click="BtnForgotFallbackCred_Click">
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <TextBlock Text="&#xE897;"
+                                                               FontFamily="{StaticResource IconFontFamily}"
+                                                               FontSize="12"
+                                                               VerticalAlignment="Center"
+                                                               Margin="0,0,7,0"/>
+                                                    <TextBlock x:Name="TxtForgotFallbackCredLabel"
+                                                               Text="Forgot Password"
+                                                               VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- 2. Forgot Password Recovery Flow Panel -->
+                                <Border x:Name="PnlForgotPasswordRecovery"
+                                        Visibility="Collapsed"
+                                        Background="#0F172A"
+                                        BorderBrush="{StaticResource SystemAccentBrush}"
+                                        BorderThickness="1.5"
+                                        CornerRadius="8"
+                                        Padding="14,14"
+                                        Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <TextBlock Text="IDENTITY RECOVERY"
+                                                   Style="{StaticResource SectionEyebrowTextStyle}"
+                                                   Foreground="{StaticResource SystemAccentBrush}"/>
+                                        <TextBlock Text="Recover Forgotten Credential"
+                                                   Style="{StaticResource CardTitleTextStyle}"
+                                                   Margin="0,0,0,4"/>
+                                        <TextBlock Text="Both security verifications below are mandatory to recover your fallback credential."
+                                                   FontFamily="{StaticResource FluentFontFamily}"
+                                                   FontSize="11.5"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   Margin="0,0,0,14"
+                                                   TextWrapping="Wrap"/>
+
+                                        <!-- Requirement 1: Phone Unlock Confirmation -->
+                                        <Border Background="#0D1524"
+                                                BorderBrush="#1F293D"
+                                                BorderThickness="1"
+                                                CornerRadius="7"
+                                                Padding="12,10"
+                                                Margin="0,0,0,10">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="10"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0"
+                                                           Text="&#xE8EA;"
+                                                           FontFamily="{StaticResource IconFontFamily}"
+                                                           FontSize="18"
+                                                           Foreground="{StaticResource SystemAccentBrush}"
+                                                           VerticalAlignment="Center"/>
+                                                <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                                    <TextBlock Text="1. Phone Unlock Command"
+                                                               FontFamily="{StaticResource FluentFontFamily}"
+                                                               FontSize="12"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                    <TextBlock Text="Open the Tether app on your phone and tap 'Unlock PC'."
+                                                               FontFamily="{StaticResource FluentFontFamily}"
+                                                               FontSize="11"
+                                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                                               Margin="0,2,0,0"/>
+                                                </StackPanel>
+                                                <Border x:Name="PillForgotPhoneStatus"
+                                                        Grid.Column="3"
+                                                        Style="{StaticResource BadgePillBorderStyle}"
+                                                        VerticalAlignment="Center"
+                                                        Padding="8,3">
+                                                    <TextBlock x:Name="TxtForgotPhoneStatus"
+                                                               Text="WAITING FOR UNLOCK..."
+                                                               FontFamily="{StaticResource MonoFontFamily}"
+                                                               FontSize="9"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{StaticResource StatusDegradedBrush}"/>
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+
+                                        <!-- Requirement 2: Registered Windows Password -->
+                                        <Border Background="#0D1524"
+                                                BorderBrush="#1F293D"
+                                                BorderThickness="1"
+                                                CornerRadius="7"
+                                                Padding="12,10"
+                                                Margin="0,0,0,12">
+                                            <StackPanel>
+                                                <Grid Margin="0,0,0,6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="10"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0"
+                                                               Text="&#xE72E;"
+                                                               FontFamily="{StaticResource IconFontFamily}"
+                                                               FontSize="18"
+                                                               Foreground="{StaticResource SystemAccentBrush}"
+                                                               VerticalAlignment="Center"/>
+                                                    <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                                        <TextBlock Text="2. Registered Windows Password"
+                                                                   FontFamily="{StaticResource FluentFontFamily}"
+                                                                   FontSize="12"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                        <TextBlock Text="Enter your Windows account password to verify device authorization."
+                                                                   FontFamily="{StaticResource FluentFontFamily}"
+                                                                   FontSize="11"
+                                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                                   Margin="0,2,0,0"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                                <PasswordBox x:Name="TxtForgotWindowsPassword"
+                                                             Height="36"
+                                                             VerticalContentAlignment="Center"
+                                                             KeyDown="TxtForgotWindowsPassword_KeyDown"/>
+                                                <TextBlock x:Name="TxtForgotWindowsError"
+                                                           Foreground="{StaticResource StatusCriticalBrush}"
+                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                           FontSize="11"
+                                                           Margin="0,4,0,0"
+                                                           Visibility="Collapsed"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- Recovery Action Buttons -->
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="10"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button x:Name="BtnCancelForgotRecovery"
+                                                    Grid.Column="0"
+                                                    Style="{StaticResource StandardButton}"
+                                                    HorizontalAlignment="Left"
+                                                    Height="36"
+                                                    Padding="16,0"
+                                                    Click="BtnCancelForgotRecovery_Click">
+                                                <TextBlock Text="Cancel" VerticalAlignment="Center"/>
+                                            </Button>
+
+                                            <Button x:Name="BtnVerifyForgotRecovery"
+                                                    Grid.Column="2"
+                                                    Style="{StaticResource AccentButton}"
+                                                    Height="36"
+                                                    Padding="18,0"
+                                                    Click="BtnVerifyForgotRecovery_Click">
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                    <TextBlock Text="&#xE73E;"
+                                                               FontFamily="{StaticResource IconFontFamily}"
+                                                               FontSize="12.5"
+                                                               VerticalAlignment="Center"
+                                                               Margin="0,0,8,0"/>
+                                                    <TextBlock Text="Verify &amp; Unlock"
+                                                               VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- 3. Fallback Configuration & Entry Panel (Shown when editing or disabled) -->
+                                <StackPanel x:Name="PnlFallbackConfig">
+                                    <!-- Method selector dropdown -->
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="12"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Authentication Mode"
+                                                   FontFamily="{StaticResource FluentFontFamily}"
+                                                   FontSize="12"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                   VerticalAlignment="Center"/>
+                                        <ComboBox x:Name="CmbFallbackAuthMethod"
+                                                  Grid.Column="2"
+                                                  Height="34"
+                                                  SelectedIndex="0"
+                                                  SelectionChanged="CmbFallbackAuthMethod_SelectionChanged">
+                                            <ComboBoxItem Content="Disabled"/>
+                                            <ComboBoxItem Content="Fallback PIN (Min 8 Digits)"/>
+                                            <ComboBoxItem Content="Fallback Password (Min 8 Chars)"/>
+                                        </ComboBox>
+                                    </Grid>
+
+                                    <!-- Credential Entry Panel -->
+                                    <StackPanel x:Name="PnlFallbackCredentialInputs" Visibility="Collapsed">
+                                        <Grid Margin="0,0,0,10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="10"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock x:Name="LblFallbackCred"
+                                                           Text="New Credential"
+                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                           FontSize="11"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           Margin="0,0,0,4"/>
+                                                <PasswordBox x:Name="TxtFallbackPassword"
+                                                             Height="36"
+                                                             VerticalContentAlignment="Center"
+                                                             PasswordChanged="TxtFallbackPassword_PasswordChanged"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock Text="Confirm Credential"
+                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                           FontSize="11"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           Margin="0,0,0,4"/>
+                                                <PasswordBox x:Name="TxtFallbackPasswordConfirm"
+                                                             Height="36"
+                                                             VerticalContentAlignment="Center"
+                                                             PasswordChanged="TxtFallbackPassword_PasswordChanged"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <!-- Strength Meter & Feedback -->
+                                        <Grid Margin="0,0,0,12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="8"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border x:Name="PillFallbackStrength"
+                                                    Style="{StaticResource NeutralBadgePillStyle}"
+                                                    Padding="8,3"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock x:Name="TxtFallbackStrengthBadge"
+                                                           Text="NONE"
+                                                           FontFamily="{StaticResource MonoFontFamily}"
+                                                           FontSize="9"
+                                                           FontWeight="Bold"
+                                                           Foreground="{StaticResource TextMutedBrush}"/>
+                                            </Border>
+                                            <TextBlock x:Name="TxtFallbackStrengthFeedback"
+                                                       Grid.Column="2"
+                                                       Text="Requires minimum 8 characters with non-predictable patterns."
+                                                       FontFamily="{StaticResource FluentFontFamily}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       VerticalAlignment="Center"
+                                                       TextWrapping="Wrap"/>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <!-- Action Buttons -->
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Button x:Name="BtnCancelFallbackReset"
+                                                Grid.Column="0"
+                                                Style="{StaticResource StandardButton}"
+                                                Height="36"
+                                                Padding="16,0"
+                                                Visibility="Collapsed"
+                                                Click="BtnCancelFallbackReset_Click">
+                                            <TextBlock Text="Cancel" VerticalAlignment="Center"/>
+                                        </Button>
+
+                                        <Button x:Name="BtnSaveFallbackAuth"
+                                                Grid.Column="2"
+                                                Style="{StaticResource AccentButton}"
+                                                Height="36"
+                                                Padding="18,0"
+                                                Click="BtnSaveFallbackAuth_Click">
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                <TextBlock Text="&#xE8D7;"
+                                                           FontFamily="{StaticResource IconFontFamily}"
+                                                           FontSize="12.5"
+                                                           VerticalAlignment="Center"
+                                                           Margin="0,0,8,0"/>
+                                                <TextBlock x:Name="TxtSaveFallbackAuthLabel"
+                                                           Text="Save Configuration"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </Grid>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                         <!-- 4. Paired Devices Card -->
 
                         <Border x:Name="CardPairedDevices"
@@ -1928,25 +2353,49 @@
 
                                                     </StackPanel>
 
-                                                    <Button Grid.Column="2"
+                                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
 
-                                                            Style="{StaticResource SubtleIconButton}"
+                                                        <Button Style="{StaticResource SubtleIconButton}"
 
-                                                            VerticalAlignment="Center"
+                                                                VerticalAlignment="Center"
 
-                                                            Padding="8,4"
+                                                                Margin="0,0,6,0"
 
-                                                            Tag="{Binding Fingerprint}"
+                                                                Padding="6,4"
 
-                                                            Click="BtnUnpairDevice_Click">
+                                                                ToolTip="Copy full SHA-256 fingerprint"
 
-                                                        <TextBlock Text="Revoke"
+                                                                Tag="{Binding Fingerprint}"
 
-                                                                   Foreground="{StaticResource StatusCriticalBrush}"
+                                                                Click="BtnCopyFingerprint_Click">
 
-                                                                   FontSize="11"/>
+                                                            <TextBlock Text="Copy"
 
-                                                    </Button>
+                                                                       Foreground="{StaticResource TextSecondaryBrush}"
+
+                                                                       FontSize="11"/>
+
+                                                        </Button>
+
+                                                        <Button Style="{StaticResource SubtleIconButton}"
+
+                                                                VerticalAlignment="Center"
+
+                                                                Padding="8,4"
+
+                                                                Tag="{Binding Fingerprint}"
+
+                                                                Click="BtnUnpairDevice_Click">
+
+                                                            <TextBlock Text="Revoke"
+
+                                                                       Foreground="{StaticResource StatusCriticalBrush}"
+
+                                                                       FontSize="11"/>
+
+                                                        </Button>
+
+                                                    </StackPanel>
 
                                                 </Grid>
 
@@ -2150,96 +2599,110 @@
 
 
 
-                            <!-- Terminal List -->
-
+                            <!-- Live Alerts Feed & Temporary Notifications -->
                             <Border Grid.Row="1"
-
                                     Background="{StaticResource TerminalBackgroundBrush}"
-
                                     BorderBrush="{StaticResource TerminalBorderBrush}"
-
                                     BorderThickness="1"
-
                                     CornerRadius="8"
+                                    Padding="8">
+                                <Grid>
+                                    <!-- Empty state when no live alerts active -->
+                                    <StackPanel x:Name="PnlNoNotifications"
+                                                VerticalAlignment="Center"
+                                                HorizontalAlignment="Center"
+                                                Visibility="Visible">
+                                        <Border Width="44" Height="44"
+                                                CornerRadius="22"
+                                                Background="#0D38BDF8"
+                                                BorderBrush="#2638BDF8"
+                                                BorderThickness="1"
+                                                HorizontalAlignment="Center"
+                                                Margin="0,0,0,10">
+                                            <TextBlock Text="&#xE890;"
+                                                       FontFamily="{StaticResource IconFontFamily}"
+                                                       FontSize="18"
+                                                       Foreground="{StaticResource TextAccentBrush}"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock Text="Live System Notifications"
+                                                   FontFamily="{StaticResource FluentFontFamily}"
+                                                   FontSize="12.5"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                   HorizontalAlignment="Center"
+                                                   Margin="0,0,0,3"/>
+                                        <TextBlock Text="Real-time session alerts and security notices appear here automatically."
+                                                   FontFamily="{StaticResource FluentFontFamily}"
+                                                   FontSize="11"
+                                                   Foreground="{StaticResource TextMutedBrush}"
+                                                   HorizontalAlignment="Center"
+                                                   TextWrapping="Wrap"
+                                                   TextAlignment="Center"
+                                                   MaxWidth="240"/>
+                                    </StackPanel>
 
-                                    Padding="6">
-
-                                <ListBox x:Name="TerminalList"
-
-                                         Background="Transparent"
-
-                                         BorderThickness="0"
-
-                                         VirtualizingPanel.IsVirtualizing="True"
-
-                                         VirtualizingPanel.VirtualizationMode="Recycling"
-
-                                         VirtualizingPanel.ScrollUnit="Pixel"
-
-                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-
-                                    <ListBox.ItemContainerStyle>
-
-                                        <Style TargetType="ListBoxItem">
-
-                                            <Setter Property="Padding" Value="8,3.5"/>
-
-                                            <Setter Property="Background" Value="Transparent"/>
-
-                                            <Setter Property="BorderThickness" Value="0,0,0,1"/>
-
-                                            <Setter Property="BorderBrush" Value="#08FFFFFF"/>
-
-                                            <Setter Property="Focusable" Value="False"/>
-
-                                            <Setter Property="Template">
-
-                                                <Setter.Value>
-
-                                                    <ControlTemplate TargetType="ListBoxItem">
-
-                                                        <Border Background="{TemplateBinding Background}"
-
-                                                                BorderBrush="{TemplateBinding BorderBrush}"
-
-                                                                BorderThickness="{TemplateBinding BorderThickness}"
-
-                                                                Padding="{TemplateBinding Padding}">
-
-                                                            <ContentPresenter/>
-
-                                                        </Border>
-
-                                                    </ControlTemplate>
-
-                                                </Setter.Value>
-
-                                            </Setter>
-
-                                        </Style>
-
-                                    </ListBox.ItemContainerStyle>
-
-                                    <ListBox.ItemTemplate>
-
-                                        <DataTemplate>
-
-                                            <TextBlock Text="{Binding}"
-
-                                                       FontFamily="{StaticResource MonoFontFamily}"
-
-                                                       FontSize="11.5"
-
-                                                       Foreground="#E2E8F0"
-
-                                                       TextWrapping="Wrap"/>
-
-                                        </DataTemplate>
-
-                                    </ListBox.ItemTemplate>
-
-                                </ListBox>
-
+                                    <!-- Active Notifications feed (stacked toasts) -->
+                                    <ScrollViewer x:Name="NotificationScrollViewer"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <ItemsControl x:Name="NotificationItemsControl">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Margin="0,0,0,8"
+                                                            CornerRadius="8"
+                                                            Background="{Binding BackgroundBrush}"
+                                                            BorderBrush="{Binding BorderBrush}"
+                                                            BorderThickness="1"
+                                                            Padding="12,10">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="32"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <Border Grid.Column="0"
+                                                                    Width="26" Height="26"
+                                                                    CornerRadius="13"
+                                                                    Background="{Binding BadgeBackgroundBrush}"
+                                                                    BorderBrush="{Binding BorderBrush}"
+                                                                    BorderThickness="1"
+                                                                    HorizontalAlignment="Left"
+                                                                    VerticalAlignment="Top">
+                                                                <TextBlock Text="{Binding Icon}"
+                                                                           FontFamily="{StaticResource IconFontFamily}"
+                                                                           FontSize="11"
+                                                                           Foreground="{Binding AccentBrush}"
+                                                                           HorizontalAlignment="Center"
+                                                                           VerticalAlignment="Center"/>
+                                                            </Border>
+                                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,8,0">
+                                                                <TextBlock Text="{Binding Title}"
+                                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                                           FontSize="12"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                                                           Margin="0,0,0,2"/>
+                                                                <TextBlock Text="{Binding Message}"
+                                                                           FontFamily="{StaticResource FluentFontFamily}"
+                                                                           FontSize="11"
+                                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                                           TextWrapping="Wrap"/>
+                                                            </StackPanel>
+                                                            <TextBlock Grid.Column="2"
+                                                                       Text="{Binding FormattedTime}"
+                                                                       FontFamily="{StaticResource MonoFontFamily}"
+                                                                       FontSize="9.5"
+                                                                       Foreground="{StaticResource TextMutedBrush}"
+                                                                       VerticalAlignment="Top"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Grid>
                             </Border>
 
                         </Grid>

@@ -1,23 +1,21 @@
-//
-// THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF
-// ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO
-// THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
-// PARTICULAR PURPOSE.
-//
-// Copyright (c) Microsoft Corporation. All rights reserved.
-//
-
 #pragma once
 
 #include "helpers.h"
 #include <windows.h>
 #include <strsafe.h>
+#include <atomic>
 #include <new>
+
+#include <vector>
 
 #include "TetherCredential.h"
 
-class CSampleProvider : public ICredentialProvider,
-    public ICredentialProviderSetUserArray
+HRESULT CTetherProvider_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
+HRESULT CSample_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
+
+class CTetherProvider : public ICredentialProvider,
+    public ICredentialProviderSetUserArray,
+    public ICredentialProviderFilter
 {
 public:
     // IUnknown
@@ -40,14 +38,15 @@ public:
     {
         static const QITAB qit[] =
         {
-            QITABENT(CSampleProvider, ICredentialProvider),
-            QITABENT(CSampleProvider, ICredentialProviderSetUserArray),
+            QITABENT(CTetherProvider, ICredentialProvider),
+            QITABENT(CTetherProvider, ICredentialProviderSetUserArray),
+            QITABENT(CTetherProvider, ICredentialProviderFilter),
             {0},
         };
         return QISearch(this, qit, riid, ppv);
     }
 
-    // Declaration only - the body resides exclusively in CSampleProvider.cpp
+    // Declaration only - the body resides exclusively in TetherProvider.cpp
     HRESULT SignalCredentialsChanged();
 
 public:
@@ -68,11 +67,33 @@ public:
 
     IFACEMETHODIMP SetUserArray(_In_ ICredentialProviderUserArray* users);
 
+    // ICredentialProviderFilter
+    IFACEMETHODIMP Filter(
+        _In_ CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
+        _In_ DWORD dwFlags,
+        _In_reads_(cProviders) GUID* rgclsidProviders,
+        _Inout_updates_(cProviders) BOOL* rgbAllow,
+        _In_ DWORD cProviders);
+
+    IFACEMETHODIMP UpdateRemoteCredential(
+        _In_ CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION const* pcpcsIn,
+        _Out_ CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcsOut);
+
+    friend HRESULT CTetherProvider_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
     friend HRESULT CSample_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
 
+#ifdef TETHER_TEST_HARNESS
+    friend void CTetherProvider_SetTestRegistryRoot(HKEY hRoot, const wchar_t* subKey);
+    friend void CTetherProvider_SetSimulateInvalidAcl(bool simulate);
+    friend void CTetherProvider_SetSimulateUnexpectedAce(bool simulate);
+    friend void CTetherProvider_SetSimulateUnauthorizedAllow(bool simulate);
+    friend void CTetherProvider_SetSimulateWriteFailure(bool simulate);
+    friend void CTetherProvider_SetEnforceAclInTest(bool enforce);
+#endif
+
 protected:
-    CSampleProvider();
-    __override ~CSampleProvider();
+    CTetherProvider();
+    virtual ~CTetherProvider();
 
 private:
     void _ReleaseEnumeratedCredentials();
@@ -82,14 +103,17 @@ private:
     HRESULT _EnumerateEmptyTileCredential();
 
 private:
-    long                                    _cRef;
-    CSampleCredential* _pCredential;
+    std::atomic<long>                       _cRef;
+    std::vector<CTetherCredential*>         _credentials;
     bool                                    _fRecreateEnumeratedCredentials;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO      _cpus;
-    ICredentialProviderUserArray* _pCredProviderUserArray;
+    ICredentialProviderUserArray*           _pCredProviderUserArray;
 
     // Unified naming alignment matching the implementation file
-    ICredentialProviderEvents* _pCredProviderEvents;
+    CRITICAL_SECTION                        _csEvents;
+    ICredentialProviderEvents*              _pCredProviderEvents;
     UINT_PTR                                _upAdviseContext;
     DWORD                                   _dwUpToDateCredentialsCount;
 };
+
+typedef CTetherProvider CSampleProvider;

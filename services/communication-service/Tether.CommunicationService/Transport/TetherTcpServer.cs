@@ -12,12 +12,13 @@ using Tether.CommunicationService.Security;
 using Tether.CommunicationService.Sessions;
 using Tether.EventBus;
 using Tether.Shared.Logging;
+using Tether.Shared.Network;
 
 namespace Tether.CommunicationService.Transport;
 
 public sealed class TetherTcpServer : IDisposable
 {
-    public const int ListenPort = 37123;
+    public const int ListenPort = NetworkConstants.ControlPort;
     private const int MaxConcurrentSessions = 16;
     private const int MaxSessionsPerIp = 5;
     private const int MaxConnectionsPerMinutePerIp = 60;

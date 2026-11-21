@@ -1,3 +1,4 @@
+﻿using System.Security.Principal;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -178,6 +179,12 @@ public static class HardwareExecutor
         return ok ? vol : -1;
     }
 
+    public static bool GetSystemMuteInUserSession(ITetherLogger logger)
+    {
+        bool ok = RunHelperAsUser(new[] { "get-mute" }, logger, out int mute);
+        return ok && mute == 1;
+    }
+
     public static int GetSystemBrightnessLevelInUserSession(ITetherLogger logger)
     {
         bool ok = RunHelperAsUser(new[] { "get-brightness" }, logger, out int bri);
@@ -242,10 +249,18 @@ public static class HardwareExecutor
             switch (cmd)
             {
                 case "unlock":
+                    if (!IsWorkstationLockedInActiveSession())
+                    {
+                        ResetUnlockEvent(@"Global\TetherPhoneAppUnlocked", logger);
+                        logger.Info("HardwareExecutor: Workstation is already unlocked; cleared any stale unlock signal.");
+                        return true;
+                    }
                     return SignalUnlockEvent(@"Global\TetherPhoneAppUnlocked", logger);
 
                 case "lock":
                 case "lock_now":
+                case "panic":
+                    ResetUnlockEvent(@"Global\TetherPhoneAppUnlocked", logger);
                     bool locked = LockWorkStation();
                     if (!locked)
                     {
@@ -314,6 +329,21 @@ public static class HardwareExecutor
                     if (muteOk) RunHelperAsUser(new[] { "get-volume" }, logger, out currentVol);
                     logger.Info($"HardwareExecutor: toggle-mute -> {muteOk}");
                     return muteOk;
+
+                case "volume_mute_on":
+                case "mute_on":
+                    bool muteOnOk = RunHelperAsUser(new[] { "set-mute", "true" }, logger, out _);
+                    if (muteOnOk) RunHelperAsUser(new[] { "get-volume" }, logger, out currentVol);
+                    logger.Info($"HardwareExecutor: set-mute true -> {muteOnOk}");
+                    return muteOnOk;
+
+                case "volume_mute_off":
+                case "unmute":
+                case "mute_off":
+                    bool muteOffOk = RunHelperAsUser(new[] { "set-mute", "false" }, logger, out _);
+                    if (muteOffOk) RunHelperAsUser(new[] { "get-volume" }, logger, out currentVol);
+                    logger.Info($"HardwareExecutor: set-mute false -> {muteOffOk}");
+                    return muteOffOk;
 
                 case "bright_get":
                 case "brightness_get":
@@ -456,10 +486,11 @@ public static class HardwareExecutor
 
         try
         {
-            IntPtr tokenToDuplicate = GetBestSessionToken(userToken, out IntPtr linkedTokenToClose, logger);
-            try
-            {
-                if (!DuplicateTokenEx(tokenToDuplicate, 0x10000000, IntPtr.Zero, 2, 1, out IntPtr primaryToken))
+            // SessionHelper is the desktop user session daemon (handling user UI, notifications,
+            // audio endpoints, and non-admin terminal sessions). It must run directly under the
+            // interactive user's standard (non-elevated) desktop token, preserving user isolation
+            // and allowing non-admin safe shell spawning.
+            if (!DuplicateTokenEx(userToken, 0x10000000, IntPtr.Zero, 2, 1, out IntPtr primaryToken))
             {
                 return false;
             }
@@ -518,12 +549,7 @@ public static class HardwareExecutor
                     if (envCreated && envBlock != IntPtr.Zero) DestroyEnvironmentBlock(envBlock);
                 }
             }
-                finally { CloseHandle(primaryToken); }
-            }
-            finally
-            {
-                if (linkedTokenToClose != IntPtr.Zero) CloseHandle(linkedTokenToClose);
-            }
+            finally { CloseHandle(primaryToken); }
         }
         finally { CloseHandle(userToken); }
     }
@@ -532,7 +558,15 @@ public static class HardwareExecutor
     {
         if (!WTSQueryUserToken(activeSession, out IntPtr userToken))
         {
-            logger.Warning($"HardwareExecutor: WTSQueryUserToken failed err={Marshal.GetLastWin32Error()}.");
+            int err = Marshal.GetLastWin32Error();
+            if (err == 1008)
+            {
+                logger.Debug($"HardwareExecutor: WTSQueryUserToken session {activeSession} has no token (workstation locked/logon screen).");
+            }
+            else
+            {
+                logger.Warning($"HardwareExecutor: WTSQueryUserToken failed err={err}.");
+            }
             return -1;
         }
 
@@ -617,6 +651,60 @@ public static class HardwareExecutor
         finally { CloseHandle(userToken); }
     }
 
+    private static bool IsWorkstationLockedInActiveSession()
+    {
+        try
+        {
+            uint activeSession = WTSGetActiveConsoleSessionId();
+            if (activeSession == 0xFFFFFFFF) return true;
+
+            var logonProcesses = Process.GetProcessesByName("LogonUI");
+            try
+            {
+                foreach (var p in logonProcesses)
+                {
+                    try
+                    {
+                        if ((uint)p.SessionId == activeSession) return true;
+                    }
+                    catch { }
+                }
+            }
+            finally
+            {
+                foreach (var p in logonProcesses) { try { p.Dispose(); } catch { } }
+            }
+            return false;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    public static void ResetUnlockEvent(string eventName = @"Global\TetherPhoneAppUnlocked", ITetherLogger? logger = null)
+    {
+        try
+        {
+            if (EventWaitHandleAcl.TryOpenExisting(eventName, System.Security.AccessControl.EventWaitHandleRights.Modify | System.Security.AccessControl.EventWaitHandleRights.ReadPermissions, out var evt))
+            {
+                using (evt)
+                {
+                    var accessControl = evt.GetAccessControl();
+                    var owner = accessControl.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+                    if (owner != null && (owner.IsWellKnown(WellKnownSidType.LocalSystemSid) || owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid)))
+                    {
+                        evt.Reset();
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger?.Warning($"HardwareExecutor: Failed to reset unlock event '{eventName}': {ex.Message}");
+        }
+    }
+
     private static bool SignalUnlockEvent(string eventName, ITetherLogger logger)
     {
         try
@@ -624,24 +712,24 @@ public static class HardwareExecutor
             var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
             sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
             using var evt = EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, eventName, out bool createdNew, sec);
+            if (!createdNew)
+            {
+                var accessControl = evt.GetAccessControl();
+                var owner = accessControl.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+                if (owner == null || (!owner.IsWellKnown(WellKnownSidType.LocalSystemSid) && !owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid)))
+                {
+                    logger.Warning($"HardwareExecutor: Untrusted owner '{owner?.Value}' on existing event '{eventName}'. Signal aborted.");
+                    return false;
+                }
+            }
             bool setOk = evt.Set();
             logger.Info($"HardwareExecutor: {(createdNew ? "Created & " : "")}Signaled unlock event '{eventName}', setOk={setOk}");
             return setOk;
         }
-        catch (Exception createEx)
+        catch (Exception ex)
         {
-            try
-            {
-                using var evt = EventWaitHandle.OpenExisting(eventName);
-                bool setOk = evt.Set();
-                logger.Info($"HardwareExecutor: Opened existing & signaled unlock event '{eventName}', setOk={setOk}");
-                return setOk;
-            }
-            catch (Exception ex)
-            {
-                logger.Error($"HardwareExecutor: Failed to signal unlock event '{eventName}': {createEx.Message} / {ex.Message}");
-                return false;
-            }
+            logger.Error($"HardwareExecutor: Failed to create or signal unlock event '{eventName}': {ex.Message}");
+            return false;
         }
     }
 
@@ -777,7 +865,8 @@ public static class HardwareExecutor
                             else
                             {
                                 int err = Marshal.GetLastWin32Error();
-                                logger.Warning($"HardwareExecutor: CreateProcessAsUser failed with error code {err}. Falling back to ShellExecute.");
+                                logger.Warning($"HardwareExecutor: CreateProcessAsUser failed with error code {err}. Failing closed to preserve Session 0 isolation.");
+                                return false;
                             }
                         }
                         finally
@@ -797,16 +886,8 @@ public static class HardwareExecutor
             }
         }
 
-        try
-        {
-            Process.Start(new ProcessStartInfo(commandLine) { UseShellExecute = true });
-            return true;
-        }
-        catch (Exception ex)
-        {
-            logger.Error($"HardwareExecutor: Fallback launch failed for '{commandLine}': {ex.Message}");
-            return false;
-        }
+        logger.Warning($"HardwareExecutor: Unable to launch '{commandLine}' in user session {activeSession}. Failing closed.");
+        return false;
     }
 
     private static void SendKeyPress(byte vkCode, int times)

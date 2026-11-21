@@ -1,24 +1,15 @@
-//
-// THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF
-// ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO
-// THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
-// PARTICULAR PURPOSE.
-//
-// Copyright (c) Microsoft Corporation. All rights reserved.
-//
-// Standard dll required functions and class factory implementation.
-
 #include <windows.h>
 #include <unknwn.h>
 #include <new>
 #include "Dll.h"
 #include "helpers.h"
+#include "guid.h"
 
 static long g_cRef = 0;   // global dll reference count
 HINSTANCE g_hinst = NULL; // global dll hinstance
 
+HRESULT CTetherProvider_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
 HRESULT CSample_CreateInstance(_In_ REFIID riid, _Outptr_ void** ppv);
-EXTERN_C GUID CLSID_CSample;
 
 class CClassFactory : public IClassFactory
 {
@@ -57,7 +48,7 @@ public:
         HRESULT hr;
         if (!pUnkOuter)
         {
-            hr = CSample_CreateInstance(riid, ppv);
+            hr = CTetherProvider_CreateInstance(riid, ppv);
         }
         else
         {
@@ -93,7 +84,7 @@ HRESULT CClassFactory_CreateInstance(__in REFCLSID rclsid, __in REFIID riid, __d
 
     HRESULT hr;
 
-    if (CLSID_CSample == rclsid)
+    if (CLSID_TetherProvider == rclsid || CLSID_CSample == rclsid)
     {
         CClassFactory* pcf = new (std::nothrow) CClassFactory();
         if (pcf)

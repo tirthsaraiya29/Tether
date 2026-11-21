@@ -1,5 +1,7 @@
 package com.tether.phone
 
+import android.annotation.SuppressLint
+
 import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -34,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
@@ -104,6 +107,7 @@ class MainActivity : FragmentActivity() {
     private data class PowerAction(val command: String, val title: String)
 
     private var lastBiometricAuthTime = 0L
+    private val pendingSharedUris = java.util.Collections.synchronizedList(mutableListOf<Uri>())
     private var isPermissionsBannerDismissed = mutableStateOf(false)
     private var permissionStates = mutableStateOf<List<PermissionItemState>>(emptyList())
 
@@ -168,6 +172,9 @@ class MainActivity : FragmentActivity() {
                 Log.d("TetherActivity", "LAN transport state changed: $stateName ($count), trustState=$trustStateName, laptopPowerState=$powerState")
                 runOnUiThread {
                     isConnected.value = count > 0
+                    if (count > 0 && !isAppLocked.value && !isEnvironmentRestricted.value) {
+                        processPendingSharedUris()
+                    }
                     phoneFingerprint.value = phoneFp
                     windowsFingerprint.value = winFp
                     connectedHostAddress.value = hostAddr
@@ -230,9 +237,28 @@ class MainActivity : FragmentActivity() {
                                 uiConnectionStatusText.value = getString(R.string.status_secure_nodes, count)
                             } else {
                                 if (!isPanicActive.value) {
-                                    uiStatusText.value = getString(R.string.status_broadcasting)
-                                    uiStatusColor.value = LiquidCyan
-                                    uiConnectionStatusText.value = getString(R.string.status_scanning_host)
+                                    when (powerState) {
+                                        LaptopPowerState.POWERED_OFF -> {
+                                            uiStatusText.value = "POWERED OFF"
+                                            uiStatusColor.value = TextSecondary.copy(alpha = 0.6f)
+                                            uiConnectionStatusText.value = "WINDOWS PC IS POWERED OFF"
+                                        }
+                                        LaptopPowerState.RESTARTING -> {
+                                            uiStatusText.value = "RESTARTING"
+                                            uiStatusColor.value = TextSecondary.copy(alpha = 0.6f)
+                                            uiConnectionStatusText.value = "WINDOWS PC IS RESTARTING..."
+                                        }
+                                        LaptopPowerState.SHUTTING_DOWN -> {
+                                            uiStatusText.value = "SHUTTING DOWN"
+                                            uiStatusColor.value = TextSecondary.copy(alpha = 0.6f)
+                                            uiConnectionStatusText.value = "WINDOWS PC IS SHUTTING DOWN..."
+                                        }
+                                        else -> {
+                                            uiStatusText.value = getString(R.string.status_broadcasting)
+                                            uiStatusColor.value = LiquidCyan
+                                            uiConnectionStatusText.value = getString(R.string.status_scanning_host)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -250,6 +276,8 @@ class MainActivity : FragmentActivity() {
                 val reason = intent.getStringExtra("reason") ?: "OK"
                 val vol = intent.getIntExtra("volume_level", -1)
                 val bri = intent.getIntExtra("brightness_level", -1)
+                val hasMute = intent.hasExtra("is_muted")
+                val muted = intent.getBooleanExtra("is_muted", false)
 
                 runOnUiThread {
                     if (vol in 0..100) {
@@ -257,6 +285,9 @@ class MainActivity : FragmentActivity() {
                     }
                     if (bri in 0..100) {
                         updateBrightnessFromRemote(bri)
+                    }
+                    if (hasMute) {
+                        isMuted.value = muted
                     }
                     val isTelemetryCmd = confirmedCmd.equals("laptop_state_get", ignoreCase = true) ||
                             confirmedCmd.equals("get_laptop_state", ignoreCase = true) ||
@@ -267,6 +298,11 @@ class MainActivity : FragmentActivity() {
                         lastCommandSuccess.value = success
                         lastCommandReason.value = reason
                         isCommandConfirmed.value = true
+                        if (confirmedCmd.equals("unlock", ignoreCase = true)) {
+                            if (!success) {
+                                Toast.makeText(this@MainActivity, "Unlock failed: $reason", Toast.LENGTH_SHORT).show()
+                            }
+                        }
 
                         dismissalJob?.cancel()
                         dismissalJob = lifecycleScope.launch {
@@ -287,12 +323,17 @@ class MainActivity : FragmentActivity() {
             if (intent?.action == "com.tether.phone.ACTION_SYNC_HARDWARE_METRICS") {
                 val vol = intent.getIntExtra("VOLUME_LEVEL", -1)
                 val bri = intent.getIntExtra("BRIGHTNESS_LEVEL", -1)
+                val hasMute = intent.hasExtra("IS_MUTED")
+                val muted = intent.getBooleanExtra("IS_MUTED", false)
                 runOnUiThread {
                     if (vol in 0..100) {
                         updateVolumeFromRemote(vol)
                     }
                     if (bri in 0..100) {
                         updateBrightnessFromRemote(bri)
+                    }
+                    if (hasMute) {
+                        isMuted.value = muted
                     }
                 }
             }
@@ -327,8 +368,8 @@ class MainActivity : FragmentActivity() {
         }
         val cachedMetrics = LaptopStateCache.getMetrics(applicationContext)
         if (cachedMetrics != null) {
-            volumeLevel.value = cachedMetrics.first
-            brightnessLevel.value = cachedMetrics.second
+            volumeLevel.intValue = cachedMetrics.first
+            brightnessLevel.intValue = cachedMetrics.second
         }
 
         lifecycleScope.launch(Dispatchers.IO) {
@@ -366,18 +407,11 @@ class MainActivity : FragmentActivity() {
 
         updatePermissionStates()
 
+        handleShareIntent(intent)
+
         // Show biometric authentication prompt IMMEDIATELY on app launch
         isLoading.value = false
         authenticateForAppUnlock()
-
-        lifecycleScope.launch(Dispatchers.IO) {
-            val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
-                withContext(Dispatchers.Main) {
-                    requestBatteryOptimizationExemption()
-                }
-            }
-        }
 
         setContent {
             LaunchedEffect(isPrivacyMaskEnabled.value, isBlockScreenReadingEnabled.value, isHideInRecentsEnabled.value) {
@@ -402,7 +436,6 @@ class MainActivity : FragmentActivity() {
                         } else if (isEnvironmentRestricted.value) {
                             CompromisedEnvironmentOverlay(score = currentIntegrityScore.intValue)
                         } else if (isAppLocked.value) {
-                            Box(Modifier.fillMaxSize()) { DeepSpaceCanvasVisualizer() }
                             FuturisticLockOverlay {
                                 authenticateForAppUnlock()
                             }
@@ -435,18 +468,30 @@ class MainActivity : FragmentActivity() {
                                 onGrantAllMissingPermissions = ::grantAllCriticalPermissions,
                                 onDismissPermissionsBanner = { isPermissionsBannerDismissed.value = true },
                                 onUnlockClick = {
-                                    authenticateViaSystem(
-                                        title = getString(R.string.auth_unlock_title),
-                                        subtitle = getString(R.string.auth_unlock_subtitle),
-                                        allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL,
-                                    ) { success ->
-                                        if (success) {
-                                            runOnUiThread {
-                                                triggerLanAction("unlock")
-                                            }
-                                        } else {
-                                            runOnUiThread {
-                                                Toast.makeText(this@MainActivity, getString(R.string.toast_unauthorized), Toast.LENGTH_SHORT).show()
+                                    val securityEngine = ProductionSecurityEngine()
+                                    val cryptoObject = securityEngine.createSignatureCryptoObject()
+                                        ?: securityEngine.createCryptoObjectForAuthentication()
+                                    if (cryptoObject == null) {
+                                        Log.e("TetherActivity", "Unlock aborted: CryptoObject could not be initialized (fail-closed)")
+                                        Toast.makeText(this@MainActivity, getString(R.string.toast_unauthorized), Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        authenticateViaSystem(
+                                            title = getString(R.string.auth_unlock_title),
+                                            subtitle = getString(R.string.auth_unlock_subtitle),
+                                            allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG,
+                                            cryptoObject = cryptoObject,
+                                            requireCryptoObject = true,
+                                        ) { success ->
+                                            if (success) {
+                                                runOnUiThread {
+                                                    lastBiometricAuthTime = System.currentTimeMillis()
+                                                    // Trigger remote unlock; app unlock is finalized upon verified CONFIRM_COMMAND response
+                                                    triggerLanAction("unlock", isAuthorizedBiometric = true)
+                                                }
+                                            } else {
+                                                runOnUiThread {
+                                                    Toast.makeText(this@MainActivity, getString(R.string.toast_unauthorized), Toast.LENGTH_SHORT).show()
+                                                }
                                             }
                                         }
                                     }
@@ -492,6 +537,9 @@ class MainActivity : FragmentActivity() {
                                 onCancelPairing = ::cancelPairing,
                                 onConfirmPairing = ::confirmPairing,
                                 onForgetTrust = ::forgetTrust,
+                                onCheckForUpdates = {
+                                    updateViewModel.checkForUpdate(BuildConfig.VERSION_NAME, this@MainActivity, force = true)
+                                },
                             )
 
                             pendingPowerAction.value?.let { action: PowerAction ->
@@ -532,10 +580,27 @@ class MainActivity : FragmentActivity() {
                                     onDismiss = { updateViewModel.snooze(this@MainActivity, 4) },
                                     onSnooze = { hours -> updateViewModel.snooze(this@MainActivity, hours) },
                                     onDownload = {
-                                        val downloadUrl = currentUpdateInfo.apkDownloadUrl ?: currentUpdateInfo.releaseUrl
-                                        if (downloadUrl.isNotBlank()) {
+                                        val downloadUrl = currentUpdateInfo.apkDownloadUrl
+                                        if (!downloadUrl.isNullOrBlank()) {
+                                            Toast.makeText(this@MainActivity, getString(R.string.update_downloading), Toast.LENGTH_SHORT).show()
+                                            lifecycleScope.launch(Dispatchers.IO) {
+                                                val result = InAppUpdateInstaller.downloadAndInstall(this@MainActivity, downloadUrl)
+                                                withContext(Dispatchers.Main) {
+                                                    if (result.error == "install_permission_required") {
+                                                        Toast.makeText(this@MainActivity, getString(R.string.update_install_permission_required), Toast.LENGTH_LONG).show()
+                                                    } else if (result.error == "signature_mismatch") {
+                                                        Toast.makeText(this@MainActivity, getString(R.string.update_signature_mismatch), Toast.LENGTH_LONG).show()
+                                                    } else if (result.error != null) {
+                                                        Toast.makeText(this@MainActivity, getString(R.string.update_download_failed), Toast.LENGTH_LONG).show()
+                                                    }
+                                                }
+                                                if (result.error == null) {
+                                                    withContext(Dispatchers.Main) { updateViewModel.dismissDialog() }
+                                                }
+                                            }
+                                        } else if (currentUpdateInfo.releaseUrl.isNotBlank()) {
                                             try {
-                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl))
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(currentUpdateInfo.releaseUrl))
                                                 startActivity(intent)
                                                 updateViewModel.dismissDialog()
                                             } catch (e: Exception) {
@@ -580,8 +645,142 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        handleShareIntent(intent)
         if (!isEnvironmentRestricted.value && !isAppLocked.value) {
             handleVoiceIntent(intent)
+            processPendingSharedUris()
+        }
+    }
+
+    private fun handleShareIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action
+        if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return
+
+        val uris = mutableListOf<Uri>()
+
+        if (action == Intent.ACTION_SEND) {
+            val streamUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+            }
+
+            if (streamUri != null) {
+                uris.add(streamUri)
+            } else {
+                val textExtra = intent.getStringExtra(Intent.EXTRA_TEXT)
+                    ?: intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+                if (!textExtra.isNullOrBlank()) {
+                    val tempUri = createTempTextFileUri(textExtra)
+                    if (tempUri != null) uris.add(tempUri)
+                } else {
+                    intent.data?.let { uris.add(it) }
+                }
+            }
+        } else {
+            val streamUris = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+            }
+            if (!streamUris.isNullOrEmpty()) {
+                uris.addAll(streamUris)
+            }
+        }
+
+        if (uris.isEmpty() && intent.clipData != null) {
+            val clipData = intent.clipData!!
+            for (i in 0 until clipData.itemCount) {
+                val item = clipData.getItemAt(i)
+                if (item.uri != null) {
+                    uris.add(item.uri)
+                } else if (!item.text.isNullOrBlank()) {
+                    val tempUri = createTempTextFileUri(item.text.toString())
+                    if (tempUri != null) uris.add(tempUri)
+                }
+            }
+        }
+
+        if (uris.isNotEmpty()) {
+            synchronized(pendingSharedUris) {
+                pendingSharedUris.addAll(uris)
+            }
+            if (!isEnvironmentRestricted.value && !isAppLocked.value) {
+                processPendingSharedUris()
+            }
+        }
+    }
+
+    private fun createTempTextFileUri(text: String): Uri? {
+        return try {
+            val prefix = if (text.startsWith("http://") || text.startsWith("https://")) "shared_link" else "shared_text"
+            val file = java.io.File(cacheDir, "${prefix}_${System.currentTimeMillis()}.txt")
+            file.writeText(text)
+            Uri.fromFile(file)
+        } catch (e: Exception) {
+            Log.e("TetherActivity", "Failed creating temp text file for share", e)
+            null
+        }
+    }
+
+    private fun processPendingSharedUris() {
+        val toSend = synchronized(pendingSharedUris) {
+            val list = ArrayList(pendingSharedUris)
+            pendingSharedUris.clear()
+            list
+        }
+        if (toSend.isEmpty()) return
+
+        lifecycleScope.launch(Dispatchers.Main) {
+            if (checkPermissions()) {
+                startLanService()
+            }
+            val s = TetherLanService.instance
+            val hostIp = connectedHostAddress.value.ifBlank { s?.connectedHostAddress }
+            if (s == null || hostIp.isNullOrBlank()) {
+                synchronized(pendingSharedUris) {
+                    pendingSharedUris.addAll(toSend)
+                }
+                return@launch
+            }
+
+            var count = 0
+            val remaining = mutableListOf<Uri>()
+
+            withContext(Dispatchers.IO) {
+                val token = s.requestFileTransferToken()
+                if (token.isNullOrBlank()) {
+                    remaining.addAll(toSend)
+                } else {
+                    toSend.forEach { uri ->
+                        try {
+                            FileTransferClient.uploadFile(hostIp, uri, "", this@MainActivity, token)
+                            count++
+                        } catch (e: Exception) {
+                            Log.e("TetherActivity", "Failed to upload shared file: ${e.message}")
+                            remaining.add(uri)
+                        }
+                    }
+                }
+            }
+
+            if (remaining.isNotEmpty()) {
+                synchronized(pendingSharedUris) {
+                    pendingSharedUris.addAll(remaining)
+                }
+            }
+
+            if (count > 0) {
+                val msg = if (count == 1) {
+                    getString(R.string.toast_sharing_to_pc)
+                } else {
+                    getString(R.string.toast_files_sending_to_pc, count)
+                }
+                Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -618,10 +817,11 @@ class MainActivity : FragmentActivity() {
         super.onStart()
         if (isEnvironmentRestricted.value) return
 
-        if (!isAppLocked.value && checkPermissions()) {
+        if (isAppLocked.value) return
+
+        if (checkPermissions()) {
             startLanService()
-            syncLanState()
-        } else if (!isAppLocked.value) {
+        } else {
             requestPermissions()
             return
         }
@@ -645,11 +845,11 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         updatePermissionStates()
+        if (isAppLocked.value) return
         updateViewModel.checkForUpdate(BuildConfig.VERSION_NAME, this)
         if (isEnvironmentRestricted.value || isPanicActive.value) return
-        if (!isAppLocked.value && checkPermissions()) {
+        if (checkPermissions()) {
             startLanService()
-            syncLanState()
         }
     }
 
@@ -681,11 +881,12 @@ class MainActivity : FragmentActivity() {
             if (success) {
                 runOnUiThread {
                     lastBiometricAuthTime = System.currentTimeMillis()
-                    isAppLocked.value = false
-                    getSharedPreferences(preferenceName, MODE_PRIVATE).edit(commit = true) {
+                    getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
                         putBoolean("has_unlocked_app_once", true)
                         putLong(appLockBackgroundTimestampKey, 0L)
                     }
+
+                    isAppLocked.value = false
 
                     lifecycleScope.launch(Dispatchers.IO) {
                         val report = DeviceIntegrityRegistry(this@MainActivity).getCachedOrFastReport()
@@ -701,7 +902,6 @@ class MainActivity : FragmentActivity() {
                                 } else {
                                     requestPermissions()
                                 }
-                                syncLanState()
                                 handleVoiceIntent(intent)
                                 
                                 // Background evaluation of slow integrity checks
@@ -735,6 +935,7 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    @SuppressLint("BatteryLife")
     private fun requestBatteryOptimizationExemption() {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
@@ -799,14 +1000,33 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun authenticateViaSystem(title: String, subtitle: String, allowedAuthenticators: Int, callback: (Boolean) -> Unit) {
+    private fun authenticateViaSystem(
+        title: String,
+        subtitle: String,
+        allowedAuthenticators: Int,
+        cryptoObject: BiometricPrompt.CryptoObject? = null,
+        requireCryptoObject: Boolean = false,
+        callback: (Boolean) -> Unit
+    ) {
+        if (requireCryptoObject && cryptoObject == null) {
+            Log.e("TetherActivity", "Biometric authentication aborted: CryptoObject required but null (fail-closed)")
+            callback(false)
+            return
+        }
+
         runOnUiThread {
+            val effectiveAuthenticators = if (cryptoObject != null) {
+                BiometricManager.Authenticators.BIOMETRIC_STRONG
+            } else {
+                allowedAuthenticators
+            }
+
             val promptBuilder = BiometricPrompt.PromptInfo.Builder()
                 .setTitle(title)
                 .setSubtitle(subtitle)
                 .setConfirmationRequired(false) // Accelerate biometric auth
-                .setAllowedAuthenticators(allowedAuthenticators)
-            if ((allowedAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
+                .setAllowedAuthenticators(effectiveAuthenticators)
+            if ((effectiveAuthenticators and BiometricManager.Authenticators.DEVICE_CREDENTIAL) == 0) {
                 promptBuilder.setNegativeButtonText(getString(R.string.btn_abort))
             }
 
@@ -816,6 +1036,11 @@ class MainActivity : FragmentActivity() {
                 object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                         super.onAuthenticationSucceeded(result)
+                        if (requireCryptoObject && result.cryptoObject == null) {
+                            Log.w("TetherActivity", "Authentication succeeded but CryptoObject is null (fail-closed)")
+                            callback(false)
+                            return
+                        }
                         Log.i("TetherActivity", "Authenticated via biometric prompt.")
                         callback(true)
                     }
@@ -828,7 +1053,18 @@ class MainActivity : FragmentActivity() {
             )
 
             val promptInfo = promptBuilder.build()
-            biometricPrompt.authenticate(promptInfo)
+            try {
+                if (cryptoObject != null) {
+                    biometricPrompt.authenticate(promptInfo, cryptoObject)
+                } else if (!requireCryptoObject) {
+                    biometricPrompt.authenticate(promptInfo)
+                } else {
+                    callback(false)
+                }
+            } catch (e: Exception) {
+                Log.e("TetherActivity", "Failed launching BiometricPrompt: ${e.message}")
+                callback(false)
+            }
         }
     }
 
@@ -895,8 +1131,17 @@ class MainActivity : FragmentActivity() {
             .show()
     }
 
-    private fun triggerLanAction(action: String) {
-        if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
+    private fun triggerLanAction(action: String, isAuthorizedBiometric: Boolean = false) {
+        val isUnlock = action.equals("unlock", ignoreCase = true)
+        if (isEnvironmentRestricted.value || !checkPermissions()) return
+        if (isUnlock && !isAuthorizedBiometric) {
+            Log.w("TetherActivity", "Unlock action rejected: biometric authorization required.")
+            return
+        }
+        if (isAppLocked.value && !(isUnlock && isAuthorizedBiometric)) {
+            Log.w("TetherActivity", "Action '$action' blocked by app lock guard.")
+            return
+        }
 
         Log.d("TetherActivity", "Triggering LAN action: $action")
         dismissalJob?.cancel()
@@ -913,6 +1158,11 @@ class MainActivity : FragmentActivity() {
             }
             actionLower == "volume_mute" || actionLower == "mute" -> {
                 isMuted.value = !isMuted.value
+                val s = TetherLanService.instance
+                if (s != null) {
+                    s.sendSetMasterMute(isMuted.value)
+                    return
+                }
             }
             actionLower.startsWith("volume_set:") -> {
                 action.substringAfter("volume_set:").toIntOrNull()?.let {
@@ -996,9 +1246,7 @@ class MainActivity : FragmentActivity() {
         updatePermissionStates()
         if (requestCode == requestPermissionsCode) {
             if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                if (!isAppLocked.value) {
-                    startLanService()
-                }
+                startLanService()
             } else {
                 uiStatusText.value = getString(R.string.status_permissions_required)
                 uiStatusColor.value = AlertRed
@@ -1206,12 +1454,57 @@ class MainActivity : FragmentActivity() {
             )
         }
 
+        val isNotifListenerGranted = NotificationManagerCompat.getEnabledListenerPackages(context).contains(packageName)
+        list.add(
+            PermissionItemState(
+                id = "notification_listener",
+                title = "Notification Access",
+                description = "Lets Tether mirror Android notifications to your paired Windows PC.",
+                level = PermissionLevel.HIGH,
+                isGranted = isNotifListenerGranted,
+                actionText = "CONFIGURE",
+                onClick = {
+                    if (!isNotifListenerGranted) {
+                        try {
+                            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        } catch (_: Exception) {
+                            openAppSettings()
+                        }
+                    }
+                }
+            )
+        )
+
+        val canInstallPackages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            packageManager.canRequestPackageInstalls()
+        } else true
+        list.add(
+            PermissionItemState(
+                id = "install_packages",
+                title = "Install Unknown Apps",
+                description = "Required for in-app Tether updates to install the downloaded update package.",
+                level = PermissionLevel.HIGH,
+                isGranted = canInstallPackages,
+                actionText = "CONFIGURE",
+                onClick = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !canInstallPackages) {
+                        try {
+                            val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+                            startActivity(intent)
+                        } catch (_: Exception) {
+                            openAppSettings()
+                        }
+                    }
+                }
+            )
+        )
+
         permissionStates.value = list
     }
 
     private fun startLanService() {
         if (isPanicActive.value || isEnvironmentRestricted.value) return
-        getSharedPreferences(preferenceName, MODE_PRIVATE).edit(commit = true) {
+        getSharedPreferences(preferenceName, MODE_PRIVATE).edit {
             putBoolean("has_unlocked_app_once", true)
         }
         val lanIntent = Intent(this, TetherLanService::class.java).apply {
@@ -1236,8 +1529,10 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun confirmPairing(pin: String) {
+        val reqId = TetherLanService.instance?.pendingRequestId ?: ""
         val intent = Intent(this, TetherLanService::class.java).apply {
             action = TetherLanService.ACTION_CONFIRM_PAIRING
+            putExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID, reqId)
             putExtra(TetherLanService.EXTRA_PAIRING_PIN, pin)
         }
         try {
@@ -1282,7 +1577,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun syncLanState() {
-        if (isEnvironmentRestricted.value || isAppLocked.value || !checkPermissions()) return
+        if (isEnvironmentRestricted.value || !checkPermissions()) return
         val serviceIntent = Intent(this, TetherLanService::class.java).apply {
             action = "ACTION_GET_STATUS"
         }
