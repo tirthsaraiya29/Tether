@@ -486,10 +486,11 @@ public static class HardwareExecutor
 
         try
         {
-            IntPtr tokenToDuplicate = GetBestSessionToken(userToken, out IntPtr linkedTokenToClose, logger);
-            try
-            {
-                if (!DuplicateTokenEx(tokenToDuplicate, 0x10000000, IntPtr.Zero, 2, 1, out IntPtr primaryToken))
+            // SessionHelper is the desktop user session daemon (handling user UI, notifications,
+            // audio endpoints, and non-admin terminal sessions). It must run directly under the
+            // interactive user's standard (non-elevated) desktop token, preserving user isolation
+            // and allowing non-admin safe shell spawning.
+            if (!DuplicateTokenEx(userToken, 0x10000000, IntPtr.Zero, 2, 1, out IntPtr primaryToken))
             {
                 return false;
             }
@@ -548,12 +549,7 @@ public static class HardwareExecutor
                     if (envCreated && envBlock != IntPtr.Zero) DestroyEnvironmentBlock(envBlock);
                 }
             }
-                finally { CloseHandle(primaryToken); }
-            }
-            finally
-            {
-                if (linkedTokenToClose != IntPtr.Zero) CloseHandle(linkedTokenToClose);
-            }
+            finally { CloseHandle(primaryToken); }
         }
         finally { CloseHandle(userToken); }
     }

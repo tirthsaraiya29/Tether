@@ -153,6 +153,36 @@ internal sealed class TerminalSessionManager
         ref STARTUPINFO lpStartupInfo,
         out PROCESS_INFORMATION lpProcessInformation);
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct STARTUPINFOEX
+    {
+        public STARTUPINFO StartupInfo;
+        public IntPtr lpAttributeList;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool InitializeProcThreadAttributeList(
+        IntPtr lpAttributeList,
+        int dwAttributeCount,
+        int dwFlags,
+        ref IntPtr lpSize);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool UpdateProcThreadAttribute(
+        IntPtr lpAttributeList,
+        uint dwFlags,
+        IntPtr Attribute,
+        IntPtr lpValue,
+        IntPtr cbSize,
+        IntPtr lpPreviousValue,
+        IntPtr lpReturnSize);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool DeleteProcThreadAttributeList(IntPtr lpAttributeList);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct SECURITY_ATTRIBUTES
     {
@@ -195,6 +225,10 @@ internal sealed class TerminalSessionManager
 
     private const int STARTF_USESTDHANDLES = 0x00000100;
     private const uint CREATE_NO_WINDOW = 0x08000000;
+    private const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
+    private const uint PROCESS_CREATE_PROCESS = 0x0080;
+    private static readonly IntPtr PROC_THREAD_ATTRIBUTE_PARENT_PROCESS = (IntPtr)0x00020000;
+    private static readonly IntPtr PROC_THREAD_ATTRIBUTE_HANDLE_LIST = (IntPtr)0x00020002;
     private const uint HANDLE_FLAG_INHERIT = 0x00000001;
     private const uint TOKEN_QUERY = 0x0008;
     private const uint TOKEN_DUPLICATE = 0x0002;
@@ -602,6 +636,122 @@ internal sealed class TerminalSessionManager
                 else
                 {
                     Console.Error.WriteLine("TerminalSessionManager: Current process token is not safe and limited; refusing unverified CreateProcessW.");
+                }
+            }
+
+            // Strategy 3: If the hosting process is elevated and CreateProcessWithTokenW failed,
+            // spawn the non-elevated terminal process under the interactive user's shell (explorer.exe)
+            // using PROC_THREAD_ATTRIBUTE_PARENT_PROCESS and PROC_THREAD_ATTRIBUTE_HANDLE_LIST.
+            if (!processCreated)
+            {
+                try
+                {
+                    int currentSessionId = Process.GetCurrentProcess().SessionId;
+                    var explorer = Process.GetProcessesByName("explorer")
+                        .FirstOrDefault(p => p.SessionId == currentSessionId);
+
+                    if (explorer != null)
+                    {
+                        IntPtr hExplorer = OpenProcess(PROCESS_CREATE_PROCESS, false, explorer.Id);
+                        if (hExplorer != IntPtr.Zero)
+                        {
+                            try
+                            {
+                                IntPtr size = IntPtr.Zero;
+                                InitializeProcThreadAttributeList(IntPtr.Zero, 2, 0, ref size);
+                                IntPtr pAttrList = Marshal.AllocHGlobal(size);
+                                try
+                                {
+                                    if (InitializeProcThreadAttributeList(pAttrList, 2, 0, ref size))
+                                    {
+                                        IntPtr pParent = Marshal.AllocHGlobal(IntPtr.Size);
+                                        Marshal.WriteIntPtr(pParent, hExplorer);
+                                        try
+                                        {
+                                            if (UpdateProcThreadAttribute(pAttrList, 0, PROC_THREAD_ATTRIBUTE_PARENT_PROCESS, pParent, (IntPtr)IntPtr.Size, IntPtr.Zero, IntPtr.Zero))
+                                            {
+                                                IntPtr[] handlesToInherit = new[] { hChildStdinRead, hChildStdoutWrite, hChildStderrWrite };
+                                                GCHandle gch = GCHandle.Alloc(handlesToInherit, GCHandleType.Pinned);
+                                                try
+                                                {
+                                                    if (UpdateProcThreadAttribute(pAttrList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, gch.AddrOfPinnedObject(), (IntPtr)(handlesToInherit.Length * IntPtr.Size), IntPtr.Zero, IntPtr.Zero))
+                                                    {
+                                                        var siex = new STARTUPINFOEX
+                                                        {
+                                                            StartupInfo = si,
+                                                            lpAttributeList = pAttrList
+                                                        };
+                                                        siex.StartupInfo.cb = Marshal.SizeOf<STARTUPINFOEX>();
+
+                                                        if (CreateProcessW(
+                                                            null,
+                                                            cmdLine,
+                                                            IntPtr.Zero,
+                                                            IntPtr.Zero,
+                                                            true,
+                                                            CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
+                                                            IntPtr.Zero,
+                                                            workingDir,
+                                                            ref siex.StartupInfo,
+                                                            out pi))
+                                                        {
+                                                            bool childSafe = false;
+                                                            if (OpenProcessToken(pi.hProcess, TOKEN_QUERY, out IntPtr hChildToken))
+                                                            {
+                                                                try
+                                                                {
+                                                                    childSafe = IsTokenSafeAndLimited(hChildToken);
+                                                                }
+                                                                finally
+                                                                {
+                                                                    CloseHandle(hChildToken);
+                                                                }
+                                                            }
+
+                                                            if (childSafe)
+                                                            {
+                                                                processCreated = true;
+                                                            }
+                                                            else
+                                                            {
+                                                                Console.Error.WriteLine("TerminalSessionManager: Explorer-parented child failed safety check (fail-closed).");
+                                                                try { TerminateProcess(pi.hProcess, 1); } catch { }
+                                                                CloseHandle(pi.hProcess);
+                                                                CloseHandle(pi.hThread);
+                                                                pi.hProcess = IntPtr.Zero;
+                                                                pi.hThread = IntPtr.Zero;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                finally
+                                                {
+                                                    gch.Free();
+                                                }
+                                            }
+                                        }
+                                        finally
+                                        {
+                                            Marshal.FreeHGlobal(pParent);
+                                        }
+                                    }
+                                }
+                                finally
+                                {
+                                    DeleteProcThreadAttributeList(pAttrList);
+                                    Marshal.FreeHGlobal(pAttrList);
+                                }
+                            }
+                            finally
+                            {
+                                CloseHandle(hExplorer);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"TerminalSessionManager: Strategy 3 (explorer parent) exception: {ex.Message}");
                 }
             }
 
