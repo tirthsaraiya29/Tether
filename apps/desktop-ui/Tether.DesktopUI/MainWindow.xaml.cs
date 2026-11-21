@@ -75,6 +75,103 @@ namespace Tether.DesktopUI
             catch { }
         }
 
+        private static string GetPairedDevicesCacheFilePath()
+        {
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            return Path.Combine(localAppData, "Tether", "paired_devices.json");
+        }
+
+        private static void SavePairedDevicesCache(IEnumerable<PairedDeviceViewModel> devices)
+        {
+            try
+            {
+                string path = GetPairedDevicesCacheFilePath();
+                string? dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+                var list = devices.ToList();
+                string json = JsonSerializer.Serialize(list, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(path, json);
+            }
+            catch { }
+        }
+
+        private void LoadPairedDevicesFromCache()
+        {
+            try
+            {
+                // 1. Check local user profile cache in %LocalAppData%\Tether\paired_devices.json
+                string localPath = GetPairedDevicesCacheFilePath();
+                if (File.Exists(localPath))
+                {
+                    string json = File.ReadAllText(localPath);
+                    var cached = JsonSerializer.Deserialize<List<PairedDeviceViewModel>>(json, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    if (cached != null && cached.Count > 0)
+                    {
+                        PairedDevices.Clear();
+                        foreach (var d in cached) PairedDevices.Add(d);
+                        UpdatePairedUi();
+                        return;
+                    }
+                }
+
+                // 2. Check service public paired device cache in %ProgramData%\Tether\paired_devices_cache.json
+                string commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                string serviceSummary = Path.Combine(commonAppData, "Tether", "paired_devices_cache.json");
+                if (File.Exists(serviceSummary))
+                {
+                    string json = File.ReadAllText(serviceSummary);
+                    var cached = JsonSerializer.Deserialize<List<PairedDeviceViewModel>>(json, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    if (cached != null && cached.Count > 0)
+                    {
+                        PairedDevices.Clear();
+                        foreach (var d in cached) PairedDevices.Add(d);
+                        SavePairedDevicesCache(PairedDevices);
+                        UpdatePairedUi();
+                        return;
+                    }
+                }
+
+                // 3. Fallback: scan %LocalAppData%\Tether\logs\desktop-ui.log for enrolled phone traces
+                string logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tether", "logs", "desktop-ui.log");
+                if (File.Exists(logPath))
+                {
+                    var lines = File.ReadAllLines(logPath);
+                    foreach (var line in lines.Reverse())
+                    {
+                        if (line.Contains("Pairing request from "))
+                        {
+                            int idx = line.IndexOf("Pairing request from ", StringComparison.Ordinal);
+                            string rest = line.Substring(idx + "Pairing request from ".Length);
+                            int end = rest.IndexOf('.');
+                            string devName = end > 0 ? rest.Substring(0, end).Trim() : rest.Trim();
+                            if (!string.IsNullOrEmpty(devName))
+                            {
+                                PairedDevices.Clear();
+                                PairedDevices.Add(new PairedDeviceViewModel
+                                {
+                                    DeviceId = devName,
+                                    DisplayName = devName.Contains("SM-") ? $"Samsung Galaxy ({devName})" : devName,
+                                    Fingerprint = $"{devName}-PAIRED",
+                                    LastSeen = DateTime.UtcNow
+                                });
+                                SavePairedDevicesCache(PairedDevices);
+                                UpdatePairedUi();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
         private void UpdatePairedUi()
         {
             if (TxtPairedCount != null)
@@ -118,6 +215,7 @@ namespace Tether.DesktopUI
                     if (dev != null)
                     {
                         PairedDevices.Remove(dev);
+                        SavePairedDevicesCache(PairedDevices);
                         UpdatePairedUi();
                     }
                     LogTerminal($"Revoked pairing for {name}.");
@@ -376,24 +474,32 @@ namespace Tether.DesktopUI
             UpdateNotificationVisibility();
             LoadFallbackAuthConfig();
             if (PairedDevicesList != null) PairedDevicesList.ItemsSource = PairedDevices;
+            LoadPairedDevicesFromCache();
             UpdatePairedUi();
 
             ResolveUserContext();
             LogTerminal("Tether is ready.");
             EnsureVaultDaclArchitecture();
 
-            // Ask the running service for current phone state so a UI launched after the
-            // service already shows CONNECTED / paired devices instead of waiting for an event.
-            DispatchServiceBusPipe(new TetherEvent
-            {
-                EventType = TetherEventType.TELEMETRY_SYNC_REQUESTED,
-                Source = "DesktopUI"
-            });
-
             StateChanged += MainWindow_StateChanged;
 
             _ = RunTelemetryListenerAsync();
             InitializeHardwarePolling();
+
+            // Ask the running service for current phone state with background retry
+            _ = Task.Run(async () =>
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    DispatchServiceBusPipe(new TetherEvent
+                    {
+                        EventType = TetherEventType.TELEMETRY_SYNC_REQUESTED,
+                        Source = "DesktopUI"
+                    });
+                    await Task.Delay(1500);
+                    if (PairedDevices.Count > 0) break;
+                }
+            });
 
             _updateWatcher.UpdateDetected += result =>
             {
@@ -667,6 +773,42 @@ namespace Tether.DesktopUI
                     IndicatorNode.Fill = healthyBrush;
                     IndicatorHalo.Fill = GetFluentBrush("HealthyHaloBrush", Color.FromArgb(90, 16, 185, 129));
                     LogTerminal("Phone connected.");
+
+                    if (!string.IsNullOrEmpty(evt.PayloadJson))
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(evt.PayloadJson);
+                            var root = doc.RootElement;
+                            string devName = root.TryGetProperty("displayName", out var dn) ? dn.GetString() ?? "" : "";
+                            string fp = root.TryGetProperty("fingerprint", out var f) ? f.GetString() ?? "" : "";
+                            string did = root.TryGetProperty("deviceId", out var d) ? d.GetString() ?? "" : "";
+
+                            if (!string.IsNullOrEmpty(fp) && !PairedDevices.Any(p => string.Equals(p.Fingerprint, fp, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                PairedDevices.Add(new PairedDeviceViewModel
+                                {
+                                    DeviceId = string.IsNullOrEmpty(did) ? fp : did,
+                                    DisplayName = string.IsNullOrEmpty(devName) ? "Connected Phone" : devName,
+                                    Fingerprint = fp,
+                                    LastSeen = DateTime.UtcNow
+                                });
+                                SavePairedDevicesCache(PairedDevices);
+                                UpdatePairedUi();
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (PairedDevices.Count == 0)
+                    {
+                        DispatchServiceBusPipe(new TetherEvent
+                        {
+                            EventType = TetherEventType.TELEMETRY_SYNC_REQUESTED,
+                            Source = "DesktopUI"
+                        });
+                    }
+
                     ForceTelemetrySyncToPhone();
                     break;
 
@@ -738,10 +880,11 @@ namespace Tether.DesktopUI
                             {
                                 PropertyNameCaseInsensitive = true
                             });
-                            if (list != null)
+                            if (list != null && list.Count > 0)
                             {
                                 PairedDevices.Clear();
                                 foreach (var d in list) PairedDevices.Add(d);
+                                SavePairedDevicesCache(PairedDevices);
                                 UpdatePairedUi();
                             }
                         }
@@ -1334,6 +1477,15 @@ namespace Tether.DesktopUI
             finally
             {
                 BtnRestartService.IsEnabled = true;
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(1500);
+                    DispatchServiceBusPipe(new TetherEvent
+                    {
+                        EventType = TetherEventType.TELEMETRY_SYNC_REQUESTED,
+                        Source = "DesktopUI"
+                    });
+                });
             }
         }
 
@@ -2563,7 +2715,7 @@ namespace Tether.DesktopUI
                     if (TxtVaultTitle != null) TxtVaultTitle.Text = "Save Microsoft Account Password";
                     if (TxtVaultDescription != null)
                     {
-                        TxtVaultDescription.Text = $"Enter the Microsoft Account password for {_currentAccountInfo.DisplayIdentity} so Tether can unlock your PC automatically when your phone is nearby. Windows Hello PINs cannot be used because Windows credential authentication requires your account password.";
+                        TxtVaultDescription.Text = $"Enter the Microsoft Account password for {_currentAccountInfo.DisplayIdentity} to authorize auto-unlock. Windows Hello PINs cannot unlock the Windows credential provider.";
                     }
                     if (TxtPasswordPlaceholder != null)
                     {

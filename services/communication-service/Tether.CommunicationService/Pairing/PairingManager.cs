@@ -267,6 +267,25 @@ public sealed class PairingManager
 
         _pending.TryRemove(requestId, out _);
         _logger.Info($"PairingManager: Pairing request '{requestId}' successfully verified! Phone '{pending.DisplayName}' pinned.");
+
+        try
+        {
+            var allTrusted = _deviceManager.GetPairedDevices().Select(d => new
+            {
+                deviceId = d.DeviceId,
+                displayName = d.DisplayName,
+                fingerprint = d.Fingerprint,
+                lastSeen = d.LastSeenUtc
+            }).ToList();
+            _eventBus.Publish(new TetherEvent
+            {
+                EventType = TetherEventType.PROVISION_PHONE,
+                Source = "PairingManager",
+                PayloadJson = JsonSerializer.Serialize(allTrusted)
+            });
+        }
+        catch { }
+
         return true;
     }
 

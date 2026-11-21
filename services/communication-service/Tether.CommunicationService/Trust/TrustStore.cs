@@ -279,6 +279,22 @@ public sealed class TrustStore
 
                 File.Move(tempFile, _dataFile, overwrite: true);
                 EnsureFileAcl(_dataFile);
+
+                try
+                {
+                    var summaryList = snapshot.Select(p => new
+                    {
+                        deviceId = p.DeviceId,
+                        displayName = p.DisplayName,
+                        fingerprint = p.Fingerprint,
+                        lastSeen = p.LastSeenUtc
+                    }).ToList();
+                    string summaryJson = JsonSerializer.Serialize(summaryList, new JsonSerializerOptions { WriteIndented = true });
+                    string summaryFile = Path.Combine(_dataDir, "paired_devices_cache.json");
+                    File.WriteAllText(summaryFile, summaryJson);
+                    EnsureFileAcl(summaryFile);
+                }
+                catch { /* best effort */ }
             }
             catch (Exception ex)
             {
@@ -298,6 +314,7 @@ public sealed class TrustStore
 
             var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
             var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var authUsersSid = new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null);
             var currentIdentity = WindowsIdentity.GetCurrent().User;
 
             sec.AddAccessRule(new FileSystemAccessRule(
@@ -310,6 +327,13 @@ public sealed class TrustStore
             sec.AddAccessRule(new FileSystemAccessRule(
                 adminSid,
                 FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None,
+                AccessControlType.Allow));
+
+            sec.AddAccessRule(new FileSystemAccessRule(
+                authUsersSid,
+                FileSystemRights.ReadAndExecute,
                 InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
                 PropagationFlags.None,
                 AccessControlType.Allow));
@@ -344,10 +368,12 @@ public sealed class TrustStore
 
             var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
             var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var authUsersSid = new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null);
             var currentIdentity = WindowsIdentity.GetCurrent().User;
 
             sec.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, AccessControlType.Allow));
             sec.AddAccessRule(new FileSystemAccessRule(adminSid, FileSystemRights.FullControl, AccessControlType.Allow));
+            sec.AddAccessRule(new FileSystemAccessRule(authUsersSid, FileSystemRights.Read, AccessControlType.Allow));
 
             if (currentIdentity != null && !currentIdentity.Equals(systemSid) && !currentIdentity.Equals(adminSid))
             {
