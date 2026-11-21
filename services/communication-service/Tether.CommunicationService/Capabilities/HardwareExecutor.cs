@@ -1,4 +1,5 @@
 ﻿using System.Security.Principal;
+using System.Security.AccessControl;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -719,23 +720,30 @@ public static class HardwareExecutor
     {
         try
         {
+            if (EventWaitHandleAcl.TryOpenExisting(eventName, EventWaitHandleRights.Modify | EventWaitHandleRights.ReadPermissions, out var existingEvt))
+            {
+                using (existingEvt)
+                {
+                    var accessControl = existingEvt.GetAccessControl();
+                    var owner = accessControl.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+                    if (owner == null || (!owner.IsWellKnown(WellKnownSidType.LocalSystemSid) && !owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid)))
+                    {
+                        logger.Warning($"HardwareExecutor: Untrusted owner '{owner?.Value}' on existing event '{eventName}'. Signal aborted.");
+                        return false;
+                    }
+
+                    bool setOk = existingEvt.Set();
+                    logger.Info($"HardwareExecutor: Signaled existing unlock event '{eventName}', setOk={setOk}");
+                    return setOk;
+                }
+            }
+
             var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
             sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)");
             using var evt = EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, eventName, out bool createdNew, sec);
-            if (!createdNew)
-            {
-                var accessControl = evt.GetAccessControl();
-                var owner = accessControl.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
-                if (owner == null || (!owner.IsWellKnown(WellKnownSidType.LocalSystemSid) && !owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid)))
-                {
-                    logger.Warning($"HardwareExecutor: Untrusted owner '{owner?.Value}' on existing event '{eventName}'. Signal aborted.");
-                    return false;
-                }
-                evt.SetAccessControl(sec);
-            }
-            bool setOk = evt.Set();
-            logger.Info($"HardwareExecutor: {(createdNew ? "Created & " : "")}Signaled unlock event '{eventName}', setOk={setOk}");
-            return setOk;
+            bool createdSetOk = evt.Set();
+            logger.Info($"HardwareExecutor: Created & Signaled unlock event '{eventName}', setOk={createdSetOk}");
+            return createdSetOk;
         }
         catch (Exception ex)
         {

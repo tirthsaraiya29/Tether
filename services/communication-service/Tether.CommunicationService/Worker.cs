@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Security.AccessControl;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
@@ -310,24 +311,26 @@ public sealed class Worker : BackgroundService
     {
         try
         {
-            var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
-            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)");
-            _appUnlockedEvent = EventWaitHandleAcl.Create(
-                false, EventResetMode.ManualReset, @"Global\TetherPhoneAppUnlocked", out bool createdNewUnlocked, sec);
-            if (!createdNewUnlocked)
+            if (EventWaitHandleAcl.TryOpenExisting(@"Global\TetherPhoneAppUnlocked", EventWaitHandleRights.Modify | EventWaitHandleRights.ReadPermissions, out var existingUnlocked))
             {
-                var ac = _appUnlockedEvent.GetAccessControl();
+                var ac = existingUnlocked.GetAccessControl();
                 var owner = ac.GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
                 if (owner == null || (!owner.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid) && !owner.IsWellKnown(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid)))
                 {
                     _tetherLogger.Warning($"Worker: Untrusted owner '{owner?.Value}' on unlock event. Discarding.");
-                    _appUnlockedEvent.Dispose();
-                    _appUnlockedEvent = null;
+                    existingUnlocked.Dispose();
                 }
                 else
                 {
-                    _appUnlockedEvent.SetAccessControl(sec);
+                    _appUnlockedEvent = existingUnlocked;
                 }
+            }
+            else
+            {
+                var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
+                sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)");
+                _appUnlockedEvent = EventWaitHandleAcl.Create(
+                    false, EventResetMode.ManualReset, @"Global\TetherPhoneAppUnlocked", out _, sec);
             }
         }
         catch (Exception ex)
@@ -337,24 +340,26 @@ public sealed class Worker : BackgroundService
 
         try
         {
-            var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
-            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)");
-            _phoneConnectedEvent = EventWaitHandleAcl.Create(
-                false, EventResetMode.ManualReset, @"Global\TetherPhoneConnected", out bool createdNewConnected, sec);
-            if (!createdNewConnected)
+            if (EventWaitHandleAcl.TryOpenExisting(@"Global\TetherPhoneConnected", EventWaitHandleRights.Modify | EventWaitHandleRights.ReadPermissions, out var existingConnected))
             {
-                var ac = _phoneConnectedEvent.GetAccessControl();
+                var ac = existingConnected.GetAccessControl();
                 var owner = ac.GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
                 if (owner == null || (!owner.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid) && !owner.IsWellKnown(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid)))
                 {
                     _tetherLogger.Warning($"Worker: Untrusted owner '{owner?.Value}' on phone connected event. Discarding.");
-                    _phoneConnectedEvent.Dispose();
-                    _phoneConnectedEvent = null;
+                    existingConnected.Dispose();
                 }
                 else
                 {
-                    _phoneConnectedEvent.SetAccessControl(sec);
+                    _phoneConnectedEvent = existingConnected;
                 }
+            }
+            else
+            {
+                var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
+                sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)");
+                _phoneConnectedEvent = EventWaitHandleAcl.Create(
+                    false, EventResetMode.ManualReset, @"Global\TetherPhoneConnected", out _, sec);
             }
 
             if (_phoneConnectedEvent != null)
@@ -385,27 +390,24 @@ public sealed class Worker : BackgroundService
     {
         try
         {
-            var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
-            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)");
-            // ManualReset: the CP can't safely Set+Reset from the secure desktop
-            // (lost-signal race), so we consume the signal here.
-            _unlockPromptEvent = EventWaitHandleAcl.Create(
-                false, EventResetMode.ManualReset, @"Global\TetherUnlockPromptRequested", out bool createdNewPrompt, sec);
-            if (!createdNewPrompt)
+            if (EventWaitHandleAcl.TryOpenExisting(@"Global\TetherUnlockPromptRequested", EventWaitHandleRights.Modify | EventWaitHandleRights.ReadPermissions | EventWaitHandleRights.Synchronize, out var existingPrompt))
             {
-                var ac = _unlockPromptEvent.GetAccessControl();
+                var ac = existingPrompt.GetAccessControl();
                 var owner = ac.GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
                 if (owner == null || (!owner.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid) && !owner.IsWellKnown(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid)))
                 {
                     _tetherLogger.Warning($"UnlockPromptRelay: Untrusted owner '{owner?.Value}' on request event. Relay aborted.");
-                    _unlockPromptEvent.Dispose();
-                    _unlockPromptEvent = null;
+                    existingPrompt.Dispose();
                     return;
                 }
-                else
-                {
-                    _unlockPromptEvent.SetAccessControl(sec);
-                }
+                _unlockPromptEvent = existingPrompt;
+            }
+            else
+            {
+                var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
+                sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)");
+                _unlockPromptEvent = EventWaitHandleAcl.Create(
+                    false, EventResetMode.ManualReset, @"Global\TetherUnlockPromptRequested", out _, sec);
             }
         }
         catch (Exception ex)
