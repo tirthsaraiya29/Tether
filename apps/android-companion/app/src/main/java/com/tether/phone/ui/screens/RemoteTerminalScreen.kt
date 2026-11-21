@@ -87,16 +87,30 @@ fun RemoteTerminalScreen(
                         val sessId = intent.getStringExtra("sessionId") ?: ""
                         val shell = intent.getStringExtra("shellType") ?: "powershell"
                         val dir = intent.getStringExtra("workingDir") ?: ""
+                        val success = intent.getBooleanExtra("success", true)
 
-                        if (type == "TERMINAL_SESSION_STARTED" && sessId.isNotEmpty()) {
+                        if (!success) {
+                            val reason = intent.getStringExtra("reason") ?: "Failed to start terminal session"
+                            val sb = sessionOutputs.getOrPut(currentSessionId) { StringBuilder() }
+                            sb.append("\n[Error] $reason\n\n")
+                            sessionOutputs[currentSessionId] = StringBuilder(sb.toString())
+                        } else if (type == "TERMINAL_SESSION_STARTED" && sessId.isNotEmpty()) {
                             if (activeSessions.size == 1 && activeSessions[0].id == "default") {
                                 activeSessions = listOf(TerminalTab(sessId, shell, dir))
                                 currentSessionId = sessId
-                                sessionOutputs[sessId] = StringBuilder("Session started: $shell ($sessId)\n\n")
+                                val sb = sessionOutputs.getOrPut(sessId) { StringBuilder() }
+                                if (sb.isEmpty()) {
+                                    sb.append("Session started: $shell ($sessId)\n\n")
+                                    sessionOutputs[sessId] = StringBuilder(sb.toString())
+                                }
                             } else if (activeSessions.none { it.id == sessId }) {
                                 activeSessions = activeSessions + TerminalTab(sessId, shell, dir)
                                 currentSessionId = sessId
-                                sessionOutputs[sessId] = StringBuilder("Session started: $shell ($sessId)\n\n")
+                                val sb = sessionOutputs.getOrPut(sessId) { StringBuilder() }
+                                if (sb.isEmpty()) {
+                                    sb.append("Session started: $shell ($sessId)\n\n")
+                                    sessionOutputs[sessId] = StringBuilder(sb.toString())
+                                }
                             }
                         } else if (type == "TERMINAL_SESSION_CLOSED" && sessId.isNotEmpty()) {
                             activeSessions = activeSessions.filter { it.id != sessId }
@@ -120,9 +134,9 @@ fun RemoteTerminalScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (activeSessions.all { it.id == "default" }) {
-            service?.sendTerminalStart("powershell")
+    LaunchedEffect(service) {
+        if (service != null && activeSessions.all { it.id == "default" }) {
+            service.sendTerminalStart("powershell")
         }
     }
 
@@ -281,7 +295,8 @@ fun RemoteTerminalScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     fun sendKey(k: String) {
-                        service?.sendTerminalInput(currentSessionId, k)
+                        val targetId = if (currentSessionId != "default") currentSessionId else (activeSessions.firstOrNull { it.id != "default" }?.id ?: "default")
+                        service?.sendTerminalInput(targetId, k)
                     }
 
                     OutlinedButton(
@@ -373,7 +388,8 @@ fun RemoteTerminalScreen(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                         keyboardActions = KeyboardActions(onSend = {
                             if (commandInput.isNotEmpty()) {
-                                service?.sendTerminalInput(currentSessionId, commandInput + "\r\n")
+                                val targetId = if (currentSessionId != "default") currentSessionId else (activeSessions.firstOrNull { it.id != "default" }?.id ?: "default")
+                                service?.sendTerminalInput(targetId, commandInput + "\r\n")
                                 commandInput = ""
                             }
                         }),
@@ -393,7 +409,8 @@ fun RemoteTerminalScreen(
                     IconButton(
                         onClick = {
                             if (commandInput.isNotEmpty()) {
-                                service?.sendTerminalInput(currentSessionId, commandInput + "\r\n")
+                                val targetId = if (currentSessionId != "default") currentSessionId else (activeSessions.firstOrNull { it.id != "default" }?.id ?: "default")
+                                service?.sendTerminalInput(targetId, commandInput + "\r\n")
                                 commandInput = ""
                             }
                         },

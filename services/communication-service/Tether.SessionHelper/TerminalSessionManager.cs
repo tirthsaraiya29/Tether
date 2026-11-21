@@ -140,6 +140,19 @@ internal sealed class TerminalSessionManager
         ref STARTUPINFO lpStartupInfo,
         out PROCESS_INFORMATION lpProcessInformation);
 
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool CreateProcessW(
+        string? lpApplicationName,
+        string lpCommandLine,
+        IntPtr lpProcessAttributes,
+        IntPtr lpThreadAttributes,
+        bool bInheritHandles,
+        uint dwCreationFlags,
+        IntPtr lpEnvironment,
+        string? lpCurrentDirectory,
+        ref STARTUPINFO lpStartupInfo,
+        out PROCESS_INFORMATION lpProcessInformation);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct SECURITY_ATTRIBUTES
     {
@@ -492,19 +505,108 @@ internal sealed class TerminalSessionManager
 
             string cmdLine = string.IsNullOrEmpty(arguments) ? ("\"" + exeName + "\"") : ("\"" + exeName + "\" " + arguments);
 
-            if (!CreateProcessWithTokenW(
-                hLimitedToken,
-                0,
-                null,
-                cmdLine,
-                CREATE_NO_WINDOW,
-                IntPtr.Zero,
-                workingDir,
-                ref si,
-                out pi))
+            bool processCreated = false;
+
+            // Strategy 1: Attempt to spawn with explicit restricted/limited token via CreateProcessWithTokenW.
+            // This works when running in a context with SeImpersonatePrivilege.
+            if (hLimitedToken != IntPtr.Zero)
             {
-                int err = Marshal.GetLastWin32Error();
-                Console.Error.WriteLine($"TerminalSessionManager: CreateProcessWithTokenW failed with Win32 Error: {err}.");
+                if (CreateProcessWithTokenW(
+                    hLimitedToken,
+                    0,
+                    null,
+                    cmdLine,
+                    CREATE_NO_WINDOW,
+                    IntPtr.Zero,
+                    workingDir,
+                    ref si,
+                    out pi))
+                {
+                    processCreated = true;
+                }
+                else
+                {
+                    int err = Marshal.GetLastWin32Error();
+                    Console.Error.WriteLine($"TerminalSessionManager: CreateProcessWithTokenW failed with Win32 Error: {err}.");
+                }
+            }
+
+            // Strategy 2: If CreateProcessWithTokenW failed (e.g. Win32 Error 1314 ERROR_PRIVILEGE_NOT_HELD
+            // because standard interactive user sessions do not hold SeImpersonatePrivilege):
+            // Fall back to CreateProcessW ONLY IF the current hosting process itself is verified
+            // to be safe and limited (non-SYSTEM, non-elevated, Medium/Low integrity).
+            if (!processCreated)
+            {
+                bool isCurrentSafe = false;
+                if (OpenProcessToken(Process.GetCurrentProcess().Handle, TOKEN_QUERY, out IntPtr hCurrentToken))
+                {
+                    try
+                    {
+                        isCurrentSafe = IsTokenSafeAndLimited(hCurrentToken);
+                    }
+                    finally
+                    {
+                        CloseHandle(hCurrentToken);
+                    }
+                }
+
+                if (isCurrentSafe)
+                {
+                    if (CreateProcessW(
+                        null,
+                        cmdLine,
+                        IntPtr.Zero,
+                        IntPtr.Zero,
+                        true, // bInheritHandles must be true for stdin/stdout/stderr pipes
+                        CREATE_NO_WINDOW,
+                        IntPtr.Zero,
+                        workingDir,
+                        ref si,
+                        out pi))
+                    {
+                        // Fail-closed verification: inspect the spawned child process token directly
+                        // to guarantee that it is strictly safe and non-elevated.
+                        bool childSafe = false;
+                        if (OpenProcessToken(pi.hProcess, TOKEN_QUERY, out IntPtr hChildToken))
+                        {
+                            try
+                            {
+                                childSafe = IsTokenSafeAndLimited(hChildToken);
+                            }
+                            finally
+                            {
+                                CloseHandle(hChildToken);
+                            }
+                        }
+
+                        if (childSafe)
+                        {
+                            processCreated = true;
+                        }
+                        else
+                        {
+                            Console.Error.WriteLine("TerminalSessionManager: Spawned child token failed safety verification (fail-closed).");
+                            try { TerminateProcess(pi.hProcess, 1); } catch { }
+                            CloseHandle(pi.hProcess);
+                            CloseHandle(pi.hThread);
+                            pi.hProcess = IntPtr.Zero;
+                            pi.hThread = IntPtr.Zero;
+                        }
+                    }
+                    else
+                    {
+                        int err = Marshal.GetLastWin32Error();
+                        Console.Error.WriteLine($"TerminalSessionManager: CreateProcessW failed with Win32 Error: {err}.");
+                    }
+                }
+                else
+                {
+                    Console.Error.WriteLine("TerminalSessionManager: Current process token is not safe and limited; refusing unverified CreateProcessW.");
+                }
+            }
+
+            if (!processCreated)
+            {
                 return false;
             }
 
@@ -640,6 +742,16 @@ internal sealed class TerminalSessionManager
 
                     if (!existing.Process.HasExited)
                     {
+                        string history;
+                        lock (existing.Lock)
+                        {
+                            history = string.Join("", existing.HistoryBuffer);
+                        }
+                        if (!string.IsNullOrEmpty(history))
+                        {
+                            _onOutputReceived(existing.Id, history, existing.CurrentDirectory, existing.OwnerDeviceId);
+                        }
+
                         return new TerminalSessionInfo
                         {
                             Id = existing.Id,

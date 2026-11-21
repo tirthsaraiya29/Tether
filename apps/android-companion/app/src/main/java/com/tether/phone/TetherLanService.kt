@@ -1928,12 +1928,16 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val sid = if (termObj != null) termObj.optString("id", "") else json.optString("sessionId", json.optString("terminalId", ""))
                 val shell = if (termObj != null) termObj.optString("shellType", "") else json.optString("shellType", "")
                 val dir = if (termObj != null) termObj.optString("workingDir", "") else json.optString("workingDir", "")
+                val success = json.optBoolean("success", true)
+                val reason = json.optString("reason", "")
                 mainHandler.post {
                     val intent = Intent(ACTION_TERMINAL_SESSION).apply {
                         putExtra("type", if (type == "TERMINAL_START_RESPONSE") "TERMINAL_SESSION_STARTED" else type)
                         putExtra("sessionId", sid)
                         putExtra("shellType", shell)
                         putExtra("workingDir", dir)
+                        putExtra("success", success)
+                        putExtra("reason", reason)
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)
@@ -2805,12 +2809,16 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
-    fun sendTerminalStart(shellType: String = "powershell", workingDir: String = "") {
+    fun sendTerminalStart(shellType: String = "powershell", workingDir: String = "", sessionId: String? = null) {
         val json = JSONObject().apply {
             put("type", "TERMINAL_START")
             put("requestId", UUID.randomUUID().toString())
             put("shellType", shellType)
             put("workingDir", workingDir)
+            if (!sessionId.isNullOrEmpty()) {
+                put("sessionId", sessionId)
+                put("terminalId", sessionId)
+            }
         }
         sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
