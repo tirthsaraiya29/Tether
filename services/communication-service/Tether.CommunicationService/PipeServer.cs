@@ -110,7 +110,7 @@ public class PipeServer : IDisposable
         _logger.Info("Pipe server started with concurrent client dispatch and idle timeouts.");
     }
 
-    private static PipeSecurity CreatePipeSecurity()
+    internal static PipeSecurity CreatePipeSecurity()
     {
         var pipeSecurity = new PipeSecurity();
 
@@ -120,19 +120,25 @@ public class PipeServer : IDisposable
             PipeAccessRights.ReadWrite,
             AccessControlType.Deny));
 
-        // 2. Allow SYSTEM Full Control
+        // 2. Explicitly DENY Anonymous SID to reject unauthenticated / null session connections
+        pipeSecurity.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.AnonymousSid, null),
+            PipeAccessRights.ReadWrite,
+            AccessControlType.Deny));
+
+        // 3. Allow SYSTEM Full Control
         pipeSecurity.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
             PipeAccessRights.FullControl,
             AccessControlType.Allow));
 
-        // 3. Allow Administrators Full Control
+        // 4. Allow Administrators Full Control
         pipeSecurity.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
             PipeAccessRights.FullControl,
             AccessControlType.Allow));
 
-        // 4. Allow Authenticated Users ReadWrite to connect from the local interactive session
+        // 5. Allow Authenticated Users ReadWrite to connect from the local interactive session
         pipeSecurity.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
             PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,

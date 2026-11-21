@@ -153,9 +153,55 @@ internal sealed class ApplicationManager
         return list;
     }
 
+    private static readonly HashSet<string> BlockedBinaries = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "cmd", "powershell", "pwsh", "mshta", "cscript", "wscript", "bash", "wsl", "sh", "reg", "vssadmin"
+    };
+
+    private static readonly HashSet<string> BlockedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".hta", ".msc", ".reg"
+    };
+
     public static bool LaunchApplication(string pathOrName, string? arguments = null)
     {
         if (string.IsNullOrWhiteSpace(pathOrName)) return false;
+
+        pathOrName = pathOrName.Trim();
+        if (arguments != null) arguments = arguments.Trim();
+
+        // Reject control characters (newlines, null bytes, etc.)
+        if (pathOrName.Any(char.IsControl) || (arguments != null && arguments.Any(char.IsControl)))
+        {
+            return false;
+        }
+
+        // Reject command injection / shell chaining metacharacters
+        char[] dangerousChars = { '&', '|', '<', '>', '^', ';', '`' };
+        if (pathOrName.IndexOfAny(dangerousChars) >= 0)
+        {
+            return false;
+        }
+
+        if (arguments != null && arguments.IndexOfAny(dangerousChars) >= 0)
+        {
+            return false;
+        }
+
+        // Block interpreters and scripting hosts
+        string baseName = Path.GetFileName(pathOrName);
+        string nameWithoutExt = Path.GetFileNameWithoutExtension(pathOrName);
+        if (BlockedBinaries.Contains(baseName) || BlockedBinaries.Contains(nameWithoutExt))
+        {
+            return false;
+        }
+
+        // Block executable script extensions
+        string ext = Path.GetExtension(pathOrName);
+        if (!string.IsNullOrEmpty(ext) && BlockedExtensions.Contains(ext))
+        {
+            return false;
+        }
 
         try
         {

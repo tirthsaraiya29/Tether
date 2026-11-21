@@ -185,24 +185,26 @@ HRESULT CTetherCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     const FIELD_STATE_PAIR* rgfsp,
     ICredentialProviderUser* pcpUser)
 {
-    if (!pcpUser) return E_INVALIDARG;
-
-    HRESULT hr = S_OK;
-    _cpus = cpus;
-
-    GUID guidProvider;
-    pcpUser->GetProviderID(&guidProvider);
-    _fIsLocalUser = (guidProvider == Identity_LocalUserProvider);
-
-    g_dwSelectedMethod.store(0);
-
-    for (DWORD i = 0; SUCCEEDED(hr) && i < ARRAYSIZE(_rgCredProvFieldDescriptors); i++)
+    try
     {
-        _rgFieldStatePairs[i] = rgfsp[i];
-        hr = FieldDescriptorCopy(rgcpfd[i], &_rgCredProvFieldDescriptors[i]);
-    }
+        if (!pcpUser || !rgcpfd || !rgfsp) return E_INVALIDARG;
 
-    _LoadFallbackAuthConfiguration();
+        HRESULT hr = S_OK;
+        _cpus = cpus;
+
+        GUID guidProvider;
+        pcpUser->GetProviderID(&guidProvider);
+        _fIsLocalUser = (guidProvider == Identity_LocalUserProvider);
+
+        g_dwSelectedMethod.store(0);
+
+        for (DWORD i = 0; SUCCEEDED(hr) && i < ARRAYSIZE(_rgCredProvFieldDescriptors); i++)
+        {
+            _rgFieldStatePairs[i] = rgfsp[i];
+            hr = FieldDescriptorCopy(rgcpfd[i], &_rgCredProvFieldDescriptors[i]);
+        }
+
+        _LoadFallbackAuthConfiguration();
 
     _rgFieldStatePairs[SFI_METHOD_LABEL].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
     _rgFieldStatePairs[SFI_SUBMIT_BUTTON].cpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
@@ -292,6 +294,11 @@ HRESULT CTetherCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
     }
 
     return hr;
+    }
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CTetherCredential::Advise(ICredentialProviderCredentialEvents* pcpce)
@@ -342,6 +349,7 @@ HRESULT CTetherCredential::SetSelected(BOOL* pbAutoLogon)
 {
     try
     {
+        if (!pbAutoLogon) return E_POINTER;
         *pbAutoLogon = FALSE;
         return S_OK;
     }
@@ -362,6 +370,7 @@ HRESULT CTetherCredential::GetFieldState(DWORD dwFieldID,
 {
     try
     {
+        if (!pcpfs || !pcpfis) return E_POINTER;
         if (dwFieldID < ARRAYSIZE(_rgFieldStatePairs))
         {
             *pcpfs = _rgFieldStatePairs[dwFieldID].cpfs;
@@ -380,6 +389,8 @@ HRESULT CTetherCredential::GetStringValue(DWORD dwFieldID, PWSTR* ppwsz)
 {
     try
     {
+        if (!ppwsz) return E_POINTER;
+        *ppwsz = nullptr;
         if (dwFieldID < ARRAYSIZE(_rgCredProvFieldDescriptors))
             return SHStrDupW(_rgFieldStrings[dwFieldID] ? _rgFieldStrings[dwFieldID] : L"", ppwsz);
         return E_INVALIDARG;
@@ -394,6 +405,8 @@ HRESULT CTetherCredential::GetBitmapValue(DWORD dwFieldID, HBITMAP* phbmp)
 {
     try
     {
+        if (!phbmp) return E_POINTER;
+        *phbmp = nullptr;
         if (dwFieldID != SFI_TILEIMAGE)
             return E_INVALIDARG;
 
@@ -417,6 +430,7 @@ HRESULT CTetherCredential::GetSubmitButtonValue(DWORD dwFieldID, DWORD* pdwAdjac
 {
     try
     {
+        if (!pdwAdjacentTo) return E_POINTER;
         if (dwFieldID == SFI_SUBMIT_BUTTON)
         {
             *pdwAdjacentTo = SFI_METHOD_LABEL;
@@ -438,8 +452,16 @@ HRESULT CTetherCredential::SetStringValue(DWORD dwFieldID, PCWSTR pwz)
             (_rgCredProvFieldDescriptors[dwFieldID].cpft == CPFT_EDIT_TEXT ||
                 _rgCredProvFieldDescriptors[dwFieldID].cpft == CPFT_PASSWORD_TEXT))
         {
-            CoTaskMemFree(_rgFieldStrings[dwFieldID]);
-            return SHStrDupW(pwz, &_rgFieldStrings[dwFieldID]);
+            if (_rgFieldStrings[dwFieldID])
+            {
+                if (dwFieldID == SFI_PASSWORD)
+                {
+                    SecureZeroMemory(_rgFieldStrings[dwFieldID], wcslen(_rgFieldStrings[dwFieldID]) * sizeof(WCHAR));
+                }
+                CoTaskMemFree(_rgFieldStrings[dwFieldID]);
+                _rgFieldStrings[dwFieldID] = nullptr;
+            }
+            return SHStrDupW(pwz ? pwz : L"", &_rgFieldStrings[dwFieldID]);
         }
         return E_INVALIDARG;
     }
@@ -475,6 +497,8 @@ HRESULT CTetherCredential::GetComboBoxValueAt(DWORD dwFieldID, DWORD dwItem, PWS
 {
     try
     {
+        if (!ppwszItem) return E_POINTER;
+        *ppwszItem = nullptr;
         if (dwFieldID == SFI_METHOD_COMBOBOX && dwItem < _availableMethods.size())
         {
             DWORD method = _availableMethods[dwItem];
@@ -576,170 +600,215 @@ HRESULT CTetherCredential::_PackActualPasswordCredential(
     CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
     PCWSTR pszPassword)
 {
-    HRESULT hr = E_FAIL;
-    *pcpgsr = CPGSR_NO_CREDENTIAL_NOT_FINISHED;
-
-    PWSTR pszDomain = nullptr;
-    PWSTR pszUsername = nullptr;
-
-    if (_pszQualifiedUserName)
+    try
     {
-        if (wcsstr(_pszQualifiedUserName, L"MicrosoftAccount\\") == _pszQualifiedUserName)
+        if (!pcpgsr || !pcpcs) return E_POINTER;
+        HRESULT hr = E_FAIL;
+        *pcpgsr = CPGSR_NO_CREDENTIAL_NOT_FINISHED;
+
+        PWSTR pszDomain = nullptr;
+        PWSTR pszUsername = nullptr;
+        PWSTR pwzProtectedPassword = nullptr;
+        KERB_INTERACTIVE_UNLOCK_LOGON kiul;
+        ZeroMemory(&kiul, sizeof(kiul));
+
+        try
         {
-            hr = SHStrDupW(L"MicrosoftAccount", &pszDomain);
-            if (SUCCEEDED(hr))
+            if (_pszQualifiedUserName)
             {
-                hr = SHStrDupW(_pszQualifiedUserName + 17, &pszUsername);
-            }
-        }
-        else
-        {
-            const wchar_t* pchWhack = wcschr(_pszQualifiedUserName, L'\\');
-            if (pchWhack)
-            {
-                size_t lenDomain = pchWhack - _pszQualifiedUserName;
-                pszDomain = (PWSTR)CoTaskMemAlloc((lenDomain + 1) * sizeof(WCHAR));
-                if (pszDomain)
+                if (wcsstr(_pszQualifiedUserName, L"MicrosoftAccount\\") == _pszQualifiedUserName)
                 {
-                    wcsncpy_s(pszDomain, lenDomain + 1, _pszQualifiedUserName, lenDomain);
-                    hr = SHStrDupW(pchWhack + 1, &pszUsername);
-                }
-                else hr = E_OUTOFMEMORY;
-            }
-            else
-            {
-                const wchar_t* pchAt = wcschr(_pszQualifiedUserName, L'@');
-                if (pchAt)
-                {
-                    size_t lenUser = pchAt - _pszQualifiedUserName;
-                    pszUsername = (PWSTR)CoTaskMemAlloc((lenUser + 1) * sizeof(WCHAR));
-                    if (pszUsername)
+                    hr = SHStrDupW(L"MicrosoftAccount", &pszDomain);
+                    if (SUCCEEDED(hr))
                     {
-                        wcsncpy_s(pszUsername, lenUser + 1, _pszQualifiedUserName, lenUser);
-                        hr = SHStrDupW(pchAt + 1, &pszDomain);
+                        hr = SHStrDupW(_pszQualifiedUserName + 17, &pszUsername);
                     }
-                    else hr = E_OUTOFMEMORY;
                 }
                 else
                 {
-                    WCHAR computerName[MAX_COMPUTERNAME_LENGTH + 1];
-                    DWORD size = ARRAYSIZE(computerName);
-                    if (!GetComputerNameW(computerName, &size))
-                        wcscpy_s(computerName, L".");
-
-                    hr = SHStrDupW(computerName, &pszDomain);
-                    if (SUCCEEDED(hr))
+                    const wchar_t* pchWhack = wcschr(_pszQualifiedUserName, L'\\');
+                    if (pchWhack)
                     {
-                        hr = SHStrDupW(_pszQualifiedUserName, &pszUsername);
+                        size_t lenDomain = pchWhack - _pszQualifiedUserName;
+                        pszDomain = (PWSTR)CoTaskMemAlloc((lenDomain + 1) * sizeof(WCHAR));
+                        if (pszDomain)
+                        {
+                            wcsncpy_s(pszDomain, lenDomain + 1, _pszQualifiedUserName, lenDomain);
+                            hr = SHStrDupW(pchWhack + 1, &pszUsername);
+                        }
+                        else hr = E_OUTOFMEMORY;
+                    }
+                    else
+                    {
+                        const wchar_t* pchAt = wcschr(_pszQualifiedUserName, L'@');
+                        if (pchAt)
+                        {
+                            size_t lenUser = pchAt - _pszQualifiedUserName;
+                            pszUsername = (PWSTR)CoTaskMemAlloc((lenUser + 1) * sizeof(WCHAR));
+                            if (pszUsername)
+                            {
+                                wcsncpy_s(pszUsername, lenUser + 1, _pszQualifiedUserName, lenUser);
+                                hr = SHStrDupW(pchAt + 1, &pszDomain);
+                            }
+                            else hr = E_OUTOFMEMORY;
+                        }
+                        else
+                        {
+                            WCHAR computerName[MAX_COMPUTERNAME_LENGTH + 1];
+                            DWORD size = ARRAYSIZE(computerName);
+                            if (!GetComputerNameW(computerName, &size))
+                                wcscpy_s(computerName, L".");
+
+                            hr = SHStrDupW(computerName, &pszDomain);
+                            if (SUCCEEDED(hr))
+                            {
+                                hr = SHStrDupW(_pszQualifiedUserName, &pszUsername);
+                            }
+                        }
                     }
                 }
             }
-        }
-    }
 
-    if (SUCCEEDED(hr) && pszUsername)
-    {
-        PWSTR pwzProtectedPassword = nullptr;
-        hr = ProtectIfNecessaryAndCopyPassword(pszPassword, _cpus, &pwzProtectedPassword);
-        if (SUCCEEDED(hr))
-        {
-            KERB_INTERACTIVE_UNLOCK_LOGON kiul;
-            ZeroMemory(&kiul, sizeof(kiul));
-            hr = KerbInteractiveUnlockLogonInit(pszDomain, pszUsername, pwzProtectedPassword, _cpus, &kiul);
-            if (SUCCEEDED(hr))
+            if (SUCCEEDED(hr) && pszUsername)
             {
-                hr = KerbInteractiveUnlockLogonPack(kiul, &pcpcs->rgbSerialization, &pcpcs->cbSerialization);
+                hr = ProtectIfNecessaryAndCopyPassword(pszPassword, _cpus, &pwzProtectedPassword);
                 if (SUCCEEDED(hr))
                 {
-                    ULONG ulAuthPackage = 0;
-                    hr = RetrieveNegotiateAuthPackage(&ulAuthPackage);
+                    hr = KerbInteractiveUnlockLogonInit(pszDomain, pszUsername, pwzProtectedPassword, _cpus, &kiul);
                     if (SUCCEEDED(hr))
                     {
-                        pcpcs->ulAuthenticationPackage = ulAuthPackage;
-                        pcpcs->clsidCredentialProvider = CLSID_TetherProvider;
-                        *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
-                        hr = S_OK;
+                        hr = KerbInteractiveUnlockLogonPack(kiul, &pcpcs->rgbSerialization, &pcpcs->cbSerialization);
+                        if (SUCCEEDED(hr))
+                        {
+                            ULONG ulAuthPackage = 0;
+                            hr = RetrieveNegotiateAuthPackage(&ulAuthPackage);
+                            if (SUCCEEDED(hr))
+                            {
+                                pcpcs->ulAuthenticationPackage = ulAuthPackage;
+                                pcpcs->clsidCredentialProvider = CLSID_TetherProvider;
+                                *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
+                                hr = S_OK;
+                            }
+                        }
                     }
                 }
             }
-            CoTaskMemFree(pwzProtectedPassword);
         }
-        CoTaskMemFree(pszDomain);
-        CoTaskMemFree(pszUsername);
+        catch (...)
+        {
+            hr = E_UNEXPECTED;
+        }
+
+        if (pwzProtectedPassword)
+        {
+            SecureZeroMemory(pwzProtectedPassword, wcslen(pwzProtectedPassword) * sizeof(WCHAR));
+            CoTaskMemFree(pwzProtectedPassword);
+            pwzProtectedPassword = nullptr;
+        }
+        SecureZeroMemory(&kiul, sizeof(kiul));
+        if (pszDomain) { CoTaskMemFree(pszDomain); pszDomain = nullptr; }
+        if (pszUsername) { CoTaskMemFree(pszUsername); pszUsername = nullptr; }
+
+        if (FAILED(hr))
+        {
+            if (pcpcs->rgbSerialization)
+            {
+                SecureZeroMemory(pcpcs->rgbSerialization, pcpcs->cbSerialization);
+                CoTaskMemFree(pcpcs->rgbSerialization);
+                pcpcs->rgbSerialization = nullptr;
+                pcpcs->cbSerialization = 0;
+            }
+            *pcpgsr = CPGSR_NO_CREDENTIAL_NOT_FINISHED;
+        }
+
+        return hr;
     }
-    return hr;
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 HRESULT CTetherCredential::_GetStoredPasswordAndPack(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
     CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs)
 {
-    HRESULT hr = E_FAIL;
+    try
+    {
+        if (!pcpgsr || !pcpcs) return E_POINTER;
+        HRESULT hr = E_FAIL;
 
-    // Verify VaultDaclVersion == 2 before accessing Secrets
-    HKEY hRoot = nullptr;
-    DWORD dwVaultDaclVer = 0;
-    DWORD dwVerSize = sizeof(dwVaultDaclVer);
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ | KEY_WOW64_64KEY, &hRoot) == ERROR_SUCCESS ||
-        RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether", 0, KEY_READ | KEY_WOW64_64KEY, &hRoot) == ERROR_SUCCESS)
-    {
-        RegQueryValueExW(hRoot, L"VaultDaclVersion", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwVaultDaclVer), &dwVerSize);
-        RegCloseKey(hRoot);
-    }
-    if (dwVaultDaclVer < 2)
-    {
-        WriteDebugLog(L"CTetherCredential::_GetStoredPasswordAndPack: Rejected insecure or legacy vault (VaultDaclVersion < 2).");
-        return E_ACCESSDENIED;
-    }
-
-    HKEY hKey = nullptr;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ | KEY_WOW64_64KEY, &hKey) != ERROR_SUCCESS)
-    {
-        RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\Secrets", 0, KEY_READ | KEY_WOW64_64KEY, &hKey);
-    }
-
-    if (hKey != nullptr)
-    {
-        BYTE encryptedData[2048];
-        DWORD dwSize = sizeof(encryptedData);
-        DWORD dwType = 0;
-        if (RegQueryValueExW(hKey, L"EncryptedPassword", nullptr, &dwType, encryptedData, &dwSize) == ERROR_SUCCESS)
+        // Verify VaultDaclVersion == 2 before accessing Secrets
+        HKEY hRoot = nullptr;
+        DWORD dwVaultDaclVer = 0;
+        DWORD dwVerSize = sizeof(dwVaultDaclVer);
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider", 0, KEY_READ | KEY_WOW64_64KEY, &hRoot) == ERROR_SUCCESS ||
+            RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether", 0, KEY_READ | KEY_WOW64_64KEY, &hRoot) == ERROR_SUCCESS)
         {
-            DATA_BLOB dataIn = { dwSize, encryptedData };
-            DATA_BLOB dataOut = { 0 };
-
-            BYTE entropyBytes[] = "Tether_System_Bound_Vault_v1";
-            DATA_BLOB entropyBlob = { sizeof(entropyBytes) - 1, entropyBytes };
-
-            if (CryptUnprotectData(&dataIn, nullptr, &entropyBlob, nullptr, nullptr,
-                CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, &dataOut))
-            {
-                size_t passwordLen = 0;
-                const WCHAR* pChars = reinterpret_cast<const WCHAR*>(dataOut.pbData);
-                size_t maxChars = dataOut.cbData / sizeof(WCHAR);
-
-                while (passwordLen < maxChars && pChars[passwordLen] != L'\0')
-                {
-                    passwordLen++;
-                }
-
-                PWSTR pszDecryptedPassword = (PWSTR)CoTaskMemAlloc((passwordLen + 1) * sizeof(WCHAR));
-                if (pszDecryptedPassword)
-                {
-                    CopyMemory(pszDecryptedPassword, dataOut.pbData, passwordLen * sizeof(WCHAR));
-                    pszDecryptedPassword[passwordLen] = L'\0';
-
-                    hr = _PackActualPasswordCredential(pcpgsr, pcpcs, pszDecryptedPassword);
-
-                    SecureZeroMemory(pszDecryptedPassword, (passwordLen + 1) * sizeof(WCHAR));
-                    CoTaskMemFree(pszDecryptedPassword);
-                }
-                SecureZeroMemory(dataOut.pbData, dataOut.cbData);
-                LocalFree(dataOut.pbData);
-            }
+            RegQueryValueExW(hRoot, L"VaultDaclVersion", nullptr, nullptr, reinterpret_cast<LPBYTE>(&dwVaultDaclVer), &dwVerSize);
+            RegCloseKey(hRoot);
         }
-        RegCloseKey(hKey);
+        if (dwVaultDaclVer < 2)
+        {
+            WriteDebugLog(L"CTetherCredential::_GetStoredPasswordAndPack: Rejected insecure or legacy vault (VaultDaclVersion < 2).");
+            return E_ACCESSDENIED;
+        }
+
+        HKEY hKey = nullptr;
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\CredentialProvider\\Secrets", 0, KEY_READ | KEY_WOW64_64KEY, &hKey) != ERROR_SUCCESS)
+        {
+            RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Tether\\Secrets", 0, KEY_READ | KEY_WOW64_64KEY, &hKey);
+        }
+
+        if (hKey != nullptr)
+        {
+            BYTE encryptedData[2048];
+            ZeroMemory(encryptedData, sizeof(encryptedData));
+            DWORD dwSize = sizeof(encryptedData);
+            DWORD dwType = 0;
+            if (RegQueryValueExW(hKey, L"EncryptedPassword", nullptr, &dwType, encryptedData, &dwSize) == ERROR_SUCCESS)
+            {
+                DATA_BLOB dataIn = { dwSize, encryptedData };
+                DATA_BLOB dataOut = { 0 };
+
+                BYTE entropyBytes[] = "Tether_System_Bound_Vault_v1";
+                DATA_BLOB entropyBlob = { sizeof(entropyBytes) - 1, entropyBytes };
+
+                if (CryptUnprotectData(&dataIn, nullptr, &entropyBlob, nullptr, nullptr,
+                    CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, &dataOut))
+                {
+                    size_t passwordLen = 0;
+                    const WCHAR* pChars = reinterpret_cast<const WCHAR*>(dataOut.pbData);
+                    size_t maxChars = dataOut.cbData / sizeof(WCHAR);
+
+                    while (passwordLen < maxChars && pChars[passwordLen] != L'\0')
+                    {
+                        passwordLen++;
+                    }
+
+                    PWSTR pszDecryptedPassword = (PWSTR)CoTaskMemAlloc((passwordLen + 1) * sizeof(WCHAR));
+                    if (pszDecryptedPassword)
+                    {
+                        CopyMemory(pszDecryptedPassword, dataOut.pbData, passwordLen * sizeof(WCHAR));
+                        pszDecryptedPassword[passwordLen] = L'\0';
+
+                        hr = _PackActualPasswordCredential(pcpgsr, pcpcs, pszDecryptedPassword);
+
+                        SecureZeroMemory(pszDecryptedPassword, (passwordLen + 1) * sizeof(WCHAR));
+                        CoTaskMemFree(pszDecryptedPassword);
+                    }
+                    SecureZeroMemory(dataOut.pbData, dataOut.cbData);
+                    LocalFree(dataOut.pbData);
+                }
+            }
+            SecureZeroMemory(encryptedData, sizeof(encryptedData));
+            RegCloseKey(hKey);
+        }
+        return hr;
     }
-    return hr;
+    catch (...)
+    {
+        return E_UNEXPECTED;
+    }
 }
 
 bool CTetherCredential::_IsEncryptedPasswordBlobPresent()
@@ -1044,6 +1113,9 @@ HRESULT CTetherCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatu
 {
     try
     {
+        if (!ppwszOptionalStatusText || !pcpsiOptionalStatusIcon)
+            return E_POINTER;
+
         *ppwszOptionalStatusText = nullptr;
         *pcpsiOptionalStatusIcon = CPSI_NONE;
 
@@ -1330,46 +1402,29 @@ HRESULT CTetherCredential::CommandLinkClicked(DWORD dwFieldID)
         return S_OK;
     }
 
-    // Ask the service to relay an unlock prompt to the phone. Use OpenEvent
-    // first so we never clobber the service-owned DACL with ours.
-    HANDLE hEvt = OpenEventW(EVENT_MODIFY_STATE | READ_CONTROL, FALSE, c_wszUnlockPromptEventName);
-    if (hEvt)
+    // Ask the service to relay an unlock prompt to the phone.
+    HANDLE hEvt = nullptr;
+    PSECURITY_DESCRIPTOR pSD = nullptr;
+    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)", SDDL_REVISION_1, &pSD, nullptr))
     {
-        PSID pOwner = nullptr;
-        PSECURITY_DESCRIPTOR pSecDesc = nullptr;
-        DWORD dwRes = GetSecurityInfo(hEvt, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, &pOwner, nullptr, nullptr, nullptr, &pSecDesc);
-        if (dwRes != ERROR_SUCCESS || !pOwner || (!IsWellKnownSid(pOwner, WinLocalSystemSid) && !IsWellKnownSid(pOwner, WinBuiltinAdministratorsSid)))
+        SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), pSD, FALSE };
+        hEvt = CreateEventW(&sa, TRUE, FALSE, c_wszUnlockPromptEventName);
+        DWORD dwErr = GetLastError();
+        if (hEvt && dwErr == ERROR_ALREADY_EXISTS)
         {
-            WriteDebugLog(L"CommandLinkClicked: untrusted owner on prompt event (%u). Discarding.", dwRes);
-            CloseHandle(hEvt);
-            hEvt = nullptr;
-        }
-        if (pSecDesc) LocalFree(pSecDesc);
-    }
-    else
-    {
-        PSECURITY_DESCRIPTOR pSD = nullptr;
-        if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"D:P(A;;GA;;;SY)(A;;GA;;;BA)", SDDL_REVISION_1, &pSD, nullptr))
-        {
-            SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), pSD, FALSE };
-            hEvt = CreateEventW(&sa, TRUE, FALSE, c_wszUnlockPromptEventName);
-            DWORD dwErr = GetLastError();
-            if (hEvt && dwErr == ERROR_ALREADY_EXISTS)
+            if (!IsTrustedKernelObjectOwner(hEvt))
             {
-                PSID pOwner = nullptr;
-                PSECURITY_DESCRIPTOR pSecDesc = nullptr;
-                DWORD dwRes = GetSecurityInfo(hEvt, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, &pOwner, nullptr, nullptr, nullptr, &pSecDesc);
-                if (dwRes != ERROR_SUCCESS || !pOwner || (!IsWellKnownSid(pOwner, WinLocalSystemSid) && !IsWellKnownSid(pOwner, WinBuiltinAdministratorsSid)))
-                {
-                    WriteDebugLog(L"CommandLinkClicked: untrusted owner on existing prompt event. Discarding.");
-                    CloseHandle(hEvt);
-                    hEvt = nullptr;
-                }
-                if (pSecDesc) LocalFree(pSecDesc);
+                WriteDebugLog(L"CommandLinkClicked: untrusted owner on existing prompt event. Discarding.");
+                CloseHandle(hEvt);
+                hEvt = nullptr;
             }
-            LocalFree(pSD);
+            else
+            {
+                SetKernelObjectSecurity(hEvt, DACL_SECURITY_INFORMATION, pSD);
+            }
         }
+        LocalFree(pSD);
     }
     if (hEvt)
     {
@@ -1476,6 +1531,7 @@ HRESULT CTetherCredential::GetFieldOptions(DWORD dwFieldID, CREDENTIAL_PROVIDER_
 {
     try
     {
+        if (!pcpcfo) return E_POINTER;
         *pcpcfo = CPCFO_NONE;
         return S_OK;
     }
@@ -1505,37 +1561,38 @@ void CALLBACK CTetherCredential::_OnAppEventSignaled(PVOID lpParameter, BOOLEAN)
 
 void CTetherCredential::_StartBackgroundIPCListeners()
 {
-    _hAppEvent = OpenEventW(SYNCHRONIZE | EVENT_MODIFY_STATE | READ_CONTROL, FALSE, L"Global\\TetherPhoneAppUnlocked");
-    if (_hAppEvent)
+    PSECURITY_DESCRIPTOR pSD = nullptr;
+    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)",
+        SDDL_REVISION_1,
+        &pSD,
+        nullptr))
     {
-        if (!IsTrustedKernelObjectOwner(_hAppEvent))
+        SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), pSD, FALSE };
+        _hAppEvent = CreateEventW(&sa, TRUE, FALSE, L"Global\\TetherPhoneAppUnlocked");
+        DWORD dwErr = GetLastError();
+        if (_hAppEvent)
         {
-            WriteDebugLog(L"SECURITY WARNING: Existing TetherPhoneAppUnlocked event has untrusted owner! Discarding.");
-            CloseHandle(_hAppEvent);
-            _hAppEvent = nullptr;
-        }
-        else
-        {
-            WriteDebugLog(L"Opened existing global event with verified owner: TetherPhoneAppUnlocked");
-        }
-    }
-    else
-    {
-        PSECURITY_DESCRIPTOR pSD = nullptr;
-        if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"D:P(A;;GA;;;SY)(A;;GA;;;BA)",
-            SDDL_REVISION_1,
-            &pSD,
-            nullptr))
-        {
-            SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), pSD, FALSE };
-            _hAppEvent = CreateEventW(&sa, TRUE, FALSE, L"Global\\TetherPhoneAppUnlocked");
-            LocalFree(pSD);
-            if (_hAppEvent)
+            if (dwErr == ERROR_ALREADY_EXISTS)
+            {
+                if (!IsTrustedKernelObjectOwner(_hAppEvent))
+                {
+                    WriteDebugLog(L"SECURITY WARNING: Existing TetherPhoneAppUnlocked event has untrusted owner! Discarding.");
+                    CloseHandle(_hAppEvent);
+                    _hAppEvent = nullptr;
+                }
+                else
+                {
+                    SetKernelObjectSecurity(_hAppEvent, DACL_SECURITY_INFORMATION, pSD);
+                    WriteDebugLog(L"Opened existing global event with verified owner: TetherPhoneAppUnlocked");
+                }
+            }
+            else
             {
                 WriteDebugLog(L"Created secure global event: TetherPhoneAppUnlocked");
             }
         }
+        LocalFree(pSD);
     }
 
     if (_hAppEvent)

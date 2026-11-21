@@ -197,6 +197,10 @@ namespace Tether.DesktopUI
                 new SecurityIdentifier(WellKnownSidType.NetworkSid, null),
                 PipeAccessRights.ReadWrite,
                 AccessControlType.Deny));
+            pipeSecurity.AddAccessRule(new PipeAccessRule(
+                new SecurityIdentifier(WellKnownSidType.AnonymousSid, null),
+                PipeAccessRights.ReadWrite,
+                AccessControlType.Deny));
 
             var currentUser = WindowsIdentity.GetCurrent().User;
             if (currentUser != null)

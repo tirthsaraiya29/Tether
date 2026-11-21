@@ -362,7 +362,7 @@ public static class HardwareExecutor
 
                 case "launch_browser":
                 case "browser":
-                    return LaunchInUserSession("cmd.exe /c start https://www.google.com", logger);
+                    return LaunchInUserSession("explorer.exe https://www.google.com", logger);
 
                 case "launch_task_manager":
                 case "taskmgr":
@@ -374,7 +374,7 @@ public static class HardwareExecutor
 
                 case "launch_settings":
                 case "settings":
-                    return LaunchInUserSession("cmd.exe /c start ms-settings:", logger);
+                    return LaunchInUserSession("explorer.exe ms-settings:", logger);
 
                 case "launch_calc":
                 case "calc":
@@ -710,7 +710,7 @@ public static class HardwareExecutor
         try
         {
             var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
-            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
+            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)");
             using var evt = EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, eventName, out bool createdNew, sec);
             if (!createdNew)
             {
@@ -721,6 +721,7 @@ public static class HardwareExecutor
                     logger.Warning($"HardwareExecutor: Untrusted owner '{owner?.Value}' on existing event '{eventName}'. Signal aborted.");
                     return false;
                 }
+                evt.SetAccessControl(sec);
             }
             bool setOk = evt.Set();
             logger.Info($"HardwareExecutor: {(createdNew ? "Created & " : "")}Signaled unlock event '{eventName}', setOk={setOk}");

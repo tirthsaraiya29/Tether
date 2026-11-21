@@ -724,6 +724,125 @@ static void Test_CredentialProvider_ComboBox_And_FieldSwitching()
     pCred->Release();
 }
 
+static void Test_CredentialProvider_Initialize_NullArgs_Rejected()
+{
+    CTetherCredential* pCred = new (std::nothrow) CTetherCredential();
+    TEST_ASSERT(pCred != nullptr);
+
+    HRESULT hr = pCred->Initialize(CPUS_LOGON, nullptr, nullptr, nullptr);
+    TEST_ASSERT(hr == E_INVALIDARG);
+
+    pCred->Release();
+}
+
+static void Test_CredentialProvider_COM_PointerChecks()
+{
+    CTetherCredential* pCred = new (std::nothrow) CTetherCredential();
+    TEST_ASSERT(pCred != nullptr);
+
+    // SetSelected with null BOOL*
+    TEST_ASSERT(pCred->SetSelected(nullptr) == E_POINTER);
+
+    // GetFieldState with null pointers
+    CREDENTIAL_PROVIDER_FIELD_STATE cpfs;
+    CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE cpfis;
+    TEST_ASSERT(pCred->GetFieldState(0, nullptr, &cpfis) == E_POINTER);
+    TEST_ASSERT(pCred->GetFieldState(0, &cpfs, nullptr) == E_POINTER);
+
+    // GetStringValue with null PWSTR*
+    TEST_ASSERT(pCred->GetStringValue(0, nullptr) == E_POINTER);
+
+    // GetBitmapValue with null HBITMAP*
+    TEST_ASSERT(pCred->GetBitmapValue(SFI_TILEIMAGE, nullptr) == E_POINTER);
+
+    // GetSubmitButtonValue with null DWORD*
+    TEST_ASSERT(pCred->GetSubmitButtonValue(SFI_SUBMIT_BUTTON, nullptr) == E_POINTER);
+
+    // GetComboBoxValueCount with null pointers
+    DWORD count, selected;
+    TEST_ASSERT(pCred->GetComboBoxValueCount(SFI_METHOD_COMBOBOX, nullptr, &selected) == E_POINTER);
+    TEST_ASSERT(pCred->GetComboBoxValueCount(SFI_METHOD_COMBOBOX, &count, nullptr) == E_POINTER);
+
+    // GetComboBoxValueAt with null PWSTR*
+    TEST_ASSERT(pCred->GetComboBoxValueAt(SFI_METHOD_COMBOBOX, 0, nullptr) == E_POINTER);
+
+    // GetFieldOptions with null options pointer
+    TEST_ASSERT(pCred->GetFieldOptions(0, nullptr) == E_POINTER);
+
+    // ReportResult with null pointers
+    PWSTR statusText = nullptr;
+    CREDENTIAL_PROVIDER_STATUS_ICON icon;
+    TEST_ASSERT(pCred->ReportResult(0, 0, nullptr, &icon) == E_POINTER);
+    TEST_ASSERT(pCred->ReportResult(0, 0, &statusText, nullptr) == E_POINTER);
+
+    // GetUserSid with null pointer
+    TEST_ASSERT(pCred->GetUserSid(nullptr) == E_POINTER);
+
+    pCred->Release();
+}
+
+class MockCredentialProviderUser : public ICredentialProviderUser
+{
+    LONG _cRef = 1;
+public:
+    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv)
+    {
+        if (riid == IID_IUnknown || riid == IID_ICredentialProviderUser)
+        {
+            *ppv = static_cast<ICredentialProviderUser*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+    IFACEMETHODIMP_(ULONG) AddRef() { return InterlockedIncrement(&_cRef); }
+    IFACEMETHODIMP_(ULONG) Release()
+    {
+        LONG c = InterlockedDecrement(&_cRef);
+        if (c == 0) delete this;
+        return c;
+    }
+    IFACEMETHODIMP GetSid(PWSTR* ppwsz) { if (ppwsz) *ppwsz = nullptr; return E_NOTIMPL; }
+    IFACEMETHODIMP GetProviderID(GUID* pguid) { if (pguid) *pguid = Identity_LocalUserProvider; return S_OK; }
+    IFACEMETHODIMP GetStringValue(REFPROPERTYKEY, PWSTR*) { return E_NOTIMPL; }
+    IFACEMETHODIMP GetValue(REFPROPERTYKEY, PROPVARIANT*) { return E_NOTIMPL; }
+};
+
+static void Test_CredentialProvider_SetStringValue_ZeroesOldPassword()
+{
+    CTetherCredential* pCred = new (std::nothrow) CTetherCredential();
+    TEST_ASSERT(pCred != nullptr);
+
+    MockCredentialProviderUser* pUser = new (std::nothrow) MockCredentialProviderUser();
+    TEST_ASSERT(pUser != nullptr);
+
+    HRESULT hr = pCred->Initialize(CPUS_LOGON, s_rgCredProvFieldDescriptors, s_rgFieldStatePairs, pUser);
+    TEST_ASSERT(SUCCEEDED(hr));
+
+    hr = pCred->SetStringValue(SFI_PASSWORD, L"SecretPin1234");
+    TEST_ASSERT(SUCCEEDED(hr));
+
+    PWSTR retrieved = nullptr;
+    hr = pCred->GetStringValue(SFI_PASSWORD, &retrieved);
+    TEST_ASSERT(SUCCEEDED(hr) && retrieved != nullptr);
+    TEST_ASSERT(wcscmp(retrieved, L"SecretPin1234") == 0);
+    CoTaskMemFree(retrieved);
+
+    // Overwriting the password replaces it cleanly
+    hr = pCred->SetStringValue(SFI_PASSWORD, L"NewSecret5678");
+    TEST_ASSERT(SUCCEEDED(hr));
+
+    retrieved = nullptr;
+    hr = pCred->GetStringValue(SFI_PASSWORD, &retrieved);
+    TEST_ASSERT(SUCCEEDED(hr) && retrieved != nullptr);
+    TEST_ASSERT(wcscmp(retrieved, L"NewSecret5678") == 0);
+    CoTaskMemFree(retrieved);
+
+    pUser->Release();
+    pCred->Release();
+}
+
 int main()
 {
     std::cout << "========================================" << std::endl;
@@ -751,6 +870,9 @@ int main()
     RunTest("IndependentDenial_PreservedDuringRestore", Test_IndependentDenial_PreservedDuringRestore);
     RunTest("VerifyFallbackCredentialPBKDF2_Validation", Test_VerifyFallbackCredentialPBKDF2_Validation);
     RunTest("CredentialProvider_ComboBox_And_FieldSwitching", Test_CredentialProvider_ComboBox_And_FieldSwitching);
+    RunTest("CredentialProvider_Initialize_NullArgs_Rejected", Test_CredentialProvider_Initialize_NullArgs_Rejected);
+    RunTest("CredentialProvider_COM_PointerChecks", Test_CredentialProvider_COM_PointerChecks);
+    RunTest("CredentialProvider_SetStringValue_ZeroesOldPassword", Test_CredentialProvider_SetStringValue_ZeroesOldPassword);
 
     std::cout << "========================================" << std::endl;
     std::cout << " All Native Tests Passed Successfully!" << std::endl;

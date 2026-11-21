@@ -685,6 +685,14 @@ namespace Tether.DesktopUI
 
             var uiPipeSecurity = new PipeSecurity();
             uiPipeSecurity.AddAccessRule(new PipeAccessRule(
+                new SecurityIdentifier(WellKnownSidType.NetworkSid, null),
+                PipeAccessRights.ReadWrite,
+                AccessControlType.Deny));
+            uiPipeSecurity.AddAccessRule(new PipeAccessRule(
+                new SecurityIdentifier(WellKnownSidType.AnonymousSid, null),
+                PipeAccessRights.ReadWrite,
+                AccessControlType.Deny));
+            uiPipeSecurity.AddAccessRule(new PipeAccessRule(
                 WindowsIdentity.GetCurrent().User!,
                 PipeAccessRights.ReadWrite,
                 AccessControlType.Allow));
@@ -1855,12 +1863,17 @@ namespace Tether.DesktopUI
 
             try
             {
-                using var evt = EventWaitHandle.OpenExisting(@"Global\TetherPhoneAppUnlocked");
-                if (evt.WaitOne(0))
+                if (EventWaitHandleAcl.TryOpenExisting(@"Global\TetherPhoneAppUnlocked", EventWaitHandleRights.Synchronize, out var evt))
                 {
-                    _phoneUnlockConfirmed = true;
-                    UpdateForgotPhoneUi(true);
-                    return true;
+                    using (evt)
+                    {
+                        if (evt.WaitOne(0))
+                        {
+                            _phoneUnlockConfirmed = true;
+                            UpdateForgotPhoneUi(true);
+                            return true;
+                        }
+                    }
                 }
             }
             catch { }

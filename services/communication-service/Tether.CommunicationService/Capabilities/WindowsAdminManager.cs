@@ -339,10 +339,13 @@ public sealed class WindowsAdminManager
             var psi = new ProcessStartInfo
             {
                 FileName = "powercfg.exe",
-                Arguments = $"/batteryreport /xml /output \"{tempXml}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            psi.ArgumentList.Add("/batteryreport");
+            psi.ArgumentList.Add("/xml");
+            psi.ArgumentList.Add("/output");
+            psi.ArgumentList.Add(tempXml);
             using var p = Process.Start(psi);
             p?.WaitForExit(10000);
 
@@ -521,10 +524,11 @@ public sealed class WindowsAdminManager
                 var psi = new ProcessStartInfo
                 {
                     FileName = "powercfg.exe",
-                    Arguments = $"/setactive {guidString}",
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
+                psi.ArgumentList.Add("/setactive");
+                psi.ArgumentList.Add(guid.ToString("D"));
                 using var p = Process.Start(psi);
                 p?.WaitForExit(3000);
                 return p?.ExitCode == 0;

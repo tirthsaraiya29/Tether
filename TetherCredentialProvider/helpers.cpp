@@ -416,6 +416,7 @@ static HRESULT _ProtectAndCopyString(
                     }
                     else
                     {
+                        SecureZeroMemory(pwzProtected, cchProtected * sizeof(wchar_t));
                         CoTaskMemFree(pwzProtected);
 
                         dwErr = GetLastError();
@@ -437,7 +438,11 @@ static HRESULT _ProtectAndCopyString(
             hr = E_UNEXPECTED;
         }
 
-        CoTaskMemFree(pwzToProtectCopy);
+        if (pwzToProtectCopy)
+        {
+            SecureZeroMemory(pwzToProtectCopy, wcslen(pwzToProtectCopy) * sizeof(wchar_t));
+            CoTaskMemFree(pwzToProtectCopy);
+        }
     }
 
     return hr;
@@ -493,7 +498,11 @@ HRESULT ProtectIfNecessaryAndCopyPassword(
                 hr = _ProtectAndCopyString(pwzPasswordCopy, ppwzProtectedPassword);
             }
 
-            CoTaskMemFree(pwzPasswordCopy);
+            if (pwzPasswordCopy)
+            {
+                SecureZeroMemory(pwzPasswordCopy, wcslen(pwzPasswordCopy) * sizeof(wchar_t));
+                CoTaskMemFree(pwzPasswordCopy);
+            }
         }
     }
     else

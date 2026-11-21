@@ -291,6 +291,11 @@ public sealed class InputForwarder : IHostedService, IDisposable
                     AccessControlType.Deny));
 
                 security.AddAccessRule(new PipeAccessRule(
+                    new SecurityIdentifier(WellKnownSidType.AnonymousSid, null),
+                    PipeAccessRights.ReadWrite,
+                    AccessControlType.Deny));
+
+                security.AddAccessRule(new PipeAccessRule(
                     new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
                     PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
                     AccessControlType.Allow));

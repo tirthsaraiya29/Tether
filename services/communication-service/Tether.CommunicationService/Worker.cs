@@ -311,7 +311,7 @@ public sealed class Worker : BackgroundService
         try
         {
             var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
-            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
+            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)");
             _appUnlockedEvent = EventWaitHandleAcl.Create(
                 false, EventResetMode.ManualReset, @"Global\TetherPhoneAppUnlocked", out bool createdNewUnlocked, sec);
             if (!createdNewUnlocked)
@@ -324,6 +324,10 @@ public sealed class Worker : BackgroundService
                     _appUnlockedEvent.Dispose();
                     _appUnlockedEvent = null;
                 }
+                else
+                {
+                    _appUnlockedEvent.SetAccessControl(sec);
+                }
             }
         }
         catch (Exception ex)
@@ -334,7 +338,7 @@ public sealed class Worker : BackgroundService
         try
         {
             var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
-            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
+            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)");
             _phoneConnectedEvent = EventWaitHandleAcl.Create(
                 false, EventResetMode.ManualReset, @"Global\TetherPhoneConnected", out bool createdNewConnected, sec);
             if (!createdNewConnected)
@@ -346,6 +350,10 @@ public sealed class Worker : BackgroundService
                     _tetherLogger.Warning($"Worker: Untrusted owner '{owner?.Value}' on phone connected event. Discarding.");
                     _phoneConnectedEvent.Dispose();
                     _phoneConnectedEvent = null;
+                }
+                else
+                {
+                    _phoneConnectedEvent.SetAccessControl(sec);
                 }
             }
 
@@ -378,7 +386,7 @@ public sealed class Worker : BackgroundService
         try
         {
             var sec = new System.Security.AccessControl.EventWaitHandleSecurity();
-            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)");
+            sec.SetSecurityDescriptorSddlForm("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)");
             // ManualReset: the CP can't safely Set+Reset from the secure desktop
             // (lost-signal race), so we consume the signal here.
             _unlockPromptEvent = EventWaitHandleAcl.Create(
@@ -393,6 +401,10 @@ public sealed class Worker : BackgroundService
                     _unlockPromptEvent.Dispose();
                     _unlockPromptEvent = null;
                     return;
+                }
+                else
+                {
+                    _unlockPromptEvent.SetAccessControl(sec);
                 }
             }
         }
