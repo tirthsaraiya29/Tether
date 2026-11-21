@@ -434,6 +434,16 @@ public static class HardwareExecutor
             return false;
         }
 
+        if (helperArgs.Length > 0 && string.Equals(helperArgs[0], "get-mute", StringComparison.OrdinalIgnoreCase))
+        {
+            if (exitCode == 0 || exitCode == 1)
+            {
+                numericResult = (int)exitCode;
+                return true;
+            }
+            return false;
+        }
+
         bool isGetVolumeOrBrightness =
             helperArgs.Length > 0 &&
             (string.Equals(helperArgs[0], "get-volume", StringComparison.OrdinalIgnoreCase) ||
