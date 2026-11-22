@@ -79,7 +79,7 @@
         "@type": "SoftwareApplication",
         "@id": "https://tether-control.vercel.app/#software",
         "name": "Tether",
-        "operatingSystem": ["Android 12+", "Android 13", "Android 14", "Android 15", "Windows 10", "Windows 11"],
+        "operatingSystem": ["Android 12+", "Android 13", "Android 14", "Android 15", "Linux (Fedora, Ubuntu, Debian, Arch)", "Windows 10", "Windows 11"],
         "applicationCategory": "SecurityApplication",
         "applicationSubCategory": "Remote Access & Workstation Authentication",
         "offers": {
@@ -87,14 +87,14 @@
           "price": "0",
           "priceCurrency": "USD"
         },
-        "description": "Tether is a free, open-source personal trust and authentication platform that connects an Android device to a Windows workstation over local Wi-Fi. Features include phone-assisted biometric Windows unlock via native C++ Credential Provider, low-latency wireless trackpad input, emergency panic lockdown, LAN file transfer, and media controls — with zero cloud servers, no accounts, and no subscriptions.",
+        "description": "Tether is a free, open-source personal trust and authentication platform that connects an Android device to a Linux or Windows workstation over local Wi-Fi. Features include phone-assisted biometric unlock via native PAM / Credential Provider, low-latency wireless trackpad input, emergency panic lockdown, LAN file transfer, and media controls — with zero cloud servers, no accounts, and no subscriptions.",
         "url": "https://tether-control.vercel.app/",
         "downloadUrl": "https://github.com/tirthsaraiya29/Tether/releases",
         "softwareVersion": "1.1.2",
         "releaseNotes": "Active open source development on GitHub.",
         "license": "https://github.com/tirthsaraiya29/Tether/blob/main/LICENSE",
         "codeRepository": "https://github.com/tirthsaraiya29/Tether",
-        "programmingLanguage": ["Kotlin", "C#", "C++"],
+        "programmingLanguage": ["Kotlin", "C#", "C", "C++"],
         "keywords": "connect android to windows, android pc local wifi, biometric windows unlock android, wireless trackpad android, emergency pc lockdown, kde connect alternative windows, phone link alternative no cloud",
         "featureList": [
           "Device-assisted Windows unlock via Android biometrics (fingerprint/face)",
@@ -2157,13 +2157,13 @@
           <details class="faq-item">
             <summary>How is Tether different from KDE Connect, Link to Windows, or Intel Unison?</summary>
             <div class="faq-body">
-              <p>Tether is fully local-first with zero cloud dependency. KDE Connect is Linux-first and lacks a Windows Credential Provider. Link to Windows and Intel Unison both require a Microsoft or Intel cloud account and route traffic through external servers. Tether routes nothing outside your home network and requires no account of any kind.</p>
+              <p>Tether is fully local-first with zero cloud dependency and first-class native support for both Linux (systemd daemon, PAM unlock, uinput) and Windows (Credential Provider, Session Helper). Link to Windows and Intel Unison both require a Microsoft or Intel cloud account and route traffic through external servers. Tether routes nothing outside your local network and requires no account of any kind.</p>
             </div>
           </details>
           <details class="faq-item">
-            <summary>What Android and Windows versions does Tether support?</summary>
+            <summary>What operating systems does Tether support?</summary>
             <div class="faq-body">
-              <p>Tether requires Android 12 or newer (API 31+) and Windows 10 or Windows 11. The Windows service targets .NET 10 and the Credential Provider is a 64-bit native C++20 DLL.</p>
+              <p>Tether supports Android 12 or newer (API 31+), modern Linux distributions (Fedora 40+, RHEL 9+, Ubuntu 22.04+, Debian 12+, Arch) running systemd, and Windows 10 / Windows 11 x64.</p>
             </div>
           </details>
           <details class="faq-item">

@@ -80,6 +80,43 @@ Tether employs a dual-channel network architecture for control and high-throughp
 |  | TetherCredentialProvider (Win32 DLL in Winlogon / Logon UI)    |  |
 |  +-----------------------------------------------------------------+  |
 +-----------------------------------------------------------------------+
+
++-----------------------------------------------------------------------+
+|                          LINUX WORKSTATION                            |
+|                                                                       |
+|  +-----------------------------------------------------------------+  |
+|  | Tether.LinuxDaemon (systemd: tether.service)                    |  |
+|  |                                                                 |  |
+|  |  +----------------+  +-----------------+  +------------------+  |  |
+|  |  | LinuxTcpServer |  | LinuxUdpDisc /  |  | LinuxTrustStore /|  |  |
+|  |  | (TLS 1.3 37123)|  | MdnsAdvertiser  |  | DeviceManager    |  |  |
+|  |  +-------+--------+  +-----------------+  +--------+---------+  |  |
+|  |          |                                         |            |  |
+|  |          +--------------------+--------------------+            |  |
+|  |                               |                                 |  |
+|  |                               v                                 |  |
+|  |                LinuxPacketRouter & Event Bus                    |  |
+|  |                               |                                 |  |
+|  |   +---------------------------+---------------------------+     |  |
+|  |   |                           |                           |     |  |
+|  |   v                           v                           v     |  |
+|  | LinuxHardwareExecutor   LinuxTerminalManager    LinuxMediaController|
+|  | (PipeWire, sysfs,       (PTY / bash sessions    (playerctl, D-Bus,  |
+|  |  loginctl, systemctl)    with security filter)   notify-send)       |
+|  |   |                           |                           |     |  |
+|  |   +---------------------------+---------------------------+     |  |
+|  |                               |                                 |  |
+|  |  +----------------------------+------------------------------+  |  |
+|  |  | LinuxUinputInjector        | LinuxPamAuthServer           |  |  |
+|  |  | (/dev/uinput mouse/kbd)    | (/run/tether/auth.sock)      |  |  |
+|  |  +----------------------------+--------------+---------------+  |  |
+|  +----------------------------------------------|------------------+  |
+|                                                 | UNIX Socket         |
+|                                                 | (SO_PEERCRED)       |
+|  +----------------------------------------------v------------------+  |
+|  | pam_tether.so (Native C PAM Module for GDM / SDDM / Lock Screen)|  |
+|  +-----------------------------------------------------------------+  |
++-----------------------------------------------------------------------+
 ```
 
 ### Protocol Specifications
@@ -166,7 +203,67 @@ The panic engine handles emergency lockdown and safe restoration:
 
 ---
 
-## 5. Android Companion Architecture
+## 5. Linux Subsystem Architecture
+
+### 5.1 Linux Communication Daemon (`Tether.LinuxDaemon`)
+The primary background Linux daemon supervised by systemd (`tether.service`):
+* **`DaemonWorker.cs`**: Lifecycle host orchestrating TCP, UDP discovery, mDNS advertiser, Kestrel HTTPS file transfer, and PAM auth IPC.
+* **`LinuxTcpServer.cs`**: High-performance dual-stack IPv4/IPv6 asynchronous TCP listener with TLS 1.3 protocol enforcement, connection limits, and per-IP rate limiting (exempting local loopback IPC).
+* **`LinuxPacketRouter.cs`**: Canonical message routing and capability gating for all protocol frames (`PING`, `COMMAND_EXECUTE`, `TERMINAL_*`, `MEDIA_*`, `APP_*`, `ADMIN_TELEMETRY_*`, and binary `0x05` input events).
+* **`LinuxTrustStore.cs`**: AES-256-GCM encrypted local trust vault storing paired device records, ECDSA public keys, and device nicknames at `/var/lib/tether/truststore.json`.
+* **`LinuxIdentity.cs`**: Hardware/host-bound ECDSA NIST P-256 identity certificate (`/var/lib/tether/identity.pfx`).
+
+### 5.2 Native Linux PAM Module (`pam_tether.so` & `LinuxPamAuthServer.cs`)
+Provides seamless, cryptographically backed workstation unlock for Linux Display Managers (GDM, SDDM, LightDM) and screen lockers:
+* **`LinuxPamAuthServer.cs`**: Listens on local UNIX domain socket `/run/tether/auth.sock` with `0600` permissions. Validates peer credentials using `SO_PEERCRED` to ensure only processes running with UID 0 (root) can query or consume unlock grants.
+* **`pam_tether.c`**: Native C PAM module implementing `pam_sm_authenticate` and `pam_sm_setcred`. Connects to `/run/tether/auth.sock`, verifies active 30-second unlock grants for the authenticating username, logs structured audit events to syslog, and fails securely with `PAM_AUTH_ERR` if no valid grant exists.
+
+### 5.3 Synthetic Input Injection Subsystem (`LinuxUinputInjector.cs`)
+* Interacts directly with Linux kernel input subsystem via `/dev/uinput` ioctls (`UI_SET_EVBIT`, `UI_SET_KEYBIT`, `UI_SET_RELBIT`, `UI_DEV_SETUP`, `UI_DEV_CREATE`).
+* Spawns a high-performance single-writer worker thread backed by a bounded 2048-capacity lockless channel (`Channel<LinuxInputEvent>`).
+* Translates binary `0x05` input frames into kernel input events: relative cursor motion, multi-button clicks, vertical scroll wheels, standard virtual keycodes, and ASCII/Unicode text typing.
+* Features fail-safe `ReleaseAllHeld()` cleanup to prevent sticky keys upon disconnection.
+
+### 5.4 Linux Pseudoterminal Session Manager (`LinuxTerminalManager.cs`)
+* Manages up to 8 concurrent pseudoterminal sessions (`/dev/ptmx` via `forkpty` or non-root `runuser -u <user>`).
+* Isolates sessions by device owner ID.
+* Maintains a 1000-line circular buffer per session with UTF-8 streaming standard output/error.
+* Tracks working directory changes via shell prompt regex analysis.
+* Enforces command security filtering, blocking dangerous privilege escalation attempts (`sudo`, `su`, `pkexec`, `doas`, `passwd`).
+
+### 5.5 Hardware Execution & State Collection
+* **`LinuxHardwareExecutor.cs`**: Interfaces with PipeWire (`wpctl`) and ALSA (`amixer`) for master volume and mute, sysfs `/sys/class/backlight` for hardware display brightness, `loginctl lock-session`/`unlock-session` for session state, and `systemctl` for power operations (shutdown, reboot, sleep).
+* **`LinuxLaptopStateCollector.cs`**: Reads battery level and AC status from `/sys/class/power_supply/`, lock state from `loginctl show-session -p LockedHint`, and desktop wallpaper from GNOME `gsettings` or KDE configurations with local caching and resizing.
+
+### 5.6 Media & Application Management
+* **`LinuxMediaController.cs`**: D-Bus MPRIS2 and `playerctl` integration for remote media control (play, pause, next, previous, seek) and metadata extraction (title, artist, album, Base64 album art).
+* **`LinuxNotificationController.cs`**: Active session notification forwarding using `notify-send` and desktop notification servers.
+* **`LinuxApplicationManager.cs`**: Parses `.desktop` application launchers from `/usr/share/applications` and `~/.local/share/applications`, launches apps via `gtk-launch`, enumerates active windows via `wmctrl`, and supports window focus, minimization, maximization, and closing.
+
+### 5.7 Administration & Telemetry Subsystem (`LinuxAdminManager.cs`)
+Collects and serves deep Linux workstation health metrics:
+* Real-time CPU utilization computed from `/proc/stat` delta jiffies.
+* Physical RAM usage from `/proc/meminfo`.
+* Logical filesystem usage across active mount points.
+* Network interface throughput (KB/s) from `/proc/net/dev`.
+* Systemd service status, starting, stopping, and restarting via `systemctl`.
+* Available package updates via DNF and APT.
+* Hardware specs from `/proc/cpuinfo` and `lspci`.
+* CPU scaling governors from `/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor`.
+
+### 5.8 `tetherctl` CLI Management Utility
+Dedicated administrator CLI tool (`tools/tetherctl/Program.cs`) communicating with the daemon via `/run/tether/auth.sock`:
+* `tether status`: Complete system overview, active session info, and daemon health.
+* `tether devices`: Lists paired mobile devices and their cryptographic fingerprints.
+* `tether unpair <FINGERPRINT>`: Revokes trust and removes paired device.
+* `tether lock`: Immediately locks the active user desktop.
+* `tether unlock`: Arms a 30-second mobile unlock grant for the active session.
+* `tether restart`: Restarts `tether.service`.
+* `tether logs`: Tails live daemon service logs from journald.
+
+---
+
+## 6. Android Companion Architecture
 
 ### 5.1 Architecture & Layers
 The Android companion app follows the modern Android architecture guidance:

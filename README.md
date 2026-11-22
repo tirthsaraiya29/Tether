@@ -4,9 +4,9 @@
 
 <h1 align="center">Tether</h1>
 
-**Adaptive personal trust and security system for Windows and Android.**
+**Adaptive personal trust and security system for Linux, Windows, and Android.**
 
-- **Platforms:** Windows and Android
+- **Platforms:** Linux, Windows, and Android
 - **Status:** Active Development
 - **Transport:** Local Wi-Fi/LAN — TLS 1.3 over direct TCP
 
@@ -41,7 +41,7 @@
 
 ## Overview
 
-**Tether** is an open-source personal trust and authentication platform designed to connect an Android device with a Windows workstation. It aims to use a smartphone as a cryptographically secured **trust anchor**, enabling device-based authentication workflows, workstation locking, trust validation, emergency lockdown, and remote workstation control.
+**Tether** is an open-source personal trust and authentication platform designed to connect an Android device with a Linux or Windows workstation. It aims to use a smartphone as a cryptographically secured **trust anchor**, enabling device-based authentication workflows, workstation locking, PAM / Credential Provider login, trust validation, emergency lockdown, and remote workstation control.
 
 Unlike cloud-dependent companion applications, Tether communicates directly over local Wi-Fi/LAN infrastructure without requiring a cloud relay.
 
@@ -53,26 +53,48 @@ Download prebuilt binaries directly from the official releases:
 
 ### 1. Download Artifacts
 
+- Linux Installer: `install-linux.sh` (or build from source)
 - Windows Installer: `Tether-Setup-*.exe`
 - Android Companion: `Tether-*.apk`
 
-### 2. Windows Account Preparation
+### 2. Install on Linux
+
+Run the automated one-line installer with root privileges:
+
+```bash
+sudo ./scripts/install-linux.sh
+```
+
+Or run the installer directly:
+```bash
+sudo ./installer/linux/install.sh
+```
+
+This automated installation:
+1. Compiles and installs `Tether.LinuxDaemon` to `/opt/tether/daemon/`.
+2. Compiles and installs the native PAM module `/usr/lib64/security/pam_tether.so` (or Debian/Ubuntu multiarch equivalent).
+3. Configures `/etc/udev/rules.d/99-tether-uinput.rules` for virtual mouse/keyboard input injection without root.
+4. Hardens firewall rules via `firewalld` or `ufw` for ports `37123/tcp`, `37124/udp`, `37124/tcp`, and `5353/udp`.
+5. Deploys and activates the hardened systemd unit `/etc/systemd/system/tether.service`.
+6. Installs the `tetherctl` CLI management utility to `/usr/local/bin/tether`.
+
+### 3. Windows Account Preparation
 
 > [!WARNING]
 > Do not disable your default sign-in methods or remove PIN/password options. Maintain a secondary administrator account during beta testing.
 
-### 3. Install on Windows
+### 4. Install on Windows
 
 1. Run `Tether-Setup-*.exe` as Administrator.
 2. Complete the wizard to install `Tether.CommunicationService`, register `TetherCredentialProvider.dll`, and open local firewall port 37123 (control). The service also attempts to add the matching netsh rules on startup.
 3. Launch `Tether Desktop UI`.
 
-### 4. Install on Android
+### 5. Install on Android
 
 1. Transfer and install `Tether-*.apk` on your mobile device.
 2. Open Tether and grant the requested local network permissions.
 
-### 5. Pair Devices
+### 6. Pair Devices
 
 1. Connect both devices to the same local Wi-Fi network.
 2. Open Tether Desktop UI and the Android companion app.
@@ -133,6 +155,17 @@ Download prebuilt binaries directly from the official releases:
 - **Desktop Configuration UI:** `Tether.DesktopUI` provides an interface for status monitoring, configuration, and diagnostics.
 - **Named-Pipe IPC:** Windows services and desktop clients communicate through authenticated inter-process communication channels.
 - **Service Lifecycle Management:** Direct service restart control from `Tether.DesktopUI` using the Windows Service Control Manager (SCM) APIs.
+
+### Linux Integration
+
+- **Linux Communication Daemon (`Tether.LinuxDaemon`):** Production-ready background daemon built on .NET 10, supervised by systemd (`tether.service`) with hardened process sandboxing (`ProtectSystem=strict`, `ProtectHome=read-only`, `NoNewPrivileges=yes`, `PrivateTmp=yes`).
+- **Native PAM Authentication Module (`pam_tether.so`):** Native C PAM module interfacing with Linux Display Managers (GDM, SDDM, LightDM) and screen lockers. Communicates securely with daemon via `/run/tether/auth.sock` UNIX domain socket with `SO_PEERCRED` root UID identity verification.
+- **Synthetic Input Injection (`/dev/uinput`):** Native Linux kernel input subsystem integration via `LinuxUinputInjector`. Creates virtual mouse and keyboard devices for sub-millisecond cursor movement, scrolling, clicks, virtual keys, and Unicode characters without X11/Wayland protocol dependencies.
+- **Pseudoterminal Session Manager:** Multi-session streaming Linux pseudoterminal (`/dev/ptmx` / `runuser`) supporting bash, sh, zsh, and fish with device owner isolation, directory tracking, and built-in command security filters.
+- **MPRIS2 & Notification Integration:** Remote media control via D-Bus MPRIS2 / playerctl (play/pause, skip, scrubbing, album art), plus active session desktop notifications via `notify-send`.
+- **Hardware & Laptop State Collector:** Audio volume and mute via PipeWire (`wpctl`) or ALSA (`amixer`), screen brightness via `/sys/class/backlight/`, battery metrics from `/sys/class/power_supply/`, session lock/unlock via `loginctl`, and desktop wallpaper detection for GNOME and KDE.
+- **Administration & Diagnostics Telemetry:** Real-time CPU, RAM, disk, network throughput, systemd unit control, DNF/APT package update counts, and CPU governor switching.
+- **CLI Management Utility (`tetherctl`):** Unified administrative CLI (`tether status`, `tether devices`, `tether unpair`, `tether lock`, `tether unlock`, `tether restart`, `tether logs`).
 
 ### Expanded Capability Ecosystem
 
@@ -486,6 +519,7 @@ The Windows desktop interface provides IPC diagnostics, system audio and display
 
 | Platform | Target Version | Architecture | Technology |
 |---|---|---|---|
+| Linux | Fedora 40+, RHEL 9+, Ubuntu 22.04+, Debian 12+, Arch | x64 / ARM64 | .NET 10, C (PAM), systemd, uinput, PipeWire, D-Bus |
 | Windows | Windows 10 / 11 | x64 | .NET 10, C++, Win32 APIs |
 | Android | Android 12 (API 31) and later | ARM64 / x86_64 | Kotlin, Jetpack Compose |
 
@@ -493,28 +527,62 @@ The Windows desktop interface provides IPC diagnostics, system audio and display
 
 ## Prerequisites
 
+### Linux Host
+- Linux distribution running systemd (Fedora, RHEL, Ubuntu, Debian, Arch).
+- Kernel with `/dev/uinput` enabled (standard on desktop/server kernels).
+- Root/sudo access for initial daemon and PAM module installation.
+- Display manager with PAM support (GDM, SDDM, LightDM, greetd).
+- Audio daemon: PipeWire (`wpctl`) or ALSA (`amixer`).
+
+### Windows Workstation
 - Windows 10 or Windows 11 x64 workstation.
-- Android device running Android 12+.
-- Shared local Wi-Fi/LAN connection on both devices.
-- Administrative privileges on Windows for initial service/credential provider registration.
+- Administrative privileges for initial service/credential provider registration.
 - An active, verified backup login method on Windows (PIN, Password, or Windows Hello).
+
+### Android Companion
+- Android device running Android 12+.
+- Device lock screen configured (PIN, pattern, password, or biometrics).
+
+### Network
+- Shared local Wi-Fi/LAN connection on both devices (AP/client isolation disabled on router).
 
 ---
 
-
 ## Quick Start and Usage
 
-### Common Workflows
+### Linux CLI Management (`tether`)
 
-| Action | Mobile Workflow | Expected Result |
+```bash
+# Check daemon service status, system telemetry, and active desktop session
+tether status
+
+# List paired mobile devices and their cryptographic fingerprints
+tether devices
+
+# Emergency lock the Linux workstation immediately
+tether lock
+
+# Arm a 30-second mobile unlock grant for the active session user
+sudo tether unlock
+
+# Restart the background daemon service
+sudo tether restart
+
+# View live streaming systemd daemon logs
+tether logs -f
+```
+
+### Mobile Companion Workflows
+
+| Action | Mobile Workflow | Expected Result (Linux / Windows) |
 |---|---|---|
-| **Unlock PC** | Tap Unlock and pass biometric challenge. | Sends authenticated unlock payload to `TetherCredentialProvider`. |
-| **Lock PC** | Tap `LOCK`. | Calls workstation lock in active user session. |
+| **Unlock PC** | Tap Unlock and pass biometric challenge. | Arms PAM unlock grant (`pam_tether.so`) or delivers credentials to `TetherCredentialProvider`. |
+| **Lock PC** | Tap `LOCK`. | Calls workstation lock (`loginctl lock-session` or `LockWorkStation`). |
 | **Panic** | Tap `PANIC`. | Invalidates trust session and locks workstation immediately. |
-| **Trackpad** | Swipe/tap trackpad screen. | Injects synthetic mouse events via Session Helper. |
-| **Launch App** | Tap desired application shortcut. | Spawns utility process inside active user session. |
-| **Audio Control** | Adjust volume slider. | Updates Windows Core Audio endpoint master volume. |
-| **Brightness Control** | Adjust brightness slider. | Updates monitor brightness level via WMI methods. |
+| **Trackpad** | Swipe/tap trackpad screen. | Injects synthetic mouse/keyboard events (`/dev/uinput` on Linux, `SendInput` on Windows). |
+| **Launch App** | Tap desired application shortcut. | Spawns desktop application (`gtk-launch` on Linux, `ShellExecuteEx` on Windows). |
+| **Audio Control** | Adjust volume slider. | Updates master volume (PipeWire/amixer on Linux, Core Audio on Windows). |
+| **Brightness Control** | Adjust brightness slider. | Updates display brightness (`/sys/class/backlight` on Linux, WMI on Windows). |
 
 ---
 

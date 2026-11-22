@@ -8,6 +8,14 @@ This guide provides complete instructions for setting up, building, installing, 
 
 Before deploying Tether, verify that your hardware, operating systems, and local network meet the following criteria:
 
+### Linux Host Requirements
+* **Operating System**: Fedora 40+, RHEL 9+, CentOS Stream 9+, Ubuntu 22.04+, Debian 12+, Arch Linux.
+* **Architecture**: x64 (AMD64) or ARM64 (aarch64).
+* **Init & Supervisor**: systemd (v245+).
+* **Kernel Subsystems**: `/dev/uinput` enabled with read/write access for synthetic mouse and keyboard event injection.
+* **Privileges**: root / sudo access required for service installation, firewall configuration, and PAM module deployment.
+* **PAM Subsystem**: Linux-PAM with PAM development headers (`pam-devel` or `libpam0g-dev`).
+
 ### Windows Workstation Requirements
 * **Operating System**: Windows 10 (Build 19041 or higher) or Windows 11 x64.
 * **Architecture**: x64 (AMD64 / Intel 64).
@@ -129,7 +137,111 @@ netsh advfirewall firewall add rule name="Tether File Transfer (TCP-In 37124)" d
 
 ---
 
-## 4. Android Companion Setup & Building
+## 4. Linux Environment Setup, Building & Automated Installation
+
+### Step 1: Install Development Dependencies
+
+#### Fedora / RHEL / CentOS Stream:
+```bash
+sudo dnf install -y dotnet-sdk-10.0 gcc pam-devel firewalld
+```
+
+#### Ubuntu / Debian:
+```bash
+sudo apt update
+sudo apt install -y dotnet-sdk-10.0 gcc libpam0g-dev ufw
+```
+
+#### Arch Linux:
+```bash
+sudo pacman -S --needed dotnet-sdk gcc pam ufw
+```
+
+### Step 2: Automated Installation (Recommended)
+
+Run the automated installer script:
+
+```bash
+sudo ./scripts/install-linux.sh
+```
+
+The installer performs the following operations:
+1. Builds `Tether.LinuxDaemon` in Release mode using .NET 10 SDK and publishes to `/opt/tether/daemon/`.
+2. Compiles the native C PAM module `pam_tether.so` with security hardening flags (`-fstack-protector-strong`, `-D_FORTIFY_SOURCE=2`, `-Wl,-z,relro,-z,now`).
+3. Installs `pam_tether.so` into the platform's PAM directory (`/usr/lib64/security/` on RHEL/Fedora or `/lib/x86_64-linux-gnu/security/` on Debian/Ubuntu).
+4. Creates the dedicated service user and group `tether:tether`.
+5. Deploys `/etc/udev/rules.d/99-tether-uinput.rules` allowing the `tether` group access to `/dev/uinput`.
+6. Configures firewall rules (via `firewalld` or `ufw`):
+   - `TCP 37123`: Control channel (TLS 1.3).
+   - `UDP 37124`: Local discovery probe listener.
+   - `TCP 37124`: HTTPS file transfer server.
+   - `UDP 5353`: mDNS discovery advertiser.
+7. Installs and enables the hardened systemd unit `/etc/systemd/system/tether.service`.
+8. Builds and installs `tetherctl` CLI to `/usr/local/bin/tether`.
+
+### Step 3: Manual Step-by-Step Linux Build
+
+If building individual components manually:
+
+```bash
+# 1. Publish Linux Daemon
+dotnet publish services/communication-service/Tether.LinuxDaemon/Tether.LinuxDaemon.csproj -c Release -o /opt/tether/daemon
+
+# 2. Build Native PAM Module
+gcc -fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2 -shared -O2 \
+    -Iservices/pam-tether \
+    services/pam-tether/pam_tether.c -lpam \
+    -o /usr/lib64/security/pam_tether.so
+
+# 3. Build tetherctl CLI
+dotnet publish tools/tetherctl/Tether.Cli.csproj -c Release -o /usr/local/bin
+ln -sf /usr/local/bin/tetherctl /usr/local/bin/tether
+
+# 4. Enable and start systemd service
+sudo systemctl daemon-reload
+sudo systemctl enable --now tether.service
+```
+
+### Step 4: Configuring PAM for Lock Screen Unlock
+
+To enable mobile biometric unlock for lock screens (e.g. GDM or screen lockers), add `pam_tether.so` as `sufficient` at the top of the `auth` section in the appropriate PAM configuration:
+
+In `/etc/pam.d/password-auth` or `/etc/pam.d/system-auth`:
+```pam
+# Tether mobile biometric unlock module
+auth        sufficient    pam_tether.so
+```
+
+When an unlock request is confirmed on the Android companion, `Tether.LinuxDaemon` writes a short-lived unlock grant to its secure socket (`/run/tether/auth.sock`). When `pam_tether.so` is invoked by the lock screen, it connects via UNIX domain socket, cryptographically verifies the grant with the daemon, and completes authentication without requiring manual password entry.
+
+### Step 5: Managing the Linux Service with `tetherctl`
+
+```bash
+# Display overall daemon status, hardware metrics, and active session
+tether status
+
+# List paired Android devices
+tether devices
+
+# Unpair a device by fingerprint
+tether unpair <FINGERPRINT>
+
+# Lock the workstation immediately
+tether lock
+
+# Arm a 30-second mobile unlock grant
+sudo tether unlock
+
+# Restart the daemon service
+sudo tether restart
+
+# View live daemon logs
+tether logs -f
+```
+
+---
+
+## 5. Android Companion Setup & Building
 
 ### Step 1: Open in Android Studio
 1. Launch Android Studio.
@@ -151,11 +263,12 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
-## 5. Provisioning & Pairing Walkthrough
+## 6. Provisioning & Pairing Walkthrough
 
-Follow these steps to establish initial cryptographic pairing between Windows and Android:
+Follow these steps to establish initial cryptographic pairing between Linux/Windows and Android:
 
 ### 1. Launch Applications
+* On Linux: Ensure `tether.service` is active (`tether status`).
 * On Windows: Open **Tether Desktop UI** from Start Menu or `C:\Program Files\Tether\Tether.DesktopUI.exe`.
 * On Android: Open the **Tether** app.
 
@@ -166,39 +279,42 @@ In the Tether Android app, open the **Permissions** screen and grant:
 * Battery Optimization Exemption (allows background connection persistence).
 
 ### 3. Pair Devices
-1. On Android, tap **Search for Workstation** or tap your PC name under Local Devices.
-2. A 6-digit numeric Pairing Code will appear on **Tether Desktop UI**.
+1. On Android, tap **Search for Workstation** or tap your PC/laptop name under Local Devices.
+2. A 6-digit numeric Pairing Code will appear on the workstation (in desktop notification / `tetherctl` logs on Linux, or on **Tether Desktop UI** on Windows).
 3. Enter the 6-digit code on the Android app.
 4. Verify that the generated **SHA-256 Cryptographic Fingerprint** (`XX:XX:...:XX`) matches on both screens.
 5. Tap **Confirm Pairing**.
 
-### 4. Store Credentials in DPAPI Vault
-On Tether Desktop UI, navigate to **Vault Settings**, enter your current Windows password/PIN, and tap **Save to Vault**. The credential payload will be encrypted using DPAPI system-bound entropy (`Tether_System_Bound_Vault_v1`) and written to `HKLM\SOFTWARE\Tether\Secrets`.
+### 4. Workstation Authentication Configuration
+* **On Linux**: Configure PAM with `pam_tether.so` as described in Section 4. Test unlock by running `sudo tether unlock`.
+* **On Windows**: On Tether Desktop UI, navigate to **Vault Settings**, enter your current Windows password/PIN, and tap **Save to Vault**. The credential payload will be encrypted using DPAPI system-bound entropy (`Tether_System_Bound_Vault_v1`) and written to `HKLM\SOFTWARE\Tether\Secrets`.
 
 ---
 
-## 6. Testing System Capabilities
+## 7. Testing System Capabilities
 
 Once paired, test the primary workflows:
 
-| Workflow | Action | Expected Behavior |
+| Workflow | Action | Expected Behavior (Linux / Windows) |
 |---|---|---|
-| **Remote Unlock** | Lock PC (`Win + L`). Open Android app, tap **Unlock Workstation**, satisfy BiometricPrompt. | Windows Credential Provider receives authenticated pipe signal, decrypts DPAPI credentials, and unlocks desktop. |
+| **Remote Unlock** | Lock PC (`loginctl lock-session` or `Win + L`). Open Android app, tap **Unlock Workstation**, satisfy BiometricPrompt. | Dispatches authenticated unlock challenge; `pam_tether.so` on Linux or `TetherCredentialProvider` on Windows completes unlock. |
 | **Emergency Panic** | Tap **PANIC** on Android dashboard. | Immediate workstation lock command is dispatched; active session trust is invalidated. |
-| **Trackpad & Input** | Open **Trackpad** tab on Android, swipe finger or tap modifier keys (`Win`, `Ctrl`). | Mouse cursor moves smoothly on Windows; clicks and keystrokes register via `Tether.SessionHelper`. |
-| **Audio Volume** | Slide volume control on Android. | Windows master volume adjusts in real time via COM `IAudioEndpointVolume`. |
-| **Display Brightness** | Slide brightness control on Android. | Monitor brightness changes via WMI / DXVA2. |
-| **System Launcher** | Tap **Terminal**, **Task Manager**, or **Explorer** icon on Android. | Utility application launches inside the active console user desktop. |
+| **Trackpad & Input** | Open **Trackpad** tab on Android, swipe finger or tap modifier keys (`Win`, `Ctrl`). | Mouse cursor moves smoothly; clicks and keystrokes register via `/dev/uinput` on Linux or `Tether.SessionHelper` on Windows. |
+| **Audio Volume** | Slide volume control on Android. | Master volume adjusts in real time via PipeWire/amixer on Linux or COM `IAudioEndpointVolume` on Windows. |
+| **Display Brightness** | Slide brightness control on Android. | Monitor brightness changes via `/sys/class/backlight` on Linux or WMI / DXVA2 on Windows. |
+| **System Launcher** | Tap **Terminal**, **Task Manager**, or **Files** icon on Android. | Desktop application or shell launches inside the active desktop session. |
 
 ---
 
-## 7. Troubleshooting & Error Resolution Matrix
+## 8. Troubleshooting & Error Resolution Matrix
 
 | Issue / Symptom | Root Cause | Resolution |
 |---|---|---|
-| `DISCOVERY_FAILED` | Router Client Isolation is enabled or UDP ports blocked. | Disable Client Isolation on router settings. Verify Windows Firewall allows UDP `37124` and UDP `5353`. On hotspot, verify laptop is connected to phone hotspot. |
-| `Connection Timeout` | `TetherCommService` is stopped or TCP `37123` blocked. | Open `services.msc`, start `Tether Communication Service`, and check firewall rules. |
-| `TLS Handshake Error` | Stale or mismatched device certificate pinning. | Open Tether Desktop UI, tap **Reset Pairing**, clear stored key on Android, and pair again. |
+| `DISCOVERY_FAILED` | Router Client Isolation is enabled or UDP ports blocked. | Disable Client Isolation on router settings. Verify firewall allows UDP `37124` and UDP `5353`. On hotspot, verify laptop is connected to phone hotspot. |
+| `Connection Timeout` | Daemon or Service is stopped, or TCP `37123` blocked. | On Linux: check `tether status` or `sudo systemctl restart tether`. On Windows: check `services.msc` for `Tether Communication Service`. Verify firewall allows TCP `37123`. |
+| `TLS Handshake Error` | Stale or mismatched device certificate pinning. | On Linux: `tether unpair <FINGERPRINT>`. On Windows: Tap **Reset Pairing** in Desktop UI. Clear stored key in Android app and re-pair. |
+| `Linux Uinput Permission Denied` | User lacks permission to open `/dev/uinput`. | Verify `/etc/udev/rules.d/99-tether-uinput.rules` exists with `KERNEL=="uinput", MODE="0660", GROUP="tether"`. Run `sudo udevadm control --reload-rules && sudo udevadm trigger`. |
+| `Linux PAM Auth Failed` | Socket `/run/tether/auth.sock` missing or permission error. | Verify `tether.service` is active (`tether status`). Ensure `pam_tether.so` is placed in `/usr/lib64/security/` (or `/lib/x86_64-linux-gnu/security/`). |
 | `HELPER_NOT_FOUND` | `Tether.SessionHelper.exe` missing from installation path. | Reinstall Tether or verify file exists in `C:\Program Files\Tether\Tether.SessionHelper.exe`. |
 | `BIOMETRIC_FAILED` | Fingerprint or facial recognition canceled or unconfigured. | Enroll biometrics in Android System Settings and retry unlock prompt. |
 | `Windows Logon Tile Missing` | `TetherCredentialProvider.dll` not registered in Registry. | Re-run registry registration commands from Section 3 or re-run `Tether-Setup-1.1.2.exe`. |
