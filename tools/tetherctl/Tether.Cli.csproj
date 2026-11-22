@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>tetherctl</AssemblyName>
+    <RootNamespace>Tether.Cli</RootNamespace>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\shared\Tether.Shared\Tether.Shared.csproj" />
+    <ProjectReference Include="..\..\services\communication-service\Tether.LinuxDaemon\Tether.LinuxDaemon.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,24 @@
+[Unit]
+Description=Tether Linux Daemon
+Documentation=https://github.com/tirthsaraiya29/tether
+After=network.target network-online.target dbus.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/tether-daemon
+Restart=on-failure
+RestartSec=3s
+KillMode=control-group
+StandardOutput=journal
+StandardError=journal
+
+# Security and Sandbox Constraints
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/tether /run/tether /var/log/tether
+DeviceAllow=/dev/uinput rw
+DeviceAllow=char-input rw
+
+[Install]
+WantedBy=multi-user.target

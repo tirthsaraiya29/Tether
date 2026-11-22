@@ -68,7 +68,11 @@ public sealed class LinuxDaemonConfig
             cfg.DataDir = Path.Combine(userHome, ".local", "share", "tether");
             cfg.RunDir = Path.Combine(userHome, ".local", "run", "tether");
             cfg.LogDir = Path.Combine(userHome, ".local", "state", "tether");
-            cfg.PamSocketPath = Path.Combine(cfg.RunDir, "auth.sock");
+            cfg.PamSocketPath = File.Exists("/run/tether/auth.sock") ? "/run/tether/auth.sock" : Path.Combine(cfg.RunDir, "auth.sock");
+            if (Directory.Exists("/var/lib/tether") && !Directory.Exists(cfg.DataDir))
+            {
+                cfg.DataDir = "/var/lib/tether";
+            }
         }
 
         return cfg;

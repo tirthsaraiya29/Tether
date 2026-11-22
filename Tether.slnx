@@ -18,5 +18,6 @@
   <Project Path="tests/Tether.Tests/Tether.Tests.csproj" Id="e2d0912f-37c2-4048-8df0-e325607b22a0" />
   <Project Path="tests/Tether.LinuxTests/Tether.LinuxTests.csproj" Id="b582103e-72ca-491f-93d1-0f37b12ec82d" />
   <Project Path="tests/Tether.NativeTests/Tether.NativeTests.vcxproj" Id="e8f3b207-88d4-4a57-9d7c-87d21b44ec91" />
+  <Project Path="tools/tetherctl/Tether.Cli.csproj" Id="9f3a1804-d75e-4bb5-a5d6-848e4b85c13e" />
   <Project Path="TetherCredentialProvider/TetherCredentialProvider.vcxproj" Id="8feec4ff-7295-447f-94ba-6d1fdac8d30e" />
 </Solution>

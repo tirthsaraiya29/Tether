@@ -221,8 +221,10 @@ public sealed class LinuxPamAuthServer : IDisposable
 
             string json = Encoding.UTF8.GetString(body);
             using var doc = JsonDocument.Parse(json);
-            string action = doc.RootElement.TryGetProperty("action", out var aProp) ? (aProp.GetString() ?? "") : "";
-            string targetUser = doc.RootElement.TryGetProperty("user", out var uProp) ? (uProp.GetString() ?? "") : "";
+            string action = doc.RootElement.TryGetProperty("action", out var aProp) ? (aProp.GetString() ?? "")
+                : (doc.RootElement.TryGetProperty("type", out var tProp) ? (tProp.GetString() ?? "") : "");
+            string targetUser = doc.RootElement.TryGetProperty("user", out var uProp) ? (uProp.GetString() ?? "")
+                : (doc.RootElement.TryGetProperty("username", out var unProp) ? (unProp.GetString() ?? "") : "");
 
             if (action == "AUTH_REQUEST")
             {
@@ -236,6 +238,32 @@ public sealed class LinuxPamAuthServer : IDisposable
                 {
                     status = success ? "SUCCESS" : "DENIED",
                     user = targetUser,
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                };
+
+                byte[] respBytes = JsonSerializer.SerializeToUtf8Bytes(resp);
+                byte[] respLen = new byte[4];
+                System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(respLen, respBytes.Length);
+
+                await ns.WriteAsync(respLen.AsMemory(0, 4), ct);
+                await ns.WriteAsync(respBytes, ct);
+                await ns.FlushAsync(ct);
+            }
+            else if (action == "ARM_GRANT")
+            {
+                string deviceId = doc.RootElement.TryGetProperty("deviceId", out var dProp) ? (dProp.GetString() ?? "cli-local") : "cli-local";
+                int validity = doc.RootElement.TryGetProperty("validitySeconds", out var vProp) ? vProp.GetInt32() : 20;
+
+                if (!string.IsNullOrEmpty(targetUser))
+                {
+                    ArmUnlockGrant(targetUser, deviceId, validity);
+                }
+
+                var resp = new
+                {
+                    status = "ARMED",
+                    user = targetUser,
+                    success = !string.IsNullOrEmpty(targetUser),
                     timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 };
 
