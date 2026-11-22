@@ -38,6 +38,8 @@ captures/
 .cxx/
 *.exe
 *.dll
+*.so
+test_pam_tether
 
 # Bundles
 *.bundle
