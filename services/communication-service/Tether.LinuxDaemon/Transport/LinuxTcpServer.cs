@@ -167,7 +167,7 @@ public sealed class LinuxTcpServer : IDisposable
                     while (timestamps.Count > 0 && (now - timestamps.Peek()).TotalSeconds > 60)
                         timestamps.Dequeue();
 
-                    if (timestamps.Count >= MaxConnectionsPerMinutePerIp)
+                    if (!IPAddress.IsLoopback(remoteIp) && timestamps.Count >= MaxConnectionsPerMinutePerIp)
                     {
                         _logger.Warning($"LinuxTcpServer: Rate limit exceeded for {remoteIp}. Dropping.");
                         try { client.Close(); } catch { }
