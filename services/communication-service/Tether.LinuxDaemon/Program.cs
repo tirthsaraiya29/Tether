@@ -28,6 +28,7 @@ public static class Program
                 {
                     services.AddSingleton<ITetherLogger, SerilogTetherLogger>();
                     services.AddSingleton<IEventBus, InMemoryEventBus>();
+                    services.AddHostedService<DaemonWorker>();
                 });
 
             var host = builder.Build();

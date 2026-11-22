@@ -39,7 +39,7 @@ public sealed class LinuxTcpServer : IDisposable
     private readonly LinuxSessionManager _sessionManager;
     private readonly LinuxPairingManager _pairingManager;
     private readonly LinuxTrustStore _trustStore;
-    private readonly Func<JsonDocument, LinuxSession, LinuxDevice, Stream, CancellationToken, Task> _frameRouter;
+    private readonly Func<ReadOnlyMemory<byte>, LinuxSession, CancellationToken, Task> _rawFrameRouter;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -55,7 +55,7 @@ public sealed class LinuxTcpServer : IDisposable
         LinuxSessionManager sessionManager,
         LinuxPairingManager pairingManager,
         LinuxTrustStore trustStore,
-        Func<JsonDocument, LinuxSession, LinuxDevice, Stream, CancellationToken, Task> frameRouter)
+        Func<ReadOnlyMemory<byte>, LinuxSession, CancellationToken, Task> rawFrameRouter)
     {
         _eventBus = eventBus;
         _logger = logger;
@@ -65,7 +65,34 @@ public sealed class LinuxTcpServer : IDisposable
         _sessionManager = sessionManager;
         _pairingManager = pairingManager;
         _trustStore = trustStore;
-        _frameRouter = frameRouter;
+        _rawFrameRouter = rawFrameRouter;
+    }
+
+    public LinuxTcpServer(
+        IEventBus eventBus,
+        ITetherLogger logger,
+        IHostIdentity identity,
+        LinuxDaemonConfig config,
+        LinuxDeviceManager deviceManager,
+        LinuxSessionManager sessionManager,
+        LinuxPairingManager pairingManager,
+        LinuxTrustStore trustStore,
+        Func<JsonDocument, LinuxSession, LinuxDevice, Stream, CancellationToken, Task> legacyRouter)
+        : this(eventBus, logger, identity, config, deviceManager, sessionManager, pairingManager, trustStore,
+            async (memory, sess, ct) =>
+            {
+                if (memory.Length > 0 && memory.Span[0] == (byte)'{' && sess.Device != null)
+                {
+                    using var doc = JsonDocument.Parse(memory);
+                    var st = (Stream?)sess.GetType().GetField("_tls", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(sess)
+                             ?? (Stream?)sess.GetType().GetField("_testStream", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(sess);
+                    if (st != null)
+                    {
+                        await legacyRouter(doc, sess, sess.Device, st, ct);
+                    }
+                }
+            })
+    {
     }
 
     public void Start()
@@ -184,7 +211,7 @@ public sealed class LinuxTcpServer : IDisposable
                 _sessionManager,
                 _pairingManager,
                 _trustStore,
-                _frameRouter);
+                _rawFrameRouter);
 
             await session.RunAsync(client, ct);
         }

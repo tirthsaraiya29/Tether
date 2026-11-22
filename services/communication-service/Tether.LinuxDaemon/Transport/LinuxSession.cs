@@ -30,7 +30,7 @@ public sealed class LinuxSession : IDisposable
     private readonly LinuxSessionManager _sessionManager;
     private readonly LinuxPairingManager _pairingManager;
     private readonly LinuxTrustStore _trustStore;
-    private readonly Func<JsonDocument, LinuxSession, LinuxDevice, Stream, CancellationToken, Task> _frameRouter;
+    private readonly Func<ReadOnlyMemory<byte>, LinuxSession, CancellationToken, Task> _rawFrameRouter;
 
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private SslStream? _tls;
@@ -49,7 +49,7 @@ public sealed class LinuxSession : IDisposable
         LinuxSessionManager sessionManager,
         LinuxPairingManager pairingManager,
         LinuxTrustStore trustStore,
-        Func<JsonDocument, LinuxSession, LinuxDevice, Stream, CancellationToken, Task> frameRouter)
+        Func<ReadOnlyMemory<byte>, LinuxSession, CancellationToken, Task> rawFrameRouter)
     {
         _eventBus = eventBus;
         _logger = logger;
@@ -58,11 +58,36 @@ public sealed class LinuxSession : IDisposable
         _sessionManager = sessionManager;
         _pairingManager = pairingManager;
         _trustStore = trustStore;
-        _frameRouter = frameRouter;
+        _rawFrameRouter = rawFrameRouter;
         _lastFrameReceivedTicks = DateTime.UtcNow.Ticks;
     }
 
-    internal void SetStreamForTesting(Stream stream) => _testStream = stream;
+    public LinuxSession(
+        IEventBus eventBus,
+        ITetherLogger logger,
+        IHostIdentity identity,
+        LinuxDeviceManager deviceManager,
+        LinuxSessionManager sessionManager,
+        LinuxPairingManager pairingManager,
+        LinuxTrustStore trustStore,
+        Func<JsonDocument, LinuxSession, LinuxDevice, Stream, CancellationToken, Task> legacyRouter)
+        : this(eventBus, logger, identity, deviceManager, sessionManager, pairingManager, trustStore,
+            async (memory, sess, ct) =>
+            {
+                if (memory.Length > 0 && memory.Span[0] == (byte)'{' && sess.Device != null)
+                {
+                    using var doc = JsonDocument.Parse(memory);
+                    var st = (Stream?)sess._tls ?? sess._testStream;
+                    if (st != null)
+                    {
+                        await legacyRouter(doc, sess, sess.Device, st, ct);
+                    }
+                }
+            })
+    {
+    }
+
+    public void SetStreamForTesting(Stream stream) => _testStream = stream;
 
     public void RecordPongReceived()
         => Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
@@ -297,10 +322,10 @@ public sealed class LinuxSession : IDisposable
             using var frameCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             frameCts.CancelAfter(TimeSpan.FromSeconds(60));
 
-            JsonDocument? doc;
+            byte[]? frame;
             try
             {
-                doc = await FrameCodec.ReadJsonFrameAsync(stream, frameCts.Token);
+                frame = await FrameCodec.ReadFrameAsync(stream, frameCts.Token);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
@@ -309,13 +334,10 @@ public sealed class LinuxSession : IDisposable
                 continue;
             }
 
-            if (doc == null) break;
+            if (frame == null || frame.Length == 0) break;
 
             Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);
-            using (doc)
-            {
-                await _frameRouter(doc, this, Device, stream, ct);
-            }
+            await _rawFrameRouter(frame, this, ct);
         }
     }
 
