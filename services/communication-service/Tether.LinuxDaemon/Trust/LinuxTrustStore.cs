@@ -315,6 +315,13 @@ public sealed class LinuxTrustStore
                                 continue;
                             }
 
+                            if (record.Capabilities.Contains("LOCK", StringComparer.OrdinalIgnoreCase) &&
+                                !record.Capabilities.Contains("POWER_ELEVATED", StringComparer.OrdinalIgnoreCase))
+                            {
+                                record.Capabilities.Add("POWER_ELEVATED");
+                                needsMigration = true;
+                            }
+
                             _byFingerprint[record.Fingerprint] = record;
                         }
                     }

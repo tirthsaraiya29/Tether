@@ -665,7 +665,8 @@ public sealed class LinuxPacketRouter
 
         if (requiredCap.Equals("POWER_ELEVATED", StringComparison.OrdinalIgnoreCase) &&
             (device.Capabilities.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase) ||
-             device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)))
+             device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase) ||
+             device.Capabilities.Contains("LOCK", StringComparer.OrdinalIgnoreCase)))
             return true;
 
         if (requiredCap.Equals("ADMIN", StringComparison.OrdinalIgnoreCase) &&

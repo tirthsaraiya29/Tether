@@ -16,16 +16,25 @@ public sealed class LinuxDevice
     public DateTime LastSeenUtc { get; set; }
     public bool IsConnected { get; set; }
 
-    public static LinuxDevice FromRecord(TrustedPhoneRecord r) => new()
+    public static LinuxDevice FromRecord(TrustedPhoneRecord r)
     {
-        DeviceId = r.DeviceId,
-        DisplayName = r.DisplayName,
-        Fingerprint = r.Fingerprint,
-        PublicKeySpkiBase64 = r.PublicKeySpkiBase64,
-        Capabilities = new List<string>(r.Capabilities),
-        ProtocolVersion = r.ProtocolVersion,
-        PairedAtUtc = r.PairedAtUtc,
-        LastSeenUtc = r.LastSeenUtc,
-        IsConnected = false
-    };
+        var caps = new List<string>(r.Capabilities);
+        if (caps.Contains("LOCK", StringComparer.OrdinalIgnoreCase) && !caps.Contains("POWER_ELEVATED", StringComparer.OrdinalIgnoreCase))
+        {
+            caps.Add("POWER_ELEVATED");
+        }
+
+        return new()
+        {
+            DeviceId = r.DeviceId,
+            DisplayName = r.DisplayName,
+            Fingerprint = r.Fingerprint,
+            PublicKeySpkiBase64 = r.PublicKeySpkiBase64,
+            Capabilities = caps,
+            ProtocolVersion = r.ProtocolVersion,
+            PairedAtUtc = r.PairedAtUtc,
+            LastSeenUtc = r.LastSeenUtc,
+            IsConnected = false
+        };
+    }
 }

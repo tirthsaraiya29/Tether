@@ -256,7 +256,7 @@ public sealed class LinuxPairingManager
             deviceId: pending.PhoneFingerprint,
             displayName: pending.DisplayName,
             spkiBase64: pending.PhoneSpkiBase64,
-            capabilities: new[] { "MEDIA", "LOCK", "INPUT", "NOTIFICATIONS", "TERMINAL", "FILES", "APP_MANAGEMENT" },
+            capabilities: new[] { "MEDIA", "LOCK", "INPUT", "NOTIFICATIONS", "TERMINAL", "FILES", "APP_MANAGEMENT", "POWER_ELEVATED" },
             protocolVersion: "2.0");
 
         _deviceManager.ReloadFromTrustStore();

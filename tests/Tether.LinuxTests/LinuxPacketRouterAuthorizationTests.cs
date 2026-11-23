@@ -209,6 +209,27 @@ public class LinuxPacketRouterAuthorizationTests : IDisposable
     }
 
     [Fact]
+    public async Task CommandExecute_UnlockCommand_SucceedsWithLockCapability()
+    {
+        using var pipe = new MemoryStream();
+        var device = new LinuxDevice
+        {
+            DeviceId = "dev-lock-cap",
+            Capabilities = new List<string> { "LOCK" }
+        };
+        using var session = CreateTestSession(pipe, device);
+
+        byte[] cmd = Encoding.UTF8.GetBytes("{\"type\":\"COMMAND_EXECUTE\",\"command\":\"unlock\",\"requestId\":\"req_unlock_lock\"}");
+        await _router.RouteFrameAsync(cmd, session, CancellationToken.None);
+
+        pipe.Position = 0;
+        using var doc = await FrameCodec.ReadJsonFrameAsync(pipe, CancellationToken.None);
+        Assert.NotNull(doc);
+        Assert.Equal("CONFIRM_COMMAND", doc.RootElement.GetProperty("type").GetString());
+        Assert.True(doc.RootElement.GetProperty("success").GetBoolean());
+    }
+
+    [Fact]
     public async Task CommandExecute_VolumeCommand_RequiresMediaCapability()
     {
         using var pipe = new MemoryStream();
