@@ -71,3 +71,32 @@ Reports outside these categories may still be considered at the maintainer's dis
 Good-faith security research conducted within the boundaries described above is welcome. Do not intentionally compromise systems, access or modify data that does not belong to you, or disrupt services. Stop testing and report the issue if you encounter sensitive data.
 
 This policy does not grant permission to test systems you do not own or control, and it does not override applicable laws or third-party policies.
+
+---
+
+## Security Architecture & Technical Controls
+
+Tether enforces defense-in-depth across the Android companion app, Windows service, and Linux daemon:
+
+### 1. Cryptographic Authentication & Proof of Possession
+* **Handshake & Reconnect:** Every session reconnection requires mutual cryptographic proof of possession. The daemon issues a fresh 32-byte cryptographically secure random `serverNonce`. The client signs a deterministic transcript (`serverNonce || clientNonce || serverSpki || clientSpki`) using its hardware-backed ECDSA P-256 identity key, returning an RFC 3279 DER sequence signature. Public keys or fingerprints alone are never accepted as proof of identity.
+* **Pairing Protocol:** First-time pairing uses high-entropy 6-digit PINs displayed strictly on the active console screen. Cleartext PINs are never logged, never broadcast over IPC, and zeroized from memory immediately after HMAC-SHA256 key derivation (`TETHER-PAIRING-v2`). Failed attempts are strictly limited to 3 tries before request eviction. Raw PIN fallbacks are permanently disabled.
+
+### 2. Privilege Dropping & Session Isolation
+* **Windows Remote Shells:** When the interactive helper runs elevated for input injection across UIPI boundaries, remote terminal sessions (`powershell.exe`, `cmd.exe`) explicitly drop privileges using `CreateProcessWithTokenW` to run under the interactive user's medium-integrity token.
+* **Linux Remote Shells:** When the Linux daemon executes as root, remote terminal sessions drop root privileges using `su -l <user>` or `runuser -u <user>` to execute strictly under the active unprivileged console user's UID/GID resolved from `loginctl`. Process arguments are constructed with `ProcessStartInfo.ArgumentList` to eliminate shell string injection.
+* **Linux Input & Sandboxing:** Input injection is isolated to a dedicated `tether` group (`0660` on `/dev/uinput`). The daemon runs in a hardened systemd sandbox with `ProtectSystem=full`, `ProtectHome=read-only`, `PrivateTmp=true`, `ProtectKernelTunables=true`, and restricted address families.
+
+### 3. Native PAM Module Hardening (`pam_tether`)
+* Framed I/O loops (`write_all` and `read_all`) prevent partial read/write desynchronization.
+* `parse_auth_status` performs strict JSON status validation, preventing status substring injection attacks.
+* Socket caller identity is verified via `SO_PEERCRED`, requiring the authentication server to be root (UID 0).
+* JSON strings (such as usernames) are strictly escaped with `json_escape_string`.
+
+### 4. File Transfer Boundary & Token Binding
+* File transfer tokens are bound to device fingerprints, enforce single-use / maximum-use counts, and expire in 15 minutes with explicit revocation support.
+* Path boundary validation uses native libc `realpath` and .NET link target resolution, verifying that both target files and parent directories reside strictly within authorized roots.
+* Direct uploads use atomic promotion from unprivileged temporary sidecars (`0600`) to prevent symlink and TOCTOU races.
+
+### 5. Capability-Based Authorization
+* All command execution and packet routing strictly enforce capability permissions (`MEDIA`, `POWER_ELEVATED`, `TERMINAL`, `FILES`, `APP_LAUNCH`, `ADMIN`, `NOTIFICATIONS`). Commands submitted without required capabilities are rejected with immediate failure responses.
