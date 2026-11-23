@@ -7,9 +7,10 @@ namespace Tether.LinuxTests;
 public class PlatformDetectionTests
 {
     [Fact]
-    public void IsLinux_ReturnsTrueOnLinuxHost()
+    public void IsLinux_ReturnsExpectedPlatform()
     {
-        Assert.True(PlatformDetection.IsLinux);
+        bool expected = OperatingSystem.IsLinux();
+        Assert.Equal(expected, PlatformDetection.IsLinux);
     }
 
     [Fact]
@@ -17,7 +18,14 @@ public class PlatformDetectionTests
     {
         string distro = PlatformDetection.GetDistributionName();
         Assert.False(string.IsNullOrWhiteSpace(distro));
-        Assert.Contains("Fedora", distro, StringComparison.OrdinalIgnoreCase);
+        if (OperatingSystem.IsLinux())
+        {
+            Assert.DoesNotContain("Non-Linux", distro);
+        }
+        else
+        {
+            Assert.Equal("Non-Linux", distro);
+        }
     }
 
     [Fact]

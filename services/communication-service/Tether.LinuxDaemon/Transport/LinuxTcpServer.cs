@@ -45,6 +45,11 @@ public sealed class LinuxTcpServer : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _acceptLoop;
     private int _activeSessionCount = 0;
+    private readonly TaskCompletionSource<bool> _startedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public int BoundPort => (_listener?.LocalEndpoint as IPEndPoint)?.Port ?? _config.ControlPort;
+
+    public Task WaitForStartAsync(CancellationToken ct = default) => _startedTcs.Task.WaitAsync(ct);
 
     public LinuxTcpServer(
         IEventBus eventBus,
@@ -106,6 +111,7 @@ public sealed class LinuxTcpServer : IDisposable
     {
         try { _cts?.Cancel(); } catch { }
         try { _listener?.Stop(); } catch { }
+        try { _startedTcs.TrySetCanceled(); } catch { }
         try { _acceptLoop?.Wait(TimeSpan.FromSeconds(3)); } catch { }
         try { _cts?.Dispose(); } catch { }
         _cts = null;
@@ -121,9 +127,11 @@ public sealed class LinuxTcpServer : IDisposable
             _listener = new TcpListener(IPAddress.IPv6Any, _config.ControlPort);
             _listener.Server.DualMode = true;
             _listener.Start(backlog: 8);
+            _startedTcs.TrySetResult(true);
         }
         catch (Exception ex)
         {
+            _startedTcs.TrySetException(ex);
             _logger.Error($"Failed to bind Linux TCP {_config.ControlPort}: {ex.Message}");
             return;
         }

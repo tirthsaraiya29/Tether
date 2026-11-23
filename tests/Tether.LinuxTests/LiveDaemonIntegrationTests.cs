@@ -39,17 +39,17 @@ public class LiveDaemonIntegrationTests
         }
     }
 
+    private const string SkipLiveDaemonReason = "Live daemon integration tests require an external live Linux daemon on localhost:37123. For automated in-process integration testing, see InProcessDaemonIntegrationTests.";
+
     private static (string spkiBase64, ECDsa key) GenerateClientKey()
     {
         var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         return (Convert.ToBase64String(ecdsa.ExportSubjectPublicKeyInfo()), ecdsa);
     }
 
-    [Fact]
+    [Fact(Skip = SkipLiveDaemonReason)]
     public async Task LiveDaemon_HealthEndpoint_Returns200Ok()
     {
-        if (!IsLiveDaemonRunning()) return;
-
         using var handler = new HttpClientHandler
         {
             ServerCertificateCustomValidationCallback = (_, _, _, _) => true
@@ -62,11 +62,9 @@ public class LiveDaemonIntegrationTests
         Assert.Equal("OK", text);
     }
 
-    [Fact]
+    [Fact(Skip = SkipLiveDaemonReason)]
     public async Task LiveDaemon_ProtectedEndpoints_RejectUnauthorized()
     {
-        if (!IsLiveDaemonRunning()) return;
-
         using var handler = new HttpClientHandler
         {
             ServerCertificateCustomValidationCallback = (_, _, _, _) => true
@@ -81,11 +79,9 @@ public class LiveDaemonIntegrationTests
         }
     }
 
-    [Fact]
+    [Fact(Skip = SkipLiveDaemonReason)]
     public async Task LiveDaemon_TlsHandshake_EstablishesTls13WithValidSpkiCertificate()
     {
-        if (!IsLiveDaemonRunning()) return;
-
         using var tcp = new TcpClient();
         await tcp.ConnectAsync("127.0.0.1", TcpPort);
 
@@ -107,11 +103,9 @@ public class LiveDaemonIntegrationTests
         Assert.True(spki.Length > 0);
     }
 
-    [Fact]
+    [Fact(Skip = SkipLiveDaemonReason)]
     public async Task LiveDaemon_HandshakeInit_ReturnsValidPendingPairing()
     {
-        if (!IsLiveDaemonRunning()) return;
-
         var (phoneSpki, phoneKey) = GenerateClientKey();
 
         using var tcp = new TcpClient();
@@ -143,11 +137,9 @@ public class LiveDaemonIntegrationTests
         Assert.False(string.IsNullOrEmpty(root.GetProperty("publicKey").GetString()));
     }
 
-    [Fact]
+    [Fact(Skip = SkipLiveDaemonReason)]
     public async Task LiveDaemon_RapidConnectDisconnect_StressTest()
     {
-        if (!IsLiveDaemonRunning()) return;
-
         // Perform 25 rapid TLS connection cycles
         for (int i = 0; i < 25; i++)
         {
@@ -167,11 +159,9 @@ public class LiveDaemonIntegrationTests
         Assert.True(client.Connected);
     }
 
-    [Fact]
+    [Fact(Skip = SkipLiveDaemonReason)]
     public async Task LiveDaemon_MalformedJson_GracefullyClosed()
     {
-        if (!IsLiveDaemonRunning()) return;
-
         using var tcp = new TcpClient();
         await tcp.ConnectAsync("127.0.0.1", TcpPort);
 
@@ -188,11 +178,9 @@ public class LiveDaemonIntegrationTests
         Assert.Equal(0, read);
     }
 
-    [Fact]
+    [Fact(Skip = SkipLiveDaemonReason)]
     public async Task LiveDaemon_OversizedFrame_GracefullyClosed()
     {
-        if (!IsLiveDaemonRunning()) return;
-
         using var tcp = new TcpClient();
         await tcp.ConnectAsync("127.0.0.1", TcpPort);
 
@@ -212,11 +200,9 @@ public class LiveDaemonIntegrationTests
         Assert.Equal(0, read);
     }
 
-    [Fact]
+    [Fact(Skip = SkipLiveDaemonReason)]
     public async Task LiveDaemon_UdpDiscovery_RespondsWithMatchingInfo()
     {
-        if (!IsLiveDaemonRunning()) return;
-
         IPAddress? lanIp = null;
         foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
         {

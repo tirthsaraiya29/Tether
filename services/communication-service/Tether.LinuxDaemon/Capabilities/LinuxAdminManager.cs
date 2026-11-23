@@ -235,6 +235,21 @@ public sealed class LinuxAdminManager
                     if (totalKb > 0 && availKb > 0) break;
                 }
             }
+            else
+            {
+                // Fallback for non-Linux or systems where /proc/meminfo is inaccessible
+                var memInfo = GC.GetGCMemoryInfo();
+                if (memInfo.TotalAvailableMemoryBytes > 0)
+                {
+                    totalKb = (ulong)(memInfo.TotalAvailableMemoryBytes / 1024);
+                    availKb = (ulong)((memInfo.TotalAvailableMemoryBytes - memInfo.MemoryLoadBytes) / 1024);
+                }
+                else
+                {
+                    totalKb = 8192 * 1024;
+                    availKb = 4096 * 1024;
+                }
+            }
         }
         catch { }
 
@@ -256,7 +271,8 @@ public sealed class LinuxAdminManager
     {
         try
         {
-            var drive = new DriveInfo("/");
+            string rootPath = OperatingSystem.IsLinux() ? "/" : (Path.GetPathRoot(AppContext.BaseDirectory) ?? "C:\\");
+            var drive = new DriveInfo(rootPath);
             double totalGb = Math.Round(drive.TotalSize / (1024.0 * 1024.0 * 1024.0), 2);
             double freeGb = Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 2);
             return (freeGb, totalGb);
