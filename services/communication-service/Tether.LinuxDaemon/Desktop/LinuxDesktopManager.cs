@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Tether.LinuxDaemon.Common;
@@ -19,6 +20,8 @@ public sealed record DesktopWindowInfo
     [JsonPropertyName("title")] public string Title { get; init; } = "";
     [JsonPropertyName("processName")] public string ProcessName { get; init; } = "";
     [JsonPropertyName("processId")] public int ProcessId { get; init; }
+    [JsonPropertyName("x")] public int X { get; init; } = 0;
+    [JsonPropertyName("y")] public int Y { get; init; } = 0;
     [JsonPropertyName("width")] public int Width { get; init; } = 1920;
     [JsonPropertyName("height")] public int Height { get; init; } = 1080;
     [JsonPropertyName("iconB64")] public string? IconB64 { get; init; }
@@ -27,16 +30,56 @@ public sealed record DesktopWindowInfo
 public sealed class LinuxDesktopManager
 {
     private readonly ITetherLogger _logger;
-    private byte[]? _cachedStaticFrame;
-    private DateTime _lastFrameGenUtc = DateTime.MinValue;
 
     public LinuxDesktopManager(ITetherLogger logger)
     {
         _logger = logger;
     }
 
+    public (int Width, int Height) GetDesktopGeometry()
+    {
+        try
+        {
+            var session = PlatformDetection.GetActiveSessionInfo();
+            var psi = new ProcessStartInfo
+            {
+                FileName = "wmctrl",
+                Arguments = "-d",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            if (!string.IsNullOrEmpty(session.DisplayName)) psi.EnvironmentVariables["DISPLAY"] = session.DisplayName;
+            string? xauth = session.XdgRuntimeDir != null ? Path.Combine(session.XdgRuntimeDir, "Xauthority") : null;
+            if (xauth != null && File.Exists(xauth)) psi.EnvironmentVariables["XAUTHORITY"] = xauth;
+
+            using var p = Process.Start(psi);
+            if (p != null)
+            {
+                string output = p.StandardOutput.ReadToEnd();
+                p.WaitForExit(500);
+                if (p.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
+                {
+                    // Look for: DG: 1920x1080
+                    var match = Regex.Match(output, @"DG:\s*(\d+)x(\d+)");
+                    if (match.Success &&
+                        int.TryParse(match.Groups[1].Value, out int w) &&
+                        int.TryParse(match.Groups[2].Value, out int h))
+                    {
+                        return (Math.Max(640, w), Math.Max(480, h));
+                    }
+                }
+            }
+        }
+        catch { }
+
+        return (1920, 1080);
+    }
+
     public IReadOnlyList<DesktopWindowInfo> GetDesktopWindows()
     {
+        var (desktopW, desktopH) = GetDesktopGeometry();
         var windows = new List<DesktopWindowInfo>
         {
             new()
@@ -45,12 +88,14 @@ public sealed class LinuxDesktopManager
                 Title = "Entire Screen / Desktop",
                 ProcessName = "desktop",
                 ProcessId = 0,
-                Width = 1920,
-                Height = 1080
+                X = 0,
+                Y = 0,
+                Width = desktopW,
+                Height = desktopH
             }
         };
 
-        // 1. Try wmctrl for X11 / XWayland windows
+        // Query real X11 / XWayland windows via wmctrl
         try
         {
             var session = PlatformDetection.GetActiveSessionInfo();
@@ -84,10 +129,12 @@ public sealed class LinuxDesktopManager
                             try { hwnd = Convert.ToInt64(parts[0], 16); } catch { }
                             int pid = 0;
                             int.TryParse(parts[2], out pid);
-                            int w = 1920, h = 1080;
-                            int.TryParse(parts[4], out w);
-                            int.TryParse(parts[5], out h);
-                            string title = string.Join(" ", parts.Skip(7)).Trim();
+                            int x = 0, y = 0, w = 1920, h = 1080;
+                            int.TryParse(parts[3], out x);
+                            int.TryParse(parts[4], out y);
+                            int.TryParse(parts[5], out w);
+                            int.TryParse(parts[6], out h);
+                            string title = parts.Length > 8 ? string.Join(" ", parts.Skip(8)).Trim() : parts[7];
 
                             if (hwnd != 0 && !string.IsNullOrEmpty(title))
                             {
@@ -108,6 +155,8 @@ public sealed class LinuxDesktopManager
                                     Title = title,
                                     ProcessName = procName,
                                     ProcessId = pid,
+                                    X = Math.Max(0, x),
+                                    Y = Math.Max(0, y),
                                     Width = Math.Max(100, w),
                                     Height = Math.Max(100, h)
                                 });
@@ -118,34 +167,6 @@ public sealed class LinuxDesktopManager
             }
         }
         catch { }
-
-        // 2. Discover known interactive GUI applications from process table if wmctrl gave only desktop
-        if (windows.Count == 1)
-        {
-            string[] knownGui = { "firefox", "chrome", "chromium", "nautilus", "gnome-terminal", "code", "gedit", "kate", "dolphin", "settings", "tether-greeter" };
-            long fakeHwnd = 1001;
-            foreach (var procName in knownGui)
-            {
-                try
-                {
-                    var procs = Process.GetProcessesByName(procName);
-                    if (procs.Length > 0)
-                    {
-                        var p = procs[0];
-                        windows.Add(new DesktopWindowInfo
-                        {
-                            Hwnd = fakeHwnd++,
-                            Title = $"{p.ProcessName} (Window)",
-                            ProcessName = p.ProcessName,
-                            ProcessId = p.Id,
-                            Width = 1280,
-                            Height = 720
-                        });
-                    }
-                }
-                catch { }
-            }
-        }
 
         return windows;
     }
@@ -171,6 +192,7 @@ public sealed class LinuxDesktopManager
 
         try
         {
+            int consecutiveFailures = 0;
             while (!ct.IsCancellationRequested)
             {
                 var stopwatch = Stopwatch.StartNew();
@@ -178,7 +200,19 @@ public sealed class LinuxDesktopManager
 
                 if (frame.Length > 0)
                 {
+                    consecutiveFailures = 0;
                     await onFrameAsync(frame, ct);
+                }
+                else
+                {
+                    consecutiveFailures++;
+                    if (consecutiveFailures >= 10)
+                    {
+                        _logger.Warning("LinuxDesktopManager: Desktop capture unavailable or continuously failing. Stream ended.");
+                        break;
+                    }
+                    await Task.Delay(500, ct);
+                    continue;
                 }
 
                 stopwatch.Stop();
@@ -204,114 +238,110 @@ public sealed class LinuxDesktopManager
         var session = PlatformDetection.GetActiveSessionInfo();
         string display = !string.IsNullOrEmpty(session.DisplayName) ? session.DisplayName : ":0";
 
-        // 1. Try native ffmpeg screen capture if display or Wayland is accessible
-        if (File.Exists("/usr/bin/ffmpeg"))
+        // Check if FFmpeg is installed
+        if (!File.Exists("/usr/bin/ffmpeg"))
         {
-            try
+            return Array.Empty<byte>();
+        }
+
+        try
+        {
+            string tmpFile = Path.Combine(Path.GetTempPath(), $"tether_cap_{Guid.NewGuid():N}.jpg");
+            int qscale = Math.Clamp(31 - (quality * 30 / 100), 2, 31); // ffmpeg mjpeg q:v 2 (best) to 31 (lowest)
+
+            var psi = new ProcessStartInfo
             {
-                string tmpFile = Path.Combine(Path.GetTempPath(), $"tether_cap_{Guid.NewGuid():N}.jpg");
-                int qscale = Math.Clamp(31 - (quality * 30 / 100), 2, 31); // ffmpeg mjpeg q:v 2 (best) to 31 (lowest)
+                FileName = "ffmpeg",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
 
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "ffmpeg",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
+            if (!string.IsNullOrEmpty(session.DisplayName)) psi.EnvironmentVariables["DISPLAY"] = session.DisplayName;
+            string? xauth = session.XdgRuntimeDir != null ? Path.Combine(session.XdgRuntimeDir, "Xauthority") : null;
+            if (xauth != null && File.Exists(xauth)) psi.EnvironmentVariables["XAUTHORITY"] = xauth;
 
-                if (session.DisplayServer == DisplayServer.X11)
+            // X11 Screen or Window Capture
+            if (session.DisplayServer == DisplayServer.X11 || !string.IsNullOrEmpty(session.DisplayName))
+            {
+                psi.ArgumentList.Add("-f");
+                psi.ArgumentList.Add("x11grab");
+
+                if (windowId > 0)
                 {
-                    psi.ArgumentList.Add("-f");
-                    psi.ArgumentList.Add("x11grab");
-                    psi.ArgumentList.Add("-video_size");
-                    psi.ArgumentList.Add("1920x1080");
-                    psi.ArgumentList.Add("-i");
-                    psi.ArgumentList.Add($"{display}.0");
+                    var windows = GetDesktopWindows();
+                    var targetWin = windows.FirstOrDefault(w => w.Hwnd == windowId);
+                    if (targetWin != null)
+                    {
+                        psi.ArgumentList.Add("-video_size");
+                        psi.ArgumentList.Add($"{targetWin.Width}x{targetWin.Height}");
+                        psi.ArgumentList.Add("-i");
+                        psi.ArgumentList.Add($"{display}.0+{targetWin.X},{targetWin.Y}");
+                    }
+                    else
+                    {
+                        var (dw, dh) = GetDesktopGeometry();
+                        psi.ArgumentList.Add("-video_size");
+                        psi.ArgumentList.Add($"{dw}x{dh}");
+                        psi.ArgumentList.Add("-i");
+                        psi.ArgumentList.Add($"{display}.0");
+                    }
                 }
                 else
                 {
-                    // Wayland testsrc/kms canvas fallback with session info
-                    psi.ArgumentList.Add("-f");
-                    psi.ArgumentList.Add("lavfi");
+                    var (dw, dh) = GetDesktopGeometry();
+                    psi.ArgumentList.Add("-video_size");
+                    psi.ArgumentList.Add($"{dw}x{dh}");
                     psi.ArgumentList.Add("-i");
-                    psi.ArgumentList.Add("testsrc=size=1920x1080:rate=1");
+                    psi.ArgumentList.Add($"{display}.0");
                 }
+            }
+            else if (session.DisplayServer == DisplayServer.Wayland && File.Exists("/dev/dri/card0") && PlatformDetection.IsRoot)
+            {
+                // Root KMS capture for Wayland DRM controller
+                psi.ArgumentList.Add("-f");
+                psi.ArgumentList.Add("kmsgrab");
+                psi.ArgumentList.Add("-i");
+                psi.ArgumentList.Add("-");
+                psi.ArgumentList.Add("-vf");
+                psi.ArgumentList.Add("hwdownload,format=bgr0");
+            }
+            else
+            {
+                // Headless or unsupported compositor without accessible display
+                return Array.Empty<byte>();
+            }
 
-                psi.ArgumentList.Add("-frames:v");
-                psi.ArgumentList.Add("1");
-                psi.ArgumentList.Add("-q:v");
-                psi.ArgumentList.Add(qscale.ToString());
-                psi.ArgumentList.Add("-y");
-                psi.ArgumentList.Add(tmpFile);
+            psi.ArgumentList.Add("-frames:v");
+            psi.ArgumentList.Add("1");
+            psi.ArgumentList.Add("-q:v");
+            psi.ArgumentList.Add(qscale.ToString());
+            psi.ArgumentList.Add("-y");
+            psi.ArgumentList.Add(tmpFile);
 
-                using var p = Process.Start(psi);
-                if (p != null)
+            using var p = Process.Start(psi);
+            if (p != null)
+            {
+                await p.WaitForExitAsync(ct);
+                if (p.ExitCode == 0 && File.Exists(tmpFile))
                 {
-                    await p.WaitForExitAsync(ct);
-                    if (p.ExitCode == 0 && File.Exists(tmpFile))
+                    byte[] bytes = await File.ReadAllBytesAsync(tmpFile, ct);
+                    try { File.Delete(tmpFile); } catch { }
+                    if (bytes.Length > 0)
                     {
-                        byte[] bytes = await File.ReadAllBytesAsync(tmpFile, ct);
-                        try { File.Delete(tmpFile); } catch { }
-                        if (bytes.Length > 0)
-                        {
-                            _cachedStaticFrame = bytes;
-                            _lastFrameGenUtc = DateTime.UtcNow;
-                            return bytes;
-                        }
+                        return bytes;
                     }
                 }
-                try { if (File.Exists(tmpFile)) File.Delete(tmpFile); } catch { }
             }
-            catch { }
+            try { if (File.Exists(tmpFile)) File.Delete(tmpFile); } catch { }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"LinuxDesktopManager capture error: {ex.Message}");
         }
 
-        // 2. Cache / synthetic frame fallback for headless or test environments
-        if (_cachedStaticFrame != null && (DateTime.UtcNow - _lastFrameGenUtc).TotalSeconds < 2)
-        {
-            return _cachedStaticFrame;
-        }
-
-        byte[] syntheticFrame = GenerateSyntheticJpeg(1920, 1080);
-        _cachedStaticFrame = syntheticFrame;
-        _lastFrameGenUtc = DateTime.UtcNow;
-        return syntheticFrame;
-    }
-
-    private static byte[] GenerateSyntheticJpeg(int width, int height)
-    {
-        // Minimal valid 1x1 to 1920x1080 JFIF compliant baseline JPEG frame
-        byte[] minimalJfif = new byte[]
-        {
-            0xFF, 0xD8,                                         // SOI
-            0xFF, 0xE0, 0x00, 0x10,                             // APP0 Marker
-            0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01,           // "JFIF\0", v1.1
-            0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,           // Aspect ratio 1:1
-            0xFF, 0xDB, 0x00, 0x43, 0x00,                       // DQT (Luma)
-            // 64-byte quantization table
-            16, 11, 10, 16, 24, 40, 51, 61,
-            12, 12, 14, 19, 26, 58, 60, 55,
-            14, 13, 16, 24, 40, 57, 69, 56,
-            14, 17, 22, 29, 51, 87, 80, 62,
-            18, 22, 37, 56, 68, 109, 103, 77,
-            24, 35, 55, 64, 81, 104, 113, 92,
-            49, 64, 78, 87, 103, 121, 120, 101,
-            72, 92, 95, 98, 112, 100, 103, 99,
-            0xFF, 0xC0, 0x00, 0x0B, 0x08,                       // SOF0 (Baseline)
-            (byte)(height >> 8), (byte)(height & 0xFF),         // Height
-            (byte)(width >> 8), (byte)(width & 0xFF),           // Width
-            0x01, 0x01, 0x11, 0x00,                             // 1 Component (Y)
-            0xFF, 0xC4, 0x00, 0x1F, 0x00,                       // DHT DC
-            0x00, 0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01,
-            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-            0x08, 0x09, 0x0A, 0x0B,
-            0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00,    // SOS
-            0x3F, 0x00,
-            0xF7, 0xFA, 0x28, 0xA2, 0x8A, 0x28, 0x00,           // Compressed scan data
-            0xFF, 0xD9                                          // EOI
-        };
-        return minimalJfif;
+        // Return empty on failure. Never disguise failure with synthetic output.
+        return Array.Empty<byte>();
     }
 }
