@@ -302,4 +302,66 @@ public class LinuxPamAuthServerTests : IDisposable
         Assert.Equal("PHONE_DISCONNECTED", doc.RootElement.GetProperty("status").GetString());
         Assert.False(_server.HasPendingPrompt("testuser"));
     }
+
+    [Fact]
+    public async Task PamSocket_Ipc_ConcurrentGrantConsumption_OnlyOneSucceeds()
+    {
+        _server.Start();
+        _server.ArmUnlockGrant("charlie", "phone-999", validitySeconds: 15);
+
+        int successCount = 0;
+        int consumedCount = 0;
+
+        var tasks = Enumerable.Range(0, 10).Select(async _ =>
+        {
+            using var client = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+            await client.ConnectAsync(new UnixDomainSocketEndPoint(_config.PamSocketPath));
+
+            var req = new { action = "AUTH_REQUEST", user = "charlie", service = "gdm-password" };
+            byte[] reqBytes = JsonSerializer.SerializeToUtf8Bytes(req);
+            byte[] lenBytes = new byte[4];
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBytes, reqBytes.Length);
+
+            await client.SendAsync(lenBytes, SocketFlags.None);
+            await client.SendAsync(reqBytes, SocketFlags.None);
+
+            byte[] respLenBytes = new byte[4];
+            await client.ReceiveAsync(respLenBytes, SocketFlags.None);
+            int respLen = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(respLenBytes);
+
+            byte[] respBody = new byte[respLen];
+            await client.ReceiveAsync(respBody, SocketFlags.None);
+
+            using var doc = JsonDocument.Parse(respBody);
+            string status = doc.RootElement.GetProperty("status").GetString() ?? "";
+            if (status == "SUCCESS") Interlocked.Increment(ref successCount);
+            else if (status == "CONSUMED" || status == "NO_GRANT") Interlocked.Increment(ref consumedCount);
+        });
+
+        await Task.WhenAll(tasks);
+
+        // Exactly one consumer must receive SUCCESS; all other concurrent callers must be rejected
+        Assert.Equal(1, successCount);
+        Assert.Equal(9, consumedCount);
+        Assert.False(_server.HasActiveGrant("charlie"));
+    }
+
+    [Fact]
+    public async Task PamSocket_Ipc_RejectsOversizedRequest()
+    {
+        _server.Start();
+
+        using var client = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        await client.ConnectAsync(new UnixDomainSocketEndPoint(_config.PamSocketPath));
+
+        // Send length header claiming 8192 bytes (> 4096 byte maximum)
+        byte[] lenBytes = new byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBytes, 8192);
+        await client.SendAsync(lenBytes, SocketFlags.None);
+
+        // Server must close connection or reject without reading 8KB body
+        byte[] buffer = new byte[16];
+        int read = await client.ReceiveAsync(buffer, SocketFlags.None);
+        Assert.Equal(0, read); // Socket closed
+    }
 }

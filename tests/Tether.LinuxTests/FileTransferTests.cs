@@ -218,4 +218,22 @@ public class FileTransferTests
         bool wrongKeyVerified = LinuxFileTransferServer.VerifyClientProofSignature(otherSpkiBase64, challengeBytes, sigBase64);
         Assert.False(wrongKeyVerified);
     }
+
+    [Fact]
+    public void FileTransferServer_VerifyClientProofSignature_AcceptsIeeeP1363Format()
+    {
+        using var phoneKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        byte[] phoneSpki = phoneKey.ExportSubjectPublicKeyInfo();
+        string phoneSpkiBase64 = Convert.ToBase64String(phoneSpki);
+
+        string challenge = "token_xyz789:1700000000:win_spki_base64";
+        byte[] challengeBytes = System.Text.Encoding.UTF8.GetBytes(challenge);
+
+        // Sign using IEEE P1363 format (raw r || s)
+        byte[] signatureP1363 = phoneKey.SignData(challengeBytes, System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+        string sigBase64 = Convert.ToBase64String(signatureP1363);
+
+        bool verified = LinuxFileTransferServer.VerifyClientProofSignature(phoneSpkiBase64, challengeBytes, sigBase64);
+        Assert.True(verified);
+    }
 }
