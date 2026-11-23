@@ -309,10 +309,8 @@ Commands:
 
             var req = new
             {
-                type = "ARM_GRANT",
-                username = session.UserName,
-                deviceId = "cli-local",
-                validitySeconds = 30
+                action = "REQUEST_PHONE_AUTH",
+                user = session.UserName
             };
             byte[] reqBytes = JsonSerializer.SerializeToUtf8Bytes(req);
             byte[] packet = new byte[4 + reqBytes.Length];
@@ -337,11 +335,25 @@ Commands:
                     }
 
                     using var doc = JsonDocument.Parse(respBuf.AsMemory(0, total));
-                    bool ok = doc.RootElement.TryGetProperty("success", out var sProp) && sProp.GetBoolean();
-                    if (ok)
+                    string status = doc.RootElement.TryGetProperty("status", out var sProp) ? (sProp.GetString() ?? "") : "";
+                    string message = doc.RootElement.TryGetProperty("message", out var mProp) ? (mProp.GetString() ?? "") : "";
+                    string reason = doc.RootElement.TryGetProperty("reason", out var rProp) ? (rProp.GetString() ?? "") : "";
+
+                    if (status == "PROMPTED")
                     {
-                        Console.WriteLine($"Workstation unlock grant successfully armed for user '{session.UserName}' (valid for 30s).");
+                        Console.WriteLine($"Unlock authorization request dispatched to connected phone for user '{session.UserName}'.");
+                        Console.WriteLine("Please approve the unlock request on your phone.");
                         return 0;
+                    }
+                    else if (status == "PHONE_DISCONNECTED")
+                    {
+                        Console.Error.WriteLine("Error: No paired phone is currently connected to authenticate the unlock request.");
+                        return 1;
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine($"Error: Unlock request rejected: {(!string.IsNullOrEmpty(reason) ? reason : message)}");
+                        return 1;
                     }
                 }
             }
@@ -352,7 +364,7 @@ Commands:
             return 1;
         }
 
-        Console.Error.WriteLine("Failed to arm unlock grant.");
+        Console.Error.WriteLine("Failed to request phone unlock authorization.");
         return 1;
     }
 

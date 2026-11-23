@@ -27,8 +27,12 @@ BIN_DIR="/usr/local/bin"
 PAM_DIR="/usr/lib64/security"
 if [[ ! -d "${PAM_DIR}" ]] && [[ -d "/lib/x86_64-linux-gnu/security" ]]; then
     PAM_DIR="/lib/x86_64-linux-gnu/security"
+elif [[ ! -d "${PAM_DIR}" ]] && [[ -d "/lib/aarch64-linux-gnu/security" ]]; then
+    PAM_DIR="/lib/aarch64-linux-gnu/security"
 elif [[ ! -d "${PAM_DIR}" ]] && [[ -d "/usr/lib/security" ]]; then
     PAM_DIR="/usr/lib/security"
+elif [[ ! -d "${PAM_DIR}" ]] && [[ -d "/lib/security" ]]; then
+    PAM_DIR="/lib/security"
 fi
 
 DATA_DIR="/var/lib/tether"
@@ -62,7 +66,19 @@ ln -sf "${OPT_DIR}/cli/tetherctl" "${BIN_DIR}/tether"
 if [[ -f "${REPO_ROOT}/tools/tether-greeter/tether-greeter" ]]; then
     cp -f "${REPO_ROOT}/tools/tether-greeter/tether-greeter" "${BIN_DIR}/tether-greeter"
     chmod 0755 "${BIN_DIR}/tether-greeter"
-    echo "  Installed tether-greeter helper to ${BIN_DIR}/tether-greeter."
+    mkdir -p /usr/share/applications
+    cat << 'EOF' > /usr/share/applications/tether-greeter.desktop
+[Desktop Entry]
+Name=Tether Greeter
+Comment=Tether Mobile Authentication Helper
+Exec=/usr/local/bin/tether-greeter
+Icon=system-lock-screen
+Terminal=false
+Type=Application
+Categories=Utility;Security;System;
+EOF
+    chmod 0644 /usr/share/applications/tether-greeter.desktop
+    echo "  Installed tether-greeter helper and desktop launcher."
 fi
 
 echo "[4/7] Compiling and configuring native PAM module..."

@@ -35,6 +35,7 @@ public sealed class LinuxTrustStore
     private readonly string _keyFile;
     private readonly object _gate = new();
     private readonly Dictionary<string, TrustedPhoneRecord> _byFingerprint = new(StringComparer.OrdinalIgnoreCase);
+    private bool _loadFailed = false;
 
     public LinuxTrustStore(ITetherLogger logger, LinuxDaemonConfig config)
     {
@@ -154,8 +155,13 @@ public sealed class LinuxTrustStore
                 {
                     return existingKey;
                 }
+                throw new CryptographicException($"Existing master key file at {_keyFile} has invalid size ({existingKey.Length} bytes, expected 32).");
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _logger.Error($"Linux trust store: Master key at {_keyFile} exists but cannot be loaded: {ex.Message}");
+                throw;
+            }
         }
 
         // Generate fresh 256-bit cryptographically secure master key
@@ -336,7 +342,9 @@ public sealed class LinuxTrustStore
             }
             catch (Exception ex)
             {
+                _loadFailed = true;
                 _logger.Error($"Linux trust store load failed: {ex.Message}");
+                throw;
             }
         }
     }
@@ -345,6 +353,11 @@ public sealed class LinuxTrustStore
     {
         lock (_gate)
         {
+            if (_loadFailed)
+            {
+                throw new InvalidOperationException("Refusing to save trust store because initial load failed. Manual recovery required to prevent data loss.");
+            }
+
             string? tmpFile = null;
             try
             {

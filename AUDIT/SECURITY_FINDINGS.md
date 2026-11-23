@@ -10,13 +10,13 @@
 
 | Finding ID | Severity | CWE | Title | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| **`TETH-SEC-LNX-001`** | **CRITICAL** | CWE-285 | PAM Service Name Unchecked in `LinuxPamAuthServer` | **OPEN (P0)** |
-| **`TETH-SEC-LNX-002`** | **HIGH** | CWE-703 | `SO_PEERCRED` Failure Fails Open in `pam_tether.c` | **OPEN (P0)** |
-| **`TETH-SEC-LNX-003`** | **HIGH** | CWE-345 | HTTPS Server Missing Cryptographic Client-Proof & Timestamp Validation | **OPEN (P0)** |
-| **`TETH-SEC-LNX-004`** | **CRITICAL** | CWE-755 | Uninstaller Deletes PAM Module Without Restoring PAM Configuration | **OPEN (P0)** |
-| **`TETH-SEC-LNX-005`** | **MEDIUM** | CWE-379 | Installer Modifies PAM Files Without Backups or Multi-DM Support | **OPEN (P4)** |
-| **`TETH-SEC-LNX-006`** | **MEDIUM** | CWE-377 | Blind Socket Deletion and Symlink Race Protection in `LinuxPamAuthServer` | **OPEN (P0)** |
-| **`TETH-SEC-LNX-007`** | **HIGH** | CWE-440 | Missing Desktop Streaming Pipeline Endpoints in `LinuxFileTransferServer` | **OPEN (P2)** |
+| **`TETH-SEC-LNX-001`** | **CRITICAL** | CWE-285 | PAM Service Name Unchecked in `LinuxPamAuthServer` | **RESOLVED & VERIFIED** |
+| **`TETH-SEC-LNX-002`** | **HIGH** | CWE-703 | `SO_PEERCRED` Failure Fails Open in `pam_tether.c` | **RESOLVED & VERIFIED** |
+| **`TETH-SEC-LNX-003`** | **HIGH** | CWE-345 | HTTPS Server Missing Cryptographic Client-Proof & Timestamp Validation | **RESOLVED & VERIFIED** |
+| **`TETH-SEC-LNX-004`** | **CRITICAL** | CWE-755 | Uninstaller Deletes PAM Module Without Restoring PAM Configuration | **RESOLVED & VERIFIED** |
+| **`TETH-SEC-LNX-005`** | **MEDIUM** | CWE-379 | Installer Modifies PAM Files Without Backups or Multi-DM Support | **RESOLVED & VERIFIED** |
+| **`TETH-SEC-LNX-006`** | **MEDIUM** | CWE-377 | Blind Socket Deletion and Symlink Race Protection in `LinuxPamAuthServer` | **RESOLVED & VERIFIED** |
+| **`TETH-SEC-LNX-007`** | **HIGH** | CWE-440 | Missing Desktop Streaming Pipeline Endpoints in `LinuxFileTransferServer` | **RESOLVED & VERIFIED** |
 
 ---
 

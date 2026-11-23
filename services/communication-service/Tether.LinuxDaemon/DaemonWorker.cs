@@ -60,7 +60,22 @@ public sealed class DaemonWorker : BackgroundService
         {
             PhoneConnectedProvider = () => sessionManager.GetAllSessions().Count > 0,
             ConnectedDeviceNameProvider = () => sessionManager.GetAllSessions().FirstOrDefault()?.Device?.DisplayName ?? "",
-            ConnectedDeviceFingerprintProvider = () => sessionManager.GetAllSessions().FirstOrDefault()?.Device?.Fingerprint ?? ""
+            ConnectedDeviceFingerprintProvider = () => sessionManager.GetAllSessions().FirstOrDefault()?.Device?.Fingerprint ?? "",
+            RequestPhoneAuthHandler = (user) =>
+            {
+                var sessions = sessionManager.GetAllSessions();
+                if (sessions.Count > 0)
+                {
+                    var unlockChallenge = new
+                    {
+                        type = "UNLOCK_CHALLENGE",
+                        targetUser = user,
+                        hostname = Environment.MachineName,
+                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    };
+                    _ = sessionManager.BroadcastJsonAsync(unlockChallenge, CancellationToken.None);
+                }
+            }
         };
 
         var router = new LinuxPacketRouter(

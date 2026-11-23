@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -37,6 +38,7 @@ public sealed class LinuxFileTransferServer : IHostedService
     private readonly LinuxTokenStore _tokenStore;
     private readonly LinuxTrustStore? _trustStore;
     private readonly LinuxDesktopManager _desktopManager;
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _seenProofs = new();
     private WebApplication? _app;
 
     [DllImport("libc", SetLastError = true, EntryPoint = "realpath")]
@@ -139,63 +141,125 @@ public sealed class LinuxFileTransferServer : IHostedService
                 return;
             }
 
-            // TETH-SEC-LNX-003: Cryptographic Client Proof & Timestamp Validation (Parity with Windows)
-            if (context.Request.Headers.TryGetValue("X-Tether-Client-Proof", out var proofHeader) &&
-                context.Request.Headers.TryGetValue("X-Tether-Client-Timestamp", out var tsHeader))
+            // TETH-SEC-LNX-003: Mandatory Cryptographic Client Proof & Timestamp Validation (Strict Fail-Closed)
+            bool isLoopback = context.Connection.RemoteIpAddress == null || IPAddress.IsLoopback(context.Connection.RemoteIpAddress);
+            if (isLoopback && tokenInfo.DeviceFingerprint == "LOCAL_UI")
             {
-                string proofBase64 = proofHeader.ToString().Trim();
-                string tsStr = tsHeader.ToString().Trim();
-                string clientWinSpki = context.Request.Headers.TryGetValue("X-Tether-Client-WinSpki", out var spkiH)
-                    ? spkiH.ToString().Trim()
-                    : "";
+                context.Items["TokenInfo"] = tokenInfo;
+                context.Items["DeviceFingerprint"] = tokenInfo.DeviceFingerprint;
+                await next();
+                return;
+            }
 
-                if (long.TryParse(tsStr, out long tsMs))
+            if (!context.Request.Headers.TryGetValue("X-Tether-Client-Proof", out var proofHeader) ||
+                !context.Request.Headers.TryGetValue("X-Tether-Client-Timestamp", out var tsHeader))
+            {
+                _logger.Warning($"LinuxFileTransferServer: Missing mandatory client proof headers from {context.Connection.RemoteIpAddress}");
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Missing mandatory client proof headers (X-Tether-Client-Proof, X-Tether-Client-Timestamp)" });
+                return;
+            }
+
+            string proofBase64 = proofHeader.ToString().Trim();
+            string tsStr = tsHeader.ToString().Trim();
+            string clientWinSpki = context.Request.Headers.TryGetValue("X-Tether-Client-WinSpki", out var spkiH)
+                ? spkiH.ToString().Trim()
+                : "";
+
+            if (string.IsNullOrEmpty(proofBase64))
+            {
+                _logger.Warning($"LinuxFileTransferServer: Empty client proof header from {context.Connection.RemoteIpAddress}");
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Empty client proof" });
+                return;
+            }
+
+            if (!long.TryParse(tsStr, out long tsMs))
+            {
+                _logger.Warning($"LinuxFileTransferServer: Malformed timestamp header '{tsStr}' from {context.Connection.RemoteIpAddress}");
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Malformed timestamp header" });
+                return;
+            }
+
+            var clientTime = DateTimeOffset.FromUnixTimeMilliseconds(tsMs);
+            var timeDelta = Math.Abs((DateTimeOffset.UtcNow - clientTime).TotalMinutes);
+            if (timeDelta > 5)
+            {
+                _logger.Warning($"LinuxFileTransferServer: Client timestamp out of bounds ({timeDelta:F1} mins delta) from {context.Connection.RemoteIpAddress}");
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Request timestamp expired or clock skew out of bounds (> 5 minutes)" });
+                return;
+            }
+
+            // Replay detection (5-minute sliding window)
+            if (_seenProofs.ContainsKey(proofBase64))
+            {
+                _logger.Warning($"LinuxFileTransferServer: Replayed client proof detected from {context.Connection.RemoteIpAddress}");
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Replayed client proof" });
+                return;
+            }
+
+            if (_seenProofs.Count > 1000)
+            {
+                var cutoff = DateTimeOffset.UtcNow.AddMinutes(-6);
+                var stale = _seenProofs.Where(kv => kv.Value < cutoff).Select(kv => kv.Key).ToList();
+                foreach (var k in stale) _seenProofs.TryRemove(k, out _);
+            }
+            _seenProofs[proofBase64] = DateTimeOffset.UtcNow;
+
+            // Trust store & device binding verification
+            if (_trustStore == null)
+            {
+                _logger.Warning($"LinuxFileTransferServer: Trust store unavailable while verifying {tokenInfo.DeviceFingerprint}");
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Trust store unavailable" });
+                return;
+            }
+
+            if (string.IsNullOrEmpty(tokenInfo.DeviceFingerprint))
+            {
+                _logger.Warning("LinuxFileTransferServer: Token lacks device fingerprint binding.");
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Token not bound to any device" });
+                return;
+            }
+
+            var pairedPhone = _trustStore.FindByFingerprint(tokenInfo.DeviceFingerprint);
+            if (pairedPhone == null || string.IsNullOrEmpty(pairedPhone.PublicKeySpkiBase64))
+            {
+                _logger.Warning($"LinuxFileTransferServer: Device '{tokenInfo.DeviceFingerprint}' not found in trust store.");
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Device not paired or untrusted" });
+                return;
+            }
+
+            string hostSpki = _identity.GetPublicKeySpkiBase64();
+            var proofCandidates = new List<string> { $"{token}:{tsStr}:{hostSpki}" };
+            if (!string.IsNullOrEmpty(clientWinSpki) && !string.Equals(clientWinSpki, hostSpki, StringComparison.Ordinal))
+            {
+                proofCandidates.Add($"{token}:{tsStr}:{clientWinSpki}");
+            }
+            proofCandidates.Add($"{token}:{tsStr}:");
+
+            bool signatureVerified = false;
+            foreach (var candidate in proofCandidates)
+            {
+                byte[] candidateBytes = Encoding.UTF8.GetBytes(candidate);
+                if (VerifyClientProofSignature(pairedPhone.PublicKeySpkiBase64, candidateBytes, proofBase64))
                 {
-                    var clientTime = DateTimeOffset.FromUnixTimeMilliseconds(tsMs);
-                    var timeDelta = Math.Abs((DateTimeOffset.UtcNow - clientTime).TotalMinutes);
-
-                    if (timeDelta > 5)
-                    {
-                        _logger.Warning($"LinuxFileTransferServer: Client timestamp out of bounds ({timeDelta:F1} mins delta) from {context.Connection.RemoteIpAddress}");
-                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                        await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Request timestamp expired or invalid" });
-                        return;
-                    }
-
-                    if (_trustStore != null && !string.IsNullOrEmpty(tokenInfo.DeviceFingerprint))
-                    {
-                        var pairedPhone = _trustStore.FindByFingerprint(tokenInfo.DeviceFingerprint);
-                        if (pairedPhone != null && !string.IsNullOrEmpty(pairedPhone.PublicKeySpkiBase64))
-                        {
-                            string hostSpki = _identity.GetPublicKeySpkiBase64();
-                            var proofCandidates = new List<string> { $"{token}:{tsStr}:{hostSpki}" };
-                            if (!string.IsNullOrEmpty(clientWinSpki) && !string.Equals(clientWinSpki, hostSpki, StringComparison.Ordinal))
-                            {
-                                proofCandidates.Add($"{token}:{tsStr}:{clientWinSpki}");
-                            }
-                            proofCandidates.Add($"{token}:{tsStr}:");
-
-                            bool signatureVerified = false;
-                            foreach (var candidate in proofCandidates)
-                            {
-                                byte[] candidateBytes = Encoding.UTF8.GetBytes(candidate);
-                                if (VerifyClientProofSignature(pairedPhone.PublicKeySpkiBase64, candidateBytes, proofBase64))
-                                {
-                                    signatureVerified = true;
-                                    break;
-                                }
-                            }
-
-                            if (!signatureVerified)
-                            {
-                                _logger.Warning($"LinuxFileTransferServer: Client cryptographic proof verification failed for {tokenInfo.DeviceFingerprint}");
-                                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Invalid client proof signature" });
-                                return;
-                            }
-                        }
-                    }
+                    signatureVerified = true;
+                    break;
                 }
+            }
+
+            if (!signatureVerified)
+            {
+                _logger.Warning($"LinuxFileTransferServer: Client cryptographic proof verification failed for {tokenInfo.DeviceFingerprint}");
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Invalid client proof signature" });
+                return;
             }
 
             context.Items["TokenInfo"] = tokenInfo;
@@ -373,7 +437,7 @@ public sealed class LinuxFileTransferServer : IHostedService
             {
                 return Results.File(bytes, "image/jpeg");
             }
-            return Results.Problem("Screenshot capture failed or timed out.");
+            return Results.Problem("Desktop capture unavailable: no accessible X11 display server or Wayland compositor stream.", statusCode: StatusCodes.Status503ServiceUnavailable);
         });
 
         // 6. Active Windows List Endpoint
@@ -397,7 +461,7 @@ public sealed class LinuxFileTransferServer : IHostedService
         }
     }
 
-    private static bool VerifyClientProofSignature(string phoneSpkiBase64, byte[] data, string signatureBase64)
+    public static bool VerifyClientProofSignature(string phoneSpkiBase64, byte[] data, string signatureBase64)
     {
         try
         {
@@ -405,7 +469,18 @@ public sealed class LinuxFileTransferServer : IHostedService
             byte[] sigBytes = Convert.FromBase64String(signatureBase64);
             using var ecdsa = ECDsa.Create();
             ecdsa.ImportSubjectPublicKeyInfo(spkiDer, out _);
-            return ecdsa.VerifyData(data, sigBytes, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+
+            if (ecdsa.VerifyData(data, sigBytes, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence))
+            {
+                return true;
+            }
+
+            if (ecdsa.VerifyData(data, sigBytes, HashAlgorithmName.SHA256))
+            {
+                return true;
+            }
+
+            return false;
         }
         catch
         {

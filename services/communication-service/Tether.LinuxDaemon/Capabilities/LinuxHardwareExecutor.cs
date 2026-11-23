@@ -13,7 +13,7 @@ namespace Tether.LinuxDaemon.Capabilities;
 
 public static class LinuxHardwareExecutor
 {
-    public static bool ExecuteCommand(string command, ITetherLogger logger, LinuxPamAuthServer pamServer, out int currentVol)
+    public static bool ExecuteCommand(string command, ITetherLogger logger, LinuxPamAuthServer pamServer, out int currentVol, string? deviceFingerprint = null, string? targetUser = null)
     {
         currentVol = -1;
         if (string.IsNullOrWhiteSpace(command)) return false;
@@ -31,8 +31,14 @@ public static class LinuxHardwareExecutor
             if (cmdLower == "unlock")
             {
                 var session = PlatformDetection.GetActiveSessionInfo();
-                pamServer.ArmUnlockGrant(session.UserName, "phone-authorized-unlock", validitySeconds: 20);
-                logger.Info($"LinuxHardwareExecutor: Workstation unlock grant armed for user '{session.UserName}'.");
+                string user = !string.IsNullOrEmpty(targetUser) ? targetUser : session.UserName;
+                if (string.IsNullOrEmpty(user) || user == "root")
+                {
+                    user = pamServer.GetFirstPendingPromptUser() ?? session.UserName;
+                }
+                string fp = !string.IsNullOrEmpty(deviceFingerprint) ? deviceFingerprint : "phone-authorized-unlock";
+                pamServer.ArmUnlockGrant(user, fp, validitySeconds: 20);
+                logger.Info($"LinuxHardwareExecutor: Workstation unlock grant armed for user '{user}' from phone '{fp}'.");
                 return true;
             }
 
@@ -409,15 +415,21 @@ public static class LinuxHardwareExecutor
 
     private static bool RunSystemctl(string action, ITetherLogger logger)
     {
+        if (action is not ("suspend" or "hibernate" or "reboot" or "poweroff"))
+        {
+            logger.Warning($"LinuxHardwareExecutor: Disallowed systemctl action '{action}'.");
+            return false;
+        }
+
         try
         {
             var psi = new ProcessStartInfo
             {
                 FileName = "systemctl",
-                Arguments = action,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            psi.ArgumentList.Add(action);
             using var p = Process.Start(psi);
             p?.WaitForExit(3000);
             return p != null && p.ExitCode == 0;
