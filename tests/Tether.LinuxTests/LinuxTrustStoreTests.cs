@@ -102,4 +102,56 @@ public class LinuxTrustStoreTests : IDisposable
         var storeReload = new LinuxTrustStore(_logger, _config);
         Assert.True(storeReload.IsEmpty);
     }
+
+    [Fact]
+    public void TrustStore_RejectsTamperedOrCorruptedFingerprint()
+    {
+        string fakeSpki = GenerateFakeSpkiBase64();
+        string realFp = LinuxTrustStore.ComputeFingerprintOrNull(fakeSpki)!;
+
+        var store = new LinuxTrustStore(_logger, _config);
+        store.AddOrUpdate("dev-1", "Phone", fakeSpki, new[] { "MEDIA" }, "2.0");
+
+        // Manually overwrite trust.json with a record having a forged/tampered fingerprint
+        string trustFile = Path.Combine(_config.DataDir, "trust.json");
+        var forgedList = new[]
+        {
+            new TrustedPhoneRecord
+            {
+                DeviceId = "forged-id",
+                DisplayName = "Forged Phone",
+                PublicKeySpkiBase64 = fakeSpki,
+                Fingerprint = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+                PairedAtUtc = DateTime.UtcNow,
+                LastSeenUtc = DateTime.UtcNow,
+                Capabilities = new System.Collections.Generic.List<string> { "FILES" }
+            }
+        };
+
+        // Write plaintext json to force re-verification
+        File.WriteAllText(trustFile, System.Text.Json.JsonSerializer.Serialize(forgedList));
+
+        // Reload store
+        var storeTampered = new LinuxTrustStore(_logger, _config);
+        // The tampered record must be rejected because calculated fingerprint doesn't match forged fingerprint!
+        Assert.True(storeTampered.IsEmpty);
+    }
+
+    [Fact]
+    public void TrustStore_CreatesProtectedMasterKey_AndBackupCopy()
+    {
+        string fakeSpki = GenerateFakeSpkiBase64();
+        var store = new LinuxTrustStore(_logger, _config);
+        store.AddOrUpdate("dev-1", "Phone", fakeSpki, new[] { "MEDIA" }, "2.0");
+
+        string keyFile = Path.Combine(_config.DataDir, "trust.key");
+        Assert.True(File.Exists(keyFile));
+        byte[] keyBytes = File.ReadAllBytes(keyFile);
+        Assert.Equal(32, keyBytes.Length);
+
+        // Update to trigger backup
+        store.AddOrUpdate("dev-1", "Phone Renamed", fakeSpki, new[] { "MEDIA", "FILES" }, "2.0");
+        string backupFile = Path.Combine(_config.DataDir, "trust.json.bak");
+        Assert.True(File.Exists(backupFile));
+    }
 }
