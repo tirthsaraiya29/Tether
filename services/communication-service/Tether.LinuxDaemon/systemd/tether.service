@@ -12,13 +12,20 @@ RestartSec=3s
 KillMode=control-group
 StandardOutput=journal
 StandardError=journal
+SupplementaryGroups=tether
 
-# Security and Sandbox Constraints
+# Security Sandboxing & Least Privilege Constraints
 ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=/var/lib/tether /run/tether /var/log/tether
+ReadWritePaths=/var/lib/tether /run/tether /var/log/tether /home
 DeviceAllow=/dev/uinput rw
 DeviceAllow=char-input rw
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictRealtime=true
 
 [Install]
 WantedBy=multi-user.target

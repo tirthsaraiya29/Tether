@@ -18,6 +18,9 @@ echo "[1/7] Checking dependencies..."
 command -v dotnet >/dev/null 2>&1 || { echo "[ERROR] .NET 10 SDK/Runtime is required but not installed."; exit 1; }
 command -v gcc >/dev/null 2>&1 || { echo "[ERROR] gcc is required for native PAM compilation."; exit 1; }
 
+# Stop active service during upgrades to prevent file lock contention
+systemctl stop tether.service >/dev/null 2>&1 || true
+
 # Target directories
 OPT_DIR="/opt/tether"
 BIN_DIR="/usr/local/bin"
@@ -32,7 +35,8 @@ DATA_DIR="/var/lib/tether"
 RUN_DIR="/run/tether"
 LOG_DIR="/var/log/tether"
 
-echo "[2/7] Preparing directory structure..."
+echo "[2/7] Preparing directory structure and service group..."
+getent group tether >/dev/null 2>&1 || groupadd -r tether
 mkdir -p "${OPT_DIR}/daemon" "${OPT_DIR}/cli"
 mkdir -p "${DATA_DIR}" "${RUN_DIR}" "${LOG_DIR}"
 chmod 0700 "${DATA_DIR}" "${LOG_DIR}"
@@ -62,9 +66,9 @@ mkdir -p "${PAM_DIR}"
 cp -f "${REPO_ROOT}/services/pam-tether/pam_tether.so" "${PAM_DIR}/pam_tether.so"
 chmod 0755 "${PAM_DIR}/pam_tether.so"
 
-echo "[5/7] Configuring udev rules for synthetic input..."
+echo "[5/7] Configuring dedicated udev rules for synthetic input..."
 cat << 'EOF' > /etc/udev/rules.d/99-tether-uinput.rules
-KERNEL=="uinput", MODE="0660", GROUP="input"
+KERNEL=="uinput", MODE="0660", GROUP="tether"
 EOF
 udevadm control --reload-rules >/dev/null 2>&1 || true
 udevadm trigger --name-match=uinput >/dev/null 2>&1 || true
@@ -86,32 +90,7 @@ elif command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; th
 fi
 
 echo "[7/7] Installing systemd service..."
-cat << 'EOF' > /etc/systemd/system/tether.service
-[Unit]
-Description=Tether Linux Daemon
-Documentation=https://github.com/tirthsaraiya29/tether
-After=network.target network-online.target dbus.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/tether-daemon
-Restart=on-failure
-RestartSec=3s
-KillMode=control-group
-StandardOutput=journal
-StandardError=journal
-
-# Security and Sandbox Constraints
-ProtectSystem=full
-ProtectHome=read-only
-ReadWritePaths=/var/lib/tether /run/tether /var/log/tether
-DeviceAllow=/dev/uinput rw
-DeviceAllow=char-input rw
-
-[Install]
-WantedBy=multi-user.target
-EOF
+cp -f "${REPO_ROOT}/services/communication-service/Tether.LinuxDaemon/systemd/tether.service" /etc/systemd/system/tether.service
 
 systemctl daemon-reload
 systemctl enable --now tether.service
