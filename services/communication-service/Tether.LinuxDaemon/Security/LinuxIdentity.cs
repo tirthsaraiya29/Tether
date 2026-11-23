@@ -60,7 +60,8 @@ public sealed class LinuxIdentity : IHostIdentity, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.Warning($"Could not load existing identity cert at {certPath}: {ex.Message}. Regenerating.");
+                _logger.Error($"LinuxIdentity: Existing identity certificate at {certPath} failed to load: {ex.Message}. Refusing to silently overwrite pre-existing identity certificate.");
+                throw new InvalidOperationException($"Identity certificate at {certPath} is unreadable or corrupted. Automatic regeneration disabled to prevent invalidating paired mobile devices.", ex);
             }
         }
 

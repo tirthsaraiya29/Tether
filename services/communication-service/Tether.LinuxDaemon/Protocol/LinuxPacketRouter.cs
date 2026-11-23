@@ -262,7 +262,10 @@ public sealed class LinuxPacketRouter
                         break;
                     }
 
-                    bool ok = LinuxHardwareExecutor.ExecuteCommand(command, _logger, _pamServer, out int vol);
+                    string? targetUser = doc.RootElement.TryGetProperty("targetUser", out var tuProp) ? tuProp.GetString()
+                        : (doc.RootElement.TryGetProperty("user", out var uProp) ? uProp.GetString() : null);
+                    string deviceFp = session.Device?.Fingerprint ?? "";
+                    bool ok = LinuxHardwareExecutor.ExecuteCommand(command, _logger, _pamServer, out int vol, deviceFp, targetUser);
                     bool isMuted = false;
                     int bri = -1;
                     int finalVol = vol;
