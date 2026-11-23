@@ -216,6 +216,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     @Volatile private var pendingUnlockUntilMs: Long = 0L
 
     @Volatile var connectedPeerName: String = "Windows PC"
+    @Volatile var connectedPeerOs: String = "windows"
 
     @Volatile
     var currentState: TransportState = TransportState.DISCONNECTED
@@ -1252,7 +1253,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
                             putString("saved_host_ip", hostAddress)
                         }
-                        connectedPeerName = result.peerDeviceId.ifBlank { "Windows PC" }
+                        connectedPeerName = result.peerDeviceId.ifBlank { if (result.peerOs.equals("linux", true)) "Linux Host" else "Windows PC" }
+                        connectedPeerOs = result.peerOs
                         trustState = TrustState.PAIRED
                         currentState = TransportState.AUTHENTICATED
                         try { discoveryManager.stopDiscovery() } catch (_: Exception) {}
@@ -1405,7 +1407,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                             putString("saved_host_ip", ip)
                         }
                     }
-                    connectedPeerName = result.peerDeviceId.ifBlank { "Windows PC" }
+                    connectedPeerName = result.peerDeviceId.ifBlank { if (result.peerOs.equals("linux", true)) "Linux Host" else "Windows PC" }
+                    connectedPeerOs = result.peerOs
                     
                     trustState = TrustState.PAIRED
                     currentState = TransportState.AUTHENTICATED
@@ -1658,6 +1661,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 val confirmedCmd = json.optString("confirmedCommand", command)
                 val success = json.optBoolean("success", true)
                 val errorReason = json.optString("reason", "")
+                val errorCode = json.optString("errorCode", "")
+                val execState = json.optString("state", if (success) "COMPLETED" else "FAILED")
                 val vol = json.optInt("volumeLevel", -1)
                 val bright = json.optInt("brightnessLevel", -1)
                 val responseReqId = json.optString("requestId", "")
@@ -1718,6 +1723,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                         putExtra("confirmed_command", confirmedCmd)
                         putExtra("success", success)
                         putExtra("reason", errorReason)
+                        putExtra("error_code", errorCode)
+                        putExtra("state", execState)
                         putExtra("volume_level", currentVolumeLevel)
                         putExtra("brightness_level", currentBrightnessLevel)
                         if (hasMute) {
@@ -2814,11 +2821,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         sendDirectControlFrame(json.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
-    fun sendTerminalStart(shellType: String = "powershell", workingDir: String = "", sessionId: String? = null) {
+    fun sendTerminalStart(shellType: String? = null, workingDir: String = "", sessionId: String? = null) {
+        val effectiveShell = shellType ?: if (connectedPeerOs.equals("linux", true)) "bash" else "powershell"
         val json = JSONObject().apply {
             put("type", "TERMINAL_START")
             put("requestId", UUID.randomUUID().toString())
-            put("shellType", shellType)
+            put("shellType", effectiveShell)
+            put("shell", effectiveShell)
             put("workingDir", workingDir)
             if (!sessionId.isNullOrEmpty()) {
                 put("sessionId", sessionId)

@@ -18,6 +18,7 @@ sealed class PairingResult {
         val peerDeviceId: String,
         val peerFingerprint: String,
         val peerCapabilities: String = "",
+        val peerOs: String = "windows",
     ) : PairingResult()
 
     data class PairingPending(
@@ -250,6 +251,7 @@ class TetherPairingManager(
                         peerDeviceId = winDeviceId,
                         peerFingerprint = winFingerprint,
                         peerCapabilities = winCapabilities,
+                        peerOs = os,
                     )
                 }
 
@@ -401,6 +403,7 @@ class TetherPairingManager(
                 peerDeviceId = peerDevId,
                 peerFingerprint = winFp,
                 peerCapabilities = winCaps,
+                peerOs = hostOs,
             )
 
         } catch (e: Exception) {

@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -26,6 +28,9 @@ public sealed class LinuxPacketRouter
     private readonly LinuxAdminManager _adminManager;
     private readonly LinuxPamAuthServer _pamServer;
     private readonly ITetherLogger _logger;
+
+    private readonly ConcurrentDictionary<string, (int Count, long WindowStartMs)> _inputRateLimits = new();
+    private readonly ConcurrentDictionary<string, (long TimestampMs, ConfirmCommand Result)> _recentCommandResults = new();
 
     public LinuxPacketRouter(
         LinuxSessionManager sessionManager,
@@ -61,6 +66,53 @@ public sealed class LinuxPacketRouter
             byte[] bytes = Encoding.UTF8.GetBytes(json);
             _ = _sessionManager.SendRawFrameToDeviceAsync(ownerDeviceId, bytes);
         };
+
+        // Wire terminal session exit notification to target device
+        _terminalManager.OnSessionExited = (sessionId, ownerDeviceId) =>
+        {
+            var frameObj = new
+            {
+                type = "TERMINAL_SESSION_CLOSED",
+                sessionId = sessionId,
+                terminalId = sessionId,
+                deviceId = ownerDeviceId,
+                success = true,
+                reason = "Process exited"
+            };
+            string json = JsonSerializer.Serialize(frameObj);
+            byte[] bytes = Encoding.UTF8.GetBytes(json);
+            _ = _sessionManager.SendRawFrameToDeviceAsync(ownerDeviceId, bytes);
+        };
+    }
+
+    private bool CheckInputRateLimit(string sessionId, int maxEventsPerSec = 500)
+    {
+        long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var (count, windowStart) = _inputRateLimits.GetOrAdd(sessionId, (0, now));
+        if (now - windowStart > 1000)
+        {
+            _inputRateLimits[sessionId] = (1, now);
+            return true;
+        }
+        if (count >= maxEventsPerSec)
+        {
+            return false;
+        }
+        _inputRateLimits[sessionId] = (count + 1, windowStart);
+        return true;
+    }
+
+    private void CleanupRecentCommandResults()
+    {
+        if (_recentCommandResults.Count > 500)
+        {
+            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var expired = _recentCommandResults
+                .Where(kv => now - kv.Value.TimestampMs > 60_000)
+                .Select(kv => kv.Key)
+                .ToList();
+            foreach (var k in expired) _recentCommandResults.TryRemove(k, out _);
+        }
     }
 
     public async Task RouteFrameAsync(ReadOnlyMemory<byte> rawFrame, LinuxSession session, CancellationToken ct = default)
@@ -69,9 +121,33 @@ public sealed class LinuxPacketRouter
 
         var span = rawFrame.Span;
 
-        // 1. Synthetic Input binary packet (0x05)
+        // 1. Synthetic Input binary packet (0x05) - requires authenticated session and INPUT capability
         if (span[0] == LinuxUinputInjector.PacketTypeInputEvent)
         {
+            if (session.Device == null)
+            {
+                _logger.Warning($"LinuxPacketRouter: Dropped binary input from unauthenticated session [{session.SessionId}].");
+                return;
+            }
+
+            if (!HasCapability(session.Device, "INPUT"))
+            {
+                _logger.Warning($"LinuxPacketRouter: Rejected binary input: device '{session.Device.Fingerprint}' lacks INPUT capability.");
+                return;
+            }
+
+            if (span.Length < 2)
+            {
+                _logger.Warning($"LinuxPacketRouter: Truncated binary input packet ({span.Length} bytes).");
+                return;
+            }
+
+            if (!CheckInputRateLimit(session.SessionId))
+            {
+                _logger.Warning($"LinuxPacketRouter: Input rate limit exceeded for session [{session.SessionId}].");
+                return;
+            }
+
             _inputInjector.Handle(span);
             return;
         }
@@ -116,17 +192,19 @@ public sealed class LinuxPacketRouter
 
                 case "COMMAND_EXECUTE":
                     string command = doc.RootElement.TryGetProperty("command", out var cmdProp) ? (cmdProp.GetString() ?? "") : "";
-                    string reqCap = MapCommandToCapability(command);
-                    if (!HasCapability(session.Device, reqCap))
+
+                    if (session.Device == null)
                     {
-                        _logger.Warning($"LinuxPacketRouter: Rejected '{command}' - device '{deviceId}' lacks capability '{reqCap}'.");
+                        _logger.Warning($"LinuxPacketRouter: Rejected '{command}' from unauthenticated session [{session.SessionId}].");
                         await session.WriteJsonFrameSafeAsync(new ConfirmCommand
                         {
                             Type = "CONFIRM_COMMAND",
                             RequestId = reqId,
                             ConfirmedCommand = command,
                             Success = false,
-                            Reason = $"Unauthorized: Device lacks {reqCap} capability",
+                            Reason = "Unauthorized: Session is not authenticated",
+                            ErrorCode = "ERR_UNAUTHORIZED",
+                            State = "REJECTED",
                             VolumeLevel = -1,
                             IsMuted = false,
                             BrightnessLevel = -1
@@ -134,20 +212,74 @@ public sealed class LinuxPacketRouter
                         break;
                     }
 
+                    // Check for duplicate command execution (deduplication)
+                    CleanupRecentCommandResults();
+                    if (_recentCommandResults.TryGetValue(reqId, out var existingResult))
+                    {
+                        _logger.Info($"LinuxPacketRouter: Returning deduplicated cached result for reqId '{reqId}' ({command}).");
+                        await session.WriteJsonFrameSafeAsync(existingResult.Result, ct);
+                        break;
+                    }
+
+                    string reqCap = MapCommandToCapability(command);
+                    if (!HasCapability(session.Device, reqCap))
+                    {
+                        _logger.Warning($"LinuxPacketRouter: Rejected '{command}' - device '{deviceId}' lacks capability '{reqCap}'.");
+                        var rejConfirm = new ConfirmCommand
+                        {
+                            Type = "CONFIRM_COMMAND",
+                            RequestId = reqId,
+                            ConfirmedCommand = command,
+                            Success = false,
+                            Reason = $"Unauthorized: Device lacks {reqCap} capability",
+                            ErrorCode = "ERR_UNAUTHORIZED",
+                            State = "REJECTED",
+                            VolumeLevel = -1,
+                            IsMuted = false,
+                            BrightnessLevel = -1
+                        };
+                        await session.WriteJsonFrameSafeAsync(rejConfirm, ct);
+                        break;
+                    }
+
+                    if (!IsRecognizedHardwareCommand(command))
+                    {
+                        _logger.Warning($"LinuxPacketRouter: Unsupported hardware command '{command}'.");
+                        var unsuppConfirm = new ConfirmCommand
+                        {
+                            Type = "CONFIRM_COMMAND",
+                            RequestId = reqId,
+                            ConfirmedCommand = command,
+                            Success = false,
+                            Reason = $"Unsupported command '{command}'",
+                            ErrorCode = "ERR_UNSUPPORTED",
+                            State = "FAILED",
+                            VolumeLevel = -1,
+                            IsMuted = false,
+                            BrightnessLevel = -1
+                        };
+                        await session.WriteJsonFrameSafeAsync(unsuppConfirm, ct);
+                        break;
+                    }
+
                     bool ok = LinuxHardwareExecutor.ExecuteCommand(command, _logger, _pamServer, out int vol);
                     bool isMuted = LinuxHardwareExecutor.GetSystemMute(_logger);
                     int bri = LinuxHardwareExecutor.GetBrightnessLevel(_logger);
-                    await session.WriteJsonFrameSafeAsync(new ConfirmCommand
+                    var confirm = new ConfirmCommand
                     {
                         Type = "CONFIRM_COMMAND",
                         RequestId = reqId,
                         ConfirmedCommand = command,
                         Success = ok,
                         Reason = ok ? "OK" : "Execution failed",
+                        ErrorCode = ok ? null : "ERR_EXECUTION_FAILED",
+                        State = ok ? "COMPLETED" : "FAILED",
                         VolumeLevel = vol >= 0 ? vol : LinuxHardwareExecutor.GetSystemVolumeLevel(_logger),
                         IsMuted = isMuted,
                         BrightnessLevel = bri
-                    }, ct);
+                    };
+                    _recentCommandResults[reqId] = (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), confirm);
+                    await session.WriteJsonFrameSafeAsync(confirm, ct);
                     break;
 
                 case "FILE_TRANSFER_TOKEN_REQUEST":
@@ -519,12 +651,30 @@ public sealed class LinuxPacketRouter
     {
         string cmd = command.Trim().ToLowerInvariant();
         if (cmd is "unlock") return "POWER_ELEVATED";
-        if (cmd is "shutdown" or "poweroff" or "halt" or "reboot" or "restart" or "sleep" or "suspend" or "hibernate")
+        if (cmd is "shutdown" or "poweroff" or "halt" or "reboot" or "restart" or "sleep" or "suspend" or "hibernate" or "panic")
             return "POWER_ELEVATED";
         if (cmd.StartsWith("admin_") || cmd.StartsWith("service_") || cmd.StartsWith("power_plan"))
             return "ADMIN";
         if (cmd.StartsWith("launch_") || cmd is "browser" or "calc" or "terminal")
             return "APP_LAUNCH";
         return "MEDIA";
+    }
+
+    private static bool IsRecognizedHardwareCommand(string command)
+    {
+        string cmd = command.Trim().ToLowerInvariant();
+        if (cmd is "lock" or "lock_workstation" or "lock_now" or "unlock"
+            or "sleep" or "suspend" or "hibernate" or "reboot" or "restart"
+            or "shutdown" or "poweroff" or "halt" or "panic")
+            return true;
+        if (cmd is "volume_mute" or "vol_mute" or "mute" or "volume_up" or "vol_up" or "volume_down" or "vol_down")
+            return true;
+        if (cmd.StartsWith("set_volume:") || cmd.StartsWith("volume_set:") || cmd.StartsWith("vol_set:"))
+            return true;
+        if (cmd is "brightness_up" or "bright_up" or "brightness_down" or "bright_down")
+            return true;
+        if (cmd.StartsWith("set_brightness:") || cmd.StartsWith("brightness_set:") || cmd.StartsWith("bright_set:"))
+            return true;
+        return false;
     }
 }

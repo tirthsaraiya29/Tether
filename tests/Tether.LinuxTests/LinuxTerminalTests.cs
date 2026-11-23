@@ -47,8 +47,7 @@ public class LinuxTerminalTests : IDisposable
         Assert.Equal("test-device-1", session.OwnerDeviceId);
 
         // Send echo command
-        string cmd = $"echo TETHER_LINUX_ECHO_TEST{Environment.NewLine}";
-        bool sent = _manager.SendInput(session.Id, cmd, ownerDeviceId: "test-device-1");
+        bool sent = _manager.SendInput(session.Id, "echo TETHER_LINUX_ECHO_TEST\n", ownerDeviceId: "test-device-1");
         Assert.True(sent);
 
         // Await echo response up to 3 seconds
@@ -130,5 +129,57 @@ public class LinuxTerminalTests : IDisposable
         var betaSessions = _manager.ListSessions("dev-beta");
         Assert.Single(betaSessions);
         Assert.Equal(s2.Id, betaSessions[0].Id);
+    }
+
+    [Fact]
+    public async Task SendInput_NormalizesCarriageReturns_ForLinuxShell()
+    {
+        var outputChunks = new List<string>();
+        var tcs = new TaskCompletionSource<string>();
+
+        _manager.OnOutputReceived = (sessId, text, dir, owner) =>
+        {
+            lock (outputChunks)
+            {
+                outputChunks.Add(text);
+                if (text.Contains("CR_NORMALIZED_TEST"))
+                {
+                    tcs.TrySetResult(text);
+                }
+            }
+        };
+
+        var session = _manager.StartSession("bash", ownerDeviceId: "test-device-cr");
+        Assert.NotNull(session);
+
+        // Send input with Windows-style CRLF (\r\n)
+        bool sent = _manager.SendInput(session.Id, "echo CR_NORMALIZED_TEST\r\n", ownerDeviceId: "test-device-cr");
+        Assert.True(sent);
+
+        var completed = await Task.WhenAny(tcs.Task, Task.Delay(3000));
+        Assert.Same(tcs.Task, completed);
+        string result = await tcs.Task;
+        Assert.Contains("CR_NORMALIZED_TEST", result);
+
+        _manager.CloseSession(session.Id, ownerDeviceId: "test-device-cr");
+    }
+
+    [Fact]
+    public void SendInput_RejectsOversizedInput()
+    {
+        var session = _manager.StartSession("sh", ownerDeviceId: "test-device-oversize");
+        string oversized = new string('A', 35000);
+        bool sent = _manager.SendInput(session.Id, oversized, ownerDeviceId: "test-device-oversize");
+        Assert.False(sent);
+        _manager.CloseSession(session.Id, ownerDeviceId: "test-device-oversize");
+    }
+
+    [Fact]
+    public void SendInput_CtrlC_HandlesSigintWithoutCrashing()
+    {
+        var session = _manager.StartSession("sh", ownerDeviceId: "test-device-ctrlc");
+        bool sent = _manager.SendInput(session.Id, "\x03", ownerDeviceId: "test-device-ctrlc");
+        Assert.True(sent);
+        _manager.CloseSession(session.Id, ownerDeviceId: "test-device-ctrlc");
     }
 }

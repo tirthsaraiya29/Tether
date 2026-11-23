@@ -169,7 +169,7 @@ fun RemoteTerminalScreen(
 
     LaunchedEffect(service) {
         if (service != null && activeSessions.all { it.id == "default" }) {
-            service.sendTerminalStart("powershell")
+            service.sendTerminalStart()
         }
     }
 
@@ -537,8 +537,9 @@ fun RemoteTerminalScreen(
 
     // New Session Dialog
     if (showNewSessionDialog) {
-        val shells = listOf("powershell", "cmd", "pwsh", "wsl")
-        var selectedShell by remember { mutableStateOf("powershell") }
+        val isLinux = service?.connectedPeerOs.equals("linux", ignoreCase = true)
+        val shells = if (isLinux) listOf("bash", "sh", "zsh", "pwsh") else listOf("powershell", "cmd", "pwsh", "wsl")
+        var selectedShell by remember(isLinux) { mutableStateOf(if (isLinux) "bash" else "powershell") }
 
         AlertDialog(
             onDismissRequest = { showNewSessionDialog = false },
@@ -563,9 +564,12 @@ fun RemoteTerminalScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 when (s) {
+                                    "bash" -> "Linux Bash (/bin/bash)"
+                                    "sh" -> "Standard Shell (/bin/sh)"
+                                    "zsh" -> "Z Shell (/bin/zsh)"
                                     "powershell" -> "Windows PowerShell (5.1)"
                                     "cmd" -> "Command Prompt (cmd.exe)"
-                                    "pwsh" -> "PowerShell 7 Core (pwsh.exe)"
+                                    "pwsh" -> "PowerShell 7 Core (pwsh)"
                                     "wsl" -> "Windows Subsystem for Linux (WSL)"
                                     else -> s
                                 },

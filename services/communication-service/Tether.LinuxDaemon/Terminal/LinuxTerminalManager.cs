@@ -77,6 +77,9 @@ public sealed class LinuxTerminalManager : IDisposable
     [DllImport("libc", SetLastError = true)]
     private static extern uint geteuid();
 
+    [DllImport("libc", SetLastError = true)]
+    private static extern int kill(int pid, int sig);
+
     private static readonly string[] RestrictedAdminPatterns =
     {
         "sudo ", "sudo\t", "sudo\n", "sudo\r",
@@ -92,6 +95,9 @@ public sealed class LinuxTerminalManager : IDisposable
 
     // Callback: (sessionId, outputChunk, currentDir, ownerDeviceId)
     public Action<string, string, string, string>? OnOutputReceived { get; set; }
+
+    // Callback: (sessionId, ownerDeviceId)
+    public Action<string, string>? OnSessionExited { get; set; }
 
     public LinuxTerminalManager(ITetherLogger logger)
     {
@@ -242,6 +248,13 @@ public sealed class LinuxTerminalManager : IDisposable
             var session = new TerminalSession(id, selectedShell, workingDir, proc, stdinWriter, effectiveOwner);
             _sessions[id] = session;
 
+            proc.EnableRaisingEvents = true;
+            proc.Exited += (s, e) =>
+            {
+                _sessions.TryRemove(id, out _);
+                OnSessionExited?.Invoke(id, effectiveOwner);
+            };
+
             Task.Run(() => ReadStreamLoop(proc.StandardOutput, id, session));
             Task.Run(() => ReadStreamLoop(proc.StandardError, id, session));
 
@@ -262,7 +275,7 @@ public sealed class LinuxTerminalManager : IDisposable
 
     public bool SendInput(string sessionId, string input, string? ownerDeviceId = null)
     {
-        if (string.IsNullOrWhiteSpace(ownerDeviceId) || string.IsNullOrEmpty(sessionId) || input == null || input.Contains('\0'))
+        if (string.IsNullOrWhiteSpace(ownerDeviceId) || string.IsNullOrEmpty(sessionId) || input == null || input.Contains('\0') || input.Length > 32768)
         {
             return false;
         }
@@ -276,6 +289,16 @@ public sealed class LinuxTerminalManager : IDisposable
         {
             _logger.Warning($"LinuxTerminalManager: Cross-device terminal access rejected for session {sessionId}.");
             return false;
+        }
+
+        // Support Ctrl+C (0x03) signal forwarding to child process group on Linux
+        if (input == "\u0003" && OperatingSystem.IsLinux())
+        {
+            try
+            {
+                kill(session.Process.Id, 2 /* SIGINT */);
+            }
+            catch { }
         }
 
         string lower = input.ToLowerInvariant();
@@ -292,9 +315,12 @@ public sealed class LinuxTerminalManager : IDisposable
 
         try
         {
+            // Normalize CRLF to LF for POSIX shells so trailing '\r' is not interpreted as part of the command token
+            string effectiveInput = OperatingSystem.IsLinux() ? input.Replace("\r\n", "\n") : input;
+
             lock (session.Lock)
             {
-                session.Stdin.Write(input);
+                session.Stdin.Write(effectiveInput);
                 session.Stdin.Flush();
             }
             return true;

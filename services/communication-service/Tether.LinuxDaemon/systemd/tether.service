@@ -16,7 +16,7 @@ SupplementaryGroups=tether
 
 # Security Sandboxing & Least Privilege Constraints
 ProtectSystem=full
-ProtectHome=read-only
+ProtectHome=no
 ReadWritePaths=/var/lib/tether /run/tether /var/log/tether /home
 DeviceAllow=/dev/uinput rw
 DeviceAllow=char-input rw

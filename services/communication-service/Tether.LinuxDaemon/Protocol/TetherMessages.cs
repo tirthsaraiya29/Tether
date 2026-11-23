@@ -53,6 +53,8 @@ public sealed record ConfirmCommand
     [JsonPropertyName("confirmedCommand")] public string ConfirmedCommand { get; init; } = "";
     [JsonPropertyName("success")] public bool Success { get; init; }
     [JsonPropertyName("reason")] public string Reason { get; init; } = "OK";
+    [JsonPropertyName("errorCode")] public string? ErrorCode { get; init; }
+    [JsonPropertyName("state")] public string? State { get; init; }
     [JsonPropertyName("volumeLevel")] public int VolumeLevel { get; init; } = -1;
     [JsonPropertyName("isMuted")] public bool IsMuted { get; init; }
     [JsonPropertyName("brightnessLevel")] public int BrightnessLevel { get; init; } = -1;
