@@ -1,9 +1,12 @@
 using System;
+using System.Buffers.Binary;
 using System.IO;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,7 +24,7 @@ namespace Tether.LinuxDaemon.Transport;
 
 public sealed class LinuxSession : IDisposable
 {
-    private const string ServerCapabilities = "FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,WINDOWS_ADMIN,APP_MANAGEMENT";
+    private const string ServerCapabilities = "FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,APP_MANAGEMENT";
 
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;
@@ -222,10 +225,31 @@ public sealed class LinuxSession : IDisposable
         if (phoneFp == null) return false;
 
         var trusted = _trustStore.FindByFingerprint(phoneFp);
-        if (trusted != null)
+        if (trusted != null && !init.IsPairingRequested)
         {
-            // Already paired! Instant reconnect
-            Device = _deviceManager.GetDevice(phoneFp) ?? LinuxDevice.FromRecord(trusted);
+            if (string.IsNullOrEmpty(trusted.PublicKeySpkiBase64))
+            {
+                _logger.Warning($"LinuxSession [{SessionId}]: Paired device record for {phoneFp} missing stored SPKI. Denying.");
+                await WriteJsonFrameSafeAsync(new HandshakeResponse
+                {
+                    DeviceId = _identity.DeviceId,
+                    DeviceName = _identity.DeviceName,
+                    PublicKey = _identity.GetPublicKeySpkiBase64(),
+                    Status = HandshakeStatus.PairingDenied,
+                    Capabilities = ServerCapabilities,
+                    Pqc = false,
+                    Os = "linux"
+                }, ct);
+                return false;
+            }
+
+            _logger.Info($"LinuxSession [{SessionId}]: Recognized paired phone {phoneFp} ('{trusted.DisplayName}'). Issuing serverNonce challenge.");
+
+            byte[] serverNonce = RandomNumberGenerator.GetBytes(32);
+            string serverNonceB64 = Convert.ToBase64String(serverNonce);
+
+            using var proofCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            proofCts.CancelAfter(TimeSpan.FromSeconds(15));
 
             var resp = new HandshakeResponse
             {
@@ -235,11 +259,38 @@ public sealed class LinuxSession : IDisposable
                 Status = HandshakeStatus.Paired,
                 Capabilities = ServerCapabilities,
                 Pqc = false,
-                Os = "linux"
+                Os = "linux",
+                ServerNonce = serverNonceB64
             };
 
-            await WriteJsonFrameSafeAsync(resp, ct);
-            _logger.Info($"LinuxSession [{SessionId}]: Reconnected known phone '{Device.DisplayName}' ({phoneFp}).");
+            await WriteJsonFrameSafeAsync(resp, proofCts.Token);
+
+            byte[]? proofBytes;
+            try
+            {
+                proofBytes = await FrameCodec.ReadFrameAsync(stream, proofCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.Warning($"LinuxSession [{SessionId}]: Reconnect HANDSHAKE_PROOF timed out after 15s. Failing closed.");
+                return false;
+            }
+
+            if (proofBytes == null || proofBytes.Length == 0)
+            {
+                _logger.Warning($"LinuxSession [{SessionId}]: Empty HANDSHAKE_PROOF frame received. Failing closed.");
+                return false;
+            }
+
+            if (!TryVerifyReconnectProof(proofBytes, trusted.PublicKeySpkiBase64, serverNonce, init.PublicKey, out string failureReason))
+            {
+                _logger.Warning($"LinuxSession [{SessionId}]: HANDSHAKE_PROOF verification failed: {failureReason}. Failing closed.");
+                return false;
+            }
+
+            await WriteJsonFrameSafeAsync(new { type = "HANDSHAKE_VERIFIED", status = "OK" }, proofCts.Token);
+            Device = _deviceManager.GetDevice(phoneFp) ?? LinuxDevice.FromRecord(trusted);
+            _logger.Info($"LinuxSession [{SessionId}]: Proof verified for '{Device.DisplayName}'. Reconnect successful!");
             return true;
         }
 
@@ -261,7 +312,7 @@ public sealed class LinuxSession : IDisposable
 
         // New pairing flow
         byte[] initBytes = JsonSerializer.SerializeToUtf8Bytes(init);
-        var (pending, pairResp, _) = _pairingManager.CreatePairingResponse(
+        var (pending, pairResp, respBytes) = _pairingManager.CreatePairingResponse(
             _identity.DeviceId,
             _identity.DeviceName,
             _identity.GetPublicKeySpkiBase64(),
@@ -270,46 +321,234 @@ public sealed class LinuxSession : IDisposable
             init.DeviceName,
             initBytes);
 
-        await WriteJsonFrameSafeAsync(pairResp, ct);
-        if (pairResp.Status == HandshakeStatus.PairingDenied) return false;
-
-        // Read proof from phone
-        using var proofCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        proofCts.CancelAfter(TimeSpan.FromSeconds(60));
-
-        using var proofDoc = await FrameCodec.ReadJsonFrameAsync(stream, proofCts.Token);
-        if (proofDoc == null) return false;
-
-        string proofType = proofDoc.RootElement.TryGetProperty("type", out var ptProp) ? (ptProp.GetString() ?? "") : "";
-        if (proofType != "HANDSHAKE_PROOF") return false;
-
-        string proofReqId = proofDoc.RootElement.TryGetProperty("requestId", out var rProp) ? (rProp.GetString() ?? "") : "";
-        string presentedProof = proofDoc.RootElement.TryGetProperty("proof", out var pProp) ? (pProp.GetString() ?? "") : "";
-
-        if (string.IsNullOrEmpty(presentedProof) && proofDoc.RootElement.TryGetProperty("pin", out var pinProp))
+        if (pairResp.Status == HandshakeStatus.PairingDenied)
         {
-            presentedProof = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(pinProp.GetString() ?? ""));
+            await WriteJsonFrameSafeAsync(pairResp, ct);
+            return false;
         }
 
-        if (_pairingManager.TryVerifyPhoneProof(proofReqId, presentedProof, out string hostProof, out var pairedPending))
+        using var pairingCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        pairingCts.CancelAfter(TimeSpan.FromSeconds(LinuxPairingManager.ExpirationSeconds));
+
+        await WriteRawFrameSafeAsync(respBytes, pairingCts.Token);
+        _logger.Info($"LinuxSession [{SessionId}]: Sent HANDSHAKE_RESPONSE (PAIRING_PENDING) for reqId '{pending.RequestId}'. Waiting for PAIRING_CONFIRMED...");
+
+        string currentRequestId = pending.RequestId;
+        try
         {
-            Device = _deviceManager.GetDevice(phoneFp);
-            await WriteJsonFrameSafeAsync(new
+            while (!pairingCts.Token.IsCancellationRequested)
             {
-                type = "HANDSHAKE_VERIFIED",
-                status = "OK",
-                hostProof = hostProof
-            }, ct);
+                using var confirmedDoc = await FrameCodec.ReadJsonFrameAsync(stream, pairingCts.Token);
+                if (confirmedDoc == null)
+                {
+                    _logger.Warning($"LinuxSession [{SessionId}]: No PAIRING_CONFIRMED frame received.");
+                    return false;
+                }
+
+                string confirmedType = confirmedDoc.RootElement.TryGetProperty("type", out var typeProp) ? (typeProp.GetString() ?? "") : "";
+                if (string.Equals(confirmedType, "PAIRING_REJECTED", StringComparison.Ordinal))
+                {
+                    string reqIdToCancel = confirmedDoc.RootElement.TryGetProperty("requestId", out var rProp) ? (rProp.GetString() ?? "") : pending.RequestId;
+                    _pairingManager.CancelRequest(reqIdToCancel);
+                    _logger.Info($"LinuxSession [{SessionId}]: Pairing rejected by phone for requestId '{reqIdToCancel}'.");
+                    return false;
+                }
+
+                if (!string.Equals(confirmedType, "PAIRING_CONFIRMED", StringComparison.Ordinal) &&
+                    !string.Equals(confirmedType, "HANDSHAKE_PROOF", StringComparison.Ordinal))
+                {
+                    _logger.Warning($"LinuxSession [{SessionId}]: Expected PAIRING_CONFIRMED but got '{confirmedType}'.");
+                    return false;
+                }
+
+                string reqId = confirmedDoc.RootElement.TryGetProperty("requestId", out var reqProp) ? (reqProp.GetString() ?? "") : "";
+                string proofBase64 = confirmedDoc.RootElement.TryGetProperty("proof", out var proofProp) ? (proofProp.GetString() ?? "") : "";
+
+                bool verified = _pairingManager.TryVerifyPhoneProof(reqId, proofBase64, out string hostProofBase64, out var pendingPairing);
+
+                if (!verified)
+                {
+                    int failedAttempts = pendingPairing?.FailedAttempts ?? LinuxPairingManager.MaxFailedAttempts;
+                    int remainingAttempts = Math.Max(0, LinuxPairingManager.MaxFailedAttempts - failedAttempts);
+
+                    if (remainingAttempts > 0)
+                    {
+                        _logger.Warning($"LinuxSession [{SessionId}]: Proof verification failed for requestId '{reqId}'. {remainingAttempts} attempt(s) remaining.");
+                        await WriteJsonFrameSafeAsync(new
+                        {
+                            type = "PAIRING_INVALID_PIN",
+                            requestId = reqId,
+                            remainingAttempts = remainingAttempts,
+                            message = $"Incorrect PIN. {remainingAttempts} attempt(s) remaining."
+                        }, pairingCts.Token);
+                        continue;
+                    }
+
+                    _logger.Warning($"LinuxSession [{SessionId}]: Proof verification failed for requestId '{reqId}'. Max attempts exhausted.");
+                    _pairingManager.CancelRequest(reqId);
+                    try { await WriteJsonFrameSafeAsync(new { type = "PAIRING_COMPLETE", status = "DENIED", reason = "Max attempts exhausted" }, pairingCts.Token); } catch { }
+                    return false;
+                }
+
+                await WriteJsonFrameSafeAsync(new
+                {
+                    type = "PAIRING_COMPLETE",
+                    status = "OK",
+                    proof = hostProofBase64,
+                    capabilities = ServerCapabilities
+                }, pairingCts.Token);
+
+                Device = _deviceManager.GetDevice(phoneFp) ?? LinuxDevice.FromRecord(_trustStore.FindByFingerprint(phoneFp)!);
+                _logger.Info($"LinuxSession [{SessionId}]: Pairing successfully finalized for '{phoneFp}'.");
+                return true;
+            }
+        }
+        finally
+        {
+            if (Device == null)
+            {
+                _pairingManager.CancelRequest(currentRequestId);
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryVerifyReconnectProof(
+        byte[] proofBytes,
+        string storedPhoneSpkiBase64,
+        byte[] serverNonce,
+        string presentedPhoneSpkiBase64,
+        out string failureReason)
+    {
+        failureReason = "";
+        JsonDocument proofDoc;
+        try
+        {
+            proofDoc = JsonDocument.Parse(proofBytes);
+        }
+        catch (JsonException ex)
+        {
+            failureReason = $"Malformed JSON ({ex.Message})";
+            return false;
+        }
+
+        using (proofDoc)
+        {
+            var root = proofDoc.RootElement;
+            if (!root.TryGetProperty("type", out var typeProp) ||
+                !string.Equals(typeProp.GetString(), "HANDSHAKE_PROOF", StringComparison.Ordinal))
+            {
+                failureReason = "Missing or invalid 'type'";
+                return false;
+            }
+
+            if (!root.TryGetProperty("signature", out var sigProp) ||
+                !root.TryGetProperty("clientNonce", out var cNonceProp))
+            {
+                failureReason = "Missing 'signature' or 'clientNonce'";
+                return false;
+            }
+
+            string? sigStr = sigProp.GetString();
+            string? nonceStr = cNonceProp.GetString();
+            if (string.IsNullOrEmpty(sigStr) || string.IsNullOrEmpty(nonceStr))
+            {
+                failureReason = "'signature' or 'clientNonce' is empty";
+                return false;
+            }
+
+            byte[] signature;
+            byte[] clientNonce;
+            try
+            {
+                signature = Convert.FromBase64String(sigStr);
+                clientNonce = Convert.FromBase64String(nonceStr);
+            }
+            catch (FormatException)
+            {
+                failureReason = "Invalid base64 in signature/clientNonce";
+                return false;
+            }
+
+            if (signature.Length == 0 || clientNonce.Length == 0)
+            {
+                failureReason = "Empty signature or clientNonce bytes";
+                return false;
+            }
+
+            if (!string.Equals(presentedPhoneSpkiBase64, storedPhoneSpkiBase64, StringComparison.Ordinal))
+            {
+                failureReason = "Presented SPKI does not match stored SPKI";
+                return false;
+            }
+
+            byte[] transcript = BuildHandshakeTranscript(
+                serverNonce,
+                clientNonce,
+                _identity.GetPublicKeySpkiBase64(),
+                presentedPhoneSpkiBase64);
+
+            if (!VerifyEcdsaSignature(storedPhoneSpkiBase64, transcript, signature))
+            {
+                failureReason = "ECDSA signature verification failed";
+                return false;
+            }
+
             return true;
         }
+    }
 
-        await WriteJsonFrameSafeAsync(new
+    private static byte[] BuildHandshakeTranscript(
+        byte[] serverNonce,
+        byte[] clientNonce,
+        string hostSpkiBase64,
+        string phoneSpkiBase64)
+    {
+        byte[] hostPubKeyBytes = Encoding.UTF8.GetBytes(hostSpkiBase64);
+        byte[] phonePubKeyBytes = Encoding.UTF8.GetBytes(phoneSpkiBase64);
+
+        int totalSize = 4 + serverNonce.Length +
+                        4 + clientNonce.Length +
+                        4 + hostPubKeyBytes.Length +
+                        4 + phonePubKeyBytes.Length;
+
+        byte[] result = new byte[totalSize];
+        int offset = 0;
+
+        WritePrefixed(result, ref offset, serverNonce);
+        WritePrefixed(result, ref offset, clientNonce);
+        WritePrefixed(result, ref offset, hostPubKeyBytes);
+        WritePrefixed(result, ref offset, phonePubKeyBytes);
+
+        return result;
+    }
+
+    private static void WritePrefixed(byte[] dest, ref int offset, byte[] data)
+    {
+        BinaryPrimitives.WriteInt32BigEndian(dest.AsSpan(offset, 4), data.Length);
+        offset += 4;
+        Buffer.BlockCopy(data, 0, dest, offset, data.Length);
+        offset += data.Length;
+    }
+
+    private static bool VerifyEcdsaSignature(string phoneSpkiBase64, byte[] data, byte[] signature)
+    {
+        try
         {
-            type = "HANDSHAKE_VERIFIED",
-            status = "FAILED",
-            reason = "Invalid PIN or proof"
-        }, ct);
-        return false;
+            byte[] spki = Convert.FromBase64String(phoneSpkiBase64);
+            using var ecdsa = ECDsa.Create();
+            ecdsa.ImportSubjectPublicKeyInfo(spki, out _);
+            return ecdsa.VerifyData(
+                data,
+                signature,
+                HashAlgorithmName.SHA256,
+                DSASignatureFormat.Rfc3279DerSequence);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private async Task RunFrameLoopAsync(CancellationToken ct)

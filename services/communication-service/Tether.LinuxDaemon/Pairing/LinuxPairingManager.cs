@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
@@ -137,7 +138,7 @@ public sealed class LinuxPairingManager
 
         _pending[requestId] = pending;
 
-        _logger.Info($"PairingManager: Generated pairing request {requestId} for phone '{phoneDisplayName}' ({phoneFingerprint}). PIN={pin}");
+        _logger.Info($"PairingManager: Generated pairing request {requestId} for phone '{phoneDisplayName}' ({phoneFingerprint}).");
 
         _eventBus.Publish(new TetherEvent
         {
@@ -155,6 +156,15 @@ public sealed class LinuxPairingManager
         ShowSecurePairingPrompt(phoneDisplayName, pin);
 
         return (pending, respPayload, respBytes);
+    }
+
+    public void CancelRequest(string requestId)
+    {
+        if (string.IsNullOrEmpty(requestId)) return;
+        if (_pending.TryRemove(requestId, out var pending))
+        {
+            _logger.Info($"PairingManager: Cancelled pairing request '{requestId}' for '{pending.DisplayName}'.");
+        }
     }
 
     public bool TryVerifyPhoneProof(string requestId, string presentedProofBase64, out string hostProofBase64, out PendingLinuxPairing? pending)
@@ -178,36 +188,52 @@ public sealed class LinuxPairingManager
             return false;
         }
 
-        byte[] expectedPhoneProof = ComputeTranscriptHmac(pending.TranscriptHash, pending.Pin, "PhoneProof"u8.ToArray());
-        byte[] presentedBytes;
-        try { presentedBytes = Convert.FromBase64String(presentedProofBase64); }
-        catch { presentedBytes = Array.Empty<byte>(); }
-
-        bool matchesHmac = presentedBytes.Length > 0 &&
-                           CryptographicOperations.FixedTimeEquals(expectedPhoneProof, presentedBytes);
-
-        bool matchesPlainPin = false;
-        if (!matchesHmac)
+        byte[] proofPayload;
+        try { proofPayload = Convert.FromBase64String(presentedProofBase64); }
+        catch
         {
-            try
-            {
-                string decodedPin = Encoding.UTF8.GetString(presentedBytes).Trim();
-                if (CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(decodedPin), Encoding.UTF8.GetBytes(pending.Pin)))
-                {
-                    matchesPlainPin = true;
-                }
-            }
-            catch { }
+            _logger.Warning($"PairingManager: Malformed proof base64 for '{requestId}'.");
+            return false;
         }
 
-        if (!matchesHmac && !matchesPlainPin)
+        // Unpack payload: len(authKey) || authKey || len(signature) || signature
+        if (!TryUnpackProof(proofPayload, out byte[] presentedAuthKey, out byte[] signature))
         {
             pending.FailedAttempts++;
-            _logger.Warning($"PairingManager: Proof mismatch for requestId '{requestId}' (attempt {pending.FailedAttempts}/{MaxFailedAttempts}).");
+            _logger.Warning($"PairingManager: Proof payload framing invalid for '{requestId}'.");
             if (pending.FailedAttempts >= MaxFailedAttempts)
             {
                 _pending.TryRemove(requestId, out _);
-                _logger.Warning($"PairingManager: Max failed attempts reached. Dropped requestId '{requestId}'.");
+            }
+            return false;
+        }
+
+        byte[] hostSpkiDer = _identity.GetPublicKeySpkiDer();
+        byte[] expectedAuthKey = ComputeAuthKey(pending.Pin, pending.TranscriptHash, requestId, hostSpkiDer, pending.PhoneSpkiDer);
+
+        // 1. Verify PIN proof
+        bool isPinMatch = CryptographicOperations.FixedTimeEquals(expectedAuthKey, presentedAuthKey);
+        if (!isPinMatch)
+        {
+            pending.FailedAttempts++;
+            _logger.Warning($"PairingManager: Invalid PIN proof for '{requestId}' (Attempt {pending.FailedAttempts}/{MaxFailedAttempts}).");
+
+            if (pending.FailedAttempts >= MaxFailedAttempts)
+            {
+                _logger.Error($"PairingManager: Max failed attempts reached for '{requestId}'. Invalidating pairing request.");
+                _pending.TryRemove(requestId, out _);
+            }
+            return false;
+        }
+
+        // 2. Verify asymmetric signature from phone private key
+        if (!VerifyPhoneSignature(pending.PhoneSpkiBase64, expectedAuthKey, signature))
+        {
+            pending.FailedAttempts++;
+            _logger.Warning($"PairingManager: Phone private key signature verification failed for '{requestId}'.");
+            if (pending.FailedAttempts >= MaxFailedAttempts)
+            {
+                _pending.TryRemove(requestId, out _);
             }
             return false;
         }
@@ -215,14 +241,14 @@ public sealed class LinuxPairingManager
         // Successfully verified!
         _pending.TryRemove(requestId, out _);
 
-        byte[] hostProof = ComputeTranscriptHmac(pending.TranscriptHash, pending.Pin, "HostProof"u8.ToArray());
+        byte[] hostProof = ComputeServerProof(pending.Pin, expectedAuthKey, hostSpkiDer, pending.PhoneSpkiDer);
         hostProofBase64 = Convert.ToBase64String(hostProof);
 
         _trustStore.AddOrUpdate(
             deviceId: pending.PhoneFingerprint,
             displayName: pending.DisplayName,
             spkiBase64: pending.PhoneSpkiBase64,
-            capabilities: new[] { "MEDIA", "LOCK", "INPUT", "NOTIFICATIONS", "TERMINAL", "FILES", "WINDOWS_ADMIN", "APP_MANAGEMENT" },
+            capabilities: new[] { "MEDIA", "LOCK", "INPUT", "NOTIFICATIONS", "TERMINAL", "FILES", "APP_MANAGEMENT" },
             protocolVersion: "2.0");
 
         _deviceManager.ReloadFromTrustStore();
@@ -245,14 +271,92 @@ public sealed class LinuxPairingManager
         return true;
     }
 
-    private static byte[] ComputeTranscriptHmac(byte[] transcriptHash, string pin, byte[] label)
+    private static byte[] ComputeAuthKey(string pin, byte[] transcriptHash, string requestId, byte[] hostSpki, byte[] phoneSpki)
     {
-        byte[] pinBytes = Encoding.UTF8.GetBytes(pin);
-        using var hmac = new HMACSHA256(pinBytes);
-        byte[] data = new byte[transcriptHash.Length + label.Length];
-        Buffer.BlockCopy(transcriptHash, 0, data, 0, transcriptHash.Length);
-        Buffer.BlockCopy(label, 0, data, transcriptHash.Length, label.Length);
-        return hmac.ComputeHash(data);
+        byte[] pinBytes = Encoding.UTF8.GetBytes(pin.Trim());
+        try
+        {
+            using var hmac = new HMACSHA256(pinBytes);
+            byte[] label = "TETHER-PAIRING-v2"u8.ToArray();
+            byte[] reqIdBytes = Encoding.UTF8.GetBytes(requestId);
+
+            using var ms = new MemoryStream();
+            ms.Write(label);
+            ms.Write(transcriptHash);
+            ms.Write(reqIdBytes);
+            ms.Write(hostSpki);
+            ms.Write(phoneSpki);
+
+            return hmac.ComputeHash(ms.ToArray());
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(pinBytes);
+        }
+    }
+
+    private static byte[] ComputeServerProof(string pin, byte[] authKey, byte[] hostSpki, byte[] phoneSpki)
+    {
+        byte[] pinBytes = Encoding.UTF8.GetBytes(pin.Trim());
+        try
+        {
+            using var hmac = new HMACSHA256(pinBytes);
+            byte[] label = "SERVER-OK"u8.ToArray();
+
+            using var ms = new MemoryStream();
+            ms.Write(label);
+            ms.Write(authKey);
+            ms.Write(hostSpki);
+            ms.Write(phoneSpki);
+
+            return hmac.ComputeHash(ms.ToArray());
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(pinBytes);
+        }
+    }
+
+    private static bool TryUnpackProof(byte[] payload, out byte[] authKey, out byte[] signature)
+    {
+        authKey = Array.Empty<byte>();
+        signature = Array.Empty<byte>();
+
+        if (payload.Length < 8) return false;
+
+        int authKeyLen = BinaryPrimitives.ReadInt32BigEndian(payload.AsSpan(0, 4));
+        if (authKeyLen <= 0 || payload.Length < 4 + authKeyLen + 4) return false;
+
+        authKey = new byte[authKeyLen];
+        Buffer.BlockCopy(payload, 4, authKey, 0, authKeyLen);
+
+        int sigOffset = 4 + authKeyLen;
+        int sigLen = BinaryPrimitives.ReadInt32BigEndian(payload.AsSpan(sigOffset, 4));
+        if (sigLen <= 0 || payload.Length < sigOffset + 4 + sigLen) return false;
+
+        signature = new byte[sigLen];
+        Buffer.BlockCopy(payload, sigOffset + 4, signature, 0, sigLen);
+
+        return true;
+    }
+
+    private static bool VerifyPhoneSignature(string phoneSpkiBase64, byte[] data, byte[] signature)
+    {
+        try
+        {
+            byte[] spki = Convert.FromBase64String(phoneSpkiBase64);
+            using var ecdsa = ECDsa.Create();
+            ecdsa.ImportSubjectPublicKeyInfo(spki, out _);
+            return ecdsa.VerifyData(
+                data,
+                signature,
+                HashAlgorithmName.SHA256,
+                DSASignatureFormat.Rfc3279DerSequence);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void ShowSecurePairingPrompt(string phoneName, string pin)
