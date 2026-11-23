@@ -25,6 +25,100 @@ static void secure_clean(void *p, size_t len)
     }
 }
 
+static int json_escape_string(const char *src, char *dst, size_t dst_size)
+{
+    if (!src || !dst || dst_size == 0) return -1;
+    size_t d = 0;
+    for (size_t s = 0; src[s] != '\0'; s++) {
+        unsigned char c = (unsigned char)src[s];
+        if (c == '"' || c == '\\') {
+            if (d + 2 >= dst_size) return -1;
+            dst[d++] = '\\';
+            dst[d++] = (char)c;
+        } else if (c == '\b') {
+            if (d + 2 >= dst_size) return -1;
+            dst[d++] = '\\'; dst[d++] = 'b';
+        } else if (c == '\f') {
+            if (d + 2 >= dst_size) return -1;
+            dst[d++] = '\\'; dst[d++] = 'f';
+        } else if (c == '\n') {
+            if (d + 2 >= dst_size) return -1;
+            dst[d++] = '\\'; dst[d++] = 'n';
+        } else if (c == '\r') {
+            if (d + 2 >= dst_size) return -1;
+            dst[d++] = '\\'; dst[d++] = 'r';
+        } else if (c == '\t') {
+            if (d + 2 >= dst_size) return -1;
+            dst[d++] = '\\'; dst[d++] = 't';
+        } else if (c < 32) {
+            if (d + 6 >= dst_size) return -1;
+            int n = snprintf(dst + d, dst_size - d, "\\u%04x", c);
+            if (n < 0 || (size_t)n >= dst_size - d) return -1;
+            d += n;
+        } else {
+            if (d + 1 >= dst_size) return -1;
+            dst[d++] = (char)c;
+        }
+    }
+    if (d >= dst_size) return -1;
+    dst[d] = '\0';
+    return (int)d;
+}
+
+static int write_all(int fd, const void *buf, size_t len)
+{
+    const char *p = (const char *)buf;
+    while (len > 0) {
+        ssize_t n = write(fd, p, len);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return -1;
+        p += n;
+        len -= n;
+    }
+    return 0;
+}
+
+static int read_all(int fd, void *buf, size_t len)
+{
+    char *p = (char *)buf;
+    while (len > 0) {
+        ssize_t n = read(fd, p, len);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return -1;
+        p += n;
+        len -= n;
+    }
+    return 0;
+}
+
+static int parse_auth_status(const char *json, size_t len)
+{
+    if (!json || len == 0) return 0;
+
+    const char *p = json;
+    while ((p = strstr(p, "\"status\"")) != NULL) {
+        p += 8; // skip "status"
+        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == ':') {
+            p++;
+        }
+        if (*p == '"') {
+            p++;
+            if (strncmp(p, "SUCCESS\"", 8) == 0) {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+    }
+    return 0;
+}
+
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, const char **argv)
 {
     (void)flags;
@@ -73,7 +167,14 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
+
+    if (strlen(socket_path) >= sizeof(addr.sun_path)) {
+        if (debug) syslog(LOG_AUTHPRIV | LOG_ERR, "pam_tether: socket path length exceeds buffer");
+        close(fd);
+        return PAM_SERVICE_ERR;
+    }
     strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
+    addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         if (debug) syslog(LOG_AUTHPRIV | LOG_DEBUG, "pam_tether: connect(%s) failed: %m", socket_path);
@@ -81,10 +182,33 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
         return PAM_AUTHINFO_UNAVAIL;
     }
 
-    char req_json[512];
+    // Verify peer identity via SO_PEERCRED
+    struct ucred cred;
+    socklen_t cred_len = sizeof(cred);
+    if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &cred_len) == 0) {
+        uid_t caller_uid = geteuid();
+        if (cred.uid != 0 && cred.uid != caller_uid) {
+            if (debug) syslog(LOG_AUTHPRIV | LOG_ERR, "pam_tether: peer UID %u unauthorized (expected 0 or %u)", cred.uid, caller_uid);
+            close(fd);
+            return PAM_AUTHINFO_UNAVAIL;
+        }
+    }
+
+    char esc_user[256];
+    char esc_svc[256];
+    if (json_escape_string(username, esc_user, sizeof(esc_user)) < 0 ||
+        json_escape_string(service, esc_svc, sizeof(esc_svc)) < 0) {
+        close(fd);
+        return PAM_SERVICE_ERR;
+    }
+
+    char req_json[1024];
     int json_len = snprintf(req_json, sizeof(req_json),
         "{\"action\":\"AUTH_REQUEST\",\"user\":\"%s\",\"service\":\"%s\"}",
-        username, service);
+        esc_user, esc_svc);
+
+    secure_clean(esc_user, sizeof(esc_user));
+    secure_clean(esc_svc, sizeof(esc_svc));
 
     if (json_len <= 0 || (size_t)json_len >= sizeof(req_json)) {
         close(fd);
@@ -92,7 +216,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     }
 
     uint32_t len_be = htonl((uint32_t)json_len);
-    if (write(fd, &len_be, 4) != 4 || write(fd, req_json, json_len) != json_len) {
+    if (write_all(fd, &len_be, 4) < 0 || write_all(fd, req_json, (size_t)json_len) < 0) {
         if (debug) syslog(LOG_AUTHPRIV | LOG_WARNING, "pam_tether: write to socket failed: %m");
         secure_clean(req_json, sizeof(req_json));
         close(fd);
@@ -101,8 +225,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     secure_clean(req_json, sizeof(req_json));
 
     uint32_t resp_len_be = 0;
-    ssize_t r = read(fd, &resp_len_be, 4);
-    if (r != 4) {
+    if (read_all(fd, &resp_len_be, 4) < 0) {
         if (debug) syslog(LOG_AUTHPRIV | LOG_DEBUG, "pam_tether: failed reading response length: %m");
         close(fd);
         return PAM_AUTHINFO_UNAVAIL;
@@ -121,25 +244,18 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
         return PAM_BUF_ERR;
     }
 
-    size_t total_read = 0;
-    while (total_read < resp_len) {
-        ssize_t chunk = read(fd, resp_buf + total_read, resp_len - total_read);
-        if (chunk <= 0) break;
-        total_read += chunk;
-    }
-    close(fd);
-
-    if (total_read < resp_len) {
+    if (read_all(fd, resp_buf, resp_len) < 0) {
         secure_clean(resp_buf, resp_len + 1);
         free(resp_buf);
+        close(fd);
         return PAM_AUTHINFO_UNAVAIL;
     }
+    close(fd);
 
     resp_buf[resp_len] = '\0';
 
     int auth_result = PAM_AUTH_ERR;
-    if (strstr(resp_buf, "\"status\":\"SUCCESS\"") != NULL ||
-        strstr(resp_buf, "\"status\": \"SUCCESS\"") != NULL) {
+    if (parse_auth_status(resp_buf, resp_len)) {
         if (debug) syslog(LOG_AUTHPRIV | LOG_INFO, "pam_tether: authentication successful for user '%s'", username);
         auth_result = PAM_SUCCESS;
     } else {

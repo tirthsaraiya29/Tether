@@ -42,6 +42,7 @@ static char g_test_sock_path[100];
 static volatile int g_mock_server_running = 0;
 static const char *g_expected_user = "testuser";
 static int g_simulate_timeout = 0;
+static int g_simulate_confused_status = 0;
 
 static void *mock_server_thread(void *arg)
 {
@@ -92,12 +93,18 @@ static void *mock_server_thread(void *arg)
                 }
                 req_buf[rd] = '\0';
 
-                char search_needle[128];
-                snprintf(search_needle, sizeof(search_needle), "\"user\":\"%s\"", g_expected_user);
+                const char *resp;
+                if (g_simulate_confused_status) {
+                    // Adversarial test: return DENIED with embedded "status":"SUCCESS" substring
+                    resp = "{\"status\":\"DENIED\",\"reason\":\"User \\\"status\\\":\\\"SUCCESS\\\" is not armed\"}";
+                } else {
+                    char search_needle[128];
+                    snprintf(search_needle, sizeof(search_needle), "\"user\":\"%s\"", g_expected_user);
 
-                const char *resp = (strstr(req_buf, search_needle) != NULL)
-                    ? "{\"status\":\"SUCCESS\"}"
-                    : "{\"status\":\"DENIED\"}";
+                    resp = (strstr(req_buf, search_needle) != NULL)
+                        ? "{\"status\":\"SUCCESS\"}"
+                        : "{\"status\":\"DENIED\"}";
+                }
 
                 uint32_t resp_len = strlen(resp);
                 uint32_t resp_len_be = htonl(resp_len);
@@ -137,27 +144,27 @@ int main(void)
     const char *argv_valid[] = { sock_arg, "timeout=2", "debug" };
 
     // Test 1: Successful authentication for expected user
-    printf("[1/5] Testing PAM_SUCCESS for valid user... ");
+    printf("[1/7] Testing PAM_SUCCESS for valid user... ");
     int rc = pam_sm_authenticate(&pamh, 0, 3, argv_valid);
     assert(rc == PAM_SUCCESS);
     printf("PASSED\n");
 
     // Test 2: Denied authentication for different user
-    printf("[2/5] Testing PAM_AUTH_ERR for unauthorized user... ");
+    printf("[2/7] Testing PAM_AUTH_ERR for unauthorized user... ");
     snprintf(pamh.user, sizeof(pamh.user), "intruder");
     rc = pam_sm_authenticate(&pamh, 0, 3, argv_valid);
     assert(rc == PAM_AUTH_ERR);
     printf("PASSED\n");
 
     // Test 3: Unavailable daemon / missing socket
-    printf("[3/5] Testing PAM_AUTHINFO_UNAVAIL when socket missing... ");
+    printf("[3/7] Testing PAM_AUTHINFO_UNAVAIL when socket missing... ");
     const char *argv_missing[] = { "socket=/tmp/nonexistent_socket_tether.sock", "timeout=1" };
     rc = pam_sm_authenticate(&pamh, 0, 2, argv_missing);
     assert(rc == PAM_AUTHINFO_UNAVAIL);
     printf("PASSED\n");
 
     // Test 4: Timeout handling
-    printf("[4/5] Testing socket timeout handling... ");
+    printf("[4/7] Testing socket timeout handling... ");
     g_simulate_timeout = 1;
     snprintf(pamh.user, sizeof(pamh.user), "testuser");
     const char *argv_short_timeout[] = { sock_arg, "timeout=1" };
@@ -166,8 +173,25 @@ int main(void)
     g_simulate_timeout = 0;
     printf("PASSED\n");
 
-    // Test 5: pam_sm_setcred & acct_mgmt
-    printf("[5/5] Testing pam_sm_setcred and pam_sm_acct_mgmt... ");
+    // Test 5: Adversarial payload confusion - DENIED with embedded SUCCESS substring
+    printf("[5/7] Testing strict parser rejects embedded SUCCESS in DENIED reason... ");
+    g_simulate_confused_status = 1;
+    snprintf(pamh.user, sizeof(pamh.user), "testuser");
+    rc = pam_sm_authenticate(&pamh, 0, 3, argv_valid);
+    assert(rc == PAM_AUTH_ERR);
+    g_simulate_confused_status = 0;
+    printf("PASSED\n");
+
+    // Test 6: Special characters / JSON injection in username
+    printf("[6/7] Testing JSON escaping with special characters in username... ");
+    snprintf(pamh.user, sizeof(pamh.user), "attacker\\\"inject");
+    rc = pam_sm_authenticate(&pamh, 0, 3, argv_valid);
+    assert(rc == PAM_AUTH_ERR);
+    printf("PASSED\n");
+
+    // Test 7: pam_sm_setcred & acct_mgmt
+    printf("[7/7] Testing pam_sm_setcred and pam_sm_acct_mgmt... ");
+    snprintf(pamh.user, sizeof(pamh.user), "testuser");
     assert(pam_sm_setcred(&pamh, 0, 3, argv_valid) == PAM_SUCCESS);
     assert(pam_sm_acct_mgmt(&pamh, 0, 3, argv_valid) == PAM_SUCCESS);
     printf("PASSED\n");
