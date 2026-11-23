@@ -21,6 +21,7 @@ rm -f /usr/local/bin/tether-daemon
 rm -f /usr/local/bin/tetherctl
 rm -f /usr/local/bin/tether
 rm -f /usr/local/bin/tether-greeter
+rm -f /usr/share/applications/tether-greeter.desktop
 rm -rf /opt/tether
 
 echo "[3/6] Restoring PAM configuration and removing native PAM module..."
@@ -46,7 +47,9 @@ restore_pam_service "lightdm"
 
 rm -f /usr/lib64/security/pam_tether.so
 rm -f /lib/x86_64-linux-gnu/security/pam_tether.so
+rm -f /lib/aarch64-linux-gnu/security/pam_tether.so
 rm -f /usr/lib/security/pam_tether.so
+rm -f /lib/security/pam_tether.so
 if command -v semodule >/dev/null 2>&1; then
     semodule -r tether_pam >/dev/null 2>&1 || true
 fi
