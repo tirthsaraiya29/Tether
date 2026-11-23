@@ -30,7 +30,10 @@ public class LinuxPamAuthServerTests : IDisposable
             PamSocketPath = Path.Combine(_testDir, "run", "auth.sock")
         };
         _logger = new SerilogTetherLogger();
-        _server = new LinuxPamAuthServer(_logger, _config);
+        _server = new LinuxPamAuthServer(_logger, _config)
+        {
+            BypassUidCheckForTesting = true
+        };
     }
 
     public void Dispose()
@@ -198,5 +201,105 @@ public class LinuxPamAuthServerTests : IDisposable
         Assert.True(doc.RootElement.GetProperty("phoneConnected").GetBoolean());
         Assert.Equal("Pixel 9 Pro", doc.RootElement.GetProperty("connectedDeviceName").GetString());
         Assert.Equal("A1:B2:C3:D4", doc.RootElement.GetProperty("connectedDeviceFingerprint").GetString());
+    }
+
+    [Fact]
+    public async Task PamSocket_Ipc_RejectsArmGrantOverIpc_ByDefault()
+    {
+        // TETH-SEC-LNX-002: Local IPC callers must NEVER manufacture unlock grants.
+        _server.AllowIpcArmGrantForTesting = false;
+        _server.Start();
+
+        using var client = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        await client.ConnectAsync(new UnixDomainSocketEndPoint(_config.PamSocketPath));
+
+        var req = new { action = "ARM_GRANT", user = "root", deviceId = "malicious-local" };
+        byte[] reqBytes = JsonSerializer.SerializeToUtf8Bytes(req);
+        byte[] lenBytes = new byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBytes, reqBytes.Length);
+
+        await client.SendAsync(lenBytes, SocketFlags.None);
+        await client.SendAsync(reqBytes, SocketFlags.None);
+
+        byte[] respLenBytes = new byte[4];
+        await client.ReceiveAsync(respLenBytes, SocketFlags.None);
+        int respLen = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(respLenBytes);
+
+        byte[] respBody = new byte[respLen];
+        await client.ReceiveAsync(respBody, SocketFlags.None);
+
+        using var doc = JsonDocument.Parse(respBody);
+        Assert.Equal("DENIED", doc.RootElement.GetProperty("status").GetString());
+        Assert.Contains("ARM_GRANT cannot be invoked via local IPC", doc.RootElement.GetProperty("reason").GetString());
+        Assert.False(_server.HasActiveGrant("root"));
+    }
+
+    [Fact]
+    public async Task PamSocket_Ipc_RequestPhoneAuth_DispatchesPrompt_WhenPhoneConnected()
+    {
+        bool promptDispatched = false;
+        string? promptedUser = null;
+
+        _server.PhoneConnectedProvider = () => true;
+        _server.RequestPhoneAuthHandler = (user) =>
+        {
+            promptDispatched = true;
+            promptedUser = user;
+        };
+        _server.Start();
+
+        using var client = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        await client.ConnectAsync(new UnixDomainSocketEndPoint(_config.PamSocketPath));
+
+        var req = new { action = "REQUEST_PHONE_AUTH", user = "testuser" };
+        byte[] reqBytes = JsonSerializer.SerializeToUtf8Bytes(req);
+        byte[] lenBytes = new byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBytes, reqBytes.Length);
+
+        await client.SendAsync(lenBytes, SocketFlags.None);
+        await client.SendAsync(reqBytes, SocketFlags.None);
+
+        byte[] respLenBytes = new byte[4];
+        await client.ReceiveAsync(respLenBytes, SocketFlags.None);
+        int respLen = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(respLenBytes);
+
+        byte[] respBody = new byte[respLen];
+        await client.ReceiveAsync(respBody, SocketFlags.None);
+
+        using var doc = JsonDocument.Parse(respBody);
+        Assert.Equal("PROMPTED", doc.RootElement.GetProperty("status").GetString());
+        Assert.Equal("testuser", doc.RootElement.GetProperty("user").GetString());
+        Assert.True(promptDispatched);
+        Assert.Equal("testuser", promptedUser);
+        Assert.True(_server.HasPendingPrompt("testuser"));
+    }
+
+    [Fact]
+    public async Task PamSocket_Ipc_RequestPhoneAuth_FailsWhenPhoneDisconnected()
+    {
+        _server.PhoneConnectedProvider = () => false;
+        _server.Start();
+
+        using var client = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        await client.ConnectAsync(new UnixDomainSocketEndPoint(_config.PamSocketPath));
+
+        var req = new { action = "REQUEST_PHONE_AUTH", user = "testuser" };
+        byte[] reqBytes = JsonSerializer.SerializeToUtf8Bytes(req);
+        byte[] lenBytes = new byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBytes, reqBytes.Length);
+
+        await client.SendAsync(lenBytes, SocketFlags.None);
+        await client.SendAsync(reqBytes, SocketFlags.None);
+
+        byte[] respLenBytes = new byte[4];
+        await client.ReceiveAsync(respLenBytes, SocketFlags.None);
+        int respLen = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(respLenBytes);
+
+        byte[] respBody = new byte[respLen];
+        await client.ReceiveAsync(respBody, SocketFlags.None);
+
+        using var doc = JsonDocument.Parse(respBody);
+        Assert.Equal("PHONE_DISCONNECTED", doc.RootElement.GetProperty("status").GetString());
+        Assert.False(_server.HasPendingPrompt("testuser"));
     }
 }

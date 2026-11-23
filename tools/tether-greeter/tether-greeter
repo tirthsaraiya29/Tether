@@ -16,14 +16,17 @@ import argparse
 SOCKET_PATH = "/run/tether/auth.sock"
 POLL_INTERVAL_MS = 1500
 
-def query_daemon_status(socket_path=SOCKET_PATH, timeout=2.0):
+def query_daemon_status(username=None, socket_path=SOCKET_PATH, timeout=2.0):
     if not os.path.exists(socket_path):
         return {"status": "OFFLINE", "daemonRunning": False, "phoneConnected": False}
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(timeout)
         s.connect(socket_path)
-        req = json.dumps({"action": "STATUS_REQUEST"}).encode("utf-8")
+        payload = {"action": "STATUS_REQUEST"}
+        if username:
+            payload["user"] = username
+        req = json.dumps(payload).encode("utf-8")
         s.sendall(struct.pack(">I", len(req)) + req)
 
         len_data = s.recv(4)
@@ -185,11 +188,13 @@ def run_gui_greeter():
             GLib.timeout_add(POLL_INTERVAL_MS, self.poll_status)
 
         def poll_status(self):
-            st = query_daemon_status()
+            st = query_daemon_status(self.user)
             daemon_running = st.get("daemonRunning", False)
             phone_connected = st.get("phoneConnected", False)
             dev_name = st.get("connectedDeviceName", "") or "No phone connected"
             grant_active = st.get("grantActive", False)
+            prompt_pending = st.get("authPromptPending", False)
+            remaining_sec = st.get("grantRemainingSeconds", 0)
 
             if not daemon_running:
                 self.status_pill.set_text("Daemon Stopped")
@@ -200,8 +205,12 @@ def run_gui_greeter():
                 self.status_pill.set_text("Connected")
                 self.device_row.set_subtitle(dev_name)
                 if grant_active:
-                    self.message_label.set_text("Unlock Request Active!\nOpen the Tether app on your phone and tap 'Unlock PC'.")
-                    self.btn_unlock.set_label("Unlock Request Pending...")
+                    self.message_label.set_text(f"Workstation Unlock Granted! ({remaining_sec}s remaining)\nPress Enter or click login on screen.")
+                    self.btn_unlock.set_label("Unlock Granted (Active)")
+                    self.btn_unlock.set_sensitive(False)
+                elif prompt_pending:
+                    self.message_label.set_text("Unlock Request Sent to Phone!\nOpen Tether on your phone and tap 'Unlock PC'.")
+                    self.btn_unlock.set_label("Waiting for Phone Approval...")
                     self.btn_unlock.set_sensitive(False)
                 else:
                     self.message_label.set_text("Ready for Phone-Assisted Authentication.\nTap 'Unlock' on your phone or click below.")
@@ -217,12 +226,16 @@ def run_gui_greeter():
             return True
 
         def on_prompt_unlock_clicked(self, widget):
-            self.message_label.set_text("Arming one-time unlock grant...")
-            res = send_daemon_action("ARM_GRANT", {"username": self.user, "deviceId": "greeter-ui", "validitySeconds": 30})
-            if res.get("status") == "ARMED":
-                self.message_label.set_text("Unlock grant armed for 30 seconds!\nTap 'Unlock' on your phone.")
+            self.message_label.set_text("Sending unlock prompt to your phone...")
+            res = send_daemon_action("REQUEST_PHONE_AUTH", {"user": self.user, "deviceId": "greeter-ui"})
+            if res.get("status") == "PROMPTED":
+                self.message_label.set_text("Unlock request sent to phone!\nOpen Tether and tap 'Unlock PC'.")
+                self.btn_unlock.set_label("Waiting for Phone Approval...")
+                self.btn_unlock.set_sensitive(False)
+            elif res.get("status") == "PHONE_DISCONNECTED":
+                self.message_label.set_text("Phone is not connected.\nConnect phone to Wi-Fi or use password fallback.")
             else:
-                self.message_label.set_text("Failed to arm unlock request.")
+                self.message_label.set_text(f"Unlock request failed: {res.get('reason', 'Unknown error')}")
             self.poll_status()
 
         def on_restart_clicked(self, widget):
@@ -263,7 +276,7 @@ def main():
 
     if args.unlock:
         user = os.environ.get("USER", "tether-user")
-        res = send_daemon_action("ARM_GRANT", {"username": user, "deviceId": "cli-greeter", "validitySeconds": 30})
+        res = send_daemon_action("REQUEST_PHONE_AUTH", {"user": user, "deviceId": "cli-greeter"})
         print(json.dumps(res, indent=2))
         return 0
 

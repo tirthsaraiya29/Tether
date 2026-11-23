@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -53,6 +54,7 @@ public sealed class LinuxPamAuthServer : IDisposable
     private readonly ITetherLogger _logger;
     private readonly LinuxDaemonConfig _config;
     private readonly ConcurrentDictionary<string, UnlockGrant> _grantsByUser = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, DateTime> _pendingPromptsByUser = new(StringComparer.Ordinal);
     private Socket? _serverSocket;
     private CancellationTokenSource? _cts;
     private Task? _listenTask;
@@ -61,6 +63,11 @@ public sealed class LinuxPamAuthServer : IDisposable
     public Func<bool>? PhoneConnectedProvider { get; set; }
     public Func<string>? ConnectedDeviceNameProvider { get; set; }
     public Func<string>? ConnectedDeviceFingerprintProvider { get; set; }
+    public Action<string>? RequestPhoneAuthHandler { get; set; }
+
+    // Testability flags
+    public bool BypassUidCheckForTesting { get; set; } = false;
+    public bool AllowIpcArmGrantForTesting { get; set; } = false;
 
     public LinuxPamAuthServer(ITetherLogger logger, LinuxDaemonConfig config)
     {
@@ -68,23 +75,30 @@ public sealed class LinuxPamAuthServer : IDisposable
         _config = config;
     }
 
-    public void ArmUnlockGrant(string targetUser, string deviceFingerprint, int validitySeconds = 15)
+    public void ArmUnlockGrant(string targetUser, string deviceFingerprint, int validitySeconds = 20)
     {
+        if (string.IsNullOrWhiteSpace(targetUser)) return;
+
         var grant = new UnlockGrant
         {
             TargetUser = targetUser,
-            DeviceFingerprint = deviceFingerprint,
+            DeviceFingerprint = deviceFingerprint ?? "unknown-phone",
             GrantedAtUtc = DateTime.UtcNow,
-            ExpiresAtUtc = DateTime.UtcNow.AddSeconds(validitySeconds),
+            ExpiresAtUtc = validitySeconds > 0
+                ? DateTime.UtcNow.AddSeconds(Math.Min(validitySeconds, 120))
+                : DateTime.UtcNow.AddSeconds(validitySeconds),
             IsConsumed = false
         };
 
         _grantsByUser[targetUser] = grant;
+        _pendingPromptsByUser.TryRemove(targetUser, out _);
         _logger.Info($"LinuxPamAuthServer: Armed unlock grant for user '{targetUser}' from phone '{deviceFingerprint}' (valid for {validitySeconds}s).");
     }
 
     public bool HasActiveGrant(string targetUser)
     {
+        if (string.IsNullOrEmpty(targetUser)) return false;
+
         if (_grantsByUser.TryGetValue(targetUser, out var grant))
         {
             if (!grant.IsConsumed && DateTime.UtcNow <= grant.ExpiresAtUtc)
@@ -97,6 +111,8 @@ public sealed class LinuxPamAuthServer : IDisposable
 
     public bool ConsumeGrant(string targetUser)
     {
+        if (string.IsNullOrEmpty(targetUser)) return false;
+
         if (_grantsByUser.TryGetValue(targetUser, out var grant))
         {
             lock (grant)
@@ -118,6 +134,57 @@ public sealed class LinuxPamAuthServer : IDisposable
     public void ClearAllGrants()
     {
         _grantsByUser.Clear();
+        _pendingPromptsByUser.Clear();
+    }
+
+    public void InvalidateDeviceGrants(string deviceFingerprint)
+    {
+        if (string.IsNullOrEmpty(deviceFingerprint)) return;
+
+        var toRemove = _grantsByUser
+            .Where(kv => string.Equals(kv.Value.DeviceFingerprint, deviceFingerprint, StringComparison.OrdinalIgnoreCase))
+            .Select(kv => kv.Key)
+            .ToList();
+
+        foreach (var user in toRemove)
+        {
+            _grantsByUser.TryRemove(user, out _);
+            _logger.Info($"LinuxPamAuthServer: Invalided unlock grant for user '{user}' due to device '{deviceFingerprint}' disconnect or revocation.");
+        }
+    }
+
+    public bool HasPendingPrompt(string targetUser)
+    {
+        if (string.IsNullOrEmpty(targetUser)) return false;
+        if (_pendingPromptsByUser.TryGetValue(targetUser, out var exp))
+        {
+            if (DateTime.UtcNow <= exp) return true;
+            _pendingPromptsByUser.TryRemove(targetUser, out _);
+        }
+        return false;
+    }
+
+    public void SetPendingPrompt(string targetUser, int validitySeconds = 30)
+    {
+        if (!string.IsNullOrEmpty(targetUser))
+        {
+            _pendingPromptsByUser[targetUser] = DateTime.UtcNow.AddSeconds(validitySeconds);
+        }
+    }
+
+    public void ClearPendingPrompt(string targetUser)
+    {
+        if (!string.IsNullOrEmpty(targetUser))
+        {
+            _pendingPromptsByUser.TryRemove(targetUser, out _);
+        }
+    }
+
+    public string? GetFirstPendingPromptUser()
+    {
+        var now = DateTime.UtcNow;
+        var valid = _pendingPromptsByUser.FirstOrDefault(kv => kv.Value > now);
+        return valid.Key;
     }
 
     public void Start()
@@ -135,8 +202,10 @@ public sealed class LinuxPamAuthServer : IDisposable
                 {
                     try
                     {
+                        // 0755: Greeter users (gdm, sddm, lightdm) and locked session users must be able to reach socket
                         File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-                                                  UnixFileMode.GroupRead | UnixFileMode.GroupExecute);
+                                                  UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                                                  UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
                     }
                     catch { }
                 }
@@ -153,6 +222,7 @@ public sealed class LinuxPamAuthServer : IDisposable
                 else
                 {
                     _logger.Warning($"LinuxPamAuthServer: Refusing to delete symlink at {sockPath}");
+                    return;
                 }
             }
         }
@@ -174,6 +244,7 @@ public sealed class LinuxPamAuthServer : IDisposable
             {
                 try
                 {
+                    // 0666: Access is gated strictly by SO_PEERCRED authentication
                     File.SetUnixFileMode(sockPath, UnixFileMode.UserRead | UnixFileMode.UserWrite |
                                                   UnixFileMode.GroupRead | UnixFileMode.GroupWrite |
                                                   UnixFileMode.OtherRead | UnixFileMode.OtherWrite);
@@ -247,13 +318,13 @@ public sealed class LinuxPamAuthServer : IDisposable
     {
         try
         {
-            // Verify Peer Credentials if running on Linux
+            uint peerPid = 0;
+            uint peerUid = uint.MaxValue;
+            uint peerGid = uint.MaxValue;
+
             if (OperatingSystem.IsLinux())
             {
-                uint peerUid = GetPeerUid(client);
-                uint currentUid = (uint)GetActiveUid();
-                // Allow root (UID 0), the daemon's own UID, or active desktop user (for tetherctl status/restart)
-                if (peerUid == uint.MaxValue)
+                if (!GetPeerCredentials(client, out peerPid, out peerUid, out peerGid))
                 {
                     _logger.Warning("LinuxPamAuthServer: Rejected IPC connection (failed to read peer credentials via SO_PEERCRED).");
                     return;
@@ -312,6 +383,26 @@ public sealed class LinuxPamAuthServer : IDisposable
                     return;
                 }
 
+                // Peer UID authorization: UID 0 (root display managers) or matching target user UID
+                if (OperatingSystem.IsLinux() && !BypassUidCheckForTesting && peerUid != 0)
+                {
+                    uint? targetUid = GetUidForUser(targetUser);
+                    if (targetUid == null || targetUid.Value != peerUid)
+                    {
+                        _logger.Warning($"LinuxPamAuthServer: Rejected AUTH_REQUEST: Caller UID {peerUid} unauthorized for target user '{targetUser}' (target UID {targetUid}).");
+                        var deniedResp = new
+                        {
+                            status = "DENIED",
+                            user = targetUser,
+                            service = service,
+                            reason = "Caller UID does not match target user UID.",
+                            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                        };
+                        await SendJsonResponseAsync(ns, deniedResp, ct);
+                        return;
+                    }
+                }
+
                 string authStatus = "DENIED";
                 if (!string.IsNullOrEmpty(targetUser))
                 {
@@ -353,13 +444,23 @@ public sealed class LinuxPamAuthServer : IDisposable
                 };
                 await SendJsonResponseAsync(ns, resp, ct);
             }
-            else if (action == "STATUS_REQUEST")
+            else if (action is "STATUS_REQUEST" or "STATUS_QUERY")
             {
-                // Greeter / CLI status query
+                if (string.IsNullOrEmpty(targetUser) && OperatingSystem.IsLinux() && peerUid != 0 && peerUid != uint.MaxValue)
+                {
+                    targetUser = GetUserForUid(peerUid) ?? "";
+                }
+
                 bool phoneConnected = PhoneConnectedProvider?.Invoke() ?? false;
                 string deviceName = ConnectedDeviceNameProvider?.Invoke() ?? "";
                 string deviceFp = ConnectedDeviceFingerprintProvider?.Invoke() ?? "";
                 bool hasGrant = !string.IsNullOrEmpty(targetUser) && HasActiveGrant(targetUser);
+                int remainingSeconds = 0;
+                if (hasGrant && _grantsByUser.TryGetValue(targetUser, out var g))
+                {
+                    remainingSeconds = (int)Math.Max(0, (g.ExpiresAtUtc - DateTime.UtcNow).TotalSeconds);
+                }
+                bool promptPending = !string.IsNullOrEmpty(targetUser) && HasPendingPrompt(targetUser);
                 var session = PlatformDetection.GetActiveSessionInfo();
 
                 var statusResp = new
@@ -371,16 +472,185 @@ public sealed class LinuxPamAuthServer : IDisposable
                     connectedDeviceName = deviceName,
                     connectedDeviceFingerprint = deviceFp,
                     grantActive = hasGrant,
+                    grantRemainingSeconds = remainingSeconds,
+                    authPromptPending = promptPending,
                     activeUser = session.UserName,
-                    displayServer = session.DisplayServer,
+                    displayServer = session.DisplayServer.ToString(),
                     timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 };
                 await SendJsonResponseAsync(ns, statusResp, ct);
             }
+            else if (action == "REQUEST_PHONE_AUTH")
+            {
+                if (string.IsNullOrEmpty(targetUser) && OperatingSystem.IsLinux() && peerUid != 0 && peerUid != uint.MaxValue)
+                {
+                    targetUser = GetUserForUid(peerUid) ?? "";
+                }
+
+                if (string.IsNullOrEmpty(targetUser))
+                {
+                    var badReq = new
+                    {
+                        status = "DENIED",
+                        reason = "Missing target user for phone auth prompt",
+                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    };
+                    await SendJsonResponseAsync(ns, badReq, ct);
+                    return;
+                }
+
+                if (OperatingSystem.IsLinux() && !BypassUidCheckForTesting && peerUid != 0)
+                {
+                    uint? targetUid = GetUidForUser(targetUser);
+                    if (targetUid == null || targetUid.Value != peerUid)
+                    {
+                        _logger.Warning($"LinuxPamAuthServer: Rejected REQUEST_PHONE_AUTH: Caller UID {peerUid} unauthorized for target user '{targetUser}'.");
+                        var deniedResp = new
+                        {
+                            status = "DENIED",
+                            user = targetUser,
+                            reason = "Unauthorized: Caller UID does not match target user UID.",
+                            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                        };
+                        await SendJsonResponseAsync(ns, deniedResp, ct);
+                        return;
+                    }
+                }
+
+                bool phoneConnected = PhoneConnectedProvider?.Invoke() ?? false;
+                if (!phoneConnected)
+                {
+                    var disconnectedResp = new
+                    {
+                        status = "PHONE_DISCONNECTED",
+                        user = targetUser,
+                        message = "No paired phone is currently connected to authenticate unlock request.",
+                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    };
+                    await SendJsonResponseAsync(ns, disconnectedResp, ct);
+                    return;
+                }
+
+                SetPendingPrompt(targetUser, 30);
+                try
+                {
+                    RequestPhoneAuthHandler?.Invoke(targetUser);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"LinuxPamAuthServer: Failed dispatching phone auth prompt: {ex.Message}");
+                }
+
+                var promptResp = new
+                {
+                    status = "PROMPTED",
+                    user = targetUser,
+                    message = "Unlock authorization request dispatched to connected phone.",
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                };
+                await SendJsonResponseAsync(ns, promptResp, ct);
+            }
+            else if (action == "ARM_GRANT")
+            {
+                // TETH-SEC-LNX-002: Local IPC callers must NEVER manufacture unlock grants.
+                // Grants are armed strictly via cryptographic mobile authentication over TLS.
+                if (!AllowIpcArmGrantForTesting)
+                {
+                    _logger.Warning($"LinuxPamAuthServer: Blocked unauthorized ARM_GRANT attempt over IPC from UID {peerUid}.");
+                    var resp = new
+                    {
+                        status = "DENIED",
+                        reason = "ARM_GRANT cannot be invoked via local IPC. Workstation unlock grants are created exclusively through authenticated phone confirmation.",
+                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    };
+                    await SendJsonResponseAsync(ns, resp, ct);
+                    return;
+                }
+
+                string deviceId = doc.RootElement.TryGetProperty("deviceId", out var dProp) ? (dProp.GetString() ?? "test-local") : "test-local";
+                int validity = doc.RootElement.TryGetProperty("validitySeconds", out var vProp) ? vProp.GetInt32() : 20;
+
+                if (!string.IsNullOrEmpty(targetUser))
+                {
+                    ArmUnlockGrant(targetUser, deviceId, validity);
+                }
+
+                var testResp = new
+                {
+                    status = "ARMED",
+                    user = targetUser,
+                    success = !string.IsNullOrEmpty(targetUser),
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                };
+                await SendJsonResponseAsync(ns, testResp, ct);
+            }
+            else if (action == "CANCEL_GRANT")
+            {
+                if (OperatingSystem.IsLinux() && !BypassUidCheckForTesting && peerUid != 0)
+                {
+                    if (string.IsNullOrEmpty(targetUser))
+                    {
+                        targetUser = GetUserForUid(peerUid) ?? "";
+                    }
+                    else
+                    {
+                        uint? targetUid = GetUidForUser(targetUser);
+                        if (targetUid == null || targetUid.Value != peerUid)
+                        {
+                            _logger.Warning($"LinuxPamAuthServer: Rejected CANCEL_GRANT from peer UID {peerUid} for target user '{targetUser}'.");
+                            var deniedResp = new
+                            {
+                                status = "DENIED",
+                                reason = "Unauthorized: Caller UID does not match target user UID.",
+                                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                            };
+                            await SendJsonResponseAsync(ns, deniedResp, ct);
+                            return;
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(targetUser))
+                {
+                    _grantsByUser.TryRemove(targetUser, out _);
+                    _pendingPromptsByUser.TryRemove(targetUser, out _);
+                }
+                else if (peerUid == 0 || BypassUidCheckForTesting)
+                {
+                    ClearAllGrants();
+                }
+
+                var resp = new
+                {
+                    status = "CANCELLED",
+                    user = targetUser,
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                };
+                await SendJsonResponseAsync(ns, resp, ct);
+            }
             else if (action == "RESTART_REQUEST")
             {
-                // Controlled in-greeter or CLI restart
-                _logger.Info("LinuxPamAuthServer: Received authorized service restart request from local IPC client.");
+                uint? tetherGid = GetGidForGroup("tether");
+                var session = PlatformDetection.GetActiveSessionInfo();
+                bool isAuthorized = BypassUidCheckForTesting ||
+                                    (peerUid == 0) ||
+                                    (tetherGid.HasValue && peerGid == tetherGid.Value) ||
+                                    (session.Uid == peerUid && peerUid != uint.MaxValue);
+
+                if (!isAuthorized)
+                {
+                    _logger.Warning($"LinuxPamAuthServer: Rejected unauthorized RESTART_REQUEST from peer UID {peerUid}, GID {peerGid}.");
+                    var unauthResp = new
+                    {
+                        status = "UNAUTHORIZED",
+                        message = "Caller not authorized to restart service.",
+                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    };
+                    await SendJsonResponseAsync(ns, unauthResp, ct);
+                    return;
+                }
+
+                _logger.Info($"LinuxPamAuthServer: Received authorized service restart request from peer UID {peerUid}.");
                 var restartResp = new
                 {
                     status = "RESTARTING",
@@ -411,44 +681,6 @@ public sealed class LinuxPamAuthServer : IDisposable
                     }
                 });
             }
-            else if (action == "ARM_GRANT")
-            {
-                string deviceId = doc.RootElement.TryGetProperty("deviceId", out var dProp) ? (dProp.GetString() ?? "cli-local") : "cli-local";
-                int validity = doc.RootElement.TryGetProperty("validitySeconds", out var vProp) ? vProp.GetInt32() : 20;
-
-                if (!string.IsNullOrEmpty(targetUser))
-                {
-                    ArmUnlockGrant(targetUser, deviceId, validity);
-                }
-
-                var resp = new
-                {
-                    status = "ARMED",
-                    user = targetUser,
-                    success = !string.IsNullOrEmpty(targetUser),
-                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                };
-                await SendJsonResponseAsync(ns, resp, ct);
-            }
-            else if (action == "CANCEL_GRANT")
-            {
-                if (!string.IsNullOrEmpty(targetUser))
-                {
-                    _grantsByUser.TryRemove(targetUser, out _);
-                }
-                else
-                {
-                    ClearAllGrants();
-                }
-
-                var resp = new
-                {
-                    status = "CANCELLED",
-                    user = targetUser,
-                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                };
-                await SendJsonResponseAsync(ns, resp, ct);
-            }
             else
             {
                 var unknownResp = new
@@ -477,16 +709,14 @@ public sealed class LinuxPamAuthServer : IDisposable
         await ns.FlushAsync(ct);
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PeerCredentials
+    private static bool GetPeerCredentials(Socket socket, out uint pid, out uint uid, out uint gid)
     {
-        public uint pid;
-        public uint uid;
-        public uint gid;
-    }
+        pid = 0;
+        uid = uint.MaxValue;
+        gid = uint.MaxValue;
 
-    private static uint GetPeerUid(Socket socket)
-    {
+        if (!OperatingSystem.IsLinux()) return false;
+
         try
         {
             byte[] credBytes = new byte[12];
@@ -494,28 +724,72 @@ public sealed class LinuxPamAuthServer : IDisposable
             int res = getsockopt(socket.Handle, 1 /* SOL_SOCKET */, 17 /* SO_PEERCRED */, credBytes, ref optlen);
             if (res == 0 && optlen == 12)
             {
-                return BitConverter.ToUInt32(credBytes, 4); // uid is second 4-byte int
+                pid = BitConverter.ToUInt32(credBytes, 0);
+                uid = BitConverter.ToUInt32(credBytes, 4);
+                gid = BitConverter.ToUInt32(credBytes, 8);
+                return true;
             }
         }
         catch { }
-        return uint.MaxValue;
+
+        return false;
     }
 
-    private static int GetActiveUid()
+    public static uint? GetUidForUser(string userName)
     {
+        if (string.IsNullOrEmpty(userName) || !OperatingSystem.IsLinux()) return null;
         try
         {
-            return getuid();
+            IntPtr ptr = getpwnam(userName);
+            if (ptr == IntPtr.Zero) return null;
+            return (uint)Marshal.ReadInt32(ptr, 16);
         }
         catch
         {
-            return 1000;
+            return null;
+        }
+    }
+
+    public static string? GetUserForUid(uint uid)
+    {
+        if (!OperatingSystem.IsLinux()) return null;
+        try
+        {
+            IntPtr ptr = getpwuid(uid);
+            if (ptr == IntPtr.Zero) return null;
+            IntPtr namePtr = Marshal.ReadIntPtr(ptr, 0);
+            return Marshal.PtrToStringUTF8(namePtr);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static uint? GetGidForGroup(string groupName)
+    {
+        if (string.IsNullOrEmpty(groupName) || !OperatingSystem.IsLinux()) return null;
+        try
+        {
+            IntPtr ptr = getgrnam(groupName);
+            if (ptr == IntPtr.Zero) return null;
+            return (uint)Marshal.ReadInt32(ptr, 16);
+        }
+        catch
+        {
+            return null;
         }
     }
 
     [DllImport("libc", SetLastError = true)]
     private static extern int getsockopt(IntPtr sockfd, int level, int optname, byte[] optval, ref int optlen);
 
-    [DllImport("libc")]
-    private static extern int getuid();
+    [DllImport("libc", EntryPoint = "getpwnam")]
+    private static extern IntPtr getpwnam(string name);
+
+    [DllImport("libc", EntryPoint = "getpwuid")]
+    private static extern IntPtr getpwuid(uint uid);
+
+    [DllImport("libc", EntryPoint = "getgrnam")]
+    private static extern IntPtr getgrnam(string name);
 }
