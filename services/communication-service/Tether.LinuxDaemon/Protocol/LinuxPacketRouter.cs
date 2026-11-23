@@ -132,14 +132,25 @@ public sealed class LinuxPacketRouter
                     break;
 
                 case "FILE_TRANSFER_TOKEN_REQUEST":
-                    var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(60), session.Device?.Fingerprint ?? "", session.Device?.Capabilities);
+                    if (session.Device == null || !session.Device.Capabilities.Contains("FILES"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new
+                        {
+                            type = "FILE_TRANSFER_TOKEN_RESPONSE",
+                            requestId = reqId,
+                            success = false,
+                            reason = "Unauthorized: device lacks FILES capability"
+                        }, ct);
+                        break;
+                    }
+                    var token = _tokenStore.GenerateToken(TimeSpan.FromMinutes(15), session.Device.Fingerprint, session.Device.Capabilities);
                     await session.WriteJsonFrameSafeAsync(new
                     {
                         type = "FILE_TRANSFER_TOKEN_RESPONSE",
                         requestId = reqId,
                         success = true,
                         token = token,
-                        validForMinutes = 60
+                        validForMinutes = 15
                     }, ct);
                     break;
 

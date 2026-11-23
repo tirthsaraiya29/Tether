@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
@@ -30,6 +31,12 @@ public sealed class LinuxFileTransferServer : IHostedService
     private readonly LinuxDaemonConfig _config;
     private readonly LinuxTokenStore _tokenStore;
     private WebApplication? _app;
+
+    [DllImport("libc", SetLastError = true, EntryPoint = "realpath")]
+    private static extern IntPtr realpath(string path, IntPtr resolvedPath);
+
+    [DllImport("libc", SetLastError = true, EntryPoint = "free")]
+    private static extern void libc_free(IntPtr ptr);
 
     public LinuxFileTransferServer(
         ITetherLogger logger,
@@ -76,18 +83,47 @@ public sealed class LinuxFileTransferServer : IHostedService
                 return;
             }
 
-            string? token = context.Request.Headers["X-Tether-Token"].FirstOrDefault();
+            string? token = null;
+            string? authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                token = authHeader.Substring(7).Trim();
+            }
+            else
+            {
+                token = context.Request.Headers["X-Tether-Token"].FirstOrDefault();
+            }
+
             if (string.IsNullOrEmpty(token) && context.Request.Query.ContainsKey("token"))
             {
                 token = context.Request.Query["token"].FirstOrDefault();
             }
 
-            if (string.IsNullOrEmpty(token) || !_tokenStore.ValidateToken(token, "FILES"))
+            if (string.IsNullOrEmpty(token) || !_tokenStore.TryGetToken(token, out var tokenInfo) || tokenInfo == null)
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Invalid or expired transfer token" });
                 return;
             }
+
+            if (!tokenInfo.Capabilities.Contains("*") && !tokenInfo.Capabilities.Contains("FILES"))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await context.Response.WriteAsJsonAsync(new { error = "Forbidden: Token lacks FILES capability" });
+                return;
+            }
+
+            string? clientDeviceFp = context.Request.Headers["X-Tether-Device"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(clientDeviceFp) && !string.IsNullOrEmpty(tokenInfo.DeviceFingerprint) &&
+                !string.Equals(clientDeviceFp, tokenInfo.DeviceFingerprint, StringComparison.OrdinalIgnoreCase))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await context.Response.WriteAsJsonAsync(new { error = "Forbidden: Device mismatch for transfer token" });
+                return;
+            }
+
+            context.Items["TokenInfo"] = tokenInfo;
+            context.Items["DeviceFingerprint"] = tokenInfo.DeviceFingerprint;
 
             await next();
         });
@@ -115,6 +151,7 @@ public sealed class LinuxFileTransferServer : IHostedService
                 var di = new DirectoryInfo(targetDir);
                 var entries = di.EnumerateFileSystemInfos()
                     .Where(f => !f.Name.StartsWith(".")) // hide dotfiles
+                    .Where(f => IsPathSafe(f.FullName, baseDir)) // hide symlinks escaping base
                     .Select(f => new
                     {
                         name = f.Name,
@@ -183,12 +220,45 @@ public sealed class LinuxFileTransferServer : IHostedService
                 return Results.BadRequest(new { error = "No file provided in request." });
             }
 
-            string safeFileName = Path.GetFileName(file.FileName);
-            string destPath = Path.Combine(uploadDir, safeFileName);
-
-            using (var stream = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            string safeFileName = Path.GetFileName(file.FileName).Trim();
+            if (string.IsNullOrEmpty(safeFileName) || safeFileName.Contains('\0') ||
+                safeFileName.StartsWith('.') || safeFileName.Length > 255)
             {
-                await file.CopyToAsync(stream);
+                return Results.BadRequest(new { error = "Invalid or prohibited file name." });
+            }
+
+            string destPath = Path.Combine(uploadDir, safeFileName);
+            if (!IsPathSafe(destPath, baseDir))
+            {
+                return Results.BadRequest(new { error = "Access denied: Path traversal outside allowed directories." });
+            }
+
+            string tempFileName = $".tether_upload_{Guid.NewGuid():N}.tmp";
+            string tempPath = Path.Combine(uploadDir, tempFileName);
+
+            try
+            {
+                await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+                {
+                    await file.CopyToAsync(stream);
+                    await stream.FlushAsync();
+                }
+
+                if (OperatingSystem.IsLinux())
+                {
+                    try
+                    {
+                        File.SetUnixFileMode(tempPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                    }
+                    catch { }
+                }
+
+                File.Move(tempPath, destPath, overwrite: true);
+            }
+            catch
+            {
+                try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+                throw;
             }
 
             return Results.Ok(new { success = true, fileName = safeFileName, size = file.Length });
@@ -220,19 +290,98 @@ public sealed class LinuxFileTransferServer : IHostedService
         return homeDir;
     }
 
-    private static bool IsPathSafe(string fullPath, string baseDir)
+    public static string? ResolveCanonicalPath(string path)
     {
-        string canonicalBase = Path.GetFullPath(baseDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        string canonicalTarget = Path.GetFullPath(fullPath);
+        if (string.IsNullOrWhiteSpace(path)) return null;
+
+        if (OperatingSystem.IsLinux())
+        {
+            try
+            {
+                IntPtr resolved = realpath(path, IntPtr.Zero);
+                if (resolved != IntPtr.Zero)
+                {
+                    try
+                    {
+                        return Marshal.PtrToStringUTF8(resolved);
+                    }
+                    finally
+                    {
+                        libc_free(resolved);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        try
+        {
+            string full = Path.GetFullPath(path);
+            if (File.Exists(full))
+            {
+                var fi = new FileInfo(full);
+                var target = fi.ResolveLinkTarget(returnFinalTarget: true);
+                if (target != null) return Path.GetFullPath(target.FullName);
+            }
+            else if (Directory.Exists(full))
+            {
+                var di = new DirectoryInfo(full);
+                var target = di.ResolveLinkTarget(returnFinalTarget: true);
+                if (target != null) return Path.GetFullPath(target.FullName);
+            }
+            return full;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static bool IsPathSafe(string fullPath, string baseDir)
+    {
+        if (string.IsNullOrWhiteSpace(fullPath) || string.IsNullOrWhiteSpace(baseDir)) return false;
+
+        string? canonicalBase = ResolveCanonicalPath(baseDir);
+        if (string.IsNullOrEmpty(canonicalBase)) return false;
+
+        string basePrefix = canonicalBase.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+        string? canonicalTarget = ResolveCanonicalPath(fullPath);
+        if (string.IsNullOrEmpty(canonicalTarget))
+        {
+            // Path does not exist yet (e.g. upload dest): validate parent directory
+            string? parent = Path.GetDirectoryName(fullPath);
+            if (string.IsNullOrEmpty(parent)) return false;
+
+            string? canonicalParent = ResolveCanonicalPath(parent);
+            if (string.IsNullOrEmpty(canonicalParent)) return false;
+
+            string parentWithSep = canonicalParent.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            bool parentSafe = parentWithSep.StartsWith(basePrefix, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase)
+                              || string.Equals(canonicalParent, canonicalBase, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
+            if (!parentSafe) return false;
+
+            string fileName = Path.GetFileName(fullPath);
+            if (fileName.Contains('\0') || fileName.Contains('/') || fileName.Contains('\\') || fileName == ".." || fileName == ".")
+                return false;
+
+            canonicalTarget = Path.Combine(canonicalParent, fileName);
+        }
 
         // Disallow system directories
-        if (canonicalTarget.StartsWith("/etc") || canonicalTarget.StartsWith("/proc") ||
-            canonicalTarget.StartsWith("/sys") || canonicalTarget.StartsWith("/dev") ||
-            canonicalTarget.StartsWith("/root"))
+        string norm = canonicalTarget.Replace('\\', '/');
+        if (norm.StartsWith("/etc") || norm.StartsWith("/proc") ||
+            norm.StartsWith("/sys") || norm.StartsWith("/dev") ||
+            norm.StartsWith("/root") || norm.StartsWith("/bin") ||
+            norm.StartsWith("/sbin") || norm.StartsWith("/usr") ||
+            norm.StartsWith("/boot") || norm.StartsWith("/run") ||
+            norm.StartsWith("/var/run") || norm.StartsWith("/var/lib"))
         {
             return false;
         }
 
-        return canonicalTarget.StartsWith(canonicalBase, StringComparison.Ordinal);
+        string targetWithSep = canonicalTarget.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        return targetWithSep.StartsWith(basePrefix, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase)
+               || string.Equals(canonicalTarget, canonicalBase, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
     }
 }
