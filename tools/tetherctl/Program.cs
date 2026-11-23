@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -72,6 +73,15 @@ public static class Program
                 case "greeter" or "tile":
                     return HandleGreeter(args.Skip(1).ToArray());
 
+                case "recover" or "recovery":
+                    return HandleRecovery(args.Skip(1).ToArray(), config, logger);
+
+                case "pam-status":
+                    return HandlePamStatus(logger);
+
+                case "pam-restore":
+                    return HandlePamRestore(logger);
+
                 case "logs":
                     return HandleLogs(args.Skip(1).ToArray());
 
@@ -105,6 +115,7 @@ Commands:
   unlock        Arm a one-time workstation unlock grant for PAM
   greeter       Launch the graphical or CLI Tether Login & Greeter tile
   restart       Restart the background Tether systemd daemon
+  recover       Check PAM configuration health or restore pristine PAM files
   logs [-f]     Show recent daemon logs from systemd journal
   version       Show version information");
     }
@@ -466,4 +477,132 @@ Commands:
             return 1;
         }
     }
+
+    private static int HandleRecovery(string[] args, LinuxDaemonConfig config, ITetherLogger logger)
+    {
+        if (args.Length > 0 && args[0] is "--restore-pam" or "restore" or "restore-pam")
+        {
+            return HandlePamRestore(logger);
+        }
+
+        return HandlePamStatus(logger);
+    }
+
+    private static int HandlePamStatus(ITetherLogger logger)
+    {
+        Console.WriteLine("=== Tether PAM & Authentication Health Check ===");
+
+        // 1. Check pam_tether.so
+        string[] searchPaths = new[]
+        {
+            "/usr/lib64/security/pam_tether.so",
+            "/lib/x86_64-linux-gnu/security/pam_tether.so",
+            "/usr/lib/security/pam_tether.so"
+        };
+        string? foundSo = searchPaths.FirstOrDefault(File.Exists);
+        if (foundSo != null)
+        {
+            Console.WriteLine($"[OK] Native PAM module found: {foundSo}");
+        }
+        else
+        {
+            Console.WriteLine("[WARN] Native pam_tether.so shared library not found in standard security paths!");
+        }
+
+        // 2. Check PAM configs
+        string[] pamConfigs = new[]
+        {
+            "/etc/pam.d/gdm-password",
+            "/etc/pam.d/sddm",
+            "/etc/pam.d/lightdm"
+        };
+
+        foreach (var file in pamConfigs)
+        {
+            if (File.Exists(file))
+            {
+                bool hasTether = false;
+                try
+                {
+                    hasTether = File.ReadAllLines(file).Any(l => l.Contains("pam_tether.so"));
+                }
+                catch { }
+
+                bool hasBackup = File.Exists(file + ".tether-orig");
+                Console.WriteLine($"[INFO] {file}: Configured={hasTether}, Pristine Backup Present={hasBackup}");
+            }
+        }
+
+        // 3. Check auth socket
+        string sockPath = "/run/tether/auth.sock";
+        if (File.Exists(sockPath))
+        {
+            Console.WriteLine($"[OK] PAM auth socket present: {sockPath}");
+        }
+        else
+        {
+            Console.WriteLine($"[INFO] PAM auth socket '{sockPath}' not active (starts when daemon is running).");
+        }
+
+        Console.WriteLine("\nTo restore pristine PAM configs: sudo tetherctl recover --restore-pam");
+        return 0;
+    }
+
+    private static int HandlePamRestore(ITetherLogger logger)
+    {
+        if (OperatingSystem.IsLinux() && geteuid() != 0)
+        {
+            Console.Error.WriteLine("Error: Restoring PAM configuration requires root privileges. Please run: sudo tetherctl recover --restore-pam");
+            return 1;
+        }
+
+        Console.WriteLine("=== Restoring Pristine PAM Configurations ===");
+
+        string[] pamConfigs = new[]
+        {
+            "/etc/pam.d/gdm-password",
+            "/etc/pam.d/sddm",
+            "/etc/pam.d/lightdm"
+        };
+
+        int restoredCount = 0;
+        foreach (var file in pamConfigs)
+        {
+            string backup = file + ".tether-orig";
+            if (File.Exists(backup))
+            {
+                try
+                {
+                    File.Copy(backup, file, overwrite: true);
+                    File.Delete(backup);
+                    Console.WriteLine($"[OK] Restored pristine backup: {backup} -> {file}");
+                    restoredCount++;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[ERROR] Failed to restore {file}: {ex.Message}");
+                }
+            }
+            else if (File.Exists(file))
+            {
+                try
+                {
+                    var lines = File.ReadAllLines(file).Where(l => !l.Contains("pam_tether.so")).ToArray();
+                    File.WriteAllLines(file, lines);
+                    Console.WriteLine($"[OK] Stripped pam_tether.so entries from: {file}");
+                    restoredCount++;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[ERROR] Failed to clean {file}: {ex.Message}");
+                }
+            }
+        }
+
+        Console.WriteLine($"PAM restoration complete. ({restoredCount} file(s) processed)");
+        return 0;
+    }
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern uint geteuid();
 }

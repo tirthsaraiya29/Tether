@@ -42,7 +42,7 @@ mkdir -p "${DATA_DIR}" "${RUN_DIR}" "${LOG_DIR}"
 chmod 0700 "${DATA_DIR}" "${LOG_DIR}"
 chmod 0755 "${RUN_DIR}"
 
-echo "[3/7] Building Tether Linux Daemon and CLI..."
+echo "[3/7] Building Tether Linux Daemon, CLI, and Greeter..."
 dotnet publish "${REPO_ROOT}/services/communication-service/Tether.LinuxDaemon/Tether.LinuxDaemon.csproj" \
     -c Release -o "${OPT_DIR}/daemon" --nologo -v q
 
@@ -58,7 +58,14 @@ ln -sf "${OPT_DIR}/daemon/Tether.LinuxDaemon" "${BIN_DIR}/tether-daemon"
 ln -sf "${OPT_DIR}/cli/tetherctl" "${BIN_DIR}/tetherctl"
 ln -sf "${OPT_DIR}/cli/tetherctl" "${BIN_DIR}/tether"
 
-echo "[4/7] Compiling native PAM module..."
+# Install tether-greeter visual login helper
+if [[ -f "${REPO_ROOT}/tools/tether-greeter/tether-greeter" ]]; then
+    cp -f "${REPO_ROOT}/tools/tether-greeter/tether-greeter" "${BIN_DIR}/tether-greeter"
+    chmod 0755 "${BIN_DIR}/tether-greeter"
+    echo "  Installed tether-greeter helper to ${BIN_DIR}/tether-greeter."
+fi
+
+echo "[4/7] Compiling and configuring native PAM module..."
 make -C "${REPO_ROOT}/services/pam-tether" clean >/dev/null
 make -C "${REPO_ROOT}/services/pam-tether" pam_tether.so >/dev/null
 
@@ -66,20 +73,62 @@ mkdir -p "${PAM_DIR}"
 cp -f "${REPO_ROOT}/services/pam-tether/pam_tether.so" "${PAM_DIR}/pam_tether.so"
 chmod 0755 "${PAM_DIR}/pam_tether.so"
 
-# Configure GDM PAM module if gdm-password exists
-if [ -f /usr/lib/pam.d/gdm-password ] && [ ! -f /etc/pam.d/gdm-password ]; then
-    echo "  Configuring /etc/pam.d/gdm-password for mobile biometric unlock..."
-    cp /usr/lib/pam.d/gdm-password /etc/pam.d/gdm-password
-    sed -i '/auth.*substack.*gdm-password-auth-substack/i auth     sufficient    pam_tether.so' /etc/pam.d/gdm-password
-fi
+# Safely configure PAM service files with backup, multi-DM support, and idempotency
+configure_pam_service() {
+    local pam_name="$1"
+    local pam_file="/etc/pam.d/${pam_name}"
+    local upstream_file="/usr/lib/pam.d/${pam_name}"
+    local backup_file="${pam_file}.tether-orig"
+
+    # If file doesn't exist in /etc/pam.d, check if upstream exists in /usr/lib/pam.d
+    if [[ ! -f "${pam_file}" ]] && [[ -f "${upstream_file}" ]]; then
+        echo "  Copying upstream ${upstream_file} to ${pam_file}..."
+        cp "${upstream_file}" "${pam_file}"
+    fi
+
+    if [[ -f "${pam_file}" ]]; then
+        if grep -q "pam_tether\.so" "${pam_file}"; then
+            echo "  [INFO] pam_tether.so already configured in ${pam_file}."
+        else
+            echo "  Configuring ${pam_file} for mobile authentication..."
+            # Save pristine backup only if not already saved
+            if [[ ! -f "${backup_file}" ]]; then
+                cp -p "${pam_file}" "${backup_file}"
+            fi
+
+            # Determine insertion point before primary password auth substack / common-auth
+            if grep -qE "auth.*substack.*(gdm-password-auth-substack|password-auth|system-auth)" "${pam_file}"; then
+                sed -i '/auth.*substack.*\(gdm-password-auth-substack\|password-auth\|system-auth\)/i auth     sufficient    pam_tether.so' "${pam_file}"
+            elif grep -qE "@include.*common-auth" "${pam_file}"; then
+                sed -i '/@include.*common-auth/i auth     sufficient    pam_tether.so' "${pam_file}"
+            elif grep -qE "auth.*pam_unix\.so" "${pam_file}"; then
+                sed -i '/auth.*pam_unix\.so/i auth     sufficient    pam_tether.so' "${pam_file}"
+            else
+                sed -i '1i auth     sufficient    pam_tether.so' "${pam_file}"
+            fi
+            echo "  Successfully configured ${pam_file}."
+        fi
+    fi
+}
+
+# Configure known display managers (GDM, SDDM, LightDM)
+configure_pam_service "gdm-password"
+configure_pam_service "sddm"
+configure_pam_service "lightdm"
 
 # Configure SELinux policy if SELinux is active
 if command -v semodule >/dev/null 2>&1 && command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
     echo "  Configuring SELinux policy for PAM unlock..."
-    mkdir -p "${REPO_ROOT}/installer/linux/selinux"
-    checkmodule -M -m -o "${REPO_ROOT}/installer/linux/selinux/tether_pam.mod" "${REPO_ROOT}/installer/linux/selinux/tether_pam.te" >/dev/null 2>&1 || true
-    semodule_package -o "${REPO_ROOT}/installer/linux/selinux/tether_pam.pp" -m "${REPO_ROOT}/installer/linux/selinux/tether_pam.mod" >/dev/null 2>&1 || true
-    semodule -i "${REPO_ROOT}/installer/linux/selinux/tether_pam.pp" >/dev/null 2>&1 || true
+    SELINUX_TMP=$(mktemp -d /tmp/tether_selinux.XXXXXX)
+    checkmodule -M -m -o "${SELINUX_TMP}/tether_pam.mod" "${REPO_ROOT}/installer/linux/selinux/tether_pam.te" >/dev/null 2>&1 || true
+    if [[ -f "${SELINUX_TMP}/tether_pam.mod" ]]; then
+        semodule_package -o "${SELINUX_TMP}/tether_pam.pp" -m "${SELINUX_TMP}/tether_pam.mod" >/dev/null 2>&1 || true
+        if [[ -f "${SELINUX_TMP}/tether_pam.pp" ]]; then
+            semodule -i "${SELINUX_TMP}/tether_pam.pp" >/dev/null 2>&1 || true
+            echo "  SELinux tether_pam policy module loaded."
+        fi
+    fi
+    rm -rf "${SELINUX_TMP}"
 fi
 
 echo "[5/7] Configuring dedicated udev rules for synthetic input..."
