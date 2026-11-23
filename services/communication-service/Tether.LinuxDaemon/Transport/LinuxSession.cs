@@ -91,6 +91,7 @@ public sealed class LinuxSession : IDisposable
     }
 
     public void SetStreamForTesting(Stream stream) => _testStream = stream;
+    public void SetDeviceForTesting(LinuxDevice device) => Device = device;
 
     public void RecordPongReceived()
         => Interlocked.Exchange(ref _lastFrameReceivedTicks, DateTime.UtcNow.Ticks);

@@ -84,6 +84,11 @@ public static class AuthenticodeVerifier
     /// </summary>
     public static bool VerifyFileAuthenticode(string filePath, string? pinnedThumbprint = null, string? pinnedPublicKey = null)
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
         if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
         {
             return false;

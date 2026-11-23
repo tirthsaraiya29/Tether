@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Tether.LinuxDaemon.Capabilities;
+using Tether.LinuxDaemon.Devices;
 using Tether.LinuxDaemon.FileTransfer;
 using Tether.LinuxDaemon.Input;
 using Tether.LinuxDaemon.Security;
@@ -115,6 +116,24 @@ public sealed class LinuxPacketRouter
 
                 case "COMMAND_EXECUTE":
                     string command = doc.RootElement.TryGetProperty("command", out var cmdProp) ? (cmdProp.GetString() ?? "") : "";
+                    string reqCap = MapCommandToCapability(command);
+                    if (!HasCapability(session.Device, reqCap))
+                    {
+                        _logger.Warning($"LinuxPacketRouter: Rejected '{command}' - device '{deviceId}' lacks capability '{reqCap}'.");
+                        await session.WriteJsonFrameSafeAsync(new ConfirmCommand
+                        {
+                            Type = "CONFIRM_COMMAND",
+                            RequestId = reqId,
+                            ConfirmedCommand = command,
+                            Success = false,
+                            Reason = $"Unauthorized: Device lacks {reqCap} capability",
+                            VolumeLevel = -1,
+                            IsMuted = false,
+                            BrightnessLevel = -1
+                        }, ct);
+                        break;
+                    }
+
                     bool ok = LinuxHardwareExecutor.ExecuteCommand(command, _logger, _pamServer, out int vol);
                     bool isMuted = LinuxHardwareExecutor.GetSystemMute(_logger);
                     int bri = LinuxHardwareExecutor.GetBrightnessLevel(_logger);
@@ -156,6 +175,20 @@ public sealed class LinuxPacketRouter
 
                 // Terminal Frames
                 case "TERMINAL_START":
+                    if (!HasCapability(session.Device, "TERMINAL"))
+                    {
+                        _logger.Warning($"LinuxPacketRouter: Rejected terminal request - device '{deviceId}' lacks TERMINAL capability.");
+                        await session.WriteJsonFrameSafeAsync(new
+                        {
+                            type = "TERMINAL_START_RESPONSE",
+                            requestId = reqId,
+                            success = false,
+                            reason = "Unauthorized: Device lacks TERMINAL capability",
+                            deviceId = deviceId
+                        }, ct);
+                        break;
+                    }
+
                     string shell = doc.RootElement.TryGetProperty("shell", out var shProp) ? (shProp.GetString() ?? "bash")
                         : (doc.RootElement.TryGetProperty("shellType", out var stProp) ? (stProp.GetString() ?? "bash") : "bash");
                     string? initialDir = doc.RootElement.TryGetProperty("initialDir", out var idProp) ? idProp.GetString()
@@ -190,6 +223,7 @@ public sealed class LinuxPacketRouter
                     break;
 
                 case "TERMINAL_INPUT":
+                    if (!HasCapability(session.Device, "TERMINAL")) break;
                     string termSessId = doc.RootElement.TryGetProperty("sessionId", out var inSidProp) ? (inSidProp.GetString() ?? "")
                         : (doc.RootElement.TryGetProperty("terminalId", out var inTidProp) ? (inTidProp.GetString() ?? "") : "");
                     string inData = doc.RootElement.TryGetProperty("data", out var dProp) ? (dProp.GetString() ?? "") : "";
@@ -197,6 +231,7 @@ public sealed class LinuxPacketRouter
                     break;
 
                 case "TERMINAL_CLOSE":
+                    if (!HasCapability(session.Device, "TERMINAL")) break;
                     string closeId = doc.RootElement.TryGetProperty("sessionId", out var cSidProp) ? (cSidProp.GetString() ?? "")
                         : (doc.RootElement.TryGetProperty("terminalId", out var cTidProp) ? (cTidProp.GetString() ?? "") : "");
                     bool closed = _terminalManager.CloseSession(closeId, deviceId);
@@ -211,6 +246,11 @@ public sealed class LinuxPacketRouter
                     break;
 
                 case "TERMINAL_LIST":
+                    if (!HasCapability(session.Device, "TERMINAL"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "TERMINAL_LIST_RESPONSE", requestId = reqId, sessions = Array.Empty<object>(), deviceId = deviceId }, ct);
+                        break;
+                    }
                     var tList = _terminalManager.ListSessions(deviceId);
                     await session.WriteJsonFrameSafeAsync(new
                     {
@@ -223,6 +263,7 @@ public sealed class LinuxPacketRouter
 
                 // Desktop Notification Frames
                 case "NOTIFICATION_EVENT":
+                    if (!HasCapability(session.Device, "NOTIFICATIONS")) break;
                     string nTitle = doc.RootElement.TryGetProperty("title", out var ntProp) ? (ntProp.GetString() ?? "") : "";
                     string nBody = doc.RootElement.TryGetProperty("body", out var nbProp) ? (nbProp.GetString() ?? "") : "";
                     string nApp = doc.RootElement.TryGetProperty("app", out var naProp) ? (naProp.GetString() ?? "Phone") : "Phone";
@@ -230,6 +271,7 @@ public sealed class LinuxPacketRouter
                     break;
 
                 case "NOTIFICATION_DISMISS":
+                    if (!HasCapability(session.Device, "NOTIFICATIONS")) break;
                     if (doc.RootElement.TryGetProperty("id", out var nidProp) && nidProp.TryGetUInt32(out uint notifId))
                     {
                         _ = LinuxNotificationController.DismissNotificationAsync(notifId, _logger);
@@ -238,6 +280,11 @@ public sealed class LinuxPacketRouter
 
                 // Media Frames
                 case "MEDIA_CONTROL":
+                    if (!HasCapability(session.Device, "MEDIA"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks MEDIA capability" }, ct);
+                        break;
+                    }
                     string mediaAction = doc.RootElement.TryGetProperty("action", out var mActProp) ? (mActProp.GetString() ?? "") : "";
                     long? seek = doc.RootElement.TryGetProperty("seek", out var skProp) ? skProp.GetInt64()
                         : (doc.RootElement.TryGetProperty("seekSeconds", out var sksProp) ? sksProp.GetInt64() : null);
@@ -246,6 +293,11 @@ public sealed class LinuxPacketRouter
                     break;
 
                 case "MEDIA_GET_METADATA":
+                    if (!HasCapability(session.Device, "MEDIA"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks MEDIA capability" }, ct);
+                        break;
+                    }
                     var meta = await LinuxMediaController.GetCurrentMetadataAsync(_logger);
                     await session.WriteJsonFrameSafeAsync(new
                     {
@@ -263,6 +315,11 @@ public sealed class LinuxPacketRouter
 
                 // Application Management Frames
                 case "APP_LAUNCH":
+                    if (!HasCapability(session.Device, "APP_LAUNCH"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks APP_LAUNCH capability" }, ct);
+                        break;
+                    }
                     string appLaunchName = doc.RootElement.TryGetProperty("appName", out var alProp) ? (alProp.GetString() ?? "")
                         : (doc.RootElement.TryGetProperty("appPath", out var apProp) ? (apProp.GetString() ?? "") : "");
                     bool lOk = await LinuxApplicationManager.LaunchAppAsync(appLaunchName, _logger);
@@ -271,6 +328,11 @@ public sealed class LinuxPacketRouter
 
                 case "APP_GET_INSTALLED":
                 case "GET_INSTALLED_APPS":
+                    if (!HasCapability(session.Device, "APP_LAUNCH"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks APP_LAUNCH capability" }, ct);
+                        break;
+                    }
                     var installedApps = LinuxApplicationManager.GetInstalledApps(_logger);
                     await session.WriteJsonFrameSafeAsync(new
                     {
@@ -282,6 +344,11 @@ public sealed class LinuxPacketRouter
 
                 case "APP_GET_WINDOWS":
                 case "GET_RUNNING_WINDOWS":
+                    if (!HasCapability(session.Device, "APP_LAUNCH"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks APP_LAUNCH capability" }, ct);
+                        break;
+                    }
                     var windows = LinuxApplicationManager.GetRunningWindows(_logger);
                     await session.WriteJsonFrameSafeAsync(new
                     {
@@ -293,6 +360,11 @@ public sealed class LinuxPacketRouter
 
                 case "APP_CLOSE_WINDOW":
                 case "WINDOW_CLOSE":
+                    if (!HasCapability(session.Device, "APP_LAUNCH"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks APP_LAUNCH capability" }, ct);
+                        break;
+                    }
                     string winId = doc.RootElement.TryGetProperty("id", out var wIdProp) ? (wIdProp.GetString() ?? "")
                         : (doc.RootElement.TryGetProperty("hwnd", out var hProp) ? hProp.ToString() : "");
                     bool closeOk = await LinuxApplicationManager.CloseWindowAsync(winId, _logger);
@@ -302,29 +374,54 @@ public sealed class LinuxPacketRouter
                 // Linux System Administration Telemetry
                 case "ADMIN_TELEMETRY_GET":
                 case "GET_ADMIN_TELEMETRY":
+                    if (!HasCapability(session.Device, "ADMIN"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
+                        break;
+                    }
                     var telem = _adminManager.GetSystemTelemetry();
                     await session.WriteJsonFrameSafeAsync(new { type = "ADMIN_TELEMETRY_RESPONSE", requestId = reqId, telemetry = telem }, ct);
                     break;
 
                 case "HARDWARE_SPECS_GET":
                 case "GET_HARDWARE_SPECS":
+                    if (!HasCapability(session.Device, "ADMIN"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
+                        break;
+                    }
                     var specs = _adminManager.GetHardwareSpecs();
                     await session.WriteJsonFrameSafeAsync(new { type = "HARDWARE_SPECS_RESPONSE", requestId = reqId, specs = specs }, ct);
                     break;
 
                 case "BATTERY_HEALTH_GET":
                 case "GET_BATTERY_HEALTH":
+                    if (!HasCapability(session.Device, "ADMIN"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
+                        break;
+                    }
                     var bHealth = _adminManager.GetBatteryHealth();
                     await session.WriteJsonFrameSafeAsync(new { type = "BATTERY_HEALTH_RESPONSE", requestId = reqId, batteryHealth = bHealth }, ct);
                     break;
 
                 case "POWER_PLANS_GET":
                 case "GET_POWER_PLANS":
+                    if (!HasCapability(session.Device, "ADMIN"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
+                        break;
+                    }
                     var pPlans = _adminManager.GetPowerPlans();
                     await session.WriteJsonFrameSafeAsync(new { type = "POWER_PLANS_RESPONSE", requestId = reqId, powerPlans = pPlans }, ct);
                     break;
 
                 case "SET_POWER_PLAN":
+                    if (!HasCapability(session.Device, "ADMIN"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
+                        break;
+                    }
                     string plan = doc.RootElement.TryGetProperty("planGuid", out var pgProp) ? (pgProp.GetString() ?? "")
                         : (doc.RootElement.TryGetProperty("name", out var pnProp) ? (pnProp.GetString() ?? "") : "");
                     bool pOk = _adminManager.SetPowerPlan(plan);
@@ -333,12 +430,22 @@ public sealed class LinuxPacketRouter
 
                 case "USB_DEVICES_GET":
                 case "GET_USB_DEVICES":
+                    if (!HasCapability(session.Device, "ADMIN"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
+                        break;
+                    }
                     var usb = _adminManager.GetUsbDevices();
                     await session.WriteJsonFrameSafeAsync(new { type = "USB_DEVICES_RESPONSE", requestId = reqId, usbDevices = usb }, ct);
                     break;
 
                 case "SERVICES_GET":
                 case "GET_SERVICES":
+                    if (!HasCapability(session.Device, "ADMIN"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
+                        break;
+                    }
                     var services = _adminManager.GetServices();
                     await session.WriteJsonFrameSafeAsync(new { type = "SERVICES_RESPONSE", requestId = reqId, services = services }, ct);
                     break;
@@ -346,6 +453,11 @@ public sealed class LinuxPacketRouter
                 case "SERVICE_START":
                 case "SERVICE_STOP":
                 case "SERVICE_RESTART":
+                    if (!HasCapability(session.Device, "ADMIN"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
+                        break;
+                    }
                     string sName = doc.RootElement.TryGetProperty("serviceName", out var snProp) ? (snProp.GetString() ?? "") : "";
                     string sAction = type == "SERVICE_START" ? "start" : (type == "SERVICE_STOP" ? "stop" : "restart");
                     bool sOk = _adminManager.ControlService(sName, sAction);
@@ -354,6 +466,11 @@ public sealed class LinuxPacketRouter
 
                 case "UPDATES_GET":
                 case "GET_UPDATES":
+                    if (!HasCapability(session.Device, "ADMIN"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
+                        break;
+                    }
                     var updates = _adminManager.GetSystemUpdates();
                     await session.WriteJsonFrameSafeAsync(new { type = "UPDATES_RESPONSE", requestId = reqId, updateInfo = updates }, ct);
                     break;
@@ -373,5 +490,41 @@ public sealed class LinuxPacketRouter
         {
             _logger.Error($"LinuxPacketRouter: Error processing packet: {ex.Message}");
         }
+    }
+
+    private static bool HasCapability(LinuxDevice? device, string requiredCap)
+    {
+        if (device == null || string.IsNullOrEmpty(requiredCap)) return false;
+        if (device.Capabilities.Contains("*")) return true;
+        if (device.Capabilities.Contains(requiredCap, StringComparer.OrdinalIgnoreCase)) return true;
+
+        if (requiredCap.Equals("APP_LAUNCH", StringComparison.OrdinalIgnoreCase) &&
+            device.Capabilities.Contains("APP_MANAGEMENT", StringComparer.OrdinalIgnoreCase))
+            return true;
+
+        if (requiredCap.Equals("POWER_ELEVATED", StringComparison.OrdinalIgnoreCase) &&
+            (device.Capabilities.Contains("SYSTEM_UNLOCK", StringComparer.OrdinalIgnoreCase) ||
+             device.Capabilities.Contains("SYSTEM_CONTROL", StringComparer.OrdinalIgnoreCase)))
+            return true;
+
+        if (requiredCap.Equals("ADMIN", StringComparison.OrdinalIgnoreCase) &&
+            (device.Capabilities.Contains("LINUX_ADMIN", StringComparer.OrdinalIgnoreCase) ||
+             device.Capabilities.Contains("WINDOWS_ADMIN", StringComparer.OrdinalIgnoreCase)))
+            return true;
+
+        return false;
+    }
+
+    private static string MapCommandToCapability(string command)
+    {
+        string cmd = command.Trim().ToLowerInvariant();
+        if (cmd is "unlock") return "POWER_ELEVATED";
+        if (cmd is "shutdown" or "poweroff" or "halt" or "reboot" or "restart" or "sleep" or "suspend" or "hibernate")
+            return "POWER_ELEVATED";
+        if (cmd.StartsWith("admin_") || cmd.StartsWith("service_") || cmd.StartsWith("power_plan"))
+            return "ADMIN";
+        if (cmd.StartsWith("launch_") || cmd is "browser" or "calc" or "terminal")
+            return "APP_LAUNCH";
+        return "MEDIA";
     }
 }
