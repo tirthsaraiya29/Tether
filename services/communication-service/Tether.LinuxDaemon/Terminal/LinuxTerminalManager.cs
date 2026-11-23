@@ -168,25 +168,31 @@ public sealed class LinuxTerminalManager : IDisposable
             }
 
             var sessionInfo = PlatformDetection.GetActiveSessionInfo();
-            string userHome = !string.IsNullOrEmpty(sessionInfo.UserName) && sessionInfo.UserName != "root"
-                ? $"/home/{sessionInfo.UserName}"
+            string? targetUser = GetInteractiveNonRootUser(sessionInfo);
+            string userHome = !string.IsNullOrEmpty(targetUser)
+                ? $"/home/{targetUser}"
                 : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
             string workingDir = !string.IsNullOrEmpty(initialDir) && Directory.Exists(initialDir)
                 ? initialDir
-                : (Directory.Exists(userHome) ? userHome : "/");
+                : (Directory.Exists(userHome) ? userHome : (OperatingSystem.IsWindows() ? Environment.CurrentDirectory : "/"));
 
             string selectedShell = ResolveShell(shellType);
-            bool isRoot = geteuid() == 0;
+            bool isRoot = OperatingSystem.IsLinux() && geteuid() == 0;
 
             ProcessStartInfo psi;
-            if (isRoot && !string.IsNullOrEmpty(sessionInfo.UserName) && sessionInfo.UserName != "root")
+            if (isRoot)
             {
-                // Drop privileges to active session user via runuser
+                if (string.IsNullOrEmpty(targetUser) || targetUser == "root")
+                {
+                    _logger.Error("LinuxTerminalManager: Remote terminal refused because no non-root user session exists. Accidental root execution is blocked.");
+                    throw new UnauthorizedAccessException("Remote terminal refused: no active non-root user session found. Spawning terminal as root is strictly blocked.");
+                }
+
+                // Drop privileges to active session user via runuser with safe ArgumentList
                 psi = new ProcessStartInfo
                 {
                     FileName = "runuser",
-                    Arguments = $"-u {sessionInfo.UserName} -- {selectedShell}",
                     WorkingDirectory = workingDir,
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
@@ -196,6 +202,10 @@ public sealed class LinuxTerminalManager : IDisposable
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
+                psi.ArgumentList.Add("-u");
+                psi.ArgumentList.Add(targetUser);
+                psi.ArgumentList.Add("--");
+                psi.ArgumentList.Add(selectedShell);
             }
             else
             {
@@ -385,9 +395,46 @@ public sealed class LinuxTerminalManager : IDisposable
         catch { }
     }
 
+    private static string? GetInteractiveNonRootUser(LinuxSessionInfo sessionInfo)
+    {
+        if (!string.IsNullOrEmpty(sessionInfo.UserName) && sessionInfo.UserName != "root")
+        {
+            return sessionInfo.UserName;
+        }
+
+        if (OperatingSystem.IsLinux() && File.Exists("/etc/passwd"))
+        {
+            try
+            {
+                foreach (var line in File.ReadLines("/etc/passwd"))
+                {
+                    var parts = line.Split(':');
+                    if (parts.Length >= 6 && uint.TryParse(parts[2], out uint uid) && uid >= 1000 && uid < 60000)
+                    {
+                        string user = parts[0];
+                        if (user != "nobody" && Directory.Exists(parts[5]))
+                        {
+                            return user;
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        return !string.IsNullOrEmpty(Environment.UserName) && Environment.UserName != "root"
+            ? Environment.UserName
+            : null;
+    }
+
     private static string ResolveShell(string requested)
     {
         string reqLower = (requested ?? "").Trim().ToLowerInvariant();
+
+        if (OperatingSystem.IsWindows())
+        {
+            return Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd.exe";
+        }
 
         if (reqLower == "pwsh" || reqLower == "powershell" || reqLower == "powershell7")
         {

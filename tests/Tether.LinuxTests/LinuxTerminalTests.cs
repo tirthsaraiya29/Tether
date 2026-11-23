@@ -47,7 +47,8 @@ public class LinuxTerminalTests : IDisposable
         Assert.Equal("test-device-1", session.OwnerDeviceId);
 
         // Send echo command
-        bool sent = _manager.SendInput(session.Id, "echo TETHER_LINUX_ECHO_TEST\n", ownerDeviceId: "test-device-1");
+        string cmd = $"echo TETHER_LINUX_ECHO_TEST{Environment.NewLine}";
+        bool sent = _manager.SendInput(session.Id, cmd, ownerDeviceId: "test-device-1");
         Assert.True(sent);
 
         // Await echo response up to 3 seconds
