@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -67,7 +68,19 @@ public static class Program
                     return HandleUnlock(config, logger);
 
                 case "restart":
-                    return HandleRestart();
+                    return HandleRestart(config);
+
+                case "greeter" or "tile":
+                    return HandleGreeter(args.Skip(1).ToArray());
+
+                case "recover" or "recovery":
+                    return HandleRecovery(args.Skip(1).ToArray(), config, logger);
+
+                case "pam-status":
+                    return HandlePamStatus(logger);
+
+                case "pam-restore":
+                    return HandlePamRestore(logger);
 
                 case "logs":
                     return HandleLogs(args.Skip(1).ToArray());
@@ -100,7 +113,9 @@ Commands:
   pairing       Show pairing instructions and local discovery network endpoints
   lock          Immediately lock the current graphical desktop session
   unlock        Arm a one-time workstation unlock grant for PAM
+  greeter       Launch the graphical or CLI Tether Login & Greeter tile
   restart       Restart the background Tether systemd daemon
+  recover       Check PAM configuration health or restore pristine PAM files
   logs [-f]     Show recent daemon logs from systemd journal
   version       Show version information");
     }
@@ -138,6 +153,39 @@ Commands:
 
         Console.WriteLine($"Daemon Service:    {(isServiceRunning ? "ACTIVE (Running)" : "INACTIVE (Stopped)")}");
         Console.WriteLine($"PAM Auth Socket:   {(File.Exists(config.PamSocketPath) ? "ONLINE" : "OFFLINE")}");
+
+        // Live status query over daemon IPC
+        if (File.Exists(config.PamSocketPath))
+        {
+            try
+            {
+                using var sock = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+                sock.Connect(new UnixDomainSocketEndPoint(config.PamSocketPath));
+                var req = new { action = "STATUS_REQUEST" };
+                byte[] reqBytes = JsonSerializer.SerializeToUtf8Bytes(req);
+                byte[] lenBytes = new byte[4];
+                BinaryPrimitives.WriteInt32BigEndian(lenBytes, reqBytes.Length);
+                sock.Send(lenBytes);
+                sock.Send(reqBytes);
+
+                byte[] respLenBytes = new byte[4];
+                int r1 = sock.Receive(respLenBytes);
+                if (r1 == 4)
+                {
+                    int rLen = BinaryPrimitives.ReadInt32BigEndian(respLenBytes);
+                    byte[] rBody = new byte[rLen];
+                    int r2 = sock.Receive(rBody);
+                    using var doc = JsonDocument.Parse(rBody.AsMemory(0, r2));
+                    bool phoneConnected = doc.RootElement.TryGetProperty("phoneConnected", out var pProp) && pProp.GetBoolean();
+                    string devName = doc.RootElement.TryGetProperty("connectedDeviceName", out var dProp) ? (dProp.GetString() ?? "") : "";
+                    bool grantActive = doc.RootElement.TryGetProperty("grantActive", out var gProp) && gProp.GetBoolean();
+
+                    Console.WriteLine($"Phone Connection:  {(phoneConnected ? ($"CONNECTED ({devName})") : "DISCONNECTED")}");
+                    Console.WriteLine($"Mobile Unlock:     {(grantActive ? "ARMED (Grant Active)" : (phoneConnected ? "READY" : "STANDBY"))}");
+                }
+            }
+            catch { }
+        }
 
         // Admin telemetry
         var adminMgr = new LinuxAdminManager(logger);
@@ -308,9 +356,41 @@ Commands:
         return 1;
     }
 
-    private static int HandleRestart()
+    private static int HandleRestart(LinuxDaemonConfig config)
     {
-        Console.WriteLine("Restarting tether.service...");
+        Console.WriteLine("Requesting tether.service restart...");
+        if (File.Exists(config.PamSocketPath))
+        {
+            try
+            {
+                using var sock = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+                sock.Connect(new UnixDomainSocketEndPoint(config.PamSocketPath));
+                var req = new { action = "RESTART_REQUEST" };
+                byte[] reqBytes = JsonSerializer.SerializeToUtf8Bytes(req);
+                byte[] lenBytes = new byte[4];
+                BinaryPrimitives.WriteInt32BigEndian(lenBytes, reqBytes.Length);
+                sock.Send(lenBytes);
+                sock.Send(reqBytes);
+
+                byte[] respLenBytes = new byte[4];
+                int r1 = sock.Receive(respLenBytes);
+                if (r1 == 4)
+                {
+                    int rLen = BinaryPrimitives.ReadInt32BigEndian(respLenBytes);
+                    byte[] rBody = new byte[rLen];
+                    int r2 = sock.Receive(rBody);
+                    using var doc = JsonDocument.Parse(rBody.AsMemory(0, r2));
+                    string status = doc.RootElement.TryGetProperty("status", out var sProp) ? (sProp.GetString() ?? "") : "";
+                    if (status == "RESTARTING")
+                    {
+                        Console.WriteLine("Tether background daemon restart signal accepted via secure IPC.");
+                        return 0;
+                    }
+                }
+            }
+            catch { }
+        }
+
         try
         {
             var psi = new ProcessStartInfo
@@ -333,6 +413,42 @@ Commands:
             Console.Error.WriteLine($"Failed to restart service: {ex.Message}");
         }
         return 1;
+    }
+
+    private static int HandleGreeter(string[] args)
+    {
+        string greeterPath = "/usr/local/bin/tether-greeter";
+        if (!File.Exists(greeterPath))
+        {
+            // Relative fallback in repo
+            greeterPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/tether-greeter/tether-greeter"));
+        }
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = File.Exists(greeterPath) ? greeterPath : "python3",
+                UseShellExecute = false
+            };
+            bool isExecutable = OperatingSystem.IsLinux() && File.GetUnixFileMode(greeterPath).HasFlag(UnixFileMode.UserExecute);
+            if (!File.Exists(greeterPath) || !isExecutable)
+            {
+                psi.ArgumentList.Add("tools/tether-greeter/tether-greeter");
+            }
+            foreach (var arg in args)
+            {
+                psi.ArgumentList.Add(arg);
+            }
+            using var p = Process.Start(psi);
+            p?.WaitForExit();
+            return p?.ExitCode ?? 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error launching greeter tile: {ex.Message}");
+            return 1;
+        }
     }
 
     private static int HandleLogs(string[] args)
@@ -361,4 +477,132 @@ Commands:
             return 1;
         }
     }
+
+    private static int HandleRecovery(string[] args, LinuxDaemonConfig config, ITetherLogger logger)
+    {
+        if (args.Length > 0 && args[0] is "--restore-pam" or "restore" or "restore-pam")
+        {
+            return HandlePamRestore(logger);
+        }
+
+        return HandlePamStatus(logger);
+    }
+
+    private static int HandlePamStatus(ITetherLogger logger)
+    {
+        Console.WriteLine("=== Tether PAM & Authentication Health Check ===");
+
+        // 1. Check pam_tether.so
+        string[] searchPaths = new[]
+        {
+            "/usr/lib64/security/pam_tether.so",
+            "/lib/x86_64-linux-gnu/security/pam_tether.so",
+            "/usr/lib/security/pam_tether.so"
+        };
+        string? foundSo = searchPaths.FirstOrDefault(File.Exists);
+        if (foundSo != null)
+        {
+            Console.WriteLine($"[OK] Native PAM module found: {foundSo}");
+        }
+        else
+        {
+            Console.WriteLine("[WARN] Native pam_tether.so shared library not found in standard security paths!");
+        }
+
+        // 2. Check PAM configs
+        string[] pamConfigs = new[]
+        {
+            "/etc/pam.d/gdm-password",
+            "/etc/pam.d/sddm",
+            "/etc/pam.d/lightdm"
+        };
+
+        foreach (var file in pamConfigs)
+        {
+            if (File.Exists(file))
+            {
+                bool hasTether = false;
+                try
+                {
+                    hasTether = File.ReadAllLines(file).Any(l => l.Contains("pam_tether.so"));
+                }
+                catch { }
+
+                bool hasBackup = File.Exists(file + ".tether-orig");
+                Console.WriteLine($"[INFO] {file}: Configured={hasTether}, Pristine Backup Present={hasBackup}");
+            }
+        }
+
+        // 3. Check auth socket
+        string sockPath = "/run/tether/auth.sock";
+        if (File.Exists(sockPath))
+        {
+            Console.WriteLine($"[OK] PAM auth socket present: {sockPath}");
+        }
+        else
+        {
+            Console.WriteLine($"[INFO] PAM auth socket '{sockPath}' not active (starts when daemon is running).");
+        }
+
+        Console.WriteLine("\nTo restore pristine PAM configs: sudo tetherctl recover --restore-pam");
+        return 0;
+    }
+
+    private static int HandlePamRestore(ITetherLogger logger)
+    {
+        if (OperatingSystem.IsLinux() && geteuid() != 0)
+        {
+            Console.Error.WriteLine("Error: Restoring PAM configuration requires root privileges. Please run: sudo tetherctl recover --restore-pam");
+            return 1;
+        }
+
+        Console.WriteLine("=== Restoring Pristine PAM Configurations ===");
+
+        string[] pamConfigs = new[]
+        {
+            "/etc/pam.d/gdm-password",
+            "/etc/pam.d/sddm",
+            "/etc/pam.d/lightdm"
+        };
+
+        int restoredCount = 0;
+        foreach (var file in pamConfigs)
+        {
+            string backup = file + ".tether-orig";
+            if (File.Exists(backup))
+            {
+                try
+                {
+                    File.Copy(backup, file, overwrite: true);
+                    File.Delete(backup);
+                    Console.WriteLine($"[OK] Restored pristine backup: {backup} -> {file}");
+                    restoredCount++;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[ERROR] Failed to restore {file}: {ex.Message}");
+                }
+            }
+            else if (File.Exists(file))
+            {
+                try
+                {
+                    var lines = File.ReadAllLines(file).Where(l => !l.Contains("pam_tether.so")).ToArray();
+                    File.WriteAllLines(file, lines);
+                    Console.WriteLine($"[OK] Stripped pam_tether.so entries from: {file}");
+                    restoredCount++;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[ERROR] Failed to clean {file}: {ex.Message}");
+                }
+            }
+        }
+
+        Console.WriteLine($"PAM restoration complete. ({restoredCount} file(s) processed)");
+        return 0;
+    }
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern uint geteuid();
 }

@@ -12,7 +12,7 @@
     <string name="status_starting_ble">Starting LAN service&#8230;</string>
     <string name="status_tether_active">✅ Tether Active\nPhone ready</string>
     <string name="error_permissions_denied">Permissions denied - app cannot function</string>
-    <string name="toast_panic_sent">PANIC sent to Windows</string>
+    <string name="toast_panic_sent">PANIC sent to PC</string>
     <string name="toast_permissions_required">Network permissions required for Tether to work</string>
     <string name="action_lock">INITIATE LOCK SYSTEM</string>
     <string name="action_panic">FORCE TERMINATE LINK</string>
@@ -150,15 +150,15 @@
     <string name="label_unknown">UNKNOWN</string>
 
     <string name="label_phone_fingerprint">PHONE PUBLIC KEY FINGERPRINT</string>
-    <string name="label_windows_fingerprint">PINNED WINDOWS FINGERPRINT</string>
+    <string name="label_windows_fingerprint">PINNED HOST FINGERPRINT</string>
     <string name="label_initiate_pairing">INITIATE PAIRING</string>
     <string name="label_cancel_pairing">CANCEL PAIRING</string>
     <string name="label_forget_trust">FORGET PC &amp; RE-PAIR</string>
-    <string name="desc_unpaired_status">No Windows PC paired. Initiate pairing to connect.</string>
-    <string name="desc_pairing_requested_status">Pairing request sent. Please approve on your Windows PC.</string>
-    <string name="desc_paired_status">Pinned Windows PC cryptographically verified.</string>
-    <string name="desc_key_mismatch_status">SECURITY ALERT: Windows host key mismatch!</string>
-    <string name="desc_pairing_denied_status">Pairing request was denied by Windows PC.</string>
+    <string name="desc_unpaired_status">No PC paired. Initiate pairing to connect.</string>
+    <string name="desc_pairing_requested_status">Pairing request sent. Please approve on your PC.</string>
+    <string name="desc_paired_status">Pinned PC cryptographically verified.</string>
+    <string name="desc_key_mismatch_status">SECURITY ALERT: Host PC key mismatch!</string>
+    <string name="desc_pairing_denied_status">Pairing request was denied by PC.</string>
     <string name="btn_accept">ACCEPT</string>
     <string name="btn_reject">REJECT</string>
 

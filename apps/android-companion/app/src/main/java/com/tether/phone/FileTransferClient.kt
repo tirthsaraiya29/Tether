@@ -129,7 +129,7 @@ class TetherPinnedTrustManager(
         val pinnedBytes = FileTransferClient.resolvePinnedKey(context, overridePinnedKey)
 
         if (pinnedBytes == null || pinnedBytes.isEmpty()) {
-            throw CertificateException("No pinned Windows public key found. Refusing untrusted peer connection.")
+            throw CertificateException("No pinned host public key found. Refusing untrusted peer connection.")
         }
 
         if (!MessageDigest.isEqual(pinnedBytes, presentedKeyBytes)) {
@@ -192,7 +192,7 @@ object FileTransferClient {
     ) {
         val timestampMs = System.currentTimeMillis().toString()
         val pinnedKey = resolvePinnedKey(context, customPinnedKey)
-            ?: throw IllegalStateException("Cannot execute file transfer request: Windows host public key is not pinned or resolved.")
+            ?: throw IllegalStateException("Cannot execute file transfer request: Host public key is not pinned or resolved.")
 
         val winSpkiBase64 = android.util.Base64.encodeToString(pinnedKey, android.util.Base64.NO_WRAP)
         val proofData = "$token:$timestampMs:$winSpkiBase64".toByteArray(Charsets.UTF_8)
@@ -309,7 +309,7 @@ object FileTransferClient {
     ): OkHttpClient {
         val base = getPinnedClient(context, customPinnedKey, host)
         val pinnedKey = resolvePinnedKey(context, customPinnedKey)
-            ?: throw IllegalStateException("Windows host public key must be pinned before initiating desktop streaming.")
+            ?: throw IllegalStateException("Host public key must be pinned before initiating desktop streaming.")
         val sha256 = MessageDigest.getInstance("SHA-256").digest(pinnedKey)
         val pinBase64 = android.util.Base64.encodeToString(sha256, android.util.Base64.NO_WRAP)
         val pin = "sha256/$pinBase64"
@@ -364,7 +364,7 @@ object FileTransferClient {
         } catch (e: javax.net.ssl.SSLException) {
             val msg = e.message ?: ""
             if (msg.contains("I/O error during system call") || msg.contains("ssl=")) {
-                throw Exception("File transfer TLS connection was reset by Windows server. Verify server identity trust and service status.", e)
+                throw Exception("File transfer TLS connection was reset by host server. Verify server identity trust and service status.", e)
             }
             throw Exception("File transfer TLS handshake failed: ${e.message}", e)
         } catch (e: java.net.SocketException) {

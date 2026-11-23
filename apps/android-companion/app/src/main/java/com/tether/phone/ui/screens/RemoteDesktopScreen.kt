@@ -98,7 +98,7 @@ fun RemoteDesktopScreen(
                 streamError = "Failed to acquire session token: ${e.message}"
             }
         } else {
-            streamError = "Windows host not connected."
+            streamError = "Host computer not connected."
         }
     }
 

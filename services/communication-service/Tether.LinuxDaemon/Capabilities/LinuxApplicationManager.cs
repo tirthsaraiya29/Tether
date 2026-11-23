@@ -282,6 +282,37 @@ public static class LinuxApplicationManager
         }
     }
 
+    public static async Task<bool> ActivateWindowAsync(string windowIdOrPid, ITetherLogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(windowIdOrPid)) return false;
+
+        try
+        {
+            string id = windowIdOrPid.Trim();
+
+            // Try wmctrl -i -a <id>
+            var psi = new ProcessStartInfo
+            {
+                FileName = "wmctrl",
+                Arguments = $"-i -a {id}",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var p = Process.Start(psi);
+            if (p != null)
+            {
+                await p.WaitForExitAsync();
+                return p.ExitCode == 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Debug($"LinuxApplicationManager: ActivateWindowAsync '{windowIdOrPid}' error: {ex.Message}");
+        }
+
+        return false;
+    }
+
     public static async Task<bool> CloseWindowAsync(string windowIdOrPid, ITetherLogger logger)
     {
         if (string.IsNullOrWhiteSpace(windowIdOrPid)) return false;

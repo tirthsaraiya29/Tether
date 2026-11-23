@@ -346,4 +346,95 @@ public class LinuxPacketRouterAuthorizationTests : IDisposable
         Assert.Equal("CONFIRM_ACTION", doc.RootElement.GetProperty("type").GetString());
         Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
     }
+
+    [Fact]
+    public async Task AudioDevicesGet_RejectedIfLacksMediaCapability()
+    {
+        using var pipe = new MemoryStream();
+        var device = new LinuxDevice
+        {
+            DeviceId = "dev-no-media",
+            Capabilities = new List<string> { "TERMINAL" }
+        };
+        using var session = CreateTestSession(pipe, device);
+
+        byte[] cmd = Encoding.UTF8.GetBytes("{\"type\":\"AUDIO_DEVICES_GET\",\"requestId\":\"req_audio_1\"}");
+        await _router.RouteFrameAsync(cmd, session, CancellationToken.None);
+
+        pipe.Position = 0;
+        using var doc = await FrameCodec.ReadJsonFrameAsync(pipe, CancellationToken.None);
+        Assert.NotNull(doc);
+        Assert.Equal("CONFIRM_ACTION", doc.RootElement.GetProperty("type").GetString());
+        Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
+    }
+
+    [Fact]
+    public async Task AudioDevicesGet_ReturnsDeviceList_WhenAuthorized()
+    {
+        using var pipe = new MemoryStream();
+        var device = new LinuxDevice
+        {
+            DeviceId = "dev-with-media",
+            Capabilities = new List<string> { "MEDIA" }
+        };
+        using var session = CreateTestSession(pipe, device);
+
+        byte[] cmd = Encoding.UTF8.GetBytes("{\"type\":\"AUDIO_DEVICES_GET\",\"requestId\":\"req_audio_2\"}");
+        await _router.RouteFrameAsync(cmd, session, CancellationToken.None);
+
+        pipe.Position = 0;
+        using var doc = await FrameCodec.ReadJsonFrameAsync(pipe, CancellationToken.None);
+        Assert.NotNull(doc);
+        Assert.Equal("AUDIO_DEVICES_RESPONSE", doc.RootElement.GetProperty("type").GetString());
+        Assert.Equal("req_audio_2", doc.RootElement.GetProperty("requestId").GetString());
+        Assert.True(doc.RootElement.TryGetProperty("devices", out var devProp));
+        Assert.Equal(JsonValueKind.Array, devProp.ValueKind);
+    }
+
+    [Fact]
+    public async Task AudioSessionsGet_ReturnsSessionsAndDevices_WhenAuthorized()
+    {
+        using var pipe = new MemoryStream();
+        var device = new LinuxDevice
+        {
+            DeviceId = "dev-with-media",
+            Capabilities = new List<string> { "MEDIA" }
+        };
+        using var session = CreateTestSession(pipe, device);
+
+        byte[] cmd = Encoding.UTF8.GetBytes("{\"type\":\"AUDIO_SESSIONS_GET\",\"requestId\":\"req_sess_1\"}");
+        await _router.RouteFrameAsync(cmd, session, CancellationToken.None);
+
+        pipe.Position = 0;
+        using var doc = await FrameCodec.ReadJsonFrameAsync(pipe, CancellationToken.None);
+        Assert.NotNull(doc);
+        Assert.Equal("AUDIO_SESSIONS_RESPONSE", doc.RootElement.GetProperty("type").GetString());
+        Assert.Equal("req_sess_1", doc.RootElement.GetProperty("requestId").GetString());
+        Assert.True(doc.RootElement.TryGetProperty("sessions", out _));
+        Assert.True(doc.RootElement.TryGetProperty("devices", out _));
+        Assert.True(doc.RootElement.TryGetProperty("micGain", out _));
+    }
+
+    [Fact]
+    public async Task MicGetState_ReturnsMicState_WhenAuthorized()
+    {
+        using var pipe = new MemoryStream();
+        var device = new LinuxDevice
+        {
+            DeviceId = "dev-with-media",
+            Capabilities = new List<string> { "MEDIA" }
+        };
+        using var session = CreateTestSession(pipe, device);
+
+        byte[] cmd = Encoding.UTF8.GetBytes("{\"type\":\"MIC_GET_STATE\",\"requestId\":\"req_mic_1\"}");
+        await _router.RouteFrameAsync(cmd, session, CancellationToken.None);
+
+        pipe.Position = 0;
+        using var doc = await FrameCodec.ReadJsonFrameAsync(pipe, CancellationToken.None);
+        Assert.NotNull(doc);
+        Assert.Equal("MIC_STATE_RESPONSE", doc.RootElement.GetProperty("type").GetString());
+        Assert.Equal("req_mic_1", doc.RootElement.GetProperty("requestId").GetString());
+        Assert.True(doc.RootElement.TryGetProperty("level", out _));
+        Assert.True(doc.RootElement.TryGetProperty("isMuted", out _));
+    }
 }

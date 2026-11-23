@@ -111,6 +111,8 @@ static int parse_auth_status(const char *json, size_t len)
             p++;
             if (strncmp(p, "SUCCESS\"", 8) == 0) {
                 return 1;
+            } else if (strncmp(p, "NO_GRANT\"", 9) == 0) {
+                return 2;
             } else {
                 return 0;
             }
@@ -182,16 +184,20 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
         return PAM_AUTHINFO_UNAVAIL;
     }
 
-    // Verify peer identity via SO_PEERCRED
+    // Verify peer identity via SO_PEERCRED (Strict Fail-Closed)
     struct ucred cred;
     socklen_t cred_len = sizeof(cred);
-    if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &cred_len) == 0) {
-        uid_t caller_uid = geteuid();
-        if (cred.uid != 0 && cred.uid != caller_uid) {
-            if (debug) syslog(LOG_AUTHPRIV | LOG_ERR, "pam_tether: peer UID %u unauthorized (expected 0 or %u)", cred.uid, caller_uid);
-            close(fd);
-            return PAM_AUTHINFO_UNAVAIL;
-        }
+    if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &cred_len) != 0 || cred_len != sizeof(cred)) {
+        if (debug) syslog(LOG_AUTHPRIV | LOG_ERR, "pam_tether: failed to retrieve SO_PEERCRED: %m");
+        close(fd);
+        return PAM_AUTHINFO_UNAVAIL;
+    }
+
+    uid_t caller_uid = geteuid();
+    if (cred.uid != 0 && cred.uid != caller_uid) {
+        if (debug) syslog(LOG_AUTHPRIV | LOG_ERR, "pam_tether: peer UID %u unauthorized (expected 0 or %u)", cred.uid, caller_uid);
+        close(fd);
+        return PAM_AUTHINFO_UNAVAIL;
     }
 
     char esc_user[256];
@@ -254,10 +260,14 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
 
     resp_buf[resp_len] = '\0';
 
+    int status_code = parse_auth_status(resp_buf, resp_len);
     int auth_result = PAM_AUTH_ERR;
-    if (parse_auth_status(resp_buf, resp_len)) {
+    if (status_code == 1) {
         if (debug) syslog(LOG_AUTHPRIV | LOG_INFO, "pam_tether: authentication successful for user '%s'", username);
         auth_result = PAM_SUCCESS;
+    } else if (status_code == 2) {
+        if (debug) syslog(LOG_AUTHPRIV | LOG_DEBUG, "pam_tether: no active mobile unlock grant for user '%s'", username);
+        auth_result = PAM_AUTHINFO_UNAVAIL;
     } else {
         if (debug) syslog(LOG_AUTHPRIV | LOG_NOTICE, "pam_tether: authentication denied for user '%s'", username);
         auth_result = PAM_AUTH_ERR;

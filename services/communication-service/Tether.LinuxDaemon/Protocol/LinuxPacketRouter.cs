@@ -503,6 +503,19 @@ public sealed class LinuxPacketRouter
                     }, ct);
                     break;
 
+                case "APP_SWITCH_WINDOW":
+                case "WINDOW_FOCUS":
+                    if (!HasCapability(session.Device, "APP_LAUNCH"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks APP_LAUNCH capability" }, ct);
+                        break;
+                    }
+                    string focusWinId = doc.RootElement.TryGetProperty("id", out var fwIdProp) ? (fwIdProp.GetString() ?? "")
+                        : (doc.RootElement.TryGetProperty("hwnd", out var fhProp) ? fhProp.ToString() : "");
+                    bool focusOk = await LinuxApplicationManager.ActivateWindowAsync(focusWinId, _logger);
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = focusOk }, ct);
+                    break;
+
                 case "APP_CLOSE_WINDOW":
                 case "WINDOW_CLOSE":
                     if (!HasCapability(session.Device, "APP_LAUNCH"))
@@ -628,22 +641,105 @@ public sealed class LinuxPacketRouter
 
                 case "AUDIO_DEVICES_GET":
                 case "GET_AUDIO_DEVICES":
+                    if (!HasCapability(session.Device, "MEDIA"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks MEDIA capability" }, ct);
+                        break;
+                    }
+                    var audioDevs = LinuxHardwareExecutor.GetAudioDevices(_logger);
                     await session.WriteJsonFrameSafeAsync(new
                     {
                         type = "AUDIO_DEVICES_RESPONSE",
                         requestId = reqId,
-                        devices = Array.Empty<object>()
+                        devices = audioDevs
                     }, ct);
                     break;
 
                 case "AUDIO_SESSIONS_GET":
                 case "GET_AUDIO_SESSIONS":
+                    if (!HasCapability(session.Device, "MEDIA"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks MEDIA capability" }, ct);
+                        break;
+                    }
+                    var audioSessions = LinuxHardwareExecutor.GetAppAudioSessions(_logger);
+                    var currentDevs = LinuxHardwareExecutor.GetAudioDevices(_logger);
+                    var micState = LinuxHardwareExecutor.GetMicrophoneState(_logger);
+                    bool masterMuted = LinuxHardwareExecutor.GetSystemMute(_logger);
                     await session.WriteJsonFrameSafeAsync(new
                     {
                         type = "AUDIO_SESSIONS_RESPONSE",
                         requestId = reqId,
-                        sessions = Array.Empty<object>()
+                        sessions = audioSessions,
+                        devices = currentDevs,
+                        masterMuted = masterMuted,
+                        micMuted = micState.isMuted,
+                        micGain = micState.gain
                     }, ct);
+                    break;
+
+                case "AUDIO_DEFAULT_DEVICE_SET":
+                case "SET_AUDIO_DEVICE":
+                    if (!HasCapability(session.Device, "MEDIA"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks MEDIA capability" }, ct);
+                        break;
+                    }
+                    string devId = doc.RootElement.TryGetProperty("deviceId", out var diProp) ? (diProp.GetString() ?? "") : "";
+                    bool isDevInput = doc.RootElement.TryGetProperty("isInput", out var iiProp) && iiProp.GetBoolean();
+                    bool devOk = LinuxHardwareExecutor.SetDefaultAudioDevice(devId, isDevInput, _logger);
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = devOk }, ct);
+                    break;
+
+                case "MIC_GET_STATE":
+                case "GET_MIC_STATE":
+                    if (!HasCapability(session.Device, "MEDIA"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks MEDIA capability" }, ct);
+                        break;
+                    }
+                    var micInfo = LinuxHardwareExecutor.GetMicrophoneState(_logger);
+                    await session.WriteJsonFrameSafeAsync(new { type = "MIC_STATE_RESPONSE", requestId = reqId, level = micInfo.gain, isMuted = micInfo.isMuted }, ct);
+                    break;
+
+                case "MIC_SET_STATE":
+                case "SET_MIC_GAIN":
+                case "SET_MIC_MUTE":
+                    if (!HasCapability(session.Device, "MEDIA"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks MEDIA capability" }, ct);
+                        break;
+                    }
+                    int micLvl = doc.RootElement.TryGetProperty("level", out var mlProp) ? mlProp.GetInt32() : (doc.RootElement.TryGetProperty("gain", out var gProp) ? gProp.GetInt32() : -1);
+                    bool? micMt = doc.RootElement.TryGetProperty("isMuted", out var mmProp) ? mmProp.GetBoolean() : (doc.RootElement.TryGetProperty("mute", out var muProp) ? muProp.GetBoolean() : null);
+                    bool micSetOk = LinuxHardwareExecutor.SetMicrophoneState(micLvl, micMt, _logger);
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = micSetOk }, ct);
+                    break;
+
+                case "AUDIO_APP_VOLUME_SET":
+                case "SET_APP_VOLUME":
+                    if (!HasCapability(session.Device, "MEDIA"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks MEDIA capability" }, ct);
+                        break;
+                    }
+                    string appVolId = doc.RootElement.TryGetProperty("id", out var avidProp) ? (avidProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("pid", out var avpProp) ? avpProp.ToString() : "");
+                    int appVol = doc.RootElement.TryGetProperty("volume", out var avProp) ? avProp.GetInt32() : (doc.RootElement.TryGetProperty("volumePercent", out var avpctProp) ? avpctProp.GetInt32() : 100);
+                    bool avOk = LinuxHardwareExecutor.SetAppVolume(appVolId, appVol, _logger);
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = avOk }, ct);
+                    break;
+
+                case "AUDIO_APP_MUTE_SET":
+                case "SET_APP_MUTE":
+                    if (!HasCapability(session.Device, "MEDIA"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks MEDIA capability" }, ct);
+                        break;
+                    }
+                    string appMtId = doc.RootElement.TryGetProperty("id", out var amidProp) ? (amidProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("pid", out var ampProp) ? ampProp.ToString() : "");
+                    bool appMt = doc.RootElement.TryGetProperty("isMuted", out var aimProp) ? aimProp.GetBoolean() : (doc.RootElement.TryGetProperty("mute", out var amProp) && amProp.GetBoolean());
+                    bool amOk = LinuxHardwareExecutor.SetAppMute(appMtId, appMt, _logger);
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = amOk }, ct);
                     break;
 
                 case "CHECK_UPDATES":
@@ -694,7 +790,7 @@ public sealed class LinuxPacketRouter
     {
         string cmd = command.Trim().ToLowerInvariant();
         if (cmd is "unlock") return "POWER_ELEVATED";
-        if (cmd is "shutdown" or "poweroff" or "halt" or "reboot" or "restart" or "sleep" or "suspend" or "hibernate" or "panic")
+        if (cmd is "shutdown" or "poweroff" or "halt" or "reboot" or "restart" or "sleep" or "suspend" or "hibernate" or "panic" or "panic_lock")
             return "POWER_ELEVATED";
         if (cmd.StartsWith("admin_") || cmd.StartsWith("service_") || cmd.StartsWith("power_plan"))
             return "ADMIN";
@@ -708,7 +804,7 @@ public sealed class LinuxPacketRouter
         string cmd = command.Trim().ToLowerInvariant();
         if (cmd is "lock" or "lock_workstation" or "lock_now" or "unlock"
             or "sleep" or "suspend" or "hibernate" or "reboot" or "restart"
-            or "shutdown" or "poweroff" or "halt" or "panic")
+            or "shutdown" or "poweroff" or "halt" or "panic" or "panic_lock")
             return true;
         if (cmd is "volume_mute" or "vol_mute" or "mute" or "volume_up" or "vol_up" or "volume_down" or "vol_down" or "volume_get" or "get_volume")
             return true;

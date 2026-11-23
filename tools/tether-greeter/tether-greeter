@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+"""
+Tether Linux Login Tile & Greeter Status Application
+Production-quality login integration for GDM, SDDM, LightDM, and desktop lockscreens.
+Comparable in functionality and resilience to the Windows Credential Provider tile.
+"""
+
+import os
+import sys
+import json
+import socket
+import struct
+import time
+import argparse
+
+SOCKET_PATH = "/run/tether/auth.sock"
+POLL_INTERVAL_MS = 1500
+
+def query_daemon_status(socket_path=SOCKET_PATH, timeout=2.0):
+    if not os.path.exists(socket_path):
+        return {"status": "OFFLINE", "daemonRunning": False, "phoneConnected": False}
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect(socket_path)
+        req = json.dumps({"action": "STATUS_REQUEST"}).encode("utf-8")
+        s.sendall(struct.pack(">I", len(req)) + req)
+
+        len_data = s.recv(4)
+        if len(len_data) < 4:
+            s.close()
+            return {"status": "ERROR", "daemonRunning": True, "phoneConnected": False}
+        resp_len = struct.unpack(">I", len_data)[0]
+        if resp_len > 16384:
+            s.close()
+            return {"status": "ERROR", "daemonRunning": True, "phoneConnected": False}
+
+        body = b""
+        while len(body) < resp_len:
+            chunk = s.recv(min(4096, resp_len - len(body)))
+            if not chunk:
+                break
+            body += chunk
+        s.close()
+        return json.loads(body.decode("utf-8"))
+    except Exception as e:
+        return {"status": "ERROR", "daemonRunning": False, "phoneConnected": False, "error": str(e)}
+
+def send_daemon_action(action, payload=None, socket_path=SOCKET_PATH, timeout=3.0):
+    if not os.path.exists(socket_path):
+        return {"status": "OFFLINE", "error": "Daemon socket not found"}
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect(socket_path)
+        req_data = {"action": action}
+        if payload:
+            req_data.update(payload)
+        req_bytes = json.dumps(req_data).encode("utf-8")
+        s.sendall(struct.pack(">I", len(req_bytes)) + req_bytes)
+
+        len_data = s.recv(4)
+        if len(len_data) < 4:
+            s.close()
+            return {"status": "ERROR"}
+        resp_len = struct.unpack(">I", len_data)[0]
+        body = b""
+        while len(body) < resp_len:
+            chunk = s.recv(min(4096, resp_len - len(body)))
+            if not chunk:
+                break
+            body += chunk
+        s.close()
+        return json.loads(body.decode("utf-8"))
+    except Exception as e:
+        return {"status": "ERROR", "error": str(e)}
+
+def run_cli_greeter():
+    user = os.environ.get("USER", "current-user")
+    print("\n" + "=" * 55)
+    print("           TETHER LINUX LOGIN & GREETER TILE")
+    print("=" * 55)
+    st = query_daemon_status()
+    daemon_running = st.get("daemonRunning", False)
+    phone_connected = st.get("phoneConnected", False)
+    dev_name = st.get("connectedDeviceName", "") or "No paired device connected"
+    grant_active = st.get("grantActive", False)
+
+    print(f" Target User:        {user}")
+    print(f" Daemon Service:     {'ACTIVE (Running)' if daemon_running else 'INACTIVE (Stopped)'}")
+    print(f" Phone Connection:   {'CONNECTED (' + dev_name + ')' if phone_connected else 'DISCONNECTED'}")
+    print(f" Unlock Status:      {'ARMED (Tap Unlock on Phone)' if grant_active else ('STANDBY' if phone_connected else 'UNAVAILABLE')}")
+    print("-" * 55)
+    print(" Controls:")
+    print("  [U] Arm Mobile Unlock Grant (valid 30s)")
+    print("  [R] Restart Tether Service")
+    print("  [F] Switch to Native Password Fallback")
+    print("=" * 55 + "\n")
+
+def run_gui_greeter():
+    import gi
+    gi.require_version('Gtk', '4.0')
+    gi.require_version('Adw', '1')
+    from gi.repository import Gtk, Adw, GLib, Gio
+
+    class TetherGreeterWindow(Gtk.ApplicationWindow):
+        def __init__(self, app):
+            super().__init__(application=app, title="Tether Login")
+            self.set_default_size(440, 560)
+            self.set_resizable(False)
+
+            self.user = os.environ.get("USER", "tether-user")
+
+            # Outer box
+            main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+            main_box.set_margin_top(32)
+            main_box.set_margin_bottom(32)
+            main_box.set_margin_start(32)
+            main_box.set_margin_end(32)
+            main_box.set_halign(Gtk.Align.CENTER)
+            main_box.set_valign(Gtk.Align.CENTER)
+            self.set_child(main_box)
+
+            # 1. Header / Icon
+            header_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            header_box.set_halign(Gtk.Align.CENTER)
+            
+            icon = Gtk.Image.new_from_icon_name("network-wireless-symbolic")
+            icon.set_pixel_size(64)
+            header_box.append(icon)
+
+            title_label = Gtk.Label(label="Tether")
+            title_label.add_css_class("title-1")
+            header_box.append(title_label)
+
+            subtitle_label = Gtk.Label(label=f"User: {self.user}")
+            subtitle_label.add_css_class("body")
+            header_box.append(subtitle_label)
+
+            main_box.append(header_box)
+
+            # 2. Status Card
+            self.status_card = Adw.PreferencesGroup()
+            self.status_row = Adw.ActionRow(title="Phone Connection")
+            self.status_pill = Gtk.Label(label="Checking...")
+            self.status_pill.add_css_class("pill")
+            self.status_row.add_suffix(self.status_pill)
+            self.status_card.add(self.status_row)
+
+            self.device_row = Adw.ActionRow(title="Paired Phone", subtitle="None")
+            self.status_card.add(self.device_row)
+
+            main_box.append(self.status_card)
+
+            # 3. Instruction Status Label
+            self.message_label = Gtk.Label(label="Initializing connection status...")
+            self.message_label.set_wrap(True)
+            self.message_label.set_justify(Gtk.Justification.CENTER)
+            self.message_label.add_css_class("dim-label")
+            main_box.append(self.message_label)
+
+            # 4. Action Buttons
+            btn_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            btn_box.set_halign(Gtk.Align.FILL)
+
+            self.btn_unlock = Gtk.Button(label="Prompt Phone Unlock")
+            self.btn_unlock.add_css_class("suggested-action")
+            self.btn_unlock.set_size_request(280, 44)
+            self.btn_unlock.connect("clicked", self.on_prompt_unlock_clicked)
+            btn_box.append(self.btn_unlock)
+
+            self.btn_restart = Gtk.Button(label="Restart Tether Service")
+            self.btn_restart.connect("clicked", self.on_restart_clicked)
+            btn_box.append(self.btn_restart)
+
+            self.btn_fallback = Gtk.Button(label="Use Local Password Fallback")
+            self.btn_fallback.add_css_class("flat")
+            self.btn_fallback.connect("clicked", self.on_fallback_clicked)
+            btn_box.append(self.btn_fallback)
+
+            main_box.append(btn_box)
+
+            # Initial poll and timer
+            self.poll_status()
+            GLib.timeout_add(POLL_INTERVAL_MS, self.poll_status)
+
+        def poll_status(self):
+            st = query_daemon_status()
+            daemon_running = st.get("daemonRunning", False)
+            phone_connected = st.get("phoneConnected", False)
+            dev_name = st.get("connectedDeviceName", "") or "No phone connected"
+            grant_active = st.get("grantActive", False)
+
+            if not daemon_running:
+                self.status_pill.set_text("Daemon Stopped")
+                self.device_row.set_subtitle("Service offline")
+                self.message_label.set_text("Tether background service is inactive.\nClick 'Restart Tether Service' to revive.")
+                self.btn_unlock.set_sensitive(False)
+            elif phone_connected:
+                self.status_pill.set_text("Connected")
+                self.device_row.set_subtitle(dev_name)
+                if grant_active:
+                    self.message_label.set_text("Unlock Request Active!\nOpen the Tether app on your phone and tap 'Unlock PC'.")
+                    self.btn_unlock.set_label("Unlock Request Pending...")
+                    self.btn_unlock.set_sensitive(False)
+                else:
+                    self.message_label.set_text("Ready for Phone-Assisted Authentication.\nTap 'Unlock' on your phone or click below.")
+                    self.btn_unlock.set_label("Send Unlock Prompt")
+                    self.btn_unlock.set_sensitive(True)
+            else:
+                self.status_pill.set_text("Disconnected")
+                self.device_row.set_subtitle("Phone not connected")
+                self.message_label.set_text("Phone is disconnected or out of range.\nUse local password fallback or connect phone to Wi-Fi.")
+                self.btn_unlock.set_label("Prompt Phone Unlock")
+                self.btn_unlock.set_sensitive(False)
+
+            return True
+
+        def on_prompt_unlock_clicked(self, widget):
+            self.message_label.set_text("Arming one-time unlock grant...")
+            res = send_daemon_action("ARM_GRANT", {"username": self.user, "deviceId": "greeter-ui", "validitySeconds": 30})
+            if res.get("status") == "ARMED":
+                self.message_label.set_text("Unlock grant armed for 30 seconds!\nTap 'Unlock' on your phone.")
+            else:
+                self.message_label.set_text("Failed to arm unlock request.")
+            self.poll_status()
+
+        def on_restart_clicked(self, widget):
+            self.message_label.set_text("Restarting Tether background service...")
+            self.btn_restart.set_sensitive(False)
+            res = send_daemon_action("RESTART_REQUEST")
+            GLib.timeout_add(3000, lambda: self.btn_restart.set_sensitive(True))
+
+        def on_fallback_clicked(self, widget):
+            self.message_label.set_text("Switching to native password fallback...\nPress Enter or Escape to type your local password.")
+            # In GDM / greeter mode, close window or pass focus
+            self.close()
+
+    app = Adw.Application(application_id="com.tether.greeter", flags=Gio.ApplicationFlags.FLAGS_NONE)
+    def on_activate(app):
+        win = TetherGreeterWindow(app)
+        win.present()
+    app.connect('activate', on_activate)
+    return app.run(None)
+
+def main():
+    parser = argparse.ArgumentParser(description="Tether Linux Login Tile & Greeter")
+    parser.add_argument("--cli", action="store_true", help="Run in command-line greeter mode")
+    parser.add_argument("--status", action="store_true", help="Print JSON status and exit")
+    parser.add_argument("--restart", action="store_true", help="Trigger safe daemon restart and exit")
+    parser.add_argument("--unlock", action="store_true", help="Arm unlock grant and exit")
+    args = parser.parse_args()
+
+    if args.status:
+        st = query_daemon_status()
+        print(json.dumps(st, indent=2))
+        return 0
+
+    if args.restart:
+        res = send_daemon_action("RESTART_REQUEST")
+        print(json.dumps(res, indent=2))
+        return 0
+
+    if args.unlock:
+        user = os.environ.get("USER", "tether-user")
+        res = send_daemon_action("ARM_GRANT", {"username": user, "deviceId": "cli-greeter", "validitySeconds": 30})
+        print(json.dumps(res, indent=2))
+        return 0
+
+    has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    if args.cli or not has_display:
+        run_cli_greeter()
+        return 0
+
+    try:
+        return run_gui_greeter()
+    except Exception as e:
+        print(f"Warning: GUI mode failed ({e}), falling back to CLI greeter...")
+        run_cli_greeter()
+        return 0
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)

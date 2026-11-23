@@ -20,9 +20,30 @@ echo "[2/6] Removing installed binaries and symlinks..."
 rm -f /usr/local/bin/tether-daemon
 rm -f /usr/local/bin/tetherctl
 rm -f /usr/local/bin/tether
+rm -f /usr/local/bin/tether-greeter
 rm -rf /opt/tether
 
-echo "[3/6] Removing native PAM module..."
+echo "[3/6] Restoring PAM configuration and removing native PAM module..."
+# Safely restore pristine PAM service backups or strip pam_tether lines
+restore_pam_service() {
+    local pam_name="$1"
+    local pam_file="/etc/pam.d/${pam_name}"
+    local backup_file="${pam_file}.tether-orig"
+
+    if [[ -f "${backup_file}" ]]; then
+        echo "  Restoring pristine backup ${backup_file} -> ${pam_file}..."
+        cp -fp "${backup_file}" "${pam_file}"
+        rm -f "${backup_file}"
+    elif [[ -f "${pam_file}" ]] && grep -q "pam_tether\.so" "${pam_file}"; then
+        echo "  Cleaning pam_tether.so line from ${pam_file}..."
+        sed -i '/pam_tether\.so/d' "${pam_file}"
+    fi
+}
+
+restore_pam_service "gdm-password"
+restore_pam_service "sddm"
+restore_pam_service "lightdm"
+
 rm -f /usr/lib64/security/pam_tether.so
 rm -f /lib/x86_64-linux-gnu/security/pam_tether.so
 rm -f /usr/lib/security/pam_tether.so

@@ -79,7 +79,7 @@ public class LinuxPamAuthServerTests : IDisposable
         using var client = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
         await client.ConnectAsync(new UnixDomainSocketEndPoint(_config.PamSocketPath));
 
-        // Send AUTH_REQUEST for alice
+        // Send AUTH_REQUEST for alice via permitted service gdm-password
         var req = new { action = "AUTH_REQUEST", user = "alice", service = "gdm-password" };
         byte[] reqBytes = JsonSerializer.SerializeToUtf8Bytes(req);
         byte[] lenBytes = new byte[4];
@@ -105,15 +105,17 @@ public class LinuxPamAuthServerTests : IDisposable
     }
 
     [Fact]
-    public async Task PamSocket_Ipc_RejectsUngrantedUser()
+    public async Task PamSocket_Ipc_RejectsUnpermittedService_EvenIfGrantArmed()
     {
+        // TETH-SEC-LNX-001 Regression Test: Unpermitted services (sshd, sudo) MUST NOT consume workstation grants
         _server.Start();
+        _server.ArmUnlockGrant("alice", "phone-123", validitySeconds: 15);
 
         using var client = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
         await client.ConnectAsync(new UnixDomainSocketEndPoint(_config.PamSocketPath));
 
-        // Send AUTH_REQUEST for ungranted user 'bob'
-        var req = new { action = "AUTH_REQUEST", user = "bob", service = "sudo" };
+        // Attempt to consume unlock grant via sshd
+        var req = new { action = "AUTH_REQUEST", user = "alice", service = "sshd" };
         byte[] reqBytes = JsonSerializer.SerializeToUtf8Bytes(req);
         byte[] lenBytes = new byte[4];
         System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBytes, reqBytes.Length);
@@ -129,6 +131,72 @@ public class LinuxPamAuthServerTests : IDisposable
         await client.ReceiveAsync(respBody, SocketFlags.None);
 
         using var doc = JsonDocument.Parse(respBody);
-        Assert.Equal("DENIED", doc.RootElement.GetProperty("status").GetString());
+        Assert.Equal("SERVICE_DENIED", doc.RootElement.GetProperty("status").GetString());
+        Assert.Contains("not authorized", doc.RootElement.GetProperty("reason").GetString());
+
+        // Verify the grant was NOT consumed by the unauthorized service
+        Assert.True(_server.HasActiveGrant("alice"));
+    }
+
+    [Fact]
+    public async Task PamSocket_Ipc_ReturnsNoGrantForUngrantedUser()
+    {
+        _server.Start();
+
+        using var client = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        await client.ConnectAsync(new UnixDomainSocketEndPoint(_config.PamSocketPath));
+
+        // Send AUTH_REQUEST for ungranted user 'bob' on gdm-password
+        var req = new { action = "AUTH_REQUEST", user = "bob", service = "gdm-password" };
+        byte[] reqBytes = JsonSerializer.SerializeToUtf8Bytes(req);
+        byte[] lenBytes = new byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBytes, reqBytes.Length);
+
+        await client.SendAsync(lenBytes, SocketFlags.None);
+        await client.SendAsync(reqBytes, SocketFlags.None);
+
+        byte[] respLenBytes = new byte[4];
+        await client.ReceiveAsync(respLenBytes, SocketFlags.None);
+        int respLen = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(respLenBytes);
+
+        byte[] respBody = new byte[respLen];
+        await client.ReceiveAsync(respBody, SocketFlags.None);
+
+        using var doc = JsonDocument.Parse(respBody);
+        // Returns NO_GRANT so PAM can gracefully fall back to native password
+        Assert.Equal("NO_GRANT", doc.RootElement.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task PamSocket_Ipc_StatusQuery_ReturnsHealthAndConnectivity()
+    {
+        _server.PhoneConnectedProvider = () => true;
+        _server.ConnectedDeviceNameProvider = () => "Pixel 9 Pro";
+        _server.ConnectedDeviceFingerprintProvider = () => "A1:B2:C3:D4";
+        _server.Start();
+
+        using var client = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        await client.ConnectAsync(new UnixDomainSocketEndPoint(_config.PamSocketPath));
+
+        var req = new { action = "STATUS_REQUEST", user = "alice" };
+        byte[] reqBytes = JsonSerializer.SerializeToUtf8Bytes(req);
+        byte[] lenBytes = new byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(lenBytes, reqBytes.Length);
+
+        await client.SendAsync(lenBytes, SocketFlags.None);
+        await client.SendAsync(reqBytes, SocketFlags.None);
+
+        byte[] respLenBytes = new byte[4];
+        await client.ReceiveAsync(respLenBytes, SocketFlags.None);
+        int respLen = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(respLenBytes);
+
+        byte[] respBody = new byte[respLen];
+        await client.ReceiveAsync(respBody, SocketFlags.None);
+
+        using var doc = JsonDocument.Parse(respBody);
+        Assert.Equal("ONLINE", doc.RootElement.GetProperty("status").GetString());
+        Assert.True(doc.RootElement.GetProperty("phoneConnected").GetBoolean());
+        Assert.Equal("Pixel 9 Pro", doc.RootElement.GetProperty("connectedDeviceName").GetString());
+        Assert.Equal("A1:B2:C3:D4", doc.RootElement.GetProperty("connectedDeviceFingerprint").GetString());
     }
 }
