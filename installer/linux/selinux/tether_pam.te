@@ -1,0 +1,15 @@
+module tether_pam 1.0;
+
+require {
+    type var_run_t;
+    type xdm_t;
+    type unconfined_service_t;
+    class dir { search getattr read open };
+    class sock_file { write getattr open read };
+    class unix_stream_socket connectto;
+}
+
+# Allow GDM (xdm_t) to connect to Tether's PAM authentication socket in /run/tether
+allow xdm_t var_run_t:dir { search getattr read open };
+allow xdm_t var_run_t:sock_file { write getattr open read };
+allow xdm_t unconfined_service_t:unix_stream_socket connectto;

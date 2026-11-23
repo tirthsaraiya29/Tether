@@ -182,82 +182,70 @@ public static class LinuxHardwareExecutor
         return false;
     }
 
-    public static int GetSystemVolumeLevel(ITetherLogger logger)
+    private static string RunProcessWithTimeout(string fileName, string arguments, int timeoutMs = 300)
     {
         try
         {
             var psi = new ProcessStartInfo
             {
-                FileName = "wpctl",
-                Arguments = "get-volume @DEFAULT_AUDIO_SINK@",
+                FileName = fileName,
+                Arguments = arguments,
                 RedirectStandardOutput = true,
+                RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
             using var p = Process.Start(psi);
-            if (p != null)
-            {
-                string output = p.StandardOutput.ReadToEnd().Trim();
-                p.WaitForExit(1000);
-                // Output: "Volume: 0.40 [MUTED]" or "Volume: 0.55"
-                var match = Regex.Match(output, @"Volume:\s*([0-9\.]+)");
-                if (match.Success && double.TryParse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture, out double vol))
-                {
-                    return (int)Math.Round(vol * 100);
-                }
-            }
-        }
-        catch { }
+            if (p == null) return string.Empty;
 
-        // Fallback to amixer
-        try
+            if (!p.WaitForExit(timeoutMs))
+            {
+                try { p.Kill(true); } catch { }
+                return string.Empty;
+            }
+
+            return p.StandardOutput.ReadToEnd();
+        }
+        catch
         {
-            var psi = new ProcessStartInfo
+            return string.Empty;
+        }
+    }
+
+    public static int GetSystemVolumeLevel(ITetherLogger logger)
+    {
+        // 1. Try wpctl
+        string wpOut = RunProcessWithTimeout("wpctl", "get-volume @DEFAULT_AUDIO_SINK@", 300).Trim();
+        if (!string.IsNullOrEmpty(wpOut))
+        {
+            var match = Regex.Match(wpOut, @"Volume:\s*([0-9\.]+)");
+            if (match.Success && double.TryParse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture, out double vol))
             {
-                FileName = "amixer",
-                Arguments = "get Master",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            if (p != null)
-            {
-                string output = p.StandardOutput.ReadToEnd();
-                p.WaitForExit(1000);
-                var match = Regex.Match(output, @"\[(\d+)%\]");
-                if (match.Success && int.TryParse(match.Groups[1].Value, out int pct))
-                {
-                    return pct;
-                }
+                return (int)Math.Round(vol * 100);
             }
         }
-        catch { }
+
+        // 2. Try amixer with strict timeout
+        string amOut = RunProcessWithTimeout("amixer", "get Master", 300);
+        if (!string.IsNullOrEmpty(amOut))
+        {
+            var match = Regex.Match(amOut, @"\[(\d+)%\]");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out int pct))
+            {
+                return pct;
+            }
+        }
 
         return 50;
     }
 
     public static bool GetSystemMute(ITetherLogger logger)
     {
-        try
+        string wpOut = RunProcessWithTimeout("wpctl", "get-volume @DEFAULT_AUDIO_SINK@", 300);
+        if (!string.IsNullOrEmpty(wpOut))
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "wpctl",
-                Arguments = "get-volume @DEFAULT_AUDIO_SINK@",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            if (p != null)
-            {
-                string output = p.StandardOutput.ReadToEnd();
-                p.WaitForExit(1000);
-                return output.Contains("[MUTED]", StringComparison.OrdinalIgnoreCase);
-            }
+            return wpOut.Contains("[MUTED]", StringComparison.OrdinalIgnoreCase);
         }
-        catch { }
 
         return false;
     }

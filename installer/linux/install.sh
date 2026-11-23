@@ -66,6 +66,22 @@ mkdir -p "${PAM_DIR}"
 cp -f "${REPO_ROOT}/services/pam-tether/pam_tether.so" "${PAM_DIR}/pam_tether.so"
 chmod 0755 "${PAM_DIR}/pam_tether.so"
 
+# Configure GDM PAM module if gdm-password exists
+if [ -f /usr/lib/pam.d/gdm-password ] && [ ! -f /etc/pam.d/gdm-password ]; then
+    echo "  Configuring /etc/pam.d/gdm-password for mobile biometric unlock..."
+    cp /usr/lib/pam.d/gdm-password /etc/pam.d/gdm-password
+    sed -i '/auth.*substack.*gdm-password-auth-substack/i auth     sufficient    pam_tether.so' /etc/pam.d/gdm-password
+fi
+
+# Configure SELinux policy if SELinux is active
+if command -v semodule >/dev/null 2>&1 && command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+    echo "  Configuring SELinux policy for PAM unlock..."
+    mkdir -p "${REPO_ROOT}/installer/linux/selinux"
+    checkmodule -M -m -o "${REPO_ROOT}/installer/linux/selinux/tether_pam.mod" "${REPO_ROOT}/installer/linux/selinux/tether_pam.te" >/dev/null 2>&1 || true
+    semodule_package -o "${REPO_ROOT}/installer/linux/selinux/tether_pam.pp" -m "${REPO_ROOT}/installer/linux/selinux/tether_pam.mod" >/dev/null 2>&1 || true
+    semodule -i "${REPO_ROOT}/installer/linux/selinux/tether_pam.pp" >/dev/null 2>&1 || true
+fi
+
 echo "[5/7] Configuring dedicated udev rules for synthetic input..."
 cat << 'EOF' > /etc/udev/rules.d/99-tether-uinput.rules
 KERNEL=="uinput", MODE="0660", GROUP="tether"

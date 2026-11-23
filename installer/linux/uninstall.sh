@@ -26,6 +26,9 @@ echo "[3/6] Removing native PAM module..."
 rm -f /usr/lib64/security/pam_tether.so
 rm -f /lib/x86_64-linux-gnu/security/pam_tether.so
 rm -f /usr/lib/security/pam_tether.so
+if command -v semodule >/dev/null 2>&1; then
+    semodule -r tether_pam >/dev/null 2>&1 || true
+fi
 
 echo "[4/6] Removing udev rules and input permissions..."
 rm -f /etc/udev/rules.d/99-tether-uinput.rules

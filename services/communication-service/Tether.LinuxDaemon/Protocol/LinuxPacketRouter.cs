@@ -263,8 +263,21 @@ public sealed class LinuxPacketRouter
                     }
 
                     bool ok = LinuxHardwareExecutor.ExecuteCommand(command, _logger, _pamServer, out int vol);
-                    bool isMuted = LinuxHardwareExecutor.GetSystemMute(_logger);
-                    int bri = LinuxHardwareExecutor.GetBrightnessLevel(_logger);
+                    bool isMuted = false;
+                    int bri = -1;
+                    int finalVol = vol;
+
+                    string lowerCmd = command.Trim().ToLowerInvariant();
+                    if (lowerCmd.Contains("volume") || lowerCmd.Contains("vol") || lowerCmd.Contains("mute"))
+                    {
+                        isMuted = LinuxHardwareExecutor.GetSystemMute(_logger);
+                        finalVol = vol >= 0 ? vol : LinuxHardwareExecutor.GetSystemVolumeLevel(_logger);
+                    }
+                    else if (lowerCmd.Contains("bright"))
+                    {
+                        bri = LinuxHardwareExecutor.GetBrightnessLevel(_logger);
+                    }
+
                     var confirm = new ConfirmCommand
                     {
                         Type = "CONFIRM_COMMAND",
@@ -274,7 +287,7 @@ public sealed class LinuxPacketRouter
                         Reason = ok ? "OK" : "Execution failed",
                         ErrorCode = ok ? null : "ERR_EXECUTION_FAILED",
                         State = ok ? "COMPLETED" : "FAILED",
-                        VolumeLevel = vol >= 0 ? vol : LinuxHardwareExecutor.GetSystemVolumeLevel(_logger),
+                        VolumeLevel = finalVol,
                         IsMuted = isMuted,
                         BrightnessLevel = bri
                     };
