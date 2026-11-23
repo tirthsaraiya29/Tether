@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Authentication;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,6 +20,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Tether.LinuxDaemon.Common;
 using Tether.LinuxDaemon.Config;
+using Tether.LinuxDaemon.Desktop;
+using Tether.LinuxDaemon.Trust;
 using Tether.Shared.Logging;
 using Tether.Shared.Security;
 
@@ -30,6 +35,8 @@ public sealed class LinuxFileTransferServer : IHostedService
     private readonly IHostIdentity _identity;
     private readonly LinuxDaemonConfig _config;
     private readonly LinuxTokenStore _tokenStore;
+    private readonly LinuxTrustStore? _trustStore;
+    private readonly LinuxDesktopManager _desktopManager;
     private WebApplication? _app;
 
     [DllImport("libc", SetLastError = true, EntryPoint = "realpath")]
@@ -42,12 +49,16 @@ public sealed class LinuxFileTransferServer : IHostedService
         ITetherLogger logger,
         IHostIdentity identity,
         LinuxDaemonConfig config,
-        LinuxTokenStore tokenStore)
+        LinuxTokenStore tokenStore,
+        LinuxTrustStore? trustStore = null,
+        LinuxDesktopManager? desktopManager = null)
     {
         _logger = logger;
         _identity = identity;
         _config = config;
         _tokenStore = tokenStore;
+        _trustStore = trustStore;
+        _desktopManager = desktopManager ?? new LinuxDesktopManager(logger);
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -72,10 +83,10 @@ public sealed class LinuxFileTransferServer : IHostedService
 
         _app = builder.Build();
 
-        // Middleware: Token Validation
+        // Middleware: Token Validation and Cryptographic Client Proof Verification
         _app.Use(async (context, next) =>
         {
-            // Allow health / ping check without token
+            // Allow health check without token
             if (context.Request.Path == "/health")
             {
                 context.Response.StatusCode = 200;
@@ -106,13 +117,19 @@ public sealed class LinuxFileTransferServer : IHostedService
                 return;
             }
 
-            if (!tokenInfo.Capabilities.Contains("*") && !tokenInfo.Capabilities.Contains("FILES"))
+            // Capability check: FILES or DESKTOP or wildcard
+            bool isDesktopPath = context.Request.Path.StartsWithSegments("/api/desktop");
+            bool hasCap = tokenInfo.Capabilities.Contains("*") ||
+                          tokenInfo.Capabilities.Contains("FILES") ||
+                          (isDesktopPath && tokenInfo.Capabilities.Contains("DESKTOP"));
+            if (!hasCap)
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                await context.Response.WriteAsJsonAsync(new { error = "Forbidden: Token lacks FILES capability" });
+                await context.Response.WriteAsJsonAsync(new { error = "Forbidden: Token lacks required capability" });
                 return;
             }
 
+            // Client device fingerprint check
             string? clientDeviceFp = context.Request.Headers["X-Tether-Device"].FirstOrDefault();
             if (!string.IsNullOrEmpty(clientDeviceFp) && !string.IsNullOrEmpty(tokenInfo.DeviceFingerprint) &&
                 !string.Equals(clientDeviceFp, tokenInfo.DeviceFingerprint, StringComparison.OrdinalIgnoreCase))
@@ -120,6 +137,65 @@ public sealed class LinuxFileTransferServer : IHostedService
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 await context.Response.WriteAsJsonAsync(new { error = "Forbidden: Device mismatch for transfer token" });
                 return;
+            }
+
+            // TETH-SEC-LNX-003: Cryptographic Client Proof & Timestamp Validation (Parity with Windows)
+            if (context.Request.Headers.TryGetValue("X-Tether-Client-Proof", out var proofHeader) &&
+                context.Request.Headers.TryGetValue("X-Tether-Client-Timestamp", out var tsHeader))
+            {
+                string proofBase64 = proofHeader.ToString().Trim();
+                string tsStr = tsHeader.ToString().Trim();
+                string clientWinSpki = context.Request.Headers.TryGetValue("X-Tether-Client-WinSpki", out var spkiH)
+                    ? spkiH.ToString().Trim()
+                    : "";
+
+                if (long.TryParse(tsStr, out long tsMs))
+                {
+                    var clientTime = DateTimeOffset.FromUnixTimeMilliseconds(tsMs);
+                    var timeDelta = Math.Abs((DateTimeOffset.UtcNow - clientTime).TotalMinutes);
+
+                    if (timeDelta > 5)
+                    {
+                        _logger.Warning($"LinuxFileTransferServer: Client timestamp out of bounds ({timeDelta:F1} mins delta) from {context.Connection.RemoteIpAddress}");
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Request timestamp expired or invalid" });
+                        return;
+                    }
+
+                    if (_trustStore != null && !string.IsNullOrEmpty(tokenInfo.DeviceFingerprint))
+                    {
+                        var pairedPhone = _trustStore.FindByFingerprint(tokenInfo.DeviceFingerprint);
+                        if (pairedPhone != null && !string.IsNullOrEmpty(pairedPhone.PublicKeySpkiBase64))
+                        {
+                            string hostSpki = _identity.GetPublicKeySpkiBase64();
+                            var proofCandidates = new List<string> { $"{token}:{tsStr}:{hostSpki}" };
+                            if (!string.IsNullOrEmpty(clientWinSpki) && !string.Equals(clientWinSpki, hostSpki, StringComparison.Ordinal))
+                            {
+                                proofCandidates.Add($"{token}:{tsStr}:{clientWinSpki}");
+                            }
+                            proofCandidates.Add($"{token}:{tsStr}:");
+
+                            bool signatureVerified = false;
+                            foreach (var candidate in proofCandidates)
+                            {
+                                byte[] candidateBytes = Encoding.UTF8.GetBytes(candidate);
+                                if (VerifyClientProofSignature(pairedPhone.PublicKeySpkiBase64, candidateBytes, proofBase64))
+                                {
+                                    signatureVerified = true;
+                                    break;
+                                }
+                            }
+
+                            if (!signatureVerified)
+                            {
+                                _logger.Warning($"LinuxFileTransferServer: Client cryptographic proof verification failed for {tokenInfo.DeviceFingerprint}");
+                                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Invalid client proof signature" });
+                                return;
+                            }
+                        }
+                    }
+                }
             }
 
             context.Items["TokenInfo"] = tokenInfo;
@@ -264,8 +340,51 @@ public sealed class LinuxFileTransferServer : IHostedService
             return Results.Ok(new { success = true, fileName = safeFileName, size = file.Length });
         });
 
+        // 4. Remote Desktop Stream (MJPEG multipart/x-mixed-replace)
+        _app.MapGet("/api/desktop/stream", async (HttpContext ctx, int? fps, int? quality, long? windowId) =>
+        {
+            ctx.Response.Headers["Content-Type"] = "multipart/x-mixed-replace; boundary=--frame";
+            ctx.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+            ctx.Response.Headers["Connection"] = "close";
+
+            int targetFps = Math.Clamp(fps ?? 15, 1, 30);
+            int targetQual = Math.Clamp(quality ?? 50, 10, 95);
+            long targetWindow = windowId ?? 0L;
+
+            var stream = ctx.Response.Body;
+            await _desktopManager.StreamDesktopAsync(targetFps, targetQual, targetWindow, async (frame, ct) =>
+            {
+                var header = Encoding.ASCII.GetBytes($"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {frame.Length}\r\n\r\n");
+                await stream.WriteAsync(header, ct);
+                await stream.WriteAsync(frame, ct);
+                await stream.WriteAsync(Encoding.ASCII.GetBytes("\r\n"), ct);
+                await stream.FlushAsync(ct);
+            }, ctx.RequestAborted);
+        });
+
+        // 5. Remote Desktop Screenshot Endpoint
+        _app.MapGet("/api/desktop/screenshot", async (HttpContext ctx, long? windowId, int? quality) =>
+        {
+            int q = Math.Clamp(quality ?? 75, 10, 100);
+            long targetWindow = windowId ?? 0L;
+
+            byte[] bytes = await _desktopManager.CaptureScreenshotAsync(q, targetWindow, ctx.RequestAborted);
+            if (bytes.Length > 0)
+            {
+                return Results.File(bytes, "image/jpeg");
+            }
+            return Results.Problem("Screenshot capture failed or timed out.");
+        });
+
+        // 6. Active Windows List Endpoint
+        _app.MapGet("/api/desktop/windows", (HttpContext ctx) =>
+        {
+            var windows = _desktopManager.GetDesktopWindows();
+            return Results.Ok(windows);
+        });
+
         await _app.StartAsync(cancellationToken);
-        _logger.Info($"Linux File Transfer HTTPS server active on port {_config.FileTransferPort} (TLS 1.3).");
+        _logger.Info($"Linux File Transfer & Desktop Streaming HTTPS server active on port {_config.FileTransferPort} (TLS 1.3).");
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -275,6 +394,22 @@ public sealed class LinuxFileTransferServer : IHostedService
             await _app.StopAsync(cancellationToken);
             await _app.DisposeAsync();
             _app = null;
+        }
+    }
+
+    private static bool VerifyClientProofSignature(string phoneSpkiBase64, byte[] data, string signatureBase64)
+    {
+        try
+        {
+            byte[] spkiDer = Convert.FromBase64String(phoneSpkiBase64);
+            byte[] sigBytes = Convert.FromBase64String(signatureBase64);
+            using var ecdsa = ECDsa.Create();
+            ecdsa.ImportSubjectPublicKeyInfo(spkiDer, out _);
+            return ecdsa.VerifyData(data, sigBytes, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        }
+        catch
+        {
+            return false;
         }
     }
 

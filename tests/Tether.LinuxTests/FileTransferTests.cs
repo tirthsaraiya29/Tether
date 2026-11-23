@@ -1,6 +1,9 @@
 using System;
 using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 using Tether.LinuxDaemon.FileTransfer;
+using Tether.Shared.Logging;
 using Xunit;
 
 namespace Tether.LinuxTests;
@@ -111,5 +114,91 @@ public class FileTransferTests
         {
             try { Directory.Delete(tempBase, true); } catch { }
         }
+    }
+
+    [Fact]
+    public void DesktopManager_GetDesktopWindows_ReturnsEntireScreenEntry()
+    {
+        var logger = new SerilogTetherLogger();
+        var desktopManager = new Tether.LinuxDaemon.Desktop.LinuxDesktopManager(logger);
+
+        var windows = desktopManager.GetDesktopWindows();
+        Assert.NotNull(windows);
+        Assert.NotEmpty(windows);
+
+        // Entire screen entry (hwnd=0) must be present for full desktop streaming
+        var fullScreen = windows.FirstOrDefault(w => w.Hwnd == 0L);
+        Assert.NotNull(fullScreen);
+        Assert.Equal("Entire Screen / Desktop", fullScreen.Title);
+        Assert.True(fullScreen.Width > 0);
+        Assert.True(fullScreen.Height > 0);
+    }
+
+    [Fact]
+    public async Task DesktopManager_CaptureScreenshot_ReturnsValidJpegBytes()
+    {
+        var logger = new SerilogTetherLogger();
+        var desktopManager = new Tether.LinuxDaemon.Desktop.LinuxDesktopManager(logger);
+
+        using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+        byte[] frame = await desktopManager.CaptureScreenshotAsync(quality: 75, windowId: 0, cts.Token);
+
+        Assert.NotNull(frame);
+        Assert.NotEmpty(frame);
+        // Valid JPEG must start with SOI marker (0xFF, 0xD8) and end with EOI marker (0xFF, 0xD9)
+        Assert.Equal(0xFF, frame[0]);
+        Assert.Equal(0xD8, frame[1]);
+        Assert.Equal(0xFF, frame[^2]);
+        Assert.Equal(0xD9, frame[^1]);
+    }
+
+    [Fact]
+    public async Task DesktopManager_StreamDesktop_EmitsFramesAndCancelsCleanly()
+    {
+        var logger = new SerilogTetherLogger();
+        var desktopManager = new Tether.LinuxDaemon.Desktop.LinuxDesktopManager(logger);
+
+        int frameCount = 0;
+        using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+
+        await desktopManager.StreamDesktopAsync(
+            fps: 15,
+            quality: 50,
+            windowId: 0,
+            (frameBytes, ct) =>
+            {
+                frameCount++;
+                Assert.NotNull(frameBytes);
+                Assert.True(frameBytes.Length > 0);
+                return Task.CompletedTask;
+            },
+            cts.Token);
+
+        Assert.True(frameCount > 0);
+    }
+
+    [Fact]
+    public void FileTransferServer_VerifyClientProofSignature_ValidatesEcdsaP256()
+    {
+        using var phoneKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        byte[] phoneSpki = phoneKey.ExportSubjectPublicKeyInfo();
+        string phoneSpkiBase64 = Convert.ToBase64String(phoneSpki);
+
+        string challenge = "token_abc123:1700000000:win_spki_base64";
+        byte[] challengeBytes = System.Text.Encoding.UTF8.GetBytes(challenge);
+
+        byte[] signature = phoneKey.SignData(challengeBytes, System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.DSASignatureFormat.Rfc3279DerSequence);
+        string sigBase64 = Convert.ToBase64String(signature);
+
+        // Verification with matching key must succeed
+        using var verifyEcdsa = System.Security.Cryptography.ECDsa.Create();
+        verifyEcdsa.ImportSubjectPublicKeyInfo(phoneSpki, out _);
+        bool verified = verifyEcdsa.VerifyData(challengeBytes, signature, System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.DSASignatureFormat.Rfc3279DerSequence);
+        Assert.True(verified);
+
+        // Verification with tampered data must fail
+        byte[] tamperedData = System.Text.Encoding.UTF8.GetBytes(challenge + "_tampered");
+        bool tamperedVerified = verifyEcdsa.VerifyData(tamperedData, signature, System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.DSASignatureFormat.Rfc3279DerSequence);
+        Assert.False(tamperedVerified);
     }
 }

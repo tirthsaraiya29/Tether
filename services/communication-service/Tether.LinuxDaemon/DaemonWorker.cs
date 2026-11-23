@@ -8,6 +8,7 @@ using Tether.EventBus;
 using Tether.LinuxDaemon.Capabilities;
 using Tether.LinuxDaemon.Common;
 using Tether.LinuxDaemon.Config;
+using Tether.LinuxDaemon.Desktop;
 using Tether.LinuxDaemon.Devices;
 using Tether.LinuxDaemon.Discovery;
 using Tether.LinuxDaemon.FileTransfer;
@@ -26,7 +27,7 @@ namespace Tether.LinuxDaemon;
 
 public sealed class DaemonWorker : BackgroundService
 {
-    private const string ServerCapabilities = "FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,WINDOWS_ADMIN,APP_MANAGEMENT";
+    private const string ServerCapabilities = "FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,WINDOWS_ADMIN,APP_MANAGEMENT,DESKTOP";
 
     private readonly ITetherLogger _logger;
     private readonly IEventBus _eventBus;
@@ -88,11 +89,14 @@ public sealed class DaemonWorker : BackgroundService
 
         using var mdns = new LinuxMdnsAdvertiser(_logger);
 
+        var desktopManager = new LinuxDesktopManager(_logger);
         var fileTransferServer = new LinuxFileTransferServer(
             _logger,
             identity,
             config,
-            tokenStore);
+            tokenStore,
+            trustStore,
+            desktopManager);
 
         try
         {
