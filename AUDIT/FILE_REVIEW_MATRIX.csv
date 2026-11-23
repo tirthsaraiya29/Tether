@@ -1,0 +1,372 @@
+FilePath,Classification,Responsibility,Dependencies,SecurityRelevance,Examined
+.github/ISSUE_TEMPLATE/01-bug-report.yml,Shared/Cross-Platform,Component: 01-bug-report.yml,,Low,Yes
+.github/ISSUE_TEMPLATE/02-feature-request.yml,Shared/Cross-Platform,Component: 02-feature-request.yml,,Low,Yes
+.github/ISSUE_TEMPLATE/03-appreciation.yml,Shared/Cross-Platform,Component: 03-appreciation.yml,,Low,Yes
+.github/ISSUE_TEMPLATE/config.yml,Shared/Cross-Platform,Component: config.yml,,Low,Yes
+.github/scripts/submit_advisories.py,Shared/Cross-Platform,Component: submit_advisories.py,,Low,Yes
+.github/scripts/update_docs.py,Shared/Cross-Platform,Component: update_docs.py,,Low,Yes
+.github/tether_analytics.py,Shared/Cross-Platform,Component: tether_analytics.py,,Low,Yes
+.github/workflows/codeql.yml,Shared/Cross-Platform,Component: codeql.yml,,Low,Yes
+.github/workflows/tether_analytics.yml,Shared/Cross-Platform,Component: tether_analytics.yml,,Low,Yes
+.github/workflows/tether_security_audit.yml,Shared/Cross-Platform,Component: tether_security_audit.yml,,Low,Yes
+.gitignore,Shared/Cross-Platform,Component: .gitignore,,Low,Yes
+CONTRIBUTING.md,Shared/Cross-Platform;Documentation,Component: CONTRIBUTING.md,,None,Yes
+DESIGN.md,Shared/Cross-Platform;Documentation,Component: DESIGN.md,,None,Yes
+LICENSE,Shared/Cross-Platform,Component: LICENSE,,Low,Yes
+README.md,Shared/Cross-Platform;Documentation,Component: README.md,,None,Yes
+SECURITY.md,Shared/Cross-Platform;Documentation,Component: SECURITY.md,,None,Yes
+SETUP.md,Shared/Cross-Platform;Documentation,Component: SETUP.md,,None,Yes
+Tether.slnx,Shared/Cross-Platform,Component: Tether.slnx,,Low,Yes
+TetherCredentialProvider/Dll.cpp,Windows;Native,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/Dll.h,Windows;Native,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/TetherCredential.cpp,Windows;Native,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/TetherCredential.h,Windows;Native,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/TetherCredentialGlobals.cpp,Windows;Native,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/TetherCredentialGlobals.h,Windows;Native,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/TetherCredentialProvider.vcxproj,Windows,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/TetherCredentialProvider.vcxproj.filters,Windows,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/TetherProvider.cpp,Windows;Native,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/TetherProvider.h,Windows;Native,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/Unregister.reg,Windows,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/common.h,Windows;Native,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/framework.h,Windows;Native,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/guid.cpp,Windows;Native;UI & Presentation,Windows native credential provider tile DLL,,Medium,Yes
+TetherCredentialProvider/guid.h,Windows;Native;UI & Presentation,Windows native credential provider tile DLL,,Medium,Yes
+TetherCredentialProvider/helpers.cpp,Windows;Native,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/helpers.h,Windows;Native,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/register.reg,Windows,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/resource.h,Windows;Native,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/resources.rc,Windows,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/tether.ico,Windows,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/tethercredentialprovider.def,Windows,Windows native credential provider tile DLL,,Low,Yes
+TetherCredentialProvider/tileimage.bmp,Windows,Windows native credential provider tile DLL,,Low,Yes
+api/submit.js,Shared/Cross-Platform,Component: submit.js,,Low,Yes
+apple-touch-icon.png,Shared/Cross-Platform,Component: apple-touch-icon.png,,Low,Yes
+apps/android-companion/.gitignore,Android,Component: .gitignore,,Low,Yes
+apps/android-companion/README.md,Android;Documentation,Component: README.md,,None,Yes
+apps/android-companion/app/.gitignore,Android,Component: .gitignore,,Low,Yes
+apps/android-companion/app/build.gradle.kts,Android;Build & CI,Component: build.gradle.kts,,Medium,Yes
+apps/android-companion/app/proguard-rules.pro,Android,Component: proguard-rules.pro,,Low,Yes
+apps/android-companion/app/src/main/AndroidManifest.xml,Android,Component: AndroidManifest.xml,,Low,Yes
+apps/android-companion/app/src/main/ic_launcher-playstore.png,Android,Component: ic_launcher-playstore.png,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/DeviceIntegrityRegistry.kt,Android,Component: DeviceIntegrityRegistry.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/FileTransferClient.kt,Android,Component: FileTransferClient.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/FileTransferNotificationManager.kt,Android,Component: FileTransferNotificationManager.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/InAppUpdateInstaller.kt,Android,Component: InAppUpdateInstaller.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/InputModels.kt,Android,Component: InputModels.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/LaptopState.kt,Android,Component: LaptopState.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/LaptopStateCache.kt,Android,Component: LaptopStateCache.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/MainActivity.kt,Android,Component: MainActivity.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/PackageInstallStatusReceiver.kt,Android,Component: PackageInstallStatusReceiver.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/PairingConfirmationActivity.kt,Android;Auth & Crypto,Component: PairingConfirmationActivity.kt,,Critical,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/PowerEventActionReceiver.kt,Android,Component: PowerEventActionReceiver.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/PowerEventActivity.kt,Android,Component: PowerEventActivity.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ProductionSecurityEngine.kt,Android;Auth & Crypto,Component: ProductionSecurityEngine.kt,,Critical,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/RemoteInputEngine.kt,Android,Component: RemoteInputEngine.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/SecurityModels.kt,Android;Auth & Crypto,Component: SecurityModels.kt,,Critical,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/TetherAlarmReceiver.kt,Android,Component: TetherAlarmReceiver.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/TetherApplication.kt,Android,Component: TetherApplication.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/TetherBootReceiver.kt,Android,Component: TetherBootReceiver.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/TetherCapabilityManager.kt,Android,Component: TetherCapabilityManager.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/TetherDiscoveryManager.kt,Android,Component: TetherDiscoveryManager.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/TetherLanService.kt,Android;Networking & Protocol,Component: TetherLanService.kt,,High,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/TetherNetworkConstants.kt,Android;Networking & Protocol,Component: TetherNetworkConstants.kt,,High,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/TetherNotificationChannels.kt,Android,Component: TetherNotificationChannels.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/TetherNotificationListenerService.kt,Android,Component: TetherNotificationListenerService.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/TetherPairingManager.kt,Android;Auth & Crypto,Component: TetherPairingManager.kt,,Critical,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/TetherTransport.kt,Android;Networking & Protocol,Component: TetherTransport.kt,,High,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/UnlockActionReceiver.kt,Android,Component: UnlockActionReceiver.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/UnlockPromptNotifier.kt,Android,Component: UnlockPromptNotifier.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/UpdateCheckService.kt,Android,Component: UpdateCheckService.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/UpdateChecker.kt,Android,Component: UpdateChecker.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/UpdateDialog.kt,Android,Component: UpdateDialog.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/UpdateSnoozeReceiver.kt,Android,Component: UpdateSnoozeReceiver.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/UpdateViewModel.kt,Android,Component: UpdateViewModel.kt,,Low,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/components/AtmosphericCanvas.kt,Android;UI & Presentation,Component: AtmosphericCanvas.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/components/LaptopScreenCard.kt,Android;UI & Presentation,Component: LaptopScreenCard.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/components/ProfessionalComponents.kt,Android;UI & Presentation,Component: ProfessionalComponents.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/screens/AdvancedAudioScreen.kt,Android;UI & Presentation,Component: AdvancedAudioScreen.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/screens/ApplicationManagementScreen.kt,Android;UI & Presentation,Component: ApplicationManagementScreen.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/screens/FileTransferScreen.kt,Android;UI & Presentation,Component: FileTransferScreen.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/screens/MainScreens.kt,Android;UI & Presentation,Component: MainScreens.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/screens/NotificationSyncScreen.kt,Android;UI & Presentation,Component: NotificationSyncScreen.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/screens/PermissionsScreen.kt,Android;UI & Presentation,Component: PermissionsScreen.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/screens/RemoteDesktopScreen.kt,Android;UI & Presentation,Android remote desktop viewer with MJPEG/WebRTC streaming,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/screens/RemoteInputScreen.kt,Android;UI & Presentation,Component: RemoteInputScreen.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/screens/RemoteTerminalScreen.kt,Android;UI & Presentation,Component: RemoteTerminalScreen.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/screens/WindowsAdminScreen.kt,Android;UI & Presentation,Component: WindowsAdminScreen.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/theme/Color.kt,Android;UI & Presentation,Component: Color.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/theme/Theme.kt,Android;UI & Presentation,Component: Theme.kt,,Medium,Yes
+apps/android-companion/app/src/main/java/com/tether/phone/ui/theme/Type.kt,Android;UI & Presentation,Component: Type.kt,,Medium,Yes
+apps/android-companion/app/src/main/res/drawable/ic_launcher_background.xml,Android,Component: ic_launcher_background.xml,,Low,Yes
+apps/android-companion/app/src/main/res/drawable/ic_launcher_foreground.xml,Android,Component: ic_launcher_foreground.xml,,Low,Yes
+apps/android-companion/app/src/main/res/drawable/ic_shortcut_lock.xml,Android,Component: ic_shortcut_lock.xml,,Low,Yes
+apps/android-companion/app/src/main/res/drawable/ic_shortcut_reboot.xml,Android,Component: ic_shortcut_reboot.xml,,Low,Yes
+apps/android-companion/app/src/main/res/drawable/ic_shortcut_shutdown.xml,Android,Component: ic_shortcut_shutdown.xml,,Low,Yes
+apps/android-companion/app/src/main/res/drawable/ic_shortcut_sleep.xml,Android,Component: ic_shortcut_sleep.xml,,Low,Yes
+apps/android-companion/app/src/main/res/drawable/ic_shortcut_unlock.xml,Android,Component: ic_shortcut_unlock.xml,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml,Android,Component: ic_launcher.xml,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml,Android,Component: ic_launcher_round.xml,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-hdpi/ic_launcher.webp,Android,Component: ic_launcher.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.webp,Android,Component: ic_launcher_foreground.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-hdpi/ic_launcher_round.webp,Android,Component: ic_launcher_round.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-mdpi/ic_launcher.webp,Android,Component: ic_launcher.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.webp,Android,Component: ic_launcher_foreground.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-mdpi/ic_launcher_round.webp,Android,Component: ic_launcher_round.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-xhdpi/ic_launcher.webp,Android,Component: ic_launcher.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.webp,Android,Component: ic_launcher_foreground.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-xhdpi/ic_launcher_round.webp,Android,Component: ic_launcher_round.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-xxhdpi/ic_launcher.webp,Android,Component: ic_launcher.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.webp,Android,Component: ic_launcher_foreground.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.webp,Android,Component: ic_launcher_round.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp,Android,Component: ic_launcher.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.webp,Android,Component: ic_launcher_foreground.webp,,Low,Yes
+apps/android-companion/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.webp,Android,Component: ic_launcher_round.webp,,Low,Yes
+apps/android-companion/app/src/main/res/values/colors.xml,Android,Component: colors.xml,,Low,Yes
+apps/android-companion/app/src/main/res/values/strings.xml,Android,Component: strings.xml,,Low,Yes
+apps/android-companion/app/src/main/res/values/themes.xml,Android;UI & Presentation,Component: themes.xml,,Medium,Yes
+apps/android-companion/app/src/main/res/xml/backup_rules.xml,Android,Component: backup_rules.xml,,Low,Yes
+apps/android-companion/app/src/main/res/xml/data_extraction_rules.xml,Android,Component: data_extraction_rules.xml,,Low,Yes
+apps/android-companion/app/src/main/res/xml/file_paths.xml,Android,Component: file_paths.xml,,Low,Yes
+apps/android-companion/app/src/main/res/xml/network_security_config.xml,Android,Component: network_security_config.xml,,Low,Yes
+apps/android-companion/app/src/main/res/xml/shortcuts.xml,Android,Component: shortcuts.xml,,Low,Yes
+apps/android-companion/app/src/test/java/com/tether/phone/CompanionCapabilityTests.kt,Android;Tests & Fixtures,Component: CompanionCapabilityTests.kt,,Medium,Yes
+apps/android-companion/app/src/test/java/com/tether/phone/ProductionSecurityEngineTest.kt,Android;Auth & Crypto,Component: ProductionSecurityEngineTest.kt,,Critical,Yes
+apps/android-companion/app/src/test/java/com/tether/phone/TetherHotspotDiscoveryTest.kt,Android,Component: TetherHotspotDiscoveryTest.kt,,Low,Yes
+apps/android-companion/app/src/test/java/com/tether/phone/TetherTransportTrustManagerTest.kt,Android;Auth & Crypto,Component: TetherTransportTrustManagerTest.kt,,Critical,Yes
+apps/android-companion/build.gradle.kts,Android;Build & CI,Component: build.gradle.kts,,Medium,Yes
+apps/android-companion/docs/ARCHITECTURE.md,Android;Documentation,Component: ARCHITECTURE.md,,None,Yes
+apps/android-companion/gradle.properties,Android,Component: gradle.properties,,Low,Yes
+apps/android-companion/gradle/gradle-daemon-jvm.properties,Android,Component: gradle-daemon-jvm.properties,,Low,Yes
+apps/android-companion/gradle/libs.versions.toml,Android,Component: libs.versions.toml,,Low,Yes
+apps/android-companion/gradle/wrapper/gradle-wrapper.jar,Android,Component: gradle-wrapper.jar,,Low,Yes
+apps/android-companion/gradle/wrapper/gradle-wrapper.properties,Android,Component: gradle-wrapper.properties,,Low,Yes
+apps/android-companion/gradlew,Android,Component: gradlew,,Low,Yes
+apps/android-companion/gradlew.bat,Android,Component: gradlew.bat,,Low,Yes
+apps/android-companion/settings.gradle.kts,Android;Build & CI,Component: settings.gradle.kts,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/App.xaml,Windows;UI & Presentation,Component: App.xaml,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/App.xaml.cs,Windows;UI & Presentation,Component: App.xaml.cs,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/AssemblyInfo.cs,Windows;UI & Presentation,Component: AssemblyInfo.cs,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/DesktopNotification.cs,Windows;UI & Presentation,Component: DesktopNotification.cs,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/MainWindow.xaml,Windows;UI & Presentation,Component: MainWindow.xaml,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/MainWindow.xaml.cs,Windows;UI & Presentation,Component: MainWindow.xaml.cs,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/ServiceControl.cs,Windows;UI & Presentation,Component: ServiceControl.cs,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/Tether.DesktopUI.csproj,Windows;Build & CI,Component: Tether.DesktopUI.csproj,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/Themes/ControlStyles.xaml,Windows;UI & Presentation,Component: ControlStyles.xaml,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/Themes/FluentTheme.xaml,Windows;UI & Presentation,Component: FluentTheme.xaml,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/Updates/UpdateBannerControl.xaml,Windows;UI & Presentation,Component: UpdateBannerControl.xaml,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/Updates/UpdateBannerControl.xaml.cs,Windows;UI & Presentation,Component: UpdateBannerControl.xaml.cs,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/Updates/UpdateEnvironment.cs,Windows;UI & Presentation,Component: UpdateEnvironment.cs,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/Updates/UpdateManifest.cs,Windows;UI & Presentation,Component: UpdateManifest.cs,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/Updates/UpdateWatcherService.cs,Windows;UI & Presentation,Component: UpdateWatcherService.cs,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/Updates/WindowsNotificationHelper.cs,Windows;UI & Presentation,Component: WindowsNotificationHelper.cs,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/WindowsAccountDetector.cs,Windows;UI & Presentation,Component: WindowsAccountDetector.cs,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/app.manifest,Windows;UI & Presentation,Component: app.manifest,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/assets/tether-128.png,Windows;UI & Presentation,Component: tether-128.png,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/assets/tether-16.png,Windows;UI & Presentation,Component: tether-16.png,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/assets/tether-256.png,Windows;UI & Presentation,Component: tether-256.png,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/assets/tether-32.png,Windows;UI & Presentation,Component: tether-32.png,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/assets/tether-64.png,Windows;UI & Presentation,Component: tether-64.png,,Medium,Yes
+apps/desktop-ui/Tether.DesktopUI/assets/tether.ico,Windows;UI & Presentation,Component: tether.ico,,Medium,Yes
+apps/updater/Tether.Updater/Program.cs,Windows,Component: Program.cs,,Low,Yes
+apps/updater/Tether.Updater/SIGNING.md,Windows;Documentation,Component: SIGNING.md,,None,Yes
+apps/updater/Tether.Updater/Tether.Updater.csproj,Windows;Build & CI,Component: Tether.Updater.csproj,,Medium,Yes
+apps/updater/Tether.Updater/app.manifest,Windows,Component: app.manifest,,Low,Yes
+apps/updater/Tether.Updater/assets/tether.ico,Windows,Component: tether.ico,,Low,Yes
+assets/tether.ico,Shared/Cross-Platform,Component: tether.ico,,Low,Yes
+build_debug.bat,Shared/Cross-Platform;Build & CI,Component: build_debug.bat,,Medium,Yes
+docs/BRANDING.md,Shared/Cross-Platform;Documentation,Component: BRANDING.md,,None,Yes
+docs/assets/branding/tether-logo-1024.png,Shared/Cross-Platform,Component: tether-logo-1024.png,,Low,Yes
+docs/assets/branding/tether-logo-128.png,Shared/Cross-Platform,Component: tether-logo-128.png,,Low,Yes
+docs/assets/branding/tether-logo-16.png,Shared/Cross-Platform,Component: tether-logo-16.png,,Low,Yes
+docs/assets/branding/tether-logo-256.png,Shared/Cross-Platform,Component: tether-logo-256.png,,Low,Yes
+docs/assets/branding/tether-logo-32.png,Shared/Cross-Platform,Component: tether-logo-32.png,,Low,Yes
+docs/assets/branding/tether-logo-4k.png,Shared/Cross-Platform,Component: tether-logo-4k.png,,Low,Yes
+docs/assets/branding/tether-logo-512.png,Shared/Cross-Platform,Component: tether-logo-512.png,,Low,Yes
+docs/assets/branding/tether-logo-64.png,Shared/Cross-Platform,Component: tether-logo-64.png,,Low,Yes
+docs/assets/branding/tether-logo-8k.png,Shared/Cross-Platform,Component: tether-logo-8k.png,,Low,Yes
+docs/assets/branding/tether-logo-square-1024.png,Shared/Cross-Platform,Component: tether-logo-square-1024.png,,Low,Yes
+docs/assets/branding/tether-logo-square-512.png,Shared/Cross-Platform,Component: tether-logo-square-512.png,,Low,Yes
+docs/assets/branding/tether-logo-square-8k.png,Shared/Cross-Platform,Component: tether-logo-square-8k.png,,Low,Yes
+docs/assets/branding/tether-logo.svg,Shared/Cross-Platform,Component: tether-logo.svg,,Low,Yes
+docs/assets/branding/tether.ico,Shared/Cross-Platform,Component: tether.ico,,Low,Yes
+docs/assets/screenshots/android-command-center.jpg,Shared/Cross-Platform;UI & Presentation,Component: android-command-center.jpg,,Medium,Yes
+docs/assets/screenshots/android-device-pairing.jpg,Shared/Cross-Platform;UI & Presentation,Component: android-device-pairing.jpg,,Medium,Yes
+docs/assets/screenshots/android-handshake-verified.jpg,Shared/Cross-Platform;UI & Presentation,Component: android-handshake-verified.jpg,,Medium,Yes
+docs/assets/screenshots/android-remote-desktop.jpg,Shared/Cross-Platform;UI & Presentation,Component: android-remote-desktop.jpg,,Medium,Yes
+docs/assets/screenshots/android-remote-trackpad.jpg,Shared/Cross-Platform;UI & Presentation,Component: android-remote-trackpad.jpg,,Medium,Yes
+docs/assets/screenshots/android-system-apps-launcher.jpg,Shared/Cross-Platform;UI & Presentation,Component: android-system-apps-launcher.jpg,,Medium,Yes
+docs/assets/screenshots/android-system-config-integrity.jpg,Shared/Cross-Platform;UI & Presentation,Component: android-system-config-integrity.jpg,,Medium,Yes
+docs/assets/screenshots/android-terminal.jpg,Shared/Cross-Platform;UI & Presentation,Component: android-terminal.jpg,,Medium,Yes
+docs/assets/screenshots/desktop-telemetry-control-plane.png,Shared/Cross-Platform;UI & Presentation,Component: desktop-telemetry-control-plane.png,,Medium,Yes
+docs/assets/screenshots/local-lan-connectivity.jpg,Shared/Cross-Platform;UI & Presentation,Component: local-lan-connectivity.jpg,,Medium,Yes
+favicon.ico,Shared/Cross-Platform,Component: favicon.ico,,Low,Yes
+favicon.svg,Shared/Cross-Platform,Component: favicon.svg,,Low,Yes
+icon-192.png,Shared/Cross-Platform,Component: icon-192.png,,Low,Yes
+icon-512.png,Shared/Cross-Platform,Component: icon-512.png,,Low,Yes
+index.html,Shared/Cross-Platform,Component: index.html,,Low,Yes
+indexnow-key.txt,Shared/Cross-Platform,Component: indexnow-key.txt,,Low,Yes
+installer/Tether.iss,Shared/Cross-Platform;Installer & Deployment,Component: Tether.iss,,High,Yes
+installer/assets/tether.ico,Shared/Cross-Platform;Installer & Deployment,Component: tether.ico,,High,Yes
+installer/linux/install.sh,Linux;Installer & Deployment,Linux deployment and daemon configuration script,,High,Yes
+installer/linux/selinux/tether_pam.te,Linux;Auth & Crypto,Component: tether_pam.te,,Critical,Yes
+installer/linux/uninstall.sh,Linux;Installer & Deployment,Linux deployment and daemon configuration script,,High,Yes
+manifest.webmanifest,Shared/Cross-Platform,Component: manifest.webmanifest,,Low,Yes
+middleware.ts,Shared/Cross-Platform,Component: middleware.ts,,Low,Yes
+robots.txt,Shared/Cross-Platform,Component: robots.txt,,Low,Yes
+scripts/install-linux.sh,Shared/Cross-Platform,Component: install-linux.sh,,Low,Yes
+scripts/uninstall-linux.sh,Shared/Cross-Platform,Component: uninstall-linux.sh,,Low,Yes
+services/communication-service/Tether.CommunicationService/Capabilities/CapabilityManager.cs,Windows,Component: CapabilityManager.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Capabilities/HardwareExecutor.cs,Windows,Component: HardwareExecutor.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Capabilities/LaptopStateCollector.cs,Windows,Component: LaptopStateCollector.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Capabilities/WindowsAdminManager.cs,Windows,Component: WindowsAdminManager.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Devices/DeviceManager.cs,Windows,Component: DeviceManager.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Devices/TetherDevice.cs,Windows,Component: TetherDevice.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Discovery/DiscoveryRateLimiter.cs,Windows,Component: DiscoveryRateLimiter.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Discovery/MdnsAdvertiser.cs,Windows,Component: MdnsAdvertiser.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Discovery/UdpDiscovery.cs,Windows,Component: UdpDiscovery.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/FileTransfer/FileTransferAuthMiddleware.cs,Windows,Component: FileTransferAuthMiddleware.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/FileTransfer/FileTransferServer.cs,Windows,Component: FileTransferServer.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/FileTransfer/TokenStore.cs,Windows,Component: TokenStore.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Ipc/IpcEventRelay.cs,Windows,Component: IpcEventRelay.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Pairing/PairingManager.cs,Windows;Auth & Crypto,Component: PairingManager.cs,,Critical,Yes
+services/communication-service/Tether.CommunicationService/PipeServer.cs,Windows,Component: PipeServer.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/PowerEventHub.cs,Windows,Component: PowerEventHub.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/PowerEventNotifier.cs,Windows,Component: PowerEventNotifier.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/PowerEventWatcher.cs,Windows,Component: PowerEventWatcher.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Program.cs,Windows,Component: Program.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Properties/launchSettings.json,Windows,Component: launchSettings.json,,Low,Yes
+services/communication-service/Tether.CommunicationService/Protocol/PacketRouter.cs,Windows;Networking & Protocol,Component: PacketRouter.cs,,High,Yes
+services/communication-service/Tether.CommunicationService/Protocol/TetherMessages.cs,Windows;Networking & Protocol,Component: TetherMessages.cs,,High,Yes
+services/communication-service/Tether.CommunicationService/Security/WindowsIdentity.cs,Windows;Auth & Crypto,Component: WindowsIdentity.cs,,Critical,Yes
+services/communication-service/Tether.CommunicationService/Sessions/SessionManager.cs,Windows,Component: SessionManager.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Tether.CommunicationService.csproj,Windows;Build & CI,Component: Tether.CommunicationService.csproj,,Medium,Yes
+services/communication-service/Tether.CommunicationService/TetherWindowsService.cs,Windows,Component: TetherWindowsService.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/Transport/FrameCodec.cs,Windows;Networking & Protocol,Component: FrameCodec.cs,,High,Yes
+services/communication-service/Tether.CommunicationService/Transport/InputForwarder.cs,Windows;Networking & Protocol,Component: InputForwarder.cs,,High,Yes
+services/communication-service/Tether.CommunicationService/Transport/SessionHelperDaemon.cs,Windows;Networking & Protocol,Component: SessionHelperDaemon.cs,,High,Yes
+services/communication-service/Tether.CommunicationService/Transport/TetherSession.cs,Windows;Networking & Protocol,Component: TetherSession.cs,,High,Yes
+services/communication-service/Tether.CommunicationService/Transport/TetherTcpServer.cs,Windows;Networking & Protocol,Component: TetherTcpServer.cs,,High,Yes
+services/communication-service/Tether.CommunicationService/Trust/TrustStore.cs,Windows;Auth & Crypto,Component: TrustStore.cs,,Critical,Yes
+services/communication-service/Tether.CommunicationService/Trust/TrustStoreProviderBridge.cs,Windows;Auth & Crypto,Component: TrustStoreProviderBridge.cs,,Critical,Yes
+services/communication-service/Tether.CommunicationService/Worker.cs,Windows,Component: Worker.cs,,Low,Yes
+services/communication-service/Tether.CommunicationService/app.manifest,Windows,Component: app.manifest,,Low,Yes
+services/communication-service/Tether.CommunicationService/appsettings.Development.json,Windows,Component: appsettings.Development.json,,Low,Yes
+services/communication-service/Tether.CommunicationService/appsettings.json,Windows,Component: appsettings.json,,Low,Yes
+services/communication-service/Tether.CommunicationService/assets/tether.ico,Windows,Component: tether.ico,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Capabilities/LinuxAdminManager.cs,Linux,Component: LinuxAdminManager.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Capabilities/LinuxApplicationManager.cs,Linux,Component: LinuxApplicationManager.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Capabilities/LinuxHardwareExecutor.cs,Linux,"System power, volume, and hardware controls",,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Capabilities/LinuxLaptopStateCollector.cs,Linux,Component: LinuxLaptopStateCollector.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Capabilities/LinuxMediaController.cs,Linux,Component: LinuxMediaController.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Capabilities/LinuxNotificationController.cs,Linux,Component: LinuxNotificationController.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Common/PlatformDetection.cs,Linux,Component: PlatformDetection.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Config/LinuxDaemonConfig.cs,Linux,Component: LinuxDaemonConfig.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/DaemonWorker.cs,Linux,Component: DaemonWorker.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Devices/LinuxDevice.cs,Linux,Component: LinuxDevice.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Devices/LinuxDeviceManager.cs,Linux,Component: LinuxDeviceManager.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Discovery/DiscoveryRateLimiter.cs,Linux,Component: DiscoveryRateLimiter.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Discovery/LinuxMdnsAdvertiser.cs,Linux,Component: LinuxMdnsAdvertiser.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Discovery/LinuxUdpDiscovery.cs,Linux,Component: LinuxUdpDiscovery.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/FileTransfer/LinuxFileTransferServer.cs,Linux,Kestrel HTTPS server for file transfers and desktop streaming,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/FileTransfer/LinuxTokenStore.cs,Linux,Component: LinuxTokenStore.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Input/LinuxUinputInjector.cs,Linux;UI & Presentation,Kernel /dev/uinput synthetic input injector,,Medium,Yes
+services/communication-service/Tether.LinuxDaemon/Pairing/LinuxPairingManager.cs,Linux;Auth & Crypto,Linux cryptographic pairing and SPKI certificate exchange,,Critical,Yes
+services/communication-service/Tether.LinuxDaemon/Program.cs,Linux,Component: Program.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Protocol/LinuxPacketRouter.cs,Linux;Networking & Protocol,Command and capability dispatch router for connected sessions,,High,Yes
+services/communication-service/Tether.LinuxDaemon/Protocol/TetherMessages.cs,Linux;Networking & Protocol,Component: TetherMessages.cs,,High,Yes
+services/communication-service/Tether.LinuxDaemon/Security/LinuxIdentity.cs,Linux;Auth & Crypto,Component: LinuxIdentity.cs,,Critical,Yes
+services/communication-service/Tether.LinuxDaemon/Security/LinuxPamAuthServer.cs,Linux;Auth & Crypto,UNIX domain socket authentication server for PAM grants,,Critical,Yes
+services/communication-service/Tether.LinuxDaemon/Sessions/LinuxSessionManager.cs,Linux,Component: LinuxSessionManager.cs,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Terminal/LinuxTerminalManager.cs,Linux,Linux pseudoterminal (PTY) session manager,,Low,Yes
+services/communication-service/Tether.LinuxDaemon/Tether.LinuxDaemon.csproj,Linux;Build & CI,Component: Tether.LinuxDaemon.csproj,,Medium,Yes
+services/communication-service/Tether.LinuxDaemon/Transport/FrameCodec.cs,Linux;Networking & Protocol,Component: FrameCodec.cs,,High,Yes
+services/communication-service/Tether.LinuxDaemon/Transport/LinuxSession.cs,Linux;Networking & Protocol,Component: LinuxSession.cs,,High,Yes
+services/communication-service/Tether.LinuxDaemon/Transport/LinuxTcpServer.cs,Linux;Networking & Protocol,Component: LinuxTcpServer.cs,,High,Yes
+services/communication-service/Tether.LinuxDaemon/Trust/LinuxTrustStore.cs,Linux;Auth & Crypto,HKDF encrypted trust store for paired devices,,Critical,Yes
+services/communication-service/Tether.LinuxDaemon/systemd/tether.service,Linux;Installer & Deployment,Component: tether.service,,High,Yes
+services/communication-service/Tether.SessionHelper/AdvancedAudioController.cs,Windows,Component: AdvancedAudioController.cs,,Low,Yes
+services/communication-service/Tether.SessionHelper/ApplicationManager.cs,Windows,Component: ApplicationManager.cs,,Low,Yes
+services/communication-service/Tether.SessionHelper/AudioController.cs,Windows,Component: AudioController.cs,,Low,Yes
+services/communication-service/Tether.SessionHelper/InputInjector.cs,Windows,Component: InputInjector.cs,,Low,Yes
+services/communication-service/Tether.SessionHelper/LockStateDetector.cs,Windows,Component: LockStateDetector.cs,,Low,Yes
+services/communication-service/Tether.SessionHelper/MediaSessionController.cs,Windows,Component: MediaSessionController.cs,,Low,Yes
+services/communication-service/Tether.SessionHelper/NotificationController.cs,Windows,Component: NotificationController.cs,,Low,Yes
+services/communication-service/Tether.SessionHelper/Program.cs,Windows,Component: Program.cs,,Low,Yes
+services/communication-service/Tether.SessionHelper/ScreenCaptureEngine.cs,Windows;UI & Presentation,Component: ScreenCaptureEngine.cs,,Medium,Yes
+services/communication-service/Tether.SessionHelper/TerminalSessionManager.cs,Windows,Component: TerminalSessionManager.cs,,Low,Yes
+services/communication-service/Tether.SessionHelper/Tether.SessionHelper.csproj,Windows;Build & CI,Component: Tether.SessionHelper.csproj,,Medium,Yes
+services/communication-service/Tether.SessionHelper/WallpaperReader.cs,Windows,Component: WallpaperReader.cs,,Low,Yes
+services/communication-service/Tether.SessionHelper/app.manifest,Windows,Component: app.manifest,,Low,Yes
+services/communication-service/Tether.SessionHelper/assets/tether.ico,Windows,Component: tether.ico,,Low,Yes
+services/enforcement-engine/Tether.EnforcementEngine/EnforcementManager.cs,Shared/Cross-Platform,Component: EnforcementManager.cs,,Low,Yes
+services/enforcement-engine/Tether.EnforcementEngine/Tether.EnforcementEngine.csproj,Shared/Cross-Platform;Build & CI,Component: Tether.EnforcementEngine.csproj,,Medium,Yes
+services/event-bus/Tether.EventBus/IEventBus.cs,Shared/Cross-Platform,Component: IEventBus.cs,,Low,Yes
+services/event-bus/Tether.EventBus/InMemoryEventBus.cs,Shared/Cross-Platform,Component: InMemoryEventBus.cs,,Low,Yes
+services/event-bus/Tether.EventBus/Tether.EventBus.csproj,Shared/Cross-Platform;Build & CI,Component: Tether.EventBus.csproj,,Medium,Yes
+services/pam-tether/Makefile,Linux;Auth & Crypto,Component: Makefile,,Critical,Yes
+services/pam-tether/pam_tether.c,Linux;Native;Auth & Crypto,Native Linux PAM module for biometric/phone authentication,,Critical,Yes
+services/pam-tether/test_pam_tether.c,Linux;Native;Auth & Crypto,Native Linux PAM module for biometric/phone authentication,,Critical,Yes
+services/panic-engine/Tether.PanicEngine/CredentialProviderRestorationState.cs,Shared/Cross-Platform,Component: CredentialProviderRestorationState.cs,,Low,Yes
+services/panic-engine/Tether.PanicEngine/PanicManager.cs,Shared/Cross-Platform,Component: PanicManager.cs,,Low,Yes
+services/panic-engine/Tether.PanicEngine/SafeCredentialFilterManager.cs,Shared/Cross-Platform,Component: SafeCredentialFilterManager.cs,,Low,Yes
+services/panic-engine/Tether.PanicEngine/Tether.PanicEngine.csproj,Shared/Cross-Platform;Build & CI,Component: Tether.PanicEngine.csproj,,Medium,Yes
+services/recovery-engine/Tether.RecoveryEngine/RecoveryManager.cs,Shared/Cross-Platform,Component: RecoveryManager.cs,,Low,Yes
+services/recovery-engine/Tether.RecoveryEngine/Tether.RecoveryEngine.csproj,Shared/Cross-Platform;Build & CI,Component: Tether.RecoveryEngine.csproj,,Medium,Yes
+services/trust-engine/Tether.TrustEngine/Tether.TrustEngine.csproj,Shared/Cross-Platform;Auth & Crypto,Component: Tether.TrustEngine.csproj,,Critical,Yes
+services/trust-engine/Tether.TrustEngine/TrustStateManager.cs,Shared/Cross-Platform;Auth & Crypto,Component: TrustStateManager.cs,,Critical,Yes
+shared/Tether.Shared/Constants/TrustStates.cs,Shared/Cross-Platform;Auth & Crypto,"Cross-platform protocol contracts, DTOs, and crypto primitives",,Critical,Yes
+shared/Tether.Shared/DTO/PairingPayloads.cs,Shared/Cross-Platform;Auth & Crypto,"Cross-platform protocol contracts, DTOs, and crypto primitives",,Critical,Yes
+shared/Tether.Shared/Events/FileTransferProgressPayload.cs,Shared/Cross-Platform,"Cross-platform protocol contracts, DTOs, and crypto primitives",,Low,Yes
+shared/Tether.Shared/Events/TetherEvent.cs,Shared/Cross-Platform,"Cross-platform protocol contracts, DTOs, and crypto primitives",,Low,Yes
+shared/Tether.Shared/Ipc/IpcConstants.cs,Shared/Cross-Platform,"Cross-platform protocol contracts, DTOs, and crypto primitives",,Low,Yes
+shared/Tether.Shared/Logging/Ilogger.cs,Shared/Cross-Platform,"Cross-platform protocol contracts, DTOs, and crypto primitives",,Low,Yes
+shared/Tether.Shared/Logging/SerilogTetherLogger.cs,Shared/Cross-Platform,"Cross-platform protocol contracts, DTOs, and crypto primitives",,Low,Yes
+shared/Tether.Shared/Network/NetworkConstants.cs,Shared/Cross-Platform;Networking & Protocol,"Cross-platform protocol contracts, DTOs, and crypto primitives",,High,Yes
+shared/Tether.Shared/Security/AuthenticodeVerifier.cs,Shared/Cross-Platform;Auth & Crypto,"Cross-platform protocol contracts, DTOs, and crypto primitives",,Critical,Yes
+shared/Tether.Shared/Security/FallbackCredentialStore.cs,Shared/Cross-Platform;Auth & Crypto,"Cross-platform protocol contracts, DTOs, and crypto primitives",,Critical,Yes
+shared/Tether.Shared/Security/FallbackCredentialValidator.cs,Shared/Cross-Platform;Auth & Crypto,"Cross-platform protocol contracts, DTOs, and crypto primitives",,Critical,Yes
+shared/Tether.Shared/Security/IHostIdentity.cs,Shared/Cross-Platform;Auth & Crypto,"Cross-platform protocol contracts, DTOs, and crypto primitives",,Critical,Yes
+shared/Tether.Shared/Tether.Shared.csproj,Shared/Cross-Platform;Build & CI,"Cross-platform protocol contracts, DTOs, and crypto primitives",,Medium,Yes
+sitemap.xml,Shared/Cross-Platform,Component: sitemap.xml,,Low,Yes
+tests/Tether.LinuxTests/DiscoveryTests.cs,Linux;Tests & Fixtures,Component: DiscoveryTests.cs,,Medium,Yes
+tests/Tether.LinuxTests/FileTransferTests.cs,Linux;Tests & Fixtures,Component: FileTransferTests.cs,,Medium,Yes
+tests/Tether.LinuxTests/FrameCodecTests.cs,Linux;Tests & Fixtures,Component: FrameCodecTests.cs,,Medium,Yes
+tests/Tether.LinuxTests/InProcessDaemonIntegrationTests.cs,Linux;Tests & Fixtures,Component: InProcessDaemonIntegrationTests.cs,,Medium,Yes
+tests/Tether.LinuxTests/LinuxAdminManagerTests.cs,Linux;Tests & Fixtures,Component: LinuxAdminManagerTests.cs,,Medium,Yes
+tests/Tether.LinuxTests/LinuxHardwareExecutorTests.cs,Linux;Tests & Fixtures,"System power, volume, and hardware controls",,Medium,Yes
+tests/Tether.LinuxTests/LinuxIdentityTests.cs,Linux;Tests & Fixtures,Component: LinuxIdentityTests.cs,,Medium,Yes
+tests/Tether.LinuxTests/LinuxInputTests.cs,Linux;Tests & Fixtures,Component: LinuxInputTests.cs,,Medium,Yes
+tests/Tether.LinuxTests/LinuxMediaAndAppTests.cs,Linux;Tests & Fixtures,Component: LinuxMediaAndAppTests.cs,,Medium,Yes
+tests/Tether.LinuxTests/LinuxPacketRouterAuthorizationTests.cs,Linux;Tests & Fixtures,Command and capability dispatch router for connected sessions,,Medium,Yes
+tests/Tether.LinuxTests/LinuxPairingAndSessionTests.cs,Linux;Auth & Crypto,Component: LinuxPairingAndSessionTests.cs,,Critical,Yes
+tests/Tether.LinuxTests/LinuxPamAuthServerTests.cs,Linux;Tests & Fixtures,UNIX domain socket authentication server for PAM grants,,Medium,Yes
+tests/Tether.LinuxTests/LinuxTerminalTests.cs,Linux;Tests & Fixtures,Component: LinuxTerminalTests.cs,,Medium,Yes
+tests/Tether.LinuxTests/LinuxTrustStoreTests.cs,Linux;Auth & Crypto,HKDF encrypted trust store for paired devices,,Critical,Yes
+tests/Tether.LinuxTests/LiveDaemonIntegrationTests.cs,Linux;Tests & Fixtures,Component: LiveDaemonIntegrationTests.cs,,Medium,Yes
+tests/Tether.LinuxTests/PlatformDetectionTests.cs,Linux;Tests & Fixtures,Component: PlatformDetectionTests.cs,,Medium,Yes
+tests/Tether.LinuxTests/Tether.LinuxTests.csproj,Linux;Tests & Fixtures,Component: Tether.LinuxTests.csproj,,Medium,Yes
+tests/Tether.NativeTests/Tether.NativeTests.vcxproj,Shared/Cross-Platform;Tests & Fixtures,Component: Tether.NativeTests.vcxproj,,Medium,Yes
+tests/Tether.NativeTests/main.cpp,Shared/Cross-Platform;Native;Tests & Fixtures,Component: main.cpp,,Medium,Yes
+tests/Tether.Tests/ApplicationManagerTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: ApplicationManagerTests.cs,,Medium,Yes
+tests/Tether.Tests/AuthenticodeVerifierTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: AuthenticodeVerifierTests.cs,,Medium,Yes
+tests/Tether.Tests/EventBusConcurrencyTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: EventBusConcurrencyTests.cs,,Medium,Yes
+tests/Tether.Tests/FallbackAuthenticationTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: FallbackAuthenticationTests.cs,,Medium,Yes
+tests/Tether.Tests/GlobalNamedEventTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: GlobalNamedEventTests.cs,,Medium,Yes
+tests/Tether.Tests/HandshakeDeviceIdValidationTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: HandshakeDeviceIdValidationTests.cs,,Medium,Yes
+tests/Tether.Tests/SafeCredentialProviderRestorationTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: SafeCredentialProviderRestorationTests.cs,,Medium,Yes
+tests/Tether.Tests/TETH_POT_001_TrustStoreSecurityTests.cs,Shared/Cross-Platform;Auth & Crypto,Component: TETH_POT_001_TrustStoreSecurityTests.cs,,Critical,Yes
+tests/Tether.Tests/TETH_REG_001_WorkflowRejectionTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: TETH_REG_001_WorkflowRejectionTests.cs,,Medium,Yes
+tests/Tether.Tests/TETH_SEC_001_FilesCapabilityTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: TETH_SEC_001_FilesCapabilityTests.cs,,Medium,Yes
+tests/Tether.Tests/TETH_SEC_003_ConsoleSessionIpcTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: TETH_SEC_003_ConsoleSessionIpcTests.cs,,Medium,Yes
+tests/Tether.Tests/TETH_SEC_004_BoundedPayloadTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: TETH_SEC_004_BoundedPayloadTests.cs,,Medium,Yes
+tests/Tether.Tests/TETH_SEC_005_FilesystemAndDeviceBindingTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: TETH_SEC_005_FilesystemAndDeviceBindingTests.cs,,Medium,Yes
+tests/Tether.Tests/TETH_SEC_006_CryptoVaultAndGeneralHardeningTests.cs,Shared/Cross-Platform;Auth & Crypto,Component: TETH_SEC_006_CryptoVaultAndGeneralHardeningTests.cs,,Critical,Yes
+tests/Tether.Tests/TerminalTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: TerminalTests.cs,,Medium,Yes
+tests/Tether.Tests/TestHelpers.cs,Shared/Cross-Platform;Tests & Fixtures,Component: TestHelpers.cs,,Medium,Yes
+tests/Tether.Tests/Tether.Tests.csproj,Shared/Cross-Platform;Tests & Fixtures,Component: Tether.Tests.csproj,,Medium,Yes
+tests/Tether.Tests/UdpDiscoveryHotspotTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: UdpDiscoveryHotspotTests.cs,,Medium,Yes
+tests/Tether.Tests/Win32InputAbiTests.cs,Shared/Cross-Platform;Tests & Fixtures,Component: Win32InputAbiTests.cs,,Medium,Yes
+tools/tetherctl/Program.cs,Linux,Component: Program.cs,,Low,Yes
+tools/tetherctl/Tether.Cli.csproj,Linux;Build & CI,Component: Tether.Cli.csproj,,Medium,Yes
+vercel.json,Shared/Cross-Platform,Component: vercel.json,,Low,Yes
