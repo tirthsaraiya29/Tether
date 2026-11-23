@@ -43,6 +43,7 @@ static volatile int g_mock_server_running = 0;
 static const char *g_expected_user = "testuser";
 static int g_simulate_timeout = 0;
 static int g_simulate_confused_status = 0;
+static int g_simulate_no_grant = 0;
 
 static void *mock_server_thread(void *arg)
 {
@@ -97,6 +98,8 @@ static void *mock_server_thread(void *arg)
                 if (g_simulate_confused_status) {
                     // Adversarial test: return DENIED with embedded "status":"SUCCESS" substring
                     resp = "{\"status\":\"DENIED\",\"reason\":\"User \\\"status\\\":\\\"SUCCESS\\\" is not armed\"}";
+                } else if (g_simulate_no_grant) {
+                    resp = "{\"status\":\"NO_GRANT\"}";
                 } else {
                     char search_needle[128];
                     snprintf(search_needle, sizeof(search_needle), "\"user\":\"%s\"", g_expected_user);
@@ -189,8 +192,17 @@ int main(void)
     assert(rc == PAM_AUTH_ERR);
     printf("PASSED\n");
 
-    // Test 7: pam_sm_setcred & acct_mgmt
-    printf("[7/7] Testing pam_sm_setcred and pam_sm_acct_mgmt... ");
+    // Test 7: NO_GRANT response returns PAM_AUTHINFO_UNAVAIL for seamless local password fallback
+    printf("[7/8] Testing NO_GRANT returns PAM_AUTHINFO_UNAVAIL for seamless password fallback... ");
+    g_simulate_no_grant = 1;
+    snprintf(pamh.user, sizeof(pamh.user), "testuser");
+    rc = pam_sm_authenticate(&pamh, 0, 3, argv_valid);
+    assert(rc == PAM_AUTHINFO_UNAVAIL);
+    g_simulate_no_grant = 0;
+    printf("PASSED\n");
+
+    // Test 8: pam_sm_setcred & acct_mgmt
+    printf("[8/8] Testing pam_sm_setcred and pam_sm_acct_mgmt... ");
     snprintf(pamh.user, sizeof(pamh.user), "testuser");
     assert(pam_sm_setcred(&pamh, 0, 3, argv_valid) == PAM_SUCCESS);
     assert(pam_sm_acct_mgmt(&pamh, 0, 3, argv_valid) == PAM_SUCCESS);

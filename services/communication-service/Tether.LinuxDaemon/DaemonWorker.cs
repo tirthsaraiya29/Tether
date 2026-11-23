@@ -55,7 +55,12 @@ public sealed class DaemonWorker : BackgroundService
         using var inputInjector = new LinuxUinputInjector(_logger);
         using var terminalManager = new LinuxTerminalManager(_logger);
         var adminManager = new LinuxAdminManager(_logger);
-        using var pamServer = new LinuxPamAuthServer(_logger, config);
+        using var pamServer = new LinuxPamAuthServer(_logger, config)
+        {
+            PhoneConnectedProvider = () => sessionManager.GetAllSessions().Count > 0,
+            ConnectedDeviceNameProvider = () => sessionManager.GetAllSessions().FirstOrDefault()?.Device?.DisplayName ?? "",
+            ConnectedDeviceFingerprintProvider = () => sessionManager.GetAllSessions().FirstOrDefault()?.Device?.Fingerprint ?? ""
+        };
 
         var router = new LinuxPacketRouter(
             sessionManager,

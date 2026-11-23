@@ -67,7 +67,10 @@ public static class Program
                     return HandleUnlock(config, logger);
 
                 case "restart":
-                    return HandleRestart();
+                    return HandleRestart(config);
+
+                case "greeter" or "tile":
+                    return HandleGreeter(args.Skip(1).ToArray());
 
                 case "logs":
                     return HandleLogs(args.Skip(1).ToArray());
@@ -100,6 +103,7 @@ Commands:
   pairing       Show pairing instructions and local discovery network endpoints
   lock          Immediately lock the current graphical desktop session
   unlock        Arm a one-time workstation unlock grant for PAM
+  greeter       Launch the graphical or CLI Tether Login & Greeter tile
   restart       Restart the background Tether systemd daemon
   logs [-f]     Show recent daemon logs from systemd journal
   version       Show version information");
@@ -138,6 +142,39 @@ Commands:
 
         Console.WriteLine($"Daemon Service:    {(isServiceRunning ? "ACTIVE (Running)" : "INACTIVE (Stopped)")}");
         Console.WriteLine($"PAM Auth Socket:   {(File.Exists(config.PamSocketPath) ? "ONLINE" : "OFFLINE")}");
+
+        // Live status query over daemon IPC
+        if (File.Exists(config.PamSocketPath))
+        {
+            try
+            {
+                using var sock = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+                sock.Connect(new UnixDomainSocketEndPoint(config.PamSocketPath));
+                var req = new { action = "STATUS_REQUEST" };
+                byte[] reqBytes = JsonSerializer.SerializeToUtf8Bytes(req);
+                byte[] lenBytes = new byte[4];
+                BinaryPrimitives.WriteInt32BigEndian(lenBytes, reqBytes.Length);
+                sock.Send(lenBytes);
+                sock.Send(reqBytes);
+
+                byte[] respLenBytes = new byte[4];
+                int r1 = sock.Receive(respLenBytes);
+                if (r1 == 4)
+                {
+                    int rLen = BinaryPrimitives.ReadInt32BigEndian(respLenBytes);
+                    byte[] rBody = new byte[rLen];
+                    int r2 = sock.Receive(rBody);
+                    using var doc = JsonDocument.Parse(rBody.AsMemory(0, r2));
+                    bool phoneConnected = doc.RootElement.TryGetProperty("phoneConnected", out var pProp) && pProp.GetBoolean();
+                    string devName = doc.RootElement.TryGetProperty("connectedDeviceName", out var dProp) ? (dProp.GetString() ?? "") : "";
+                    bool grantActive = doc.RootElement.TryGetProperty("grantActive", out var gProp) && gProp.GetBoolean();
+
+                    Console.WriteLine($"Phone Connection:  {(phoneConnected ? ($"CONNECTED ({devName})") : "DISCONNECTED")}");
+                    Console.WriteLine($"Mobile Unlock:     {(grantActive ? "ARMED (Grant Active)" : (phoneConnected ? "READY" : "STANDBY"))}");
+                }
+            }
+            catch { }
+        }
 
         // Admin telemetry
         var adminMgr = new LinuxAdminManager(logger);
@@ -308,9 +345,41 @@ Commands:
         return 1;
     }
 
-    private static int HandleRestart()
+    private static int HandleRestart(LinuxDaemonConfig config)
     {
-        Console.WriteLine("Restarting tether.service...");
+        Console.WriteLine("Requesting tether.service restart...");
+        if (File.Exists(config.PamSocketPath))
+        {
+            try
+            {
+                using var sock = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+                sock.Connect(new UnixDomainSocketEndPoint(config.PamSocketPath));
+                var req = new { action = "RESTART_REQUEST" };
+                byte[] reqBytes = JsonSerializer.SerializeToUtf8Bytes(req);
+                byte[] lenBytes = new byte[4];
+                BinaryPrimitives.WriteInt32BigEndian(lenBytes, reqBytes.Length);
+                sock.Send(lenBytes);
+                sock.Send(reqBytes);
+
+                byte[] respLenBytes = new byte[4];
+                int r1 = sock.Receive(respLenBytes);
+                if (r1 == 4)
+                {
+                    int rLen = BinaryPrimitives.ReadInt32BigEndian(respLenBytes);
+                    byte[] rBody = new byte[rLen];
+                    int r2 = sock.Receive(rBody);
+                    using var doc = JsonDocument.Parse(rBody.AsMemory(0, r2));
+                    string status = doc.RootElement.TryGetProperty("status", out var sProp) ? (sProp.GetString() ?? "") : "";
+                    if (status == "RESTARTING")
+                    {
+                        Console.WriteLine("Tether background daemon restart signal accepted via secure IPC.");
+                        return 0;
+                    }
+                }
+            }
+            catch { }
+        }
+
         try
         {
             var psi = new ProcessStartInfo
@@ -333,6 +402,42 @@ Commands:
             Console.Error.WriteLine($"Failed to restart service: {ex.Message}");
         }
         return 1;
+    }
+
+    private static int HandleGreeter(string[] args)
+    {
+        string greeterPath = "/usr/local/bin/tether-greeter";
+        if (!File.Exists(greeterPath))
+        {
+            // Relative fallback in repo
+            greeterPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../tools/tether-greeter/tether-greeter"));
+        }
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = File.Exists(greeterPath) ? greeterPath : "python3",
+                UseShellExecute = false
+            };
+            bool isExecutable = OperatingSystem.IsLinux() && File.GetUnixFileMode(greeterPath).HasFlag(UnixFileMode.UserExecute);
+            if (!File.Exists(greeterPath) || !isExecutable)
+            {
+                psi.ArgumentList.Add("tools/tether-greeter/tether-greeter");
+            }
+            foreach (var arg in args)
+            {
+                psi.ArgumentList.Add(arg);
+            }
+            using var p = Process.Start(psi);
+            p?.WaitForExit();
+            return p?.ExitCode ?? 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error launching greeter tile: {ex.Message}");
+            return 1;
+        }
     }
 
     private static int HandleLogs(string[] args)
