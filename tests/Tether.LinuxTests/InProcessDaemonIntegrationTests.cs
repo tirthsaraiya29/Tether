@@ -150,6 +150,226 @@ public class InProcessDaemonIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task InProcess_FullPairingFlow_SucceedsWithMatchingTranscriptHashAndPinProof()
+    {
+        var (phoneSpkiBase64, phoneKey) = GenerateClientKey();
+        byte[] phoneSpki = Convert.FromBase64String(phoneSpkiBase64);
+
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync("127.0.0.1", _server.BoundPort);
+
+        using var ssl = new SslStream(tcp.GetStream(), false, (_, _, _, _) => true);
+        await ssl.AuthenticateAsClientAsync("localhost");
+
+        var init = new HandshakeInit
+        {
+            Version = "2.0",
+            DeviceId = "TEST_PHONE_E2E_01",
+            DeviceName = "Test Pixel E2E",
+            PublicKey = phoneSpkiBase64,
+            IsPairingRequested = true,
+            Capabilities = "FILES,MEDIA,TERMINAL,ADMIN"
+        };
+
+        byte[] initBytes = JsonSerializer.SerializeToUtf8Bytes(init);
+        await FrameCodec.WriteFrameAsync(ssl, initBytes, CancellationToken.None);
+
+        byte[]? respBytes = await FrameCodec.ReadFrameAsync(ssl, CancellationToken.None);
+        Assert.NotNull(respBytes);
+
+        using var respDoc = JsonDocument.Parse(respBytes);
+        var respRoot = respDoc.RootElement;
+        Assert.Equal("HANDSHAKE_RESPONSE", respRoot.GetProperty("type").GetString());
+        Assert.Equal("PAIRING_PENDING", respRoot.GetProperty("status").GetString());
+        Assert.Equal("linux", respRoot.GetProperty("os").GetString());
+
+        string requestId = respRoot.GetProperty("requestId").GetString()!;
+        string hostSpkiBase64 = respRoot.GetProperty("publicKey").GetString()!;
+        byte[] hostSpki = Convert.FromBase64String(hostSpkiBase64);
+
+        // Find the pending pairing request generated on the daemon
+        var pendingRequests = _pairingManager.GetPendingRequests();
+        var pending = Assert.Single(pendingRequests, p => p.RequestId == requestId);
+        string pin = pending.Pin;
+        Assert.Equal(6, pin.Length);
+
+        // Verify transcript hash
+        byte[] transcriptHash;
+        using (var sha = SHA512.Create())
+        {
+            var combined = new byte[initBytes.Length + respBytes.Length];
+            Buffer.BlockCopy(initBytes, 0, combined, 0, initBytes.Length);
+            Buffer.BlockCopy(respBytes, 0, combined, initBytes.Length, respBytes.Length);
+            transcriptHash = sha.ComputeHash(combined);
+        }
+        Assert.Equal(pending.TranscriptHash, transcriptHash);
+
+        // Compute HMAC-SHA256 AuthKey with SAS PIN
+        byte[] pinBytes = Encoding.UTF8.GetBytes(pin.Trim());
+        byte[] authKey;
+        using (var hmac = new HMACSHA256(pinBytes))
+        {
+            byte[] label = "TETHER-PAIRING-v2"u8.ToArray();
+            byte[] reqIdBytes = Encoding.UTF8.GetBytes(requestId);
+            using var ms = new MemoryStream();
+            ms.Write(label);
+            ms.Write(transcriptHash);
+            ms.Write(reqIdBytes);
+            ms.Write(hostSpki);
+            ms.Write(phoneSpki);
+            authKey = hmac.ComputeHash(ms.ToArray());
+        }
+
+        // Sign AuthKey with client private key
+        byte[] signature = phoneKey.SignData(authKey, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+
+        // Pack proof: len(authKey) || authKey || len(sig) || sig
+        using var msProof = new MemoryStream();
+        byte[] authKeyLen = new byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(authKeyLen, authKey.Length);
+        msProof.Write(authKeyLen);
+        msProof.Write(authKey);
+        byte[] sigLen = new byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(sigLen, signature.Length);
+        msProof.Write(sigLen);
+        msProof.Write(signature);
+        string phoneProofBase64 = Convert.ToBase64String(msProof.ToArray());
+
+        // Send PAIRING_CONFIRMED frame
+        var confirmed = new
+        {
+            type = "PAIRING_CONFIRMED",
+            requestId = requestId,
+            proof = phoneProofBase64
+        };
+        await FrameCodec.WriteJsonFrameAsync(ssl, confirmed, CancellationToken.None);
+
+        // Receive PAIRING_COMPLETE frame
+        using var completeDoc = await FrameCodec.ReadJsonFrameAsync(ssl, CancellationToken.None);
+        Assert.NotNull(completeDoc);
+        var completeRoot = completeDoc.RootElement;
+        Assert.Equal("PAIRING_COMPLETE", completeRoot.GetProperty("type").GetString());
+        Assert.Equal("OK", completeRoot.GetProperty("status").GetString());
+        Assert.Equal("linux", completeRoot.GetProperty("os").GetString());
+
+        string hostProofBase64 = completeRoot.GetProperty("proof").GetString()!;
+        Assert.False(string.IsNullOrEmpty(hostProofBase64));
+
+        // Verify mutual server proof
+        byte[] expectedServerProof;
+        using (var serverHmac = new HMACSHA256(pinBytes))
+        {
+            byte[] label = "SERVER-OK"u8.ToArray();
+            using var ms = new MemoryStream();
+            ms.Write(label);
+            ms.Write(authKey);
+            ms.Write(hostSpki);
+            ms.Write(phoneSpki);
+            expectedServerProof = serverHmac.ComputeHash(ms.ToArray());
+        }
+        Assert.Equal(Convert.ToBase64String(expectedServerProof), hostProofBase64);
+
+        // Verify device is recorded in trust store
+        string phoneFp = LinuxTrustStore.ComputeFingerprintOrNull(phoneSpkiBase64)!;
+        var trustedDevice = _trustStore.FindByFingerprint(phoneFp);
+        Assert.NotNull(trustedDevice);
+        Assert.Equal("Test Pixel E2E", trustedDevice.DisplayName);
+    }
+
+    [Fact]
+    public async Task InProcess_Pairing_InvalidPin_ReturnsRemainingAttempts()
+    {
+        var (phoneSpkiBase64, phoneKey) = GenerateClientKey();
+        byte[] phoneSpki = Convert.FromBase64String(phoneSpkiBase64);
+
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync("127.0.0.1", _server.BoundPort);
+
+        using var ssl = new SslStream(tcp.GetStream(), false, (_, _, _, _) => true);
+        await ssl.AuthenticateAsClientAsync("localhost");
+
+        var init = new HandshakeInit
+        {
+            Version = "2.0",
+            DeviceId = "TEST_PHONE_INVALID_PIN_01",
+            DeviceName = "Test Pixel Invalid PIN",
+            PublicKey = phoneSpkiBase64,
+            IsPairingRequested = true,
+            Capabilities = "FILES,MEDIA,TERMINAL,ADMIN"
+        };
+
+        byte[] initBytes = JsonSerializer.SerializeToUtf8Bytes(init);
+        await FrameCodec.WriteFrameAsync(ssl, initBytes, CancellationToken.None);
+
+        byte[]? respBytes = await FrameCodec.ReadFrameAsync(ssl, CancellationToken.None);
+        Assert.NotNull(respBytes);
+
+        using var respDoc = JsonDocument.Parse(respBytes);
+        var respRoot = respDoc.RootElement;
+        string requestId = respRoot.GetProperty("requestId").GetString()!;
+        string hostSpkiBase64 = respRoot.GetProperty("publicKey").GetString()!;
+        byte[] hostSpki = Convert.FromBase64String(hostSpkiBase64);
+
+        // Intentionally wrong PIN
+        string wrongPin = "000000";
+        byte[] pinBytes = Encoding.UTF8.GetBytes(wrongPin);
+
+        byte[] transcriptHash;
+        using (var sha = SHA512.Create())
+        {
+            var combined = new byte[initBytes.Length + respBytes.Length];
+            Buffer.BlockCopy(initBytes, 0, combined, 0, initBytes.Length);
+            Buffer.BlockCopy(respBytes, 0, combined, initBytes.Length, respBytes.Length);
+            transcriptHash = sha.ComputeHash(combined);
+        }
+
+        byte[] authKey;
+        using (var hmac = new HMACSHA256(pinBytes))
+        {
+            byte[] label = "TETHER-PAIRING-v2"u8.ToArray();
+            byte[] reqIdBytes = Encoding.UTF8.GetBytes(requestId);
+            using var ms = new MemoryStream();
+            ms.Write(label);
+            ms.Write(transcriptHash);
+            ms.Write(reqIdBytes);
+            ms.Write(hostSpki);
+            ms.Write(phoneSpki);
+            authKey = hmac.ComputeHash(ms.ToArray());
+        }
+
+        byte[] signature = phoneKey.SignData(authKey, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+
+        using var msProof = new MemoryStream();
+        byte[] authKeyLen = new byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(authKeyLen, authKey.Length);
+        msProof.Write(authKeyLen);
+        msProof.Write(authKey);
+        byte[] sigLen = new byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(sigLen, signature.Length);
+        msProof.Write(sigLen);
+        msProof.Write(signature);
+        string phoneProofBase64 = Convert.ToBase64String(msProof.ToArray());
+
+        var confirmed = new
+        {
+            type = "PAIRING_CONFIRMED",
+            requestId = requestId,
+            proof = phoneProofBase64
+        };
+        await FrameCodec.WriteJsonFrameAsync(ssl, confirmed, CancellationToken.None);
+
+        using var errDoc = await FrameCodec.ReadJsonFrameAsync(ssl, CancellationToken.None);
+        Assert.NotNull(errDoc);
+        var errRoot = errDoc.RootElement;
+        Assert.Equal("PAIRING_INVALID_PIN", errRoot.GetProperty("type").GetString());
+        Assert.Equal(2, errRoot.GetProperty("remainingAttempts").GetInt32());
+
+        // Verify device is NOT added to trust store
+        string phoneFp = LinuxTrustStore.ComputeFingerprintOrNull(phoneSpkiBase64)!;
+        Assert.Null(_trustStore.FindByFingerprint(phoneFp));
+    }
+
+    [Fact]
     public async Task InProcess_MalformedJson_GracefullyClosed()
     {
         using var tcp = new TcpClient();

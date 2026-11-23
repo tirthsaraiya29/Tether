@@ -49,6 +49,9 @@ public static class Program
                 case "devices":
                     return HandleDevices(config, logger);
 
+                case "pairing" or "pair":
+                    return HandlePairing(config, logger);
+
                 case "unpair":
                     if (args.Length < 2)
                     {
@@ -94,6 +97,7 @@ Commands:
   status        Display daemon status, session info, and hardware metrics
   devices       List all paired Android companion devices
   unpair <id>   Unpair and revoke a trusted device by Device ID or Fingerprint
+  pairing       Show pairing instructions and local discovery network endpoints
   lock          Immediately lock the current graphical desktop session
   unlock        Arm a one-time workstation unlock grant for PAM
   restart       Restart the background Tether systemd daemon
@@ -176,6 +180,24 @@ Commands:
             Console.WriteLine();
         }
 
+        return 0;
+    }
+
+    private static int HandlePairing(LinuxDaemonConfig config, ITetherLogger logger)
+    {
+        Console.WriteLine("=== Tether Linux Pairing Guide ===");
+        Console.WriteLine("1. Ensure your Android phone and Linux machine are on the same local network or hotspot.");
+        Console.WriteLine("2. Open the Tether Android app and tap 'INITIATE PAIRING' or enter the host IP.");
+        Console.WriteLine("3. When prompted on your phone, enter the 6-digit PIN displayed on the daemon console screen or in desktop notification.");
+        Console.WriteLine();
+        Console.WriteLine("=== Active Discovery Network Endpoints ===");
+        var targets = Tether.LinuxDaemon.Discovery.LinuxUdpDiscovery.GetDiscoveryTargetEndPoints(Tether.LinuxDaemon.Discovery.LinuxUdpDiscovery.UdpPort);
+        foreach (var t in targets)
+        {
+            Console.WriteLine($"  - Directed Broadcast: {t.Address}:{t.Port}");
+        }
+        Console.WriteLine($"  Control Port: {config.ControlPort} (TLS 1.3)");
+        Console.WriteLine();
         return 0;
     }
 

@@ -30,6 +30,9 @@ public sealed class LinuxUdpDiscovery : IDisposable
     private UdpClient? _udpClient;
     private CancellationTokenSource? _cts;
     private Task? _workerTask;
+    private readonly NetworkAddressChangedEventHandler _addressChangedHandler;
+    private readonly NetworkAvailabilityChangedEventHandler _availabilityChangedHandler;
+    private Action? _triggerBurst;
 
     public string? LastDiscoveryIp { get; private set; }
 
@@ -37,6 +40,8 @@ public sealed class LinuxUdpDiscovery : IDisposable
     {
         _logger = logger;
         _identity = identity;
+        _addressChangedHandler = (_, _) => _triggerBurst?.Invoke();
+        _availabilityChangedHandler = (_, _) => _triggerBurst?.Invoke();
     }
 
     public static bool IsValidDeviceId(string? id)
@@ -141,12 +146,25 @@ public sealed class LinuxUdpDiscovery : IDisposable
     {
         Stop();
         _cts = new CancellationTokenSource();
+        try
+        {
+            NetworkChange.NetworkAddressChanged += _addressChangedHandler;
+            NetworkChange.NetworkAvailabilityChanged += _availabilityChangedHandler;
+        }
+        catch { }
         _workerTask = Task.Run(() => RunDiscoveryLoopAsync(_cts.Token));
         _logger.Info($"Linux UDP Discovery active on port {UdpPort}.");
     }
 
     public void Stop()
     {
+        try
+        {
+            NetworkChange.NetworkAddressChanged -= _addressChangedHandler;
+            NetworkChange.NetworkAvailabilityChanged -= _availabilityChangedHandler;
+        }
+        catch { }
+        _triggerBurst = null;
         try { _cts?.Cancel(); } catch { }
         try { _udpClient?.Close(); } catch { }
         try { _workerTask?.Wait(TimeSpan.FromSeconds(2)); } catch { }
@@ -248,8 +266,48 @@ public sealed class LinuxUdpDiscovery : IDisposable
             deviceId = _identity.DeviceId,
             deviceName = _identity.DeviceName,
             tcpPort = TcpPort,
-            os = "linux"
+            os = "linux",
+            capabilities = "FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,WINDOWS_ADMIN,APP_MANAGEMENT"
         });
+
+        async Task SendDiscoveryToTargetsAsync()
+        {
+            if (_udpClient == null) return;
+            var targets = GetDiscoveryTargetEndPoints(UdpPort);
+            foreach (var target in targets)
+            {
+                try
+                {
+                    await _udpClient.SendAsync(responsePayload, responsePayload.Length, target);
+                }
+                catch { }
+            }
+        }
+
+        _triggerBurst = () =>
+        {
+            _ = Task.Run(async () =>
+            {
+                for (int i = 0; i < 3 && !ct.IsCancellationRequested; i++)
+                {
+                    await SendDiscoveryToTargetsAsync();
+                    try { await Task.Delay(500, ct); } catch { break; }
+                }
+            }, ct);
+        };
+
+        // Periodic background broadcast loop across subnet broadcasts and default gateways
+        _ = Task.Run(async () =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await SendDiscoveryToTargetsAsync();
+                try { await Task.Delay(2500, ct); } catch { break; }
+            }
+        }, ct);
+
+        // Immediate burst on startup to announce to local network
+        _triggerBurst();
 
         while (!ct.IsCancellationRequested)
         {
@@ -260,6 +318,14 @@ public sealed class LinuxUdpDiscovery : IDisposable
                 {
                     LastDiscoveryIp = result.RemoteEndPoint.Address.ToString();
                     await _udpClient.SendAsync(responsePayload, responsePayload.Length, result.RemoteEndPoint);
+                    if (result.RemoteEndPoint.Port != UdpPort)
+                    {
+                        try
+                        {
+                            await _udpClient.SendAsync(responsePayload, responsePayload.Length, new IPEndPoint(result.RemoteEndPoint.Address, UdpPort));
+                        }
+                        catch { }
+                    }
                 }
             }
             catch (OperationCanceledException) { break; }

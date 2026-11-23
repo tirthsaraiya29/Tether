@@ -158,6 +158,14 @@ public sealed class LinuxPairingManager
         return (pending, respPayload, respBytes);
     }
 
+    public IReadOnlyCollection<PendingLinuxPairing> GetPendingRequests()
+    {
+        var now = DateTime.UtcNow;
+        return _pending.Values
+            .Where(p => (now - p.CreatedUtc).TotalSeconds <= ExpirationSeconds)
+            .ToList();
+    }
+
     public void CancelRequest(string requestId)
     {
         if (string.IsNullOrEmpty(requestId)) return;
@@ -361,35 +369,87 @@ public sealed class LinuxPairingManager
 
     private void ShowSecurePairingPrompt(string phoneName, string pin)
     {
+        // 1. Display strictly on the active console screen (per SECURITY.md pairing protocol mandate)
+        try
+        {
+            Console.WriteLine();
+            Console.WriteLine("=================================================");
+            Console.WriteLine("          TETHER DEVICE PAIRING REQUEST          ");
+            Console.WriteLine("=================================================");
+            Console.WriteLine($" Device:       {phoneName}");
+            Console.WriteLine($" Pairing PIN:  {pin}");
+            Console.WriteLine(" Enter this 6-digit PIN on your phone to pair.");
+            Console.WriteLine("=================================================");
+            Console.WriteLine();
+            Console.Out.Flush();
+        }
+        catch { }
+
         Task.Run(() =>
         {
             try
             {
                 var session = PlatformDetection.GetActiveSessionInfo();
                 string title = "Tether Pairing Code";
-                string body = $"Device '{phoneName}' is requesting to pair.\n\nPIN: {pin}";
+                string body = $"Device '{phoneName}' is requesting to pair.\n\nPairing PIN: {pin}\nEnter this 6-digit PIN on your phone.";
 
-                // 1. Try notify-send
+                string runtimeDir = session.XdgRuntimeDir ?? $"/run/user/{session.Uid}";
+                string busAddr = $"unix:path={runtimeDir}/bus";
+                string display = !string.IsNullOrEmpty(session.DisplayName) ? session.DisplayName : ":0";
+                string waylandDisplay = !string.IsNullOrEmpty(session.WaylandDisplay) ? session.WaylandDisplay : "wayland-0";
+                string userHome = $"/home/{session.UserName}";
+
+                bool isRoot = PlatformDetection.IsRoot;
+                bool shouldDropPrivileges = isRoot && !string.IsNullOrEmpty(session.UserName) && !string.Equals(session.UserName, "root", StringComparison.OrdinalIgnoreCase);
+
+                // 2. Try desktop notification via notify-send (dropping privileges to active desktop user)
                 try
                 {
-                    var psiNotify = new ProcessStartInfo
+                    ProcessStartInfo psiNotify;
+                    if (shouldDropPrivileges)
                     {
-                        FileName = "notify-send",
-                        Arguments = $"--app-name=Tether --urgency=critical \"{title}: {pin}\" \"Device '{phoneName}' is requesting to pair.\"",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    };
-                    if (!string.IsNullOrEmpty(session.XdgRuntimeDir))
-                    {
-                        psiNotify.EnvironmentVariables["XDG_RUNTIME_DIR"] = session.XdgRuntimeDir;
+                        psiNotify = new ProcessStartInfo
+                        {
+                            FileName = "runuser",
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true
+                        };
+                        psiNotify.ArgumentList.Add("-u");
+                        psiNotify.ArgumentList.Add(session.UserName);
+                        psiNotify.ArgumentList.Add("--");
+                        psiNotify.ArgumentList.Add("env");
+                        psiNotify.ArgumentList.Add($"XDG_RUNTIME_DIR={runtimeDir}");
+                        psiNotify.ArgumentList.Add($"DBUS_SESSION_BUS_ADDRESS={busAddr}");
+                        psiNotify.ArgumentList.Add($"DISPLAY={display}");
+                        psiNotify.ArgumentList.Add($"WAYLAND_DISPLAY={waylandDisplay}");
+                        psiNotify.ArgumentList.Add($"HOME={userHome}");
+                        psiNotify.ArgumentList.Add("notify-send");
+                        psiNotify.ArgumentList.Add("--app-name=Tether");
+                        psiNotify.ArgumentList.Add("--urgency=critical");
+                        psiNotify.ArgumentList.Add($"{title}: {pin}");
+                        psiNotify.ArgumentList.Add($"Device '{phoneName}' is requesting to pair.\nPairing PIN: {pin}");
                     }
-                    if (!string.IsNullOrEmpty(session.DisplayName))
+                    else
                     {
-                        psiNotify.EnvironmentVariables["DISPLAY"] = session.DisplayName;
-                    }
-                    if (!string.IsNullOrEmpty(session.WaylandDisplay))
-                    {
-                        psiNotify.EnvironmentVariables["WAYLAND_DISPLAY"] = session.WaylandDisplay;
+                        psiNotify = new ProcessStartInfo
+                        {
+                            FileName = "notify-send",
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true
+                        };
+                        psiNotify.ArgumentList.Add("--app-name=Tether");
+                        psiNotify.ArgumentList.Add("--urgency=critical");
+                        psiNotify.ArgumentList.Add($"{title}: {pin}");
+                        psiNotify.ArgumentList.Add($"Device '{phoneName}' is requesting to pair.\nPairing PIN: {pin}");
+                        psiNotify.EnvironmentVariables["XDG_RUNTIME_DIR"] = runtimeDir;
+                        psiNotify.EnvironmentVariables["DBUS_SESSION_BUS_ADDRESS"] = busAddr;
+                        psiNotify.EnvironmentVariables["DISPLAY"] = display;
+                        psiNotify.EnvironmentVariables["WAYLAND_DISPLAY"] = waylandDisplay;
+                        psiNotify.EnvironmentVariables["HOME"] = userHome;
                     }
 
                     using var p = Process.Start(psiNotify);
@@ -397,30 +457,119 @@ public sealed class LinuxPairingManager
                 }
                 catch { }
 
-                // 2. Try zenity popup if available and in user desktop
+                // 3. Try interactive GUI dialog (zenity or kdialog) with software rendering constraints to avoid GPU/Vulkan crashes
                 try
                 {
-                    var psiZenity = new ProcessStartInfo
+                    ProcessStartInfo? psiGui = null;
+                    if (File.Exists("/usr/bin/zenity") || File.Exists("/bin/zenity"))
                     {
-                        FileName = "zenity",
-                        Arguments = $"--info --title=\"Tether Pairing Request\" --text=\"{body}\" --timeout=60",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    };
-                    if (!string.IsNullOrEmpty(session.XdgRuntimeDir))
-                    {
-                        psiZenity.EnvironmentVariables["XDG_RUNTIME_DIR"] = session.XdgRuntimeDir;
+                        if (shouldDropPrivileges)
+                        {
+                            psiGui = new ProcessStartInfo
+                            {
+                                FileName = "runuser",
+                                UseShellExecute = false,
+                                CreateNoWindow = true,
+                                RedirectStandardOutput = true,
+                                RedirectStandardError = true
+                            };
+                            psiGui.ArgumentList.Add("-u");
+                            psiGui.ArgumentList.Add(session.UserName);
+                            psiGui.ArgumentList.Add("--");
+                            psiGui.ArgumentList.Add("env");
+                            psiGui.ArgumentList.Add("LIBGL_ALWAYS_SOFTWARE=1");
+                            psiGui.ArgumentList.Add("GSK_RENDERER=cairo");
+                            psiGui.ArgumentList.Add("GDK_DEBUG=gl-disable");
+                            psiGui.ArgumentList.Add("NO_AT_BRIDGE=1");
+                            psiGui.ArgumentList.Add($"XDG_RUNTIME_DIR={runtimeDir}");
+                            psiGui.ArgumentList.Add($"DBUS_SESSION_BUS_ADDRESS={busAddr}");
+                            psiGui.ArgumentList.Add($"DISPLAY={display}");
+                            psiGui.ArgumentList.Add($"WAYLAND_DISPLAY={waylandDisplay}");
+                            psiGui.ArgumentList.Add($"HOME={userHome}");
+                            psiGui.ArgumentList.Add("zenity");
+                            psiGui.ArgumentList.Add("--info");
+                            psiGui.ArgumentList.Add("--title=Tether Pairing Request");
+                            psiGui.ArgumentList.Add($"--text={body}");
+                            psiGui.ArgumentList.Add("--timeout=60");
+                        }
+                        else
+                        {
+                            psiGui = new ProcessStartInfo
+                            {
+                                FileName = "zenity",
+                                UseShellExecute = false,
+                                CreateNoWindow = true,
+                                RedirectStandardOutput = true,
+                                RedirectStandardError = true
+                            };
+                            psiGui.ArgumentList.Add("--info");
+                            psiGui.ArgumentList.Add("--title=Tether Pairing Request");
+                            psiGui.ArgumentList.Add($"--text={body}");
+                            psiGui.ArgumentList.Add("--timeout=60");
+                            psiGui.EnvironmentVariables["LIBGL_ALWAYS_SOFTWARE"] = "1";
+                            psiGui.EnvironmentVariables["GSK_RENDERER"] = "cairo";
+                            psiGui.EnvironmentVariables["GDK_DEBUG"] = "gl-disable";
+                            psiGui.EnvironmentVariables["NO_AT_BRIDGE"] = "1";
+                            psiGui.EnvironmentVariables["XDG_RUNTIME_DIR"] = runtimeDir;
+                            psiGui.EnvironmentVariables["DBUS_SESSION_BUS_ADDRESS"] = busAddr;
+                            psiGui.EnvironmentVariables["DISPLAY"] = display;
+                            psiGui.EnvironmentVariables["WAYLAND_DISPLAY"] = waylandDisplay;
+                            psiGui.EnvironmentVariables["HOME"] = userHome;
+                        }
                     }
-                    if (!string.IsNullOrEmpty(session.DisplayName))
+                    else if (File.Exists("/usr/bin/kdialog") || File.Exists("/bin/kdialog"))
                     {
-                        psiZenity.EnvironmentVariables["DISPLAY"] = session.DisplayName;
-                    }
-                    if (!string.IsNullOrEmpty(session.WaylandDisplay))
-                    {
-                        psiZenity.EnvironmentVariables["WAYLAND_DISPLAY"] = session.WaylandDisplay;
+                        if (shouldDropPrivileges)
+                        {
+                            psiGui = new ProcessStartInfo
+                            {
+                                FileName = "runuser",
+                                UseShellExecute = false,
+                                CreateNoWindow = true,
+                                RedirectStandardOutput = true,
+                                RedirectStandardError = true
+                            };
+                            psiGui.ArgumentList.Add("-u");
+                            psiGui.ArgumentList.Add(session.UserName);
+                            psiGui.ArgumentList.Add("--");
+                            psiGui.ArgumentList.Add("env");
+                            psiGui.ArgumentList.Add($"XDG_RUNTIME_DIR={runtimeDir}");
+                            psiGui.ArgumentList.Add($"DBUS_SESSION_BUS_ADDRESS={busAddr}");
+                            psiGui.ArgumentList.Add($"DISPLAY={display}");
+                            psiGui.ArgumentList.Add($"WAYLAND_DISPLAY={waylandDisplay}");
+                            psiGui.ArgumentList.Add($"HOME={userHome}");
+                            psiGui.ArgumentList.Add("kdialog");
+                            psiGui.ArgumentList.Add("--title");
+                            psiGui.ArgumentList.Add("Tether Pairing Request");
+                            psiGui.ArgumentList.Add("--msgbox");
+                            psiGui.ArgumentList.Add(body);
+                        }
+                        else
+                        {
+                            psiGui = new ProcessStartInfo
+                            {
+                                FileName = "kdialog",
+                                UseShellExecute = false,
+                                CreateNoWindow = true,
+                                RedirectStandardOutput = true,
+                                RedirectStandardError = true
+                            };
+                            psiGui.ArgumentList.Add("--title");
+                            psiGui.ArgumentList.Add("Tether Pairing Request");
+                            psiGui.ArgumentList.Add("--msgbox");
+                            psiGui.ArgumentList.Add(body);
+                            psiGui.EnvironmentVariables["XDG_RUNTIME_DIR"] = runtimeDir;
+                            psiGui.EnvironmentVariables["DBUS_SESSION_BUS_ADDRESS"] = busAddr;
+                            psiGui.EnvironmentVariables["DISPLAY"] = display;
+                            psiGui.EnvironmentVariables["WAYLAND_DISPLAY"] = waylandDisplay;
+                            psiGui.EnvironmentVariables["HOME"] = userHome;
+                        }
                     }
 
-                    using var pZen = Process.Start(psiZenity);
+                    if (psiGui != null)
+                    {
+                        using var pZen = Process.Start(psiGui);
+                    }
                 }
                 catch { }
             }

@@ -966,6 +966,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                     getSharedPreferences("tether_secure_prefs", MODE_PRIVATE).edit {
                         putString("saved_host_ip", targetIp)
                     }
+                    isExplicitPairingRequested = true
+                    discoveryManager.sendDirectProbe(targetIp, TetherDiscoveryManager.UDP_DISCOVERY_PORT)
                     resetReconnectBackoff()
                     connectToHost(targetIp, targetPort)
                 } else {
@@ -1212,10 +1214,14 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             } catch (_: Exception) {}
             activeTransport = null
             val expectedFingerprint = resolveExpectedFingerprint(hostAddress)
+            val isPairingReq = isExplicitPairingRequested || (trustState == TrustState.PAIRING_REQUESTED) || (trustState == TrustState.REPAIRING) || (trustState == TrustState.UNPAIRED)
+            val allowPairingTls = isPairingReq
+
             val transport = TetherTlsTransport(
                 appContext = this@TetherLanService,
                 securityEngine = securityEngine,
                 expectedPeerFingerprint = expectedFingerprint,
+                allowFirstContactPairing = allowPairingTls,
             )
             synchronized(connectLock) {
                 connectingTransport = transport
@@ -1230,7 +1236,6 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 }
                 currentState = TransportState.AUTHENTICATING
 
-                val isPairingReq = isExplicitPairingRequested || (trustState == TrustState.PAIRING_REQUESTED) || (trustState == TrustState.REPAIRING)
                 isExplicitPairingRequested = false
 
                 val result = pairingManager.executeHandshake(

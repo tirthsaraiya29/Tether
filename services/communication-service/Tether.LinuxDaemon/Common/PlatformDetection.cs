@@ -38,7 +38,12 @@ public sealed class LinuxSessionInfo
 
 public static class PlatformDetection
 {
+    [DllImport("libc", SetLastError = true)]
+    private static extern uint geteuid();
+
     public static bool IsLinux => RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
+
+    public static bool IsRoot => IsLinux && geteuid() == 0;
 
     public static string GetDistributionName()
     {
@@ -162,6 +167,7 @@ public static class PlatformDetection
             string userName = "";
             string type = "";
             string state = "";
+            string display = "";
             bool lockedHint = false;
 
             foreach (var rawLine in output.Split('\n'))
@@ -171,6 +177,7 @@ public static class PlatformDetection
                 else if (line.StartsWith("Name=")) userName = line.Substring(5);
                 else if (line.StartsWith("Type=")) type = line.Substring(5);
                 else if (line.StartsWith("State=")) state = line.Substring(6);
+                else if (line.StartsWith("Display=")) display = line.Substring(8);
                 else if (line.StartsWith("LockedHint=")) lockedHint = line.Substring(11).Equals("yes", StringComparison.OrdinalIgnoreCase);
             }
 
@@ -189,6 +196,8 @@ public static class PlatformDetection
                 UserName = userName,
                 DisplayServer = ds,
                 DesktopEnvironment = DesktopEnvironment.Gnome,
+                DisplayName = !string.IsNullOrEmpty(display) ? display : (ds == DisplayServer.X11 ? ":0" : null),
+                WaylandDisplay = (ds == DisplayServer.Wayland) ? "wayland-0" : null,
                 XdgRuntimeDir = $"/run/user/{uid}",
                 IsLocked = lockedHint
             };

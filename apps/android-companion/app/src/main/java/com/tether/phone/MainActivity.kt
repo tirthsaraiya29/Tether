@@ -212,12 +212,12 @@ class MainActivity : FragmentActivity() {
                         TrustState.PAIRING_DENIED -> {
                             uiStatusText.value = "PAIRING DENIED"
                             uiStatusColor.value = AlertRed
-                            uiConnectionStatusText.value = "PAIRING REJECTED BY WINDOWS PC"
+                            uiConnectionStatusText.value = "PAIRING REJECTED BY HOST"
                         }
                         TrustState.PAIRING_REQUESTED -> {
                             uiStatusText.value = "PAIRING REQUESTED"
                             uiStatusColor.value = MatrixGold
-                            uiConnectionStatusText.value = "AWAITING APPROVAL ON WINDOWS PC..."
+                            uiConnectionStatusText.value = "AWAITING APPROVAL ON WORKSTATION..."
                         }
                         TrustState.UNPAIRED, TrustState.REPAIRING -> {
                             if (count > 0) {
@@ -1089,7 +1089,7 @@ class MainActivity : FragmentActivity() {
 
             AlertDialog.Builder(this)
                 .setTitle("Target Host IP")
-                .setMessage("Tether automatically discovers Windows hosts on local network.\n\nOptionally enter Windows PC IP address below:")
+                .setMessage("Tether automatically discovers Linux & Windows hosts on the local network.\n\nOptionally enter Workstation IP address below:")
                 .setView(input)
                 .setPositiveButton("CONNECT") { _, _ ->
                     val enteredText = input.text.toString().trim()

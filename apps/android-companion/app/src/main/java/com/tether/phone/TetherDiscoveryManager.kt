@@ -28,6 +28,7 @@ data class DiscoveredDevice(
     val capabilities: String = "",
     val pqcSupported: Boolean = false,
     val lastSeenTimestamp: Long = System.currentTimeMillis(),
+    val os: String = "unknown",
 )
 
 interface TetherDiscoveryListener {
@@ -423,12 +424,20 @@ fun validateDiscoveryResponse(
     val tcpPort = json.optInt("tcpPort", -1)
     if (tcpPort != TetherNetworkConstants.CONTROL_PORT) return null
 
-    val devName = sanitizeDeviceName(json.optString("deviceName", "Tether Windows PC"))
+    val os = json.optString("os", "windows").lowercase(java.util.Locale.US)
+    val defaultName = if (os == "linux") "Tether Linux Host" else "Tether Windows PC"
+    val devName = sanitizeDeviceName(json.optString("deviceName", defaultName))
+    val caps = json.optString("capabilities", "")
+    val pqc = json.optBoolean("pqc", false)
+
     return DiscoveredDevice(
         deviceId = devId,
         name = devName,
         hostAddress = hostAddr,
         port = tcpPort,
+        capabilities = caps,
+        pqcSupported = pqc,
+        os = os,
     )
 }
 
@@ -697,35 +706,20 @@ class TetherDiscoveryManager(
                     try {
                         val interfaceTargets = resolveInterfaceDiscoveryTargets()
                         for (itf in interfaceTargets) {
-                            var ifaceSocket: DatagramSocket? = null
-                            try {
-                                ifaceSocket = DatagramSocket(java.net.InetSocketAddress(itf.localAddress, 0)).apply {
-                                    broadcast = true
-                                    soTimeout = 500
-                                }
-                            } catch (_: Exception) {
-                                // Binding per-interface socket failed; fall back to general socket for this interface
-                            }
-
-                            val activeSocket = ifaceSocket ?: socket
                             try {
                                 itf.subnetBroadcast?.let { bcast ->
                                     try {
                                         val sendPacket = DatagramPacket(probeBytes, probeBytes.size, bcast, UDP_DISCOVERY_PORT)
-                                        activeSocket.send(sendPacket)
+                                        socket.send(sendPacket)
                                     } catch (_: Exception) {}
                                 }
                                 for (cand in itf.candidateIps) {
                                     try {
                                         val sendPacket = DatagramPacket(probeBytes, probeBytes.size, cand, UDP_DISCOVERY_PORT)
-                                        activeSocket.send(sendPacket)
+                                        socket.send(sendPacket)
                                     } catch (_: Exception) {}
                                 }
-                            } finally {
-                                if (ifaceSocket != null) {
-                                    try { ifaceSocket.close() } catch (_: Exception) {}
-                                }
-                            }
+                            } catch (_: Exception) {}
                         }
                     } catch (_: Exception) {}
                     try { Thread.sleep(2000) } catch (_: InterruptedException) { break }
@@ -817,8 +811,10 @@ class TetherDiscoveryManager(
                 }
 
                 val txtAttributes = parseAttributes(resolvedInfo)
+                val os = (txtAttributes["os"] ?: "windows").lowercase(java.util.Locale.US)
+                val defaultName = if (os == "linux") "Tether Linux Host" else "Tether Windows PC"
                 val deviceId = txtAttributes["id"] ?: resolvedInfo.serviceName
-                val name = txtAttributes["name"] ?: resolvedInfo.serviceName
+                val name = txtAttributes["name"] ?: resolvedInfo.serviceName.ifBlank { defaultName }
 
                 val phonePublicKey = securityEngine.getPublicKeyBytes()
                 val phoneId = securityEngine.computePublicKeyFingerprint(phonePublicKey)
@@ -839,6 +835,7 @@ class TetherDiscoveryManager(
                     protocolVersion = version,
                     capabilities = caps,
                     pqcSupported = pqc,
+                    os = os,
                 )
 
                 Log.i(TAG, "Resolved Tether device: $device")
@@ -965,6 +962,27 @@ class TetherDiscoveryManager(
         } catch (e: Exception) {
             Log.w(TAG, "Failed releasing MulticastLock: ${e.message}")
         }
+    }
+
+    fun sendDirectProbe(targetIp: String, port: Int = UDP_DISCOVERY_PORT) {
+        val targetAddr = try { java.net.InetAddress.getByName(targetIp) } catch (_: Exception) { null } ?: return
+        val currentSocket = udpSocket ?: return
+        val phonePublicKey = securityEngine.getPublicKeyBytes()
+        val phoneId = securityEngine.computePublicKeyFingerprint(phonePublicKey)
+        val deviceName = "Tether-Android-${Build.MODEL}"
+        val probeJson = JSONObject().apply {
+            put("type", "TETHER_DISCOVERY_PROBE")
+            put("deviceId", phoneId)
+            put("deviceName", deviceName)
+            put("tcpPort", DEFAULT_PORT)
+        }
+        val probeBytes = probeJson.toString().toByteArray(StandardCharsets.UTF_8)
+        Thread {
+            try {
+                val sendPacket = DatagramPacket(probeBytes, probeBytes.size, targetAddr, port)
+                currentSocket.send(sendPacket)
+            } catch (_: Exception) {}
+        }.start()
     }
 
     fun getDiscoveredDevices(): List<DiscoveredDevice> {

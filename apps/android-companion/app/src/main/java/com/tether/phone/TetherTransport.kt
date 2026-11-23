@@ -43,6 +43,7 @@ class TetherTransportTrustManager(
     private val securityEngine: ProductionSecurityEngine,
     private val expectedPeerFingerprint: String? = null,
     private val expectedPeerPublicKey: ByteArray? = null,
+    private val allowFirstContactPairing: Boolean = false,
 ) : javax.net.ssl.X509ExtendedTrustManager() {
 
     @Volatile
@@ -141,6 +142,14 @@ class TetherTransportTrustManager(
         // 5 & 6. When a pinned key exists, require exact constant-time comparison and reject mismatches
         if (pinnedBytes != null && pinnedBytes.isNotEmpty()) {
             if (!MessageDigest.isEqual(pinnedBytes, leafKeyBytes)) {
+                if (allowFirstContactPairing) {
+                    Log.i(
+                        "TetherTransportTrustManager",
+                        "Accepting unpinned self-signed certificate at TLS layer during explicit pairing/repairing. TLS acceptance does NOT authenticate peer; application-level pairing protocol must subsequently validate SPKI and complete interactive PIN + mutual proof before persisting trusted identity."
+                    )
+                    lastVerifiedCert = leaf
+                    return
+                }
                 throw CertificateException("Certificate pinning verification failed: public key mismatch")
             }
             lastVerifiedCert = leaf
@@ -164,6 +173,15 @@ class TetherTransportTrustManager(
             return
         }
 
+        if (allowFirstContactPairing) {
+            Log.i(
+                "TetherTransportTrustManager",
+                "Accepting unpinned self-signed certificate at TLS layer during initial pairing. TLS acceptance does NOT authenticate peer; application-level pairing protocol must subsequently validate SPKI and complete interactive PIN + mutual proof before persisting trusted identity."
+            )
+            lastVerifiedCert = leaf
+            return
+        }
+
         throw CertificateException("Refusing connection: peer public key is not pinned and no expected discovered fingerprint was provided")
     }
 }
@@ -173,6 +191,7 @@ class TetherTlsTransport(
     private val securityEngine: ProductionSecurityEngine,
     private val expectedPeerFingerprint: String? = null,
     private val expectedPeerPublicKey: ByteArray? = null,
+    private val allowFirstContactPairing: Boolean = false,
 ) : TetherTransport {
 
     companion object {
@@ -262,6 +281,7 @@ class TetherTlsTransport(
             securityEngine = securityEngine,
             expectedPeerFingerprint = expectedPeerFingerprint,
             expectedPeerPublicKey = expectedPeerPublicKey,
+            allowFirstContactPairing = allowFirstContactPairing,
         )
 
         val customKeyManager = object : X509ExtendedKeyManager() {

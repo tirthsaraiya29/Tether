@@ -213,22 +213,30 @@ public sealed class LinuxSession : IDisposable
         var stream = (Stream?)_tls ?? _testStream;
         if (stream == null) return false;
 
-        using var hsDoc = await FrameCodec.ReadJsonFrameAsync(stream, ct);
-        if (hsDoc == null) return false;
+        var initFrameBytes = await FrameCodec.ReadFrameAsync(stream, ct);
+        if (initFrameBytes == null) return false;
 
-        string type = hsDoc.RootElement.TryGetProperty("type", out var tProp) ? (tProp.GetString() ?? "") : "";
-        if (type != "HANDSHAKE_INIT") return false;
+        HandshakeInit? init;
+        try
+        {
+            init = JsonSerializer.Deserialize<HandshakeInit>(initFrameBytes);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
 
-        var init = JsonSerializer.Deserialize<HandshakeInit>(hsDoc.RootElement.GetRawText());
-        if (init == null || string.IsNullOrEmpty(init.PublicKey)) return false;
+        if (init == null || init.Type != "HANDSHAKE_INIT" || string.IsNullOrEmpty(init.PublicKey)) return false;
 
         string? phoneFp = LinuxTrustStore.ComputeFingerprintOrNull(init.PublicKey);
         if (phoneFp == null) return false;
 
         var trusted = _trustStore.FindByFingerprint(phoneFp);
-        if (trusted != null && !init.IsPairingRequested)
+        bool isAlreadyPaired = trusted != null;
+
+        if (isAlreadyPaired && !init.IsPairingRequested)
         {
-            if (string.IsNullOrEmpty(trusted.PublicKeySpkiBase64))
+            if (string.IsNullOrEmpty(trusted!.PublicKeySpkiBase64))
             {
                 _logger.Warning($"LinuxSession [{SessionId}]: Paired device record for {phoneFp} missing stored SPKI. Denying.");
                 await WriteJsonFrameSafeAsync(new HandshakeResponse
@@ -295,24 +303,8 @@ public sealed class LinuxSession : IDisposable
             return true;
         }
 
-        if (!init.IsPairingRequested)
-        {
-            var unpResp = new HandshakeResponse
-            {
-                DeviceId = _identity.DeviceId,
-                DeviceName = _identity.DeviceName,
-                PublicKey = _identity.GetPublicKeySpkiBase64(),
-                Status = HandshakeStatus.Unpaired,
-                Capabilities = ServerCapabilities,
-                Pqc = false,
-                Os = "linux"
-            };
-            await WriteJsonFrameSafeAsync(unpResp, ct);
-            return false;
-        }
-
-        // New pairing flow
-        byte[] initBytes = JsonSerializer.SerializeToUtf8Bytes(init);
+        // New pairing flow (unpaired device or explicit pairing request)
+        _logger.Info($"LinuxSession [{SessionId}]: Initial pairing required for {phoneFp} ('{init.DeviceName}'). Invoking PairingManager.");
         var (pending, pairResp, respBytes) = _pairingManager.CreatePairingResponse(
             _identity.DeviceId,
             _identity.DeviceName,
@@ -320,7 +312,7 @@ public sealed class LinuxSession : IDisposable
             ServerCapabilities,
             init.PublicKey,
             init.DeviceName,
-            initBytes);
+            initFrameBytes);
 
         if (pairResp.Status == HandshakeStatus.PairingDenied)
         {
@@ -396,7 +388,8 @@ public sealed class LinuxSession : IDisposable
                     type = "PAIRING_COMPLETE",
                     status = "OK",
                     proof = hostProofBase64,
-                    capabilities = ServerCapabilities
+                    capabilities = ServerCapabilities,
+                    os = "linux"
                 }, pairingCts.Token);
 
                 Device = _deviceManager.GetDevice(phoneFp) ?? LinuxDevice.FromRecord(_trustStore.FindByFingerprint(phoneFp)!);

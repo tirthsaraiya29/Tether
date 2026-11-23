@@ -156,8 +156,10 @@ class TetherPairingManager(
                 return PairingResult.Error("Invalid handshake response type: $type")
             }
 
-            val winDeviceId = respJson.optString("deviceId", "UNKNOWN_WIN")
-            val winName = respJson.optString("deviceName", "Windows PC")
+            val os = respJson.optString("os", "windows").lowercase(java.util.Locale.US)
+            val defaultHostName = if (os == "linux") "Linux Host" else "Windows PC"
+            val winDeviceId = respJson.optString("deviceId", if (os == "linux") "LINUX_HOST" else "WINDOWS_HOST")
+            val winName = respJson.optString("deviceName", defaultHostName)
             val winPubKeyBase64 = respJson.optString("publicKey", "")
             val pairingStatus = respJson.optString("status", "UNPAIRED")
             val winCapabilities = respJson.optString("capabilities", "")
@@ -392,8 +394,11 @@ class TetherPairingManager(
             val winFp = securityEngine.computePublicKeyFingerprint(winEcPubKeyBytes)
             val winCaps = completeJson.optString("capabilities", "")
 
+            val hostOs = completeJson.optString("os", "windows").lowercase(java.util.Locale.US)
+            val peerDevId = if (hostOs == "linux") "LINUX_HOST" else "WINDOWS_HOST"
+
             return PairingResult.Authenticated(
-                peerDeviceId = "WINDOWS_HOST",
+                peerDeviceId = peerDevId,
                 peerFingerprint = winFp,
                 peerCapabilities = winCaps,
             )
