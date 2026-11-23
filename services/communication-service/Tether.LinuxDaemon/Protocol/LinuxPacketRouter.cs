@@ -613,6 +613,35 @@ public sealed class LinuxPacketRouter
                     await session.WriteJsonFrameSafeAsync(state, ct);
                     break;
 
+                case "AUDIO_DEVICES_GET":
+                case "GET_AUDIO_DEVICES":
+                    await session.WriteJsonFrameSafeAsync(new
+                    {
+                        type = "AUDIO_DEVICES_RESPONSE",
+                        requestId = reqId,
+                        devices = Array.Empty<object>()
+                    }, ct);
+                    break;
+
+                case "AUDIO_SESSIONS_GET":
+                case "GET_AUDIO_SESSIONS":
+                    await session.WriteJsonFrameSafeAsync(new
+                    {
+                        type = "AUDIO_SESSIONS_RESPONSE",
+                        requestId = reqId,
+                        sessions = Array.Empty<object>()
+                    }, ct);
+                    break;
+
+                case "CHECK_UPDATES":
+                    await session.WriteJsonFrameSafeAsync(new
+                    {
+                        type = "UPDATES_RESPONSE",
+                        requestId = reqId,
+                        updateInfo = new { hasUpdates = false }
+                    }, ct);
+                    break;
+
                 default:
                     _logger.Warning($"LinuxPacketRouter: Unhandled packet type '{type}'.");
                     break;
@@ -667,13 +696,15 @@ public sealed class LinuxPacketRouter
             or "sleep" or "suspend" or "hibernate" or "reboot" or "restart"
             or "shutdown" or "poweroff" or "halt" or "panic")
             return true;
-        if (cmd is "volume_mute" or "vol_mute" or "mute" or "volume_up" or "vol_up" or "volume_down" or "vol_down")
+        if (cmd is "volume_mute" or "vol_mute" or "mute" or "volume_up" or "vol_up" or "volume_down" or "vol_down" or "volume_get" or "get_volume")
             return true;
         if (cmd.StartsWith("set_volume:") || cmd.StartsWith("volume_set:") || cmd.StartsWith("vol_set:"))
             return true;
-        if (cmd is "brightness_up" or "bright_up" or "brightness_down" or "bright_down")
+        if (cmd is "brightness_up" or "bright_up" or "brightness_down" or "bright_down" or "brightness_get" or "get_brightness")
             return true;
         if (cmd.StartsWith("set_brightness:") || cmd.StartsWith("brightness_set:") || cmd.StartsWith("bright_set:"))
+            return true;
+        if (cmd is "laptop_state_get" or "get_laptop_state")
             return true;
         return false;
     }

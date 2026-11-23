@@ -55,6 +55,23 @@ public static class LinuxHardwareExecutor
                 return RunSystemctl("poweroff", logger);
             }
 
+            // State and telemetry queries
+            if (cmdLower is "volume_get" or "get_volume")
+            {
+                currentVol = GetSystemVolumeLevel(logger);
+                return true;
+            }
+
+            if (cmdLower is "brightness_get" or "get_brightness")
+            {
+                return true;
+            }
+
+            if (cmdLower is "laptop_state_get" or "get_laptop_state")
+            {
+                return true;
+            }
+
             // Volume controls
             if (cmdLower == "volume_mute" || cmdLower == "vol_mute" || cmdLower == "mute")
             {
