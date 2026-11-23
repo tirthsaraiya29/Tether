@@ -121,10 +121,10 @@ flowchart TD
 
 ---
 
-## 4. Architectural Vulnerability & Parity Hotspots Identified
+## 4. Architectural Vulnerability & Parity Hotspots Remediated
 
-1. **PAM Service Restriction Hole:** `LinuxPamAuthServer` accepts `AUTH_REQUEST` for any service (ignoring the `service` attribute). This allows unlock grants to inadvertently satisfy `sudo` or `sshd` if `pam_tether.so` is loaded in shared PAM stacks.
-2. **Missing Remote Desktop Streaming Pipeline:** `LinuxFileTransferServer` lacks `/api/desktop/stream`, `/api/desktop/screenshot`, and `/api/desktop/windows`. Android's `RemoteDesktopScreen` is completely non-functional against Linux hosts.
-3. **HTTP Client Proof Validation Parity:** `LinuxFileTransferServer` does not validate `X-Tether-Client-Proof` or timestamp freshness, whereas Windows `FileTransferAuthMiddleware` strictly validates signatures against paired phone keys.
-4. **Uninstaller PAM Restoration Gap:** `uninstall.sh` deletes `pam_tether.so` but leaves the module referenced in `/etc/pam.d/gdm-password`, risking host lockout.
-5. **Greeter Status & Interaction Architecture:** Linux lacks an out-of-the-box graphical login tile comparable to Windows Credential Provider. Integration requires a clean PAM-native status message prompt and greeter daemon backend.
+1. **PAM Service Restriction & Privilege Hardening:** `LinuxPamAuthServer` strictly validates `service` against an explicit whitelist (`gdm-password`, `sddm`, `lightdm`, `login`, `gnome-screensaver`, `swaylock`, `hyprlock`). Non-whitelisted services (`sudo`, `sshd`, `su`) are rejected with `SERVICE_DENIED`. Local IPC `ARM_GRANT` capability has been completely eliminated from the socket interface, preventing unauthorized local processes from manufacturing grants. Local greeters and CLI can only issue `REQUEST_PHONE_AUTH` to dispatch a challenge to connected paired mobile devices.
+2. **Remote Desktop Streaming Pipeline:** Implemented `LinuxDesktopManager` supporting `/api/desktop/stream` (MJPEG streaming), `/api/desktop/screenshot` (dynamic X11 geometry via `wmctrl` and honest fail-closed semantics without synthetic JPEG fallbacks), and `/api/desktop/windows` (real window enumeration).
+3. **HTTP Client Proof Validation Parity:** `LinuxFileTransferServer` enforces mandatory cryptographic client-proof (`X-Tether-Client-Proof` and `X-Tether-Client-Timestamp`) across all protected routes with replay protection cache, clock-drift validation ($\pm 5$ min), and dual-format ECDSA signature verification (IEEE P1363 and DER).
+4. **Uninstaller PAM Restoration:** `uninstall.sh` restores pristine `.tether-orig` backups and cleanly strips `pam_tether.so` references, preventing login lockout.
+5. **Greeter Status & Interaction Architecture:** Local helper `tether-greeter` operates as a status and challenge dispatcher using `REQUEST_PHONE_AUTH`. Seamless PAM fallback to native password prompt (`PAM_AUTHINFO_UNAVAIL`) guaranteed when phone is absent or prompt is cancelled.
