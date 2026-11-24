@@ -40,7 +40,7 @@ jobs:
       AUDIT_REPO_TOKEN: ${{ secrets.AUDIT_REPO_TOKEN }}
       TETHER_ADVISORY_TOKEN: ${{ secrets.TETHER_ADVISORY_TOKEN }}
 
-      OPENROUTER_MODEL_ID: z-ai/glm-5.3-flash
+      OPENROUTER_MODEL_ID: deepseek/deepseek-v4.1-flash-20261017
 
       AUDIT_REPOSITORY: ${{ github.repository }}
       REPORT_REPOSITORY: ${{ github.repository_owner }}/Tether-Security-Reports
@@ -377,7 +377,7 @@ jobs:
             echo ""
             echo "All configured preflight checks passed."
             echo ""
-            echo "GLM 5.3 Flash was not invoked. No inference tokens were requested."
+            echo "DeepSeek V4.1 Flash 1017 was not invoked. No inference tokens were requested."
           } >> "$REPORT_PATH"
 
       - name: Install OpenCode
@@ -402,7 +402,7 @@ jobs:
 
           opencode --version
 
-      - name: Configure read-only GLM 5.3 Flash agent
+      - name: Configure read-only DeepSeek V4.1 Flash 1017 agent
         if: github.event_name == 'schedule' || inputs.run_mode == 'audit'
         shell: bash
         run: |
@@ -435,7 +435,7 @@ jobs:
                 },
                 "models": {
                   "$OPENROUTER_MODEL_ID": {
-                    "name": "GLM 5.3 Flash",
+                    "name": "DeepSeek V4.1 Flash 1017",
                     "limit": {
                       "context": $MAX_CONTEXT,
                       "output": $MAX_OUTPUT
@@ -483,7 +483,7 @@ jobs:
 
           echo "OpenCode configuration validated (context=$MAX_CONTEXT, output=$MAX_OUTPUT)."
 
-      - name: Run independent security audit with GLM 5.3 Flash
+      - name: Run independent security audit with DeepSeek V4.1 Flash 1017
         if: github.event_name == 'schedule' || inputs.run_mode == 'audit'
         id: audit
         continue-on-error: true
@@ -613,7 +613,7 @@ jobs:
           zero eligible advisories.
           EOF
 
-          echo "Invoking GLM 5.3 Flash via OpenRouter for the full audit."
+          echo "Invoking DeepSeek V4.1 Flash 1017 via OpenRouter for the full audit."
 
           set +e
 
@@ -634,7 +634,7 @@ jobs:
           if [[ -s "$OUTPUT" ]]; then
             {
               echo ""
-              echo "## GLM 5.3 Flash Audit Output"
+              echo "## DeepSeek V4.1 Flash 1017 Audit Output"
               echo ""
               cat "$OUTPUT"
               echo ""
@@ -656,7 +656,7 @@ jobs:
           fi
 
           if [[ "$STATUS" -ne 0 ]]; then
-            echo "::error::OpenCode/GLM 5.3 Flash audit failed with exit code $STATUS."
+            echo "::error::OpenCode/DeepSeek V4.1 Flash 1017 audit failed with exit code $STATUS."
             if [[ -s "$STDERR_LOG" ]]; then
               echo "::error::OpenCode stderr summary: $(grep -i 'error' "$STDERR_LOG" | head -n 3 | sed "s/${OPENROUTER_API_KEY}/[REDACTED]/g")"
             fi
@@ -664,11 +664,11 @@ jobs:
           fi
 
           if [[ ! -s "$OUTPUT" ]]; then
-            echo "::error::GLM 5.3 Flash returned an empty report."
+            echo "::error::DeepSeek V4.1 Flash 1017 returned an empty report."
             exit 1
           fi
 
-          echo "GLM 5.3 Flash audit completed."
+          echo "DeepSeek V4.1 Flash 1017 audit completed."
 
       - name: Extract and validate findings
         if: steps.audit.outcome == 'success'
