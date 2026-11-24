@@ -40,7 +40,7 @@ jobs:
       AUDIT_REPO_TOKEN: ${{ secrets.AUDIT_REPO_TOKEN }}
       TETHER_ADVISORY_TOKEN: ${{ secrets.TETHER_ADVISORY_TOKEN }}
 
-      OPENROUTER_MODEL_ID: deepseek/deepseek-v4.1-flash-20261017
+      OPENROUTER_MODEL_ID: deepseek/deepseek-v4.1-flash-1017
 
       AUDIT_REPOSITORY: ${{ github.repository }}
       REPORT_REPOSITORY: ${{ github.repository_owner }}/Tether-Security-Reports
