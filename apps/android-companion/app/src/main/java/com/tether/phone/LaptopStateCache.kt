@@ -668,18 +668,25 @@ object LaptopStateCache {
 
     private const val KEY_OWNER_FINGERPRINT = "cache_owner_fingerprint"
 
+    private val ownerLock = Any()
+
     /**
      * Cache is single-slot; before serving a session, drop everything written by a different
      * authenticated host so a stale Windows PC can never populate a newly connected Linux PC's UI.
+     * Fails closed: an unowned cache (e.g. written before ownership tagging existed) or an
+     * unidentified peer clears rather than reuses the previous host's data.
      */
     fun claimOwner(context: Context, peerFingerprint: String?) {
-        if (peerFingerprint.isNullOrBlank()) return
-        val p = prefs(context)
-        val owner = p.getString(KEY_OWNER_FINGERPRINT, null)
-        if (owner != null && owner != peerFingerprint) {
-            p.edit { clear() }
+        synchronized(ownerLock) {
+            val p = prefs(context)
+            val owner = p.getString(KEY_OWNER_FINGERPRINT, null)
+            if (peerFingerprint.isNullOrBlank() || owner != peerFingerprint) {
+                p.edit { clear() }
+                if (!peerFingerprint.isNullOrBlank()) {
+                    p.edit { putString(KEY_OWNER_FINGERPRINT, peerFingerprint) }
+                }
+            }
         }
-        p.edit { putString(KEY_OWNER_FINGERPRINT, peerFingerprint) }
     }
 
     fun clearAll(context: Context) {
