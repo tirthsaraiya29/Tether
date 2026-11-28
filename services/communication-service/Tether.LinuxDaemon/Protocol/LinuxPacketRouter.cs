@@ -275,7 +275,7 @@ public sealed class LinuxPacketRouter
                     string lowerCmd = command.Trim().ToLowerInvariant();
                     if (lowerCmd.Contains("volume") || lowerCmd.Contains("vol") || lowerCmd.Contains("mute"))
                     {
-                        isMuted = LinuxHardwareExecutor.GetSystemMute(_logger);
+                        isMuted = LinuxHardwareExecutor.GetSystemMute(_logger) ?? false;
                         finalVol = vol >= 0 ? vol : LinuxHardwareExecutor.GetSystemVolumeLevel(_logger);
                     }
                     else if (lowerCmd.Contains("bright"))
@@ -691,7 +691,7 @@ public sealed class LinuxPacketRouter
                     var audioSessions = LinuxHardwareExecutor.GetAppAudioSessions(_logger);
                     var currentDevs = LinuxHardwareExecutor.GetAudioDevices(_logger);
                     var micState = LinuxHardwareExecutor.GetMicrophoneState(_logger);
-                    bool masterMuted = LinuxHardwareExecutor.GetSystemMute(_logger);
+                    bool? masterMuted = LinuxHardwareExecutor.GetSystemMute(_logger);
                     await session.WriteJsonFrameSafeAsync(new
                     {
                         type = "AUDIO_SESSIONS_RESPONSE",
@@ -823,7 +823,8 @@ public sealed class LinuxPacketRouter
             or "sleep" or "suspend" or "hibernate" or "reboot" or "restart"
             or "shutdown" or "poweroff" or "halt" or "panic" or "panic_lock")
             return true;
-        if (cmd is "volume_mute" or "vol_mute" or "mute" or "volume_up" or "vol_up" or "volume_down" or "vol_down" or "volume_get" or "get_volume")
+        if (cmd is "volume_mute" or "vol_mute" or "mute" or "volume_up" or "vol_up" or "volume_down" or "vol_down" or "volume_get" or "get_volume"
+            or "mute_on" or "mute_off" or "set_mute_on" or "set_mute_off" or "mute:true" or "mute:false" or "mute:1" or "mute:0")
             return true;
         if (cmd.StartsWith("set_volume:") || cmd.StartsWith("volume_set:") || cmd.StartsWith("vol_set:"))
             return true;

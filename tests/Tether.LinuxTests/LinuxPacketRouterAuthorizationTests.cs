@@ -252,6 +252,30 @@ public class LinuxPacketRouterAuthorizationTests : IDisposable
         Assert.Contains("MEDIA", doc.RootElement.GetProperty("reason").GetString());
     }
 
+    [Theory]
+    [InlineData("mute_on")]
+    [InlineData("mute_off")]
+    public async Task CommandExecute_MasterMuteCommands_AreRecognized(string command)
+    {
+        using var pipe = new MemoryStream();
+        var device = new LinuxDevice
+        {
+            DeviceId = "dev-media",
+            Capabilities = new List<string> { "MEDIA" }
+        };
+        using var session = CreateTestSession(pipe, device);
+
+        byte[] cmd = Encoding.UTF8.GetBytes($"{{\"type\":\"COMMAND_EXECUTE\",\"command\":\"{command}\",\"requestId\":\"req_{command}\"}}");
+        await _router.RouteFrameAsync(cmd, session, CancellationToken.None);
+
+        pipe.Position = 0;
+        using var doc = await FrameCodec.ReadJsonFrameAsync(pipe, CancellationToken.None);
+        Assert.NotNull(doc);
+        Assert.Equal("CONFIRM_COMMAND", doc.RootElement.GetProperty("type").GetString());
+        // Must reach the executor instead of being rejected as an unknown command.
+        Assert.NotEqual("ERR_UNSUPPORTED", doc.RootElement.GetProperty("errorCode").GetString());
+    }
+
     [Fact]
     public async Task CommandExecute_UnsupportedCommand_ReturnsErrUnsupported()
     {

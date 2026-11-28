@@ -71,7 +71,8 @@ public class LinuxHardwareExecutorTests
     public void TestGetVolumeAndBrightness()
     {
         int vol = LinuxHardwareExecutor.GetSystemVolumeLevel(_logger);
-        Assert.InRange(vol, 0, 100);
+        // -1 means no reachable audio session; anything else must be a real reading.
+        Assert.True(vol == -1 || (vol >= 0 && vol <= 100), $"Unexpected volume reading: {vol}");
 
         int bri = LinuxHardwareExecutor.GetBrightnessLevel(_logger);
         Assert.InRange(bri, 0, 100);
@@ -84,7 +85,7 @@ public class LinuxHardwareExecutorTests
 
         Assert.Equal("LAPTOP_STATE", state.Type);
         Assert.True(state.Timestamp > 0);
-        Assert.InRange(state.VolumeLevel, 0, 100);
+        Assert.True(state.VolumeLevel == -1 || (state.VolumeLevel >= 0 && state.VolumeLevel <= 100));
         Assert.InRange(state.BrightnessLevel, 0, 100);
     }
 

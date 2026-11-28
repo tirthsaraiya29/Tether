@@ -321,7 +321,7 @@ public static class LinuxLaptopStateCollector
         string lockState = GetLockState(logger);
         var (wpB64, wpHash) = GetWallpaperThumbnail(logger);
         int vol = LinuxHardwareExecutor.GetSystemVolumeLevel(logger);
-        bool isMuted = LinuxHardwareExecutor.GetSystemMute(logger);
+        bool isMuted = LinuxHardwareExecutor.GetSystemMute(logger) ?? false;
         int bri = LinuxHardwareExecutor.GetBrightnessLevel(logger);
 
         return new LaptopStateFrame

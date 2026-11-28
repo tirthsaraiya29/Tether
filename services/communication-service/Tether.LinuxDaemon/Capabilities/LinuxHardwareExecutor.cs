@@ -85,6 +85,17 @@ public static class LinuxHardwareExecutor
                 return SetVolumeMuteToggle(logger, out currentVol);
             }
 
+            // Android's master mute toggle uses explicit on/off commands.
+            if (cmdLower is "mute_on" or "set_mute_on" or "mute:true" or "mute:1")
+            {
+                return SetVolumeMute(logger, true, out currentVol);
+            }
+
+            if (cmdLower is "mute_off" or "set_mute_off" or "mute:false" or "mute:0")
+            {
+                return SetVolumeMute(logger, false, out currentVol);
+            }
+
             if (cmdLower == "volume_up" || cmdLower == "vol_up")
             {
                 return AdjustVolume(logger, +5, out currentVol);
@@ -189,41 +200,91 @@ public static class LinuxHardwareExecutor
         return false;
     }
 
-    private static string RunProcessWithTimeout(string fileName, string arguments, int timeoutMs = 300)
+    /// <summary>
+    /// Audio tools talk to the user's PipeWire/PulseAudio daemon, which lives on the session bus
+    /// under /run/user/&lt;uid&gt;. The daemon runs as root, so running wpctl/pactl directly would
+    /// query root's (empty) session. Run them in the active graphical user's context instead.
+    /// </summary>
+    private static ProcessStartInfo CreateAudioProcessInfo(string tool, IReadOnlyList<string> args)
     {
+        var session = PlatformDetection.GetActiveSessionInfo();
+        var psi = new ProcessStartInfo
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+
+        bool dropPrivileges = PlatformDetection.IsRoot &&
+            !string.IsNullOrEmpty(session.UserName) && session.UserName != "root";
+        if (dropPrivileges)
+        {
+            psi.FileName = File.Exists("/usr/sbin/runuser") ? "/usr/sbin/runuser" : "/sbin/runuser";
+            psi.ArgumentList.Add("-u");
+            psi.ArgumentList.Add(session.UserName);
+            psi.ArgumentList.Add("--");
+        }
+        else
+        {
+            psi.FileName = tool;
+        }
+
+        psi.ArgumentList.Add(tool);
+        foreach (var a in args) psi.ArgumentList.Add(a);
+
+        string runtimeDir = !string.IsNullOrEmpty(session.XdgRuntimeDir)
+            ? session.XdgRuntimeDir
+            : $"/run/user/{session.Uid}";
+        psi.Environment["XDG_RUNTIME_DIR"] = runtimeDir;
+        psi.Environment["DBUS_SESSION_BUS_ADDRESS"] = $"unix:path={runtimeDir}/bus";
+        // PulseAudio socket path; ignored by PipeWire-only systems.
+        psi.Environment["PULSE_SERVER"] = $"unix:{runtimeDir}/pulse/native";
+        return psi;
+    }
+
+    /// <summary>Runs an audio tool in the user's session. Returns null when it could not run.</summary>
+    private static string? RunAudioTool(string tool, IReadOnlyList<string> args, int timeoutMs, out int exitCode)
+    {
+        exitCode = -1;
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = fileName,
-                Arguments = arguments,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            if (p == null) return string.Empty;
+            using var p = Process.Start(CreateAudioProcessInfo(tool, args));
+            if (p == null) return null;
 
+            var stdoutTask = p.StandardOutput.ReadToEndAsync();
+            var stderrTask = p.StandardError.ReadToEndAsync();
             if (!p.WaitForExit(timeoutMs))
             {
                 try { p.Kill(true); } catch { }
-                return string.Empty;
+                return null;
             }
-
-            return p.StandardOutput.ReadToEnd();
+            exitCode = p.ExitCode;
+            return stdoutTask.GetAwaiter().GetResult();
         }
         catch
         {
-            return string.Empty;
+            return null;
         }
     }
 
+    private static string RunProcessWithTimeout(string fileName, string arguments, int timeoutMs = 300)
+    {
+        var args = arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return RunAudioTool(fileName, args, timeoutMs, out _) ?? string.Empty;
+    }
+
+    private static bool TryRunAudioMutation(string tool, params string[] args)
+    {
+        return RunAudioTool(tool, args, 1500, out int exitCode) != null && exitCode == 0;
+    }
+
+    /// <summary>Returns 0..100, or -1 when no audio server/session can be queried.</summary>
     public static int GetSystemVolumeLevel(ITetherLogger logger)
     {
-        // 1. Try wpctl
-        string wpOut = RunProcessWithTimeout("wpctl", "get-volume @DEFAULT_AUDIO_SINK@", 300).Trim();
-        if (!string.IsNullOrEmpty(wpOut))
+        // 1. PipeWire (wpctl)
+        string? wpOut = RunAudioTool("wpctl", new[] { "get-volume", "@DEFAULT_AUDIO_SINK@" }, 500, out int wpExit);
+        if (wpOut != null && wpExit == 0)
         {
             var match = Regex.Match(wpOut, @"Volume:\s*([0-9\.]+)");
             if (match.Success && double.TryParse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture, out double vol))
@@ -232,9 +293,20 @@ public static class LinuxHardwareExecutor
             }
         }
 
-        // 2. Try amixer with strict timeout
-        string amOut = RunProcessWithTimeout("amixer", "get Master", 300);
-        if (!string.IsNullOrEmpty(amOut))
+        // 2. PulseAudio (pactl)
+        string? pactlOut = RunAudioTool("pactl", new[] { "get-sink-volume", "@DEFAULT_SINK@" }, 500, out int pactlExit);
+        if (pactlOut != null && pactlExit == 0)
+        {
+            var match = Regex.Match(pactlOut, @"(\d+)%");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out int pct))
+            {
+                return pct;
+            }
+        }
+
+        // 3. Direct ALSA (amixer)
+        string? amOut = RunAudioTool("amixer", new[] { "get", "Master" }, 300, out int amExit);
+        if (amOut != null && amExit == 0)
         {
             var match = Regex.Match(amOut, @"\[(\d+)%\]");
             if (match.Success && int.TryParse(match.Groups[1].Value, out int pct))
@@ -243,95 +315,83 @@ public static class LinuxHardwareExecutor
             }
         }
 
-        return 50;
+        logger.Warning("LinuxHardwareExecutor: Master volume unavailable (no reachable PipeWire/PulseAudio/ALSA session).");
+        return -1;
     }
 
-    public static bool GetSystemMute(ITetherLogger logger)
+    /// <summary>Returns the mute state, or null when it cannot be determined.</summary>
+    public static bool? GetSystemMute(ITetherLogger logger)
     {
-        string wpOut = RunProcessWithTimeout("wpctl", "get-volume @DEFAULT_AUDIO_SINK@", 300);
-        if (!string.IsNullOrEmpty(wpOut))
+        string? wpOut = RunAudioTool("wpctl", new[] { "get-volume", "@DEFAULT_AUDIO_SINK@" }, 500, out int wpExit);
+        if (wpOut != null && wpExit == 0)
         {
             return wpOut.Contains("[MUTED]", StringComparison.OrdinalIgnoreCase);
         }
 
-        return false;
+        string? pactlOut = RunAudioTool("pactl", new[] { "get-sink-mute", "@DEFAULT_SINK@" }, 500, out int pactlExit);
+        if (pactlOut != null && pactlExit == 0)
+        {
+            var match = Regex.Match(pactlOut, @"Mute:\s*(yes|no)", RegexOptions.IgnoreCase);
+            if (match.Success) return match.Groups[1].Value.Equals("yes", StringComparison.OrdinalIgnoreCase);
+        }
+
+        string? amOut = RunAudioTool("amixer", new[] { "get", "Master" }, 300, out int amExit);
+        if (amOut != null && amExit == 0)
+        {
+            if (amOut.Contains("[off]", StringComparison.OrdinalIgnoreCase)) return true;
+            if (amOut.Contains("[on]", StringComparison.OrdinalIgnoreCase)) return false;
+        }
+
+        return null;
     }
 
     public static bool SetVolumeMuteToggle(ITetherLogger logger, out int currentVol)
     {
+        bool ok = TryRunAudioMutation("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle")
+            || TryRunAudioMutation("pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle")
+            || TryRunAudioMutation("amixer", "set", "Master", "toggle");
         currentVol = GetSystemVolumeLevel(logger);
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "wpctl",
-                Arguments = "set-mute @DEFAULT_AUDIO_SINK@ toggle",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            p?.WaitForExit(1000);
-            return p != null && p.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
+        return ok;
     }
 
     public static bool SetVolumeMute(ITetherLogger logger, bool mute, out int currentVol)
     {
+        string state = mute ? "1" : "0";
+        bool ok = TryRunAudioMutation("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", state)
+            || TryRunAudioMutation("pactl", "set-sink-mute", "@DEFAULT_SINK@", state)
+            || TryRunAudioMutation("amixer", "set", "Master", mute ? "mute" : "unmute");
         currentVol = GetSystemVolumeLevel(logger);
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "wpctl",
-                Arguments = $"set-mute @DEFAULT_AUDIO_SINK@ {(mute ? 1 : 0)}",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            p?.WaitForExit(1000);
-            return p != null && p.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
+        return ok;
     }
 
     public static bool AdjustVolume(ITetherLogger logger, int delta, out int currentVol)
     {
         int cur = GetSystemVolumeLevel(logger);
-        int target = Math.Clamp(cur + delta, 0, 100);
-        return SetAbsoluteVolume(logger, target, out currentVol);
+        if (cur >= 0)
+        {
+            return SetAbsoluteVolume(logger, cur + delta, out currentVol);
+        }
+
+        // Current level unknown: use the backends' relative steps instead of guessing a base.
+        string step = delta >= 0 ? "5%+" : "5%-";
+        bool ok = TryRunAudioMutation("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", step)
+            || TryRunAudioMutation("pactl", "set-sink-volume", "@DEFAULT_SINK@", step);
+        currentVol = GetSystemVolumeLevel(logger);
+        return ok;
     }
 
     public static bool SetAbsoluteVolume(ITetherLogger logger, int targetVol, out int currentVol)
     {
         targetVol = Math.Clamp(targetVol, 0, 100);
-        currentVol = targetVol;
-        double wpctlVol = targetVol / 100.0;
+        string wpctlVol = (targetVol / 100.0).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
 
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "wpctl",
-                Arguments = $"set-volume @DEFAULT_AUDIO_SINK@ {wpctlVol.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            p?.WaitForExit(1000);
-            return p != null && p.ExitCode == 0;
-        }
-        catch (Exception ex)
-        {
-            logger.Warning($"wpctl set-volume failed: {ex.Message}");
-            return false;
-        }
+        bool ok = TryRunAudioMutation("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", wpctlVol)
+            || TryRunAudioMutation("pactl", "set-sink-volume", "@DEFAULT_SINK@", $"{targetVol}%")
+            || TryRunAudioMutation("amixer", "set", "Master", $"{targetVol}%");
+
+        // Report the level the backend actually holds, never the requested one.
+        currentVol = ok ? GetSystemVolumeLevel(logger) : -1;
+        return ok;
     }
 
     public static int GetBrightnessLevel(ITetherLogger logger)
