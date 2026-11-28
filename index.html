@@ -1444,6 +1444,12 @@
         100% { transform: translateY(46px); opacity: 0; }
       }
     }
+  
+    .audience-switch { display:inline-flex; align-items:center; gap:8px; margin-left:4px; }
+    .audience-switch label { color:var(--text-subtle); font-size:.78rem; white-space:nowrap; }
+    .audience-switch select { min-height:36px; max-width:150px; padding:6px 28px 6px 10px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface-raised); color:var(--silver); font:inherit; font-size:.82rem; }
+    @media(max-width:768px) { .audience-switch { margin:8px 0; justify-content:space-between; } .audience-switch select { max-width:none; flex:1; } }
+
   </style>
 </head>
 <body>
@@ -1467,6 +1473,7 @@
         <a href="#how-it-works" class="nav-link" data-nav-link="how-it-works">Getting started</a>
         <a href="#faq" class="nav-link" data-nav-link="faq">FAQ</a>
         <a href="#ask" class="nav-link" data-nav-link="ask">Get in touch</a>
+        <div class="audience-switch"><label for="audience-page">Explore Tether</label><select id="audience-page" aria-label="Choose a Tether guide" onchange="if(this.value) window.location.href=this.value"><option value="/" selected>Normal</option><option value="/power">Power users</option><option value="/dev">Developers</option></select></div>
         <a href="https://github.com/tirthsaraiya29/Tether" class="btn btn-sm btn-green" target="_blank" rel="noopener">GitHub</a>
       </nav>
     </div>
