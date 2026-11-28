@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Tether.LinuxDaemon.Capabilities;
+using Tether.LinuxDaemon.Common;
 using Tether.LinuxDaemon.Devices;
 using Tether.LinuxDaemon.FileTransfer;
 using Tether.LinuxDaemon.Input;
@@ -536,12 +537,20 @@ public sealed class LinuxPacketRouter
                         await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks APP_LAUNCH capability" }, ct);
                         break;
                     }
+                    var desktopSession = PlatformDetection.GetActiveSessionInfo();
+                    bool windowEnumerationSupported =
+                        desktopSession.DisplayServer == DisplayServer.X11 ||
+                        !string.IsNullOrEmpty(desktopSession.DisplayName);
                     var windows = LinuxApplicationManager.GetRunningWindows(_logger);
                     await session.WriteJsonFrameSafeAsync(new
                     {
                         type = "WINDOWS_LIST_RESPONSE",
                         requestId = reqId,
-                        windows = windows
+                        windows = windows,
+                        supported = windowEnumerationSupported,
+                        reason = windowEnumerationSupported
+                            ? ""
+                            : "Window enumeration is unavailable on this Wayland session; use installed applications instead."
                     }, ct);
                     break;
 

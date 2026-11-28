@@ -2202,6 +2202,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 mainHandler.post {
                     val intent = Intent(ACTION_WINDOWS_LIST).apply {
                         putExtra("windowsJson", json.optJSONArray("windows")?.toString() ?: "[]")
+                        putExtra("windowsSupported", json.optBoolean("supported", true))
+                        putExtra("windowsUnsupportedReason", json.optString("reason", ""))
                         setPackage(packageName)
                     }
                     sendBroadcast(intent)

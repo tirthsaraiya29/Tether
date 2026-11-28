@@ -89,6 +89,7 @@ fun ApplicationManagementScreen(
     var appFilter by remember { mutableStateOf("") }
     var token by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+    var windowsUnsupportedReason by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(context) {
         service?.currentActiveScreen = "AppManagement"
@@ -97,6 +98,10 @@ fun ApplicationManagementScreen(
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 when (intent?.action) {
                     TetherLanService.ACTION_WINDOWS_LIST -> {
+                        windowsUnsupportedReason = if (intent.getBooleanExtra("windowsSupported", true)) null
+                            else intent.getStringExtra("windowsUnsupportedReason")?.ifBlank {
+                                "Window enumeration is not supported by this host."
+                            }
                         val jsonStr = intent.getStringExtra("windowsJson") ?: "[]"
                         try {
                             val arr = JSONArray(jsonStr)
@@ -293,7 +298,10 @@ fun ApplicationManagementScreen(
                                         .padding(vertical = 30.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text("No interactive desktop windows enumerated.", color = TextMuted)
+                                    Text(
+                                        windowsUnsupportedReason ?: "No interactive desktop windows enumerated.",
+                                        color = TextMuted
+                                    )
                                 }
                             }
                         }
