@@ -389,6 +389,14 @@ public sealed class LinuxAdminManager
         string osDescription = $"{distro}, kernel {kernel} ({System.Runtime.InteropServices.RuntimeInformation.OSArchitecture})";
 
         var (gpuName, gpuVram) = GetGpuInfo();
+        // DMI fields are optional and may be hidden by firmware or host permissions.
+        // Leave unavailable values empty instead of displaying guessed hardware metadata.
+        string manufacturer = ReadTrimmedFile("/sys/class/dmi/id/sys_vendor")
+            ?? ReadTrimmedFile("/sys/devices/virtual/dmi/id/sys_vendor") ?? "";
+        string model = ReadTrimmedFile("/sys/class/dmi/id/product_name")
+            ?? ReadTrimmedFile("/sys/devices/virtual/dmi/id/product_name") ?? "";
+        string biosVersion = ReadTrimmedFile("/sys/class/dmi/id/bios_version")
+            ?? ReadTrimmedFile("/sys/devices/virtual/dmi/id/bios_version") ?? "";
 
         return new LinuxHardwareSpecs
         {
@@ -397,6 +405,9 @@ public sealed class LinuxAdminManager
             TotalMemoryMb = totalRam,
             GpuName = gpuName,
             GpuVramMb = gpuVram,
+            SystemManufacturer = manufacturer,
+            SystemModel = model,
+            BiosVersion = biosVersion,
             OsDescription = osDescription,
             UptimeSeconds = GetUptimeSeconds()
         };
