@@ -1,5 +1,8 @@
 # TETHER ARCHITECTURE & PRIVILEGE BOUNDARY SPECIFICATION
 
+> **Historical snapshot.** Several "missing/broken" notes predate the remediation work. Current
+> status is tracked in `AUDIT/REMEDIATION_PROGRESS.md`.
+
 **Audit Date:** 2026-11-23  
 **Auditor:** Principal Security & Systems Engineer  
 

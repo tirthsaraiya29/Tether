@@ -1,5 +1,8 @@
 # TETHER OPERATING SYSTEM COMPATIBILITY MATRIX
 
+> **Historical snapshot.** This matrix predates the remediation work. Current status and the
+> remaining Wayland-capture gap are tracked in `AUDIT/REMEDIATION_PROGRESS.md`.
+
 **Audit Date:** 2026-11-23  
 **Auditor:** Principal Security & Systems Engineer  
 **Evaluation Standard:** Feature functionality verified against actual code paths, protocol parsers, and integration contracts.
