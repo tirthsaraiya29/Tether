@@ -1,0 +1,1469 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tether Developer Documentation · Tether</title><meta name="description" content="Detailed technical documentation for Tether contributors: architecture, protocols, trust, Windows, Android, Linux and file transfer."><meta name="robots" content="index,follow"><meta name="theme-color" content="#020403"><link rel="canonical" href="https://tether-control.vercel.app/dev"><link rel="icon" type="image/svg+xml" href="favicon.svg"><style>
+    /* ============================================================
+       DESIGN PURPOSE: AMOLED dual-tone. Deep black (70%) and
+       fluorescent green (~28%) are the two core tones; the page
+       itself gradients between them. Silvery white is the
+       readability + primary-action color (the "shiny" third pole).
+       Green means one thing everywhere: the tether is live.
+       ============================================================ */
+
+    /* ---------- 1. Design Tokens ---------- */
+    :root {
+      color-scheme: dark;
+
+      /* Core tone A: AMOLED black base */
+      --bg: #020403;
+      /* Core tone B: fluorescent green, in the three intensities the
+         dual-tone needs (wash / mid / full). Reason: the tether link
+         is the product, so the second core tone IS the link color. */
+      --green: #00ff9d;
+      --green-dim: #00c97c;
+      --green-deep: #062d1d;
+
+      /* Silvery white: text and primary actions */
+      --silver: #eef2f0;
+      --silver-dim: #a9b4af;
+      --silver-subtle: #7d8783;
+
+      --green-wash: rgba(0, 255, 157, 0.06);
+      --green-mid: rgba(0, 255, 157, 0.14);
+      --green-border: rgba(0, 255, 157, 0.35);
+
+      --surface: #050a07;
+      --surface-raised: #08110c;
+      --surface-hover: #0c1a12;
+
+      --text: var(--silver);
+      --text-muted: var(--silver-dim);
+      --text-subtle: var(--silver-subtle);
+      --accent-bg: var(--silver);
+      --accent-text: #020403;
+      --signal: var(--green);
+      --warn: #f5b83d;
+
+      --border: rgba(0, 255, 157, 0.14);
+      --border-strong: rgba(0, 255, 157, 0.42);
+      --focus: var(--green);
+
+      --radius-sm: 4px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+
+      --header-h: 64px;
+      --gutter: clamp(16px, 4vw, 32px);
+      --container: 960px;
+      --container-narrow: 720px;
+      --section-space: clamp(56px, 7vw, 96px);
+      --gap: clamp(16px, 2vw, 24px);
+
+      --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+      --ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1);
+      --dur-fast: 0.18s;
+      --dur-med: 0.4s;
+      --dur-slow: 0.7s;
+
+      --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+
+    /* ---------- 2. CSS Reset ---------- */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+    }
+
+    html, body {
+      overflow-x: clip;
+    }
+
+    html {
+      -webkit-text-size-adjust: 100%;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-height: 100vh;
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 1rem;
+      line-height: 1.5;
+      font-weight: 400;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    img, svg {
+      display: block;
+      max-width: 100%;
+    }
+
+    button {
+      font: inherit;
+      color: inherit;
+      background: none;
+      border: 0;
+      cursor: pointer;
+    }
+
+    a {
+      color: var(--green);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+      cursor: pointer;
+    }
+    a:hover {
+      color: #7dffc4;
+    }
+
+    ul, ol {
+      padding: 0;
+      list-style: none;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 3px;
+      border-radius: 2px;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .skip-link {
+      position: absolute;
+      left: var(--gutter);
+      top: -60px;
+      z-index: 200;
+      padding: 8px 16px;
+      background: var(--surface-raised);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      color: var(--green);
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: top 0.16s var(--ease-out);
+    }
+    .skip-link:focus {
+      top: 12px;
+    }
+
+    /* Scroll-reveal: one-shot, stagger-capable. Disabled on reduced motion. */
+    @media (prefers-reduced-motion: no-preference) {
+      .reveal {
+        opacity: 0;
+        transform: translateY(16px);
+        transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out);
+        transition-delay: var(--reveal-delay, 0s);
+      }
+      .reveal.is-visible {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    /* ---------- 3. Base Typography ---------- */
+    h1, h2, h3, h4 {
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: -0.01em;
+      text-wrap: balance;
+      color: var(--silver);
+    }
+
+    h1 {
+      font-size: clamp(2rem, 1.5rem + 2.5vw, 3rem);
+      line-height: 1.1;
+    }
+    h2 {
+      font-size: clamp(1.5rem, 1.2rem + 1.5vw, 2rem);
+      margin-bottom: 16px;
+    }
+    h3 {
+      font-size: 1.1rem;
+      margin-bottom: 8px;
+    }
+
+    p {
+      text-wrap: pretty;
+      color: var(--text-muted);
+      max-width: 65ch;
+    }
+
+    code, kbd, samp {
+      font-family: var(--font-mono);
+      font-size: 0.85em;
+    }
+
+    :not(pre) > code {
+      padding: 0.15em 0.4em;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--green);
+    }
+
+    .eyebrow {
+      font-size: 0.85rem;
+      color: var(--green-dim);
+      margin-bottom: 12px;
+      font-weight: 500;
+    }
+
+    /* ---------- 4. Layout Primitives ---------- */
+    .container {
+      width: min(100% - (var(--gutter) * 2), var(--container));
+      margin-inline: auto;
+    }
+    .container-narrow {
+      width: min(100% - (var(--gutter) * 2), var(--container-narrow));
+    }
+
+    .section {
+      padding-block: var(--section-space);
+      scroll-margin-top: calc(var(--header-h) + 24px);
+      position: relative;
+    }
+
+    .section-head {
+      max-width: 60ch;
+      margin-bottom: 40px;
+    }
+    .section-lede {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+    }
+
+    .prose p + p {
+      margin-top: 1em;
+    }
+
+    /* ---------- 5. Header & Navigation ---------- */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      min-height: var(--header-h);
+      background: rgba(2, 4, 3, 0.88);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .header-inner {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-height: var(--header-h);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--silver);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 1.05rem;
+    }
+    .brand:hover {
+      color: var(--green);
+    }
+
+    /* Brand mark: Tether glowing squircle logo */
+    .brand-mark {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      transition: transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast) var(--ease-out);
+    }
+    .brand-logo {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      object-fit: cover;
+      display: block;
+    }
+    .brand:hover .brand-mark {
+      transform: scale(1.08);
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.5);
+    }
+
+    .primary-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .nav-link {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      min-height: 40px;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      text-decoration: none;
+      transition: color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out;
+    }
+    .nav-link::after {
+      /* purpose: underline sweep marks the section you're hovering/reading */
+      content: "";
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 4px;
+      height: 1px;
+      background: var(--green);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform var(--dur-med) var(--ease-out);
+    }
+    .nav-link:hover {
+      color: var(--silver);
+      background: var(--green-wash);
+    }
+    .nav-link:hover::after,
+    .nav-link.is-active::after {
+      transform: scaleX(1);
+    }
+    .nav-link.is-active {
+      color: var(--green);
+    }
+
+    .nav-toggle {
+      display: none;
+    }
+
+    @media (max-width: 768px) {
+      .primary-nav.nav-open {
+        display: flex;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        align-items: stretch;
+        padding: 12px var(--gutter) 20px;
+        background: rgba(2, 4, 3, 0.97);
+        border-bottom: 1px solid var(--border-strong);
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+        opacity: 0;
+        transform: translateY(-8px);
+        transition: opacity 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+      }
+      .primary-nav.nav-open.is-visible {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    .site-header.is-scrolled {
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 1px 0 var(--border);
+      background: rgba(2, 4, 3, 0.95);
+      transition: box-shadow 0.25s var(--ease-out), background 0.25s var(--ease-out);
+    }
+
+    /* ---------- 6. Buttons & Chips ---------- */
+    .btn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 44px;
+      padding: 10px 20px;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      font-size: 0.95rem;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      overflow: hidden;
+      transition: background-color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast) ease-out;
+    }
+    .btn:active {
+      transform: translateY(1px) scale(0.99);
+    }
+
+    /* Shine sweep on hover: a single light pass, like metal catching light */
+    .btn::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.22) 50%, transparent 60%);
+      transform: translateX(-110%);
+      transition: transform 0.6s var(--ease-out);
+      pointer-events: none;
+    }
+    .btn:hover::before {
+      transform: translateX(110%);
+    }
+
+    .btn-primary {
+      background: var(--accent-bg);
+      color: var(--accent-text);
+      border-color: var(--accent-bg);
+    }
+    .btn-primary:hover {
+      background: #ffffff;
+      border-color: #ffffff;
+      box-shadow: 0 4px 24px rgba(238, 242, 240, 0.18);
+    }
+
+    .btn-green {
+      background: transparent;
+      border-color: var(--border-strong);
+      color: var(--green);
+    }
+    .btn-green:hover {
+      background: var(--green-mid);
+      border-color: var(--green);
+      box-shadow: 0 4px 24px rgba(0, 255, 157, 0.12);
+    }
+
+    .btn-sm {
+      min-height: 36px;
+      padding: 6px 12px;
+      font-size: 0.85rem;
+    }
+
+    /* Status chip: real build state (warn), border ticks slowly = "in progress" */
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border: 1px solid rgba(245, 184, 61, 0.45);
+      border-radius: var(--radius-sm);
+      background: rgba(245, 184, 61, 0.08);
+      color: var(--warn);
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      white-space: nowrap;
+      animation: chip-breathe 3s ease-in-out infinite;
+    }
+    @keyframes chip-breathe {
+      0%, 100% { border-color: rgba(245, 184, 61, 0.45); }
+      50% { border-color: rgba(245, 184, 61, 0.8); }
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--green-wash);
+      color: var(--green-dim);
+      font-size: 0.75rem;
+      font-family: var(--font-mono);
+      transition: border-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .feature:hover .chip,
+    .arch-node:hover .chip {
+      border-color: var(--green-border);
+      color: var(--green);
+      transform: translateY(-1px);
+    }
+
+    /* ---------- 7. Hero ---------- */
+    .hero {
+      padding-top: calc(var(--header-h) + 48px);
+      padding-bottom: 72px;
+      position: relative;
+      overflow: clip;
+    }
+
+    /* Dual-tone wash: the black half of the page melts toward green
+       behind the hero. Slow drift keeps it alive without pulling focus. */
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: -20% -10%;
+      background:
+        radial-gradient(60% 55% at 78% 20%, rgba(0, 255, 157, 0.14), transparent 70%),
+        radial-gradient(45% 40% at 12% 85%, rgba(0, 255, 157, 0.07), transparent 70%),
+        linear-gradient(160deg, var(--bg) 30%, rgba(0, 60, 38, 0.35) 100%);
+      z-index: -1;
+      animation: hero-drift 26s ease-in-out infinite alternate;
+    }
+    @keyframes hero-drift {
+      from { transform: translate3d(0, 0, 0) scale(1); }
+      to { transform: translate3d(-2%, 2%, 0) scale(1.06); }
+    }
+
+    .hero-grid {
+      display: grid;
+      gap: 48px;
+      align-items: start;
+    }
+
+    .hero-lede {
+      font-size: 1.1rem;
+      line-height: 1.6;
+      max-width: 58ch;
+      margin-bottom: 32px;
+      color: var(--text-muted);
+    }
+
+    .hero-lede strong {
+      color: var(--green);
+      font-weight: 600;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .hero-note {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      max-width: 58ch;
+      color: var(--text-subtle);
+      font-size: 0.85rem;
+      line-height: 1.5;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* Semantic topology diagram: the tether. Green = live link. */
+    .topology {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      padding: 32px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: linear-gradient(150deg, var(--surface) 40%, var(--green-deep) 140%);
+      flex-wrap: wrap;
+      transition: border-color var(--dur-med) ease-out, box-shadow var(--dur-med) ease-out;
+    }
+    .topology:hover {
+      border-color: var(--border-strong);
+      box-shadow: 0 8px 40px rgba(0, 255, 157, 0.08);
+    }
+    .topology-node {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 160px;
+      text-align: center;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface-raised);
+      transition: border-color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .topology-node:hover {
+      border-color: var(--green-border);
+      transform: translateY(-2px);
+    }
+    .topology-label {
+      font-weight: 600;
+      color: var(--silver);
+      font-size: 0.95rem;
+    }
+    .topology-detail {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text-subtle);
+    }
+    .topology-link {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: var(--green);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+    }
+    .topology-protocol {
+      letter-spacing: 0.02em;
+    }
+    /* Packets travelling the link: the one moving element that IS the product */
+    .topology-wire {
+      position: relative;
+      width: 120px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--green-border), transparent);
+      overflow: hidden;
+    }
+    .topology-wire::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 32px;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, var(--green), transparent);
+      animation: packet 2.4s var(--ease-out) infinite;
+    }
+    @keyframes packet {
+      0% { transform: translateX(-40px); opacity: 0; }
+      25% { opacity: 1; }
+      75% { opacity: 1; }
+      100% { transform: translateX(140px); opacity: 0; }
+    }
+    .topology-arrow {
+      font-size: 1.1rem;
+      color: var(--text-subtle);
+    }
+
+    /* ---------- 8. Overview & Features ---------- */
+    .overview-grid {
+      display: grid;
+      gap: 32px;
+    }
+
+    .feature-grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+
+    .feature {
+      position: relative;
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: linear-gradient(165deg, var(--surface) 55%, var(--green-deep) 160%);
+      transition: border-color var(--dur-fast) ease-out, transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
+    }
+    .feature:hover {
+      border-color: var(--green-border);
+      transform: translateY(-3px);
+      box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5), 0 2px 16px rgba(0, 255, 157, 0.07);
+    }
+
+    .feature-title {
+      color: var(--silver);
+      margin-bottom: 8px;
+    }
+    .feature-text {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .feature-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    /* ---------- 9. Architecture ---------- */
+    .arch-flow {
+      display: grid;
+      gap: 16px;
+    }
+    .arch-node {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      padding: 20px;
+      transition: border-color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .arch-node:hover {
+      border-color: var(--green-border);
+      transform: translateX(4px);
+    }
+    .arch-kind {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--green-dim);
+      margin-bottom: 4px;
+      text-transform: lowercase;
+    }
+    .arch-name {
+      font-size: 1rem;
+      margin-bottom: 6px;
+      color: var(--silver);
+    }
+    .arch-desc {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* ---------- 10. Developers Tabs ---------- */
+    .tabs {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .tablist {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .tab {
+      flex: 1;
+      min-width: 120px;
+      padding: 14px 16px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      border-bottom: 2px solid transparent;
+      transition: color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .tab:hover {
+      color: var(--silver);
+      background: var(--green-wash);
+    }
+    .tab[aria-selected="true"] {
+      color: var(--green);
+      border-bottom-color: var(--green);
+      background: var(--green-wash);
+    }
+    .tabpanel {
+      padding: 24px;
+      animation: panel-in var(--dur-med) var(--ease-out);
+    }
+    @keyframes panel-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: none; }
+    }
+    .panel-title {
+      font-size: 1.1rem;
+      margin-bottom: 8px;
+    }
+    .panel-lede {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+    }
+
+    .role-list > div {
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      transition: padding-left var(--dur-fast) var(--ease-out);
+    }
+    .role-list > div:hover {
+      padding-left: 6px;
+    }
+    .role-list > div:last-child {
+      border-bottom: none;
+    }
+    .role-list dt {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--green);
+      margin-bottom: 4px;
+    }
+    .role-list dd {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .ref-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    .ref-table th, .ref-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .ref-table th {
+      color: var(--green-dim);
+      font-weight: 500;
+      font-size: 0.8rem;
+    }
+    .ref-table tbody tr {
+      transition: background-color var(--dur-fast) ease-out;
+    }
+    .ref-table tbody tr:hover {
+      background: var(--green-wash);
+    }
+    .ref-table td {
+      color: var(--text-muted);
+    }
+
+    /* Modern Comparison Table */
+    .compare-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.9rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: var(--surface);
+    }
+    .compare-table th, .compare-table td {
+      padding: 14px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .compare-table thead th {
+      background: var(--surface-raised);
+      color: var(--silver);
+      font-weight: 600;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .compare-table thead th.col-lead {
+      color: var(--green);
+      background: var(--green-deep);
+      border-bottom: 2px solid var(--green);
+    }
+    .compare-table td.col-lead {
+      background: rgba(0, 255, 157, 0.03);
+      font-weight: 500;
+      color: var(--silver);
+    }
+    .compare-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+    .compare-table tbody tr:hover {
+      background: var(--green-wash);
+    }
+    .badge-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--green);
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+    .badge-cross {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--silver-subtle);
+      font-size: 0.85rem;
+    }
+
+    /* Showcase & Screenshot Grid */
+    .showcase-grid {
+      display: grid;
+      gap: 24px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      margin-top: 24px;
+    }
+    .showcase-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      overflow: hidden;
+      transition: border-color var(--dur-fast) ease-out, transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
+    }
+    .showcase-card:hover {
+      border-color: var(--green-border);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 2px 16px rgba(0, 255, 157, 0.08);
+    }
+    .showcase-media {
+      background: #000;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .showcase-media img {
+      width: 100%;
+      height: auto;
+      display: block;
+      object-fit: cover;
+      max-height: 380px;
+      transition: transform var(--dur-slow) var(--ease-out);
+    }
+    .showcase-card:hover .showcase-media img {
+      transform: scale(1.02);
+    }
+    .showcase-body {
+      padding: 16px 20px;
+    }
+    .showcase-title {
+      font-size: 1rem;
+      color: var(--silver);
+      margin-bottom: 6px;
+    }
+    .showcase-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Step Cards / How It Works */
+    .step-grid {
+      display: grid;
+      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      margin-top: 28px;
+    }
+    .step-card {
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: linear-gradient(165deg, var(--surface) 60%, var(--green-deep) 170%);
+      position: relative;
+    }
+    .step-num {
+      font-family: var(--font-mono);
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--green);
+      line-height: 1;
+      margin-bottom: 12px;
+      opacity: 0.9;
+    }
+    .step-title {
+      font-size: 1.05rem;
+      color: var(--silver);
+      margin-bottom: 8px;
+    }
+    .step-desc {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Core Web Vitals Render Performance */
+    .section:not(.hero) {
+      content-visibility: auto;
+      contain-intrinsic-size: 1px 700px;
+    }
+
+    .code {
+      margin: 16px 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg);
+      overflow: hidden;
+      transition: border-color var(--dur-fast) ease-out;
+    }
+    .code:hover {
+      border-color: var(--green-border);
+    }
+    .code-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--text-subtle);
+    }
+    .code-body {
+      margin: 0;
+      padding: 16px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      color: var(--green);
+    }
+    .copy-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      transition: color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .copy-btn:hover {
+      background: var(--green-wash);
+      color: var(--green);
+    }
+    .copy-btn:active {
+      transform: scale(0.94);
+    }
+    .copy-btn.is-copied {
+      color: var(--green);
+    }
+
+    /* ---------- 11. Roadmap & FAQ ---------- */
+    .faq-item {
+      border-bottom: 1px solid var(--border);
+      transition: background-color var(--dur-fast) ease-out;
+    }
+    .faq-item:hover {
+      background: var(--green-wash);
+    }
+    .faq-item summary {
+      padding: 16px 0;
+      font-weight: 500;
+      color: var(--silver);
+      cursor: pointer;
+      list-style: none;
+      transition: color var(--dur-fast) ease-out;
+    }
+    .faq-item summary:hover {
+      color: var(--green);
+    }
+    .faq-item summary::-webkit-details-marker {
+      display: none;
+    }
+    .faq-item summary::after {
+      content: "+";
+      float: right;
+      font-family: var(--font-mono);
+      color: var(--green-dim);
+      transition: transform var(--dur-med) var(--ease-out);
+    }
+    .faq-item[open] summary::after {
+      content: "\2212";
+      transform: rotate(180deg);
+    }
+    .faq-body {
+      padding-bottom: 16px;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* ---------- 11b. Download & Ask a Question ---------- */
+    .dl-btn[disabled] {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .dl-state {
+      font-size: 0.85rem;
+      color: var(--text-subtle);
+      margin-top: 10px;
+      min-height: 1.2em;
+    }
+    .dl-state.is-error { color: var(--warn); }
+
+    .ask-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      margin-bottom: 24px;
+    }
+    .ask-cat {
+      position: relative;
+      display: block;
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      cursor: pointer;
+      transition: border-color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .ask-cat:hover {
+      border-color: var(--green-border);
+      transform: translateY(-2px);
+    }
+    .ask-cat input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .ask-cat:has(input:checked) {
+      border-color: var(--green);
+      background: var(--green-wash);
+    }
+    .ask-cat:has(input:focus-visible) {
+      outline: 2px solid var(--focus);
+      outline-offset: 3px;
+    }
+    .ask-cat-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--green-wash);
+      margin-bottom: 10px;
+      color: var(--green);
+      flex-shrink: 0;
+    }
+    .ask-cat-icon svg {
+      display: block;
+      flex-shrink: 0;
+    }
+    .ask-cat-title {
+      color: var(--silver);
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 4px;
+    }
+    .ask-cat-desc {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+
+    .ask-field {
+      margin-bottom: 16px;
+    }
+    .ask-field label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--silver);
+      margin-bottom: 6px;
+    }
+    .ask-field .req {
+      color: var(--green-dim);
+      font-size: 0.75rem;
+    }
+    .ask-field input,
+    .ask-field select,
+    .ask-field textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+      font-size: 0.9rem;
+    }
+    .ask-field textarea {
+      min-height: 96px;
+      resize: vertical;
+    }
+    .ask-field input:focus,
+    .ask-field select:focus,
+    .ask-field textarea:focus {
+      outline: none;
+      border-color: var(--green);
+      box-shadow: 0 0 0 2px var(--green-wash);
+    }
+    .ask-field .field-error {
+      display: none;
+      color: var(--warn);
+      font-size: 0.8rem;
+      margin-top: 4px;
+    }
+    .ask-field.has-error input,
+    .ask-field.has-error select,
+    .ask-field.has-error textarea {
+      border-color: var(--warn);
+    }
+    .ask-field.has-error .field-error {
+      display: block;
+    }
+    .ask-contact {
+      border: 1px solid var(--green-border);
+      border-radius: var(--radius-md);
+      background: var(--green-wash);
+      padding: 20px;
+      margin: 24px 0;
+    }
+    .ask-contact > p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+    .ask-note {
+      font-size: 0.8rem;
+      color: var(--text-subtle);
+      line-height: 1.5;
+      margin-top: 8px;
+    }
+    .form-status {
+      margin-top: 16px;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .form-status[hidden] { display: none; }
+    .form-status.is-success {
+      border: 1px solid var(--green-border);
+      background: var(--green-wash);
+      color: var(--text);
+    }
+    .form-status.is-error {
+      border: 1px solid rgba(245, 184, 61, 0.45);
+      background: rgba(245, 184, 61, 0.08);
+      color: var(--warn);
+    }
+    /* Honeypot: real users never see or tab into this */
+    .hp-field {
+      position: absolute !important;
+      left: -9999px;
+      height: 1px;
+      width: 1px;
+      overflow: hidden;
+    }
+
+    /* ---------- 12. CTA & Footer ---------- */
+    .section-cta {
+      background:
+        radial-gradient(70% 90% at 50% 110%, rgba(0, 255, 157, 0.16), transparent 65%),
+        linear-gradient(180deg, var(--bg), var(--green-deep));
+      border-top: 1px solid var(--border);
+    }
+    .cta-panel {
+      text-align: center;
+      max-width: 600px;
+      margin-inline: auto;
+    }
+    .cta-actions {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 24px 0;
+    }
+    .cta-status {
+      margin-top: 16px;
+    }
+
+    .site-footer {
+      padding-block: 48px;
+      font-size: 0.9rem;
+      border-top: 1px solid var(--border);
+    }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 40px;
+      margin-bottom: 40px;
+    }
+    .footer-brand p {
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+    .footer-heading {
+      font-size: 0.8rem;
+      color: var(--green-dim);
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+    .footer-nav ul li {
+      margin-bottom: 8px;
+    }
+    .footer-nav a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color var(--dur-fast) ease-out, padding-left var(--dur-fast) var(--ease-out);
+    }
+    .footer-nav a:hover {
+      color: var(--green);
+      padding-left: 4px;
+    }
+    .footer-legal {
+      border-top: 1px solid var(--border);
+      padding-top: 24px;
+      color: var(--text-subtle);
+      font-size: 0.8rem;
+      line-height: 1.5;
+    }
+    .footer-legal p + p {
+      margin-top: 8px;
+    }
+
+    /* ---------- 13. Accessibility & Motion ---------- */
+    /* Every loop and transition dies here. Reveals render final-state. */
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .topology-wire::after,
+      .status-chip,
+      .hero::before { animation: none; }
+      .btn::before { display: none; }
+      .reveal {
+        opacity: 1;
+        transform: none;
+        transition: none;
+      }
+      .tabpanel { animation: none; }
+    }
+
+    @media (max-width: 768px) {
+      .primary-nav {
+        display: none;
+      }
+      .nav-toggle {
+        display: inline-flex;
+        margin-left: auto;
+        padding: 8px;
+        color: var(--silver);
+      }
+      .hero {
+        padding-top: calc(var(--header-h) + 24px);
+        padding-bottom: 48px;
+      }
+      .section {
+        padding-block: 48px;
+      }
+      .feature {
+        padding: 18px;
+      }
+      .cta-actions .btn {
+        width: 100%;
+      }
+      .footer-grid {
+        grid-template-columns: 1fr;
+        gap: 32px;
+      }
+      .topology {
+        flex-direction: column;
+        gap: 16px;
+      }
+      .topology-wire {
+        width: 2px;
+        height: 40px;
+        background: linear-gradient(180deg, transparent, var(--green-border), transparent);
+      }
+      .topology-wire::after {
+        background: linear-gradient(180deg, transparent, var(--green), transparent);
+        width: 100%;
+        height: 14px;
+        animation-name: packet-v;
+      }
+      @keyframes packet-v {
+        0% { transform: translateY(-18px); opacity: 0; }
+        25% { opacity: 1; }
+        75% { opacity: 1; }
+        100% { transform: translateY(46px); opacity: 0; }
+      }
+    }
+  
+
+    
+    .audience-switch { display:inline-flex; align-items:center; gap:8px; margin-left:4px; }
+    .audience-switch label { color:var(--text-subtle); font-size:.78rem; white-space:nowrap; }
+    .audience-switch select { min-height:36px; max-width:150px; padding:6px 28px 6px 10px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface-raised); color:var(--silver); font:inherit; font-size:.82rem; }
+    @media(max-width:768px) { .audience-switch { margin:8px 0; justify-content:space-between; } .audience-switch select { max-width:none; flex:1; } }
+
+    .doc-hero { padding:clamp(64px,9vw,112px) 0 52px; background:radial-gradient(ellipse at 50% 0%,rgba(0,255,157,.12),transparent 62%); }
+    .doc-hero .lede { max-width:70ch; font-size:1.12rem; margin-top:20px; line-height:1.8; }
+    .doc-meta { display:flex; flex-wrap:wrap; gap:10px; margin-top:24px; }
+    .doc-section { padding-block:clamp(42px,6vw,72px); border-top:1px solid var(--border); }
+    .doc-section h2 { margin-bottom:18px; }
+    .doc-section h3 { margin-top:26px; }
+    .doc-section p { line-height:1.8; margin:12px 0; }
+    .doc-section li { color:var(--text-muted); line-height:1.75; margin:8px 0; padding-left:20px; position:relative; }
+    .doc-section li::before { content:""; position:absolute; left:2px; top:.72em; width:6px; height:6px; border-radius:50%; background:var(--green-dim); }
+    .doc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr)); gap:16px; margin:24px 0; }
+    .doc-card { background:var(--surface-raised); border:1px solid var(--border); border-radius:var(--radius-md); padding:22px; }
+    .doc-card h3 { margin:0 0 10px; }
+    .doc-card p { margin:0; font-size:.94rem; }
+    .doc-callout { border:1px solid var(--border-strong); border-left:3px solid var(--green); background:var(--green-wash); padding:18px 20px; border-radius:var(--radius-md); margin:24px 0; }
+    .doc-callout.warning { border-color:rgba(245,184,61,.4); border-left-color:var(--warn); background:rgba(245,184,61,.06); }
+    .doc-callout p { margin:6px 0 0; }
+    .flow { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:24px 0; }
+    .flow-step { background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-md); padding:16px; min-height:100px; }
+    .flow-step strong { display:block; color:var(--green); margin-bottom:6px; font-size:.9rem; }
+    .flow-step span { display:block; color:var(--text-muted); font-size:.86rem; line-height:1.6; }
+    .doc-table-wrap { overflow-x:auto; margin:20px 0; border:1px solid var(--border); border-radius:var(--radius-md); }
+    .doc-table { width:100%; border-collapse:collapse; min-width:560px; }
+    .doc-table th,.doc-table td { text-align:left; padding:13px 15px; border-bottom:1px solid var(--border); vertical-align:top; font-size:.9rem; }
+    .doc-table th { color:var(--silver); background:var(--surface-raised); font-weight:600; }
+    .doc-table td { color:var(--text-muted); }
+    .doc-table tr:last-child td { border-bottom:0; }
+    .doc-table code,.doc-code { color:var(--green); font-family:var(--font-mono); font-size:.85em; overflow-wrap:anywhere; }
+    .doc-codeblock { overflow-x:auto; padding:18px; margin:16px 0; background:#030604; border:1px solid var(--border); border-radius:var(--radius-md); color:#c8d8d0; font: .84rem/1.7 var(--font-mono); white-space:pre; }
+    .doc-toc { display:flex; flex-wrap:wrap; gap:8px; margin-top:28px; }
+    .doc-toc a { display:inline-block; padding:7px 11px; border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-muted); text-decoration:none; font-size:.84rem; }
+    .doc-toc a:hover { color:var(--green); border-color:var(--border-strong); }
+    .doc-footer { padding:28px 0 46px; border-top:1px solid var(--border); }
+    .doc-footer p { font-size:.85rem; }
+    @media(max-width:600px) { .doc-table th,.doc-table td { padding:10px; } .doc-hero { padding-top:52px; } }
+</style></head><body>
+<a class="skip-link" href="#main">Skip to content"> </a><header class="site-header" id="site-header"><div class="container header-inner">
+<a href="/" class="brand"><span class="brand-mark" aria-hidden="true"><img src="docs/assets/branding/tether-logo-64.png" alt="Tether" width="26" height="26" class="brand-logo"></span>Tether</a>
+<nav class="primary-nav" id="primary-nav" aria-label="Main">
+<a href="/" class="nav-link">Home</a><a href="/power" class="nav-link">Power users</a><a href="/dev" class="nav-link">Developers</a>
+<div class="audience-switch"><label for="audience-page">View</label><select id="audience-page" aria-label="Choose a Tether guide" onchange="if(this.value) window.location.href=this.value"><option value="/">Normal</option><option value="/power" POWER>Power users</option><option value="/dev" DEV>Developers</option></select></div>
+<a href="https://github.com/tirthsaraiya29/Tether" class="btn btn-sm btn-green" target="_blank" rel="noopener">GitHub</a></nav></div></header>
+<main id="main">
+<section class="doc-hero"><div class="container"><p class="eyebrow">ENGINEERING NOTES · FOR DEVELOPERS</p><h1>Tether, under the hood.</h1><p class="lede">An implementation-oriented guide to the current repository: process boundaries, network discovery, TLS transport, pairing and trust, Windows sign-in integration, desktop-session IPC, file transfer, Linux components, and the places contributors should start reading.</p><div class="doc-meta"><span class="chip">Kotlin · C# · C/C++</span><span class="chip">TLS 1.3 · TCP</span><span class="chip">Protocol v2.0</span><span class="chip">Active development</span></div><nav class="doc-toc" aria-label="On this page"><a href="#architecture">Architecture</a><a href="#network">Network & transport</a><a href="#pairing">Pairing protocol</a><a href="#trust">Trust storage</a><a href="#windows">Windows integration</a><a href="#android">Android</a><a href="#files">File transfer</a><a href="#linux">Linux</a><a href="#security">Security model</a><a href="#repo">Repository map</a><a href="#contributing">Build & contribute</a></nav></div></section>
+<section class="doc-section" id="architecture"><div class="container"><p class="eyebrow">01 · SYSTEM ARCHITECTURE</p><h2>Process boundaries are a core design decision</h2><p>Tether is a multi-process, multi-platform system. On Windows, the network-facing service runs independently of the interactive desktop. A session helper runs where desktop input and user-session APIs are available. The native Credential Provider participates in Windows sign-in. Android is the companion and trust-bearing endpoint.</p>
+<div class="doc-codeblock">Android app (Kotlin / Android Keystore)
+       │
+       │ local discovery → TCP + TLS 1.3
+       ▼
+Tether.CommunicationService (.NET / Windows Service)
+       ├── Discovery + TCP listener
+       ├── PairingManager + TrustStore
+       ├── PacketRouter + CapabilityManager
+       ├── SessionManager + InputForwarder
+       ├── Panic / Trust / Enforcement engines
+       ├── FileTransferServer (separate listener)
+       └── Named-pipe IPC
+                │
+                ▼
+       Tether.SessionHelper (interactive user session)
+                ├── Input injection
+                ├── Session-bound desktop operations
+                └── Other user-session capabilities
+
+Windows LogonUI
+       └── TetherCredentialProvider.dll (native COM provider)
+                ↕ local service coordination</div>
+<h3>Why not one process?</h3><ul><li><strong>Service lifetime:</strong> network discovery and device trust should not depend on a desktop UI window remaining open.</li><li><strong>Session isolation:</strong> Windows services run in Session 0; desktop input and interactive UI work belong to a logged-in user session.</li><li><strong>Native sign-in integration:</strong> Windows Credential Providers are COM-based native components loaded by the Windows sign-in infrastructure.</li><li><strong>Failure containment:</strong> separating components gives the system clearer ownership boundaries, though it also introduces IPC and lifecycle complexity.</li></ul>
+</div></section>
+<section class="doc-section" id="network"><div class="container"><p class="eyebrow">02 · NETWORKING & TRANSPORT</p><h2>Discovery is not trust; transport is not pairing</h2><div class="doc-table-wrap"><table class="doc-table"><thead><tr><th>Endpoint</th><th>Current role</th><th>Implementation notes</th></tr></thead><tbody><tr><td><code>37123/TCP</code></td><td>Control listener</td><td>Dual-mode IPv6 TCP listener; TLS 1.3 is logged/configured as the control transport.</td></tr><tr><td><code>37124/UDP</code></td><td>UDP discovery</td><td>LAN broadcast discovery path.</td></tr><tr><td><code>5353/UDP</code></td><td>mDNS</td><td>Advertises <code>_tether._tcp.local</code> service records.</td></tr><tr><td>File transfer listener</td><td>Separate transfer plane</td><td>Separate hosted server with token middleware; do not conflate it with the control TCP listener.</td></tr></tbody></table></div>
+<h3>Discovery metadata</h3><p>The Windows <code>MdnsAdvertiser</code> publishes a service profile with protocol version, device ID, display name, capability metadata, a PQC flag, and an optional file-transfer port. Discovery data helps the client find and classify a host. It must not be treated as authenticated identity; the subsequent handshake and trust checks do that work.</p>
+<h3>TCP accept-path guardrails</h3><p><code>TetherTcpServer</code> accepts on a dual-mode IPv6 listener and applies bounded connection controls, including a global active-session ceiling, per-IP concurrency ceiling, per-IP connection-rate limit, and bounded IP tracking. The current constants in the implementation are 16 concurrent sessions, 5 per IP, and 60 new connections per IP per minute, with tracking bounded to 1,024 IPs.</p>
+<h3>Protocol framing and routing</h3><p>The transport/session layer reads framed messages and passes decoded application messages to <code>PacketRouter</code>. The router dispatches message types such as ping/pong, handshake proof, command execution, input events, and file-transfer authorization requests to their owning services. Request IDs are normalized before routing. Keep framing, authentication and command authorization as distinct layers when changing this path.</p>
+</div></section>
+<section class="doc-section" id="pairing"><div class="container"><p class="eyebrow">03 · PAIRING PROTOCOL</p><h2>First-contact flow and subsequent reconnects</h2><p>The Android <code>TetherPairingManager</code> and Windows <code>PairingManager</code> implement the device handshake and first-pairing workflow. The current protocol version is declared as <code>2.0</code>.</p>
+<div class="flow"><div class="flow-step"><strong>1 · Client identity</strong><span>Android obtains its EC public identity key and computes a SHA-256 fingerprint.</span></div><div class="flow-step"><strong>2 · Fresh handshake data</strong><span>Client/server nonces and public-key material are combined into a transcript.</span></div><div class="flow-step"><strong>3 · Existing pin check</strong><span>A previously pinned server key is compared with the presented identity; mismatch is a distinct result.</span></div><div class="flow-step"><strong>4 · Pairing approval</strong><span>For first pairing, Windows creates a pending request and a cryptographically random six-digit code.</span></div><div class="flow-step"><strong>5 · Verify & persist</strong><span>The confirmation flow validates the request and records the peer public key as trusted.</span></div></div>
+<h3>Implementation details visible in source</h3><ul><li>Android identity aliases include <code>TetherIdentityKey_v2</code>, with legacy v1 cleanup logic.</li><li>The identity algorithm is EC P-256 with SHA-256 ECDSA signatures. StrongBox is attempted where supported; availability is device-dependent.</li><li>The Android implementation builds a length-prefixed handshake transcript containing nonces and both public keys, then hashes transcript material with SHA-512 in relevant proof flows.</li><li>Windows pending pairing requests expire after 120 seconds. The pairing manager caps failed attempts at three and bounds pending requests.</li><li>The pairing PIN is generated using a cryptographically secure random-number generator. The service deliberately avoids publishing the cleartext PIN on its in-process event bus.</li></ul>
+<div class="doc-callout warning"><strong>Protocol caution</strong><p>Do not describe this as post-quantum secure. The current Windows mDNS advertisement explicitly reports <code>pqc=false</code> in the inspected implementation path. A metadata field or roadmap item is not proof of a deployed PQC handshake.</p></div>
+</div></section>
+<section class="doc-section" id="trust"><div class="container"><p class="eyebrow">04 · TRUST & KEY STORAGE</p><h2>Public-key pinning and platform-backed storage</h2><h3>Android side</h3><p><code>ProductionSecurityEngine</code> provisions the EC identity in <code>AndroidKeyStore</code>. The private key is not intended to be exported to app-managed files. The code requires user authentication for key use and defines a five-minute authorization validity window for supported background signing flows. StrongBox is attempted when available, with platform fallback logic.</p><p>The paired Windows public key is stored as encrypted app preference data. The encryption key is managed in Android Keystore; the inspected implementation uses AES-GCM parameters and distinguishes unprovisioned, present, and corrupted pinned-key states.</p><h3>Windows side</h3><p><code>TrustStore</code> stores trusted phone public-key records in <code>%ProgramData%\Tether\trust.json</code>. Fingerprints are SHA-256 over the decoded SubjectPublicKeyInfo bytes. The implementation uses DPAPI protection, access-control checks, and reparse-point/ownership handling around the data directory and file. Trust operations include add/update, lookup, touch, remove and clear.</p><h3>Revocation and state</h3><p>Trust revocation must be considered across all active sessions and cached state, not only the persisted JSON record. When modifying trust flows, inspect <code>TrustStateManager</code>, <code>TrustStoreProviderBridge</code>, the Android pinned-key cache, and session teardown together.</p>
+</div></section>
+<section class="doc-section" id="windows"><div class="container"><p class="eyebrow">05 · WINDOWS INTEGRATION</p><h2>Credential Provider, service and session helper</h2><h3>Credential Provider</h3><p><code>TetherCredentialProvider.dll</code> is a native C++ COM implementation of the Windows Credential Provider interfaces. The provider supports the logon, unlock-workstation and CredUI usage scenarios in the inspected implementation; password-change and PLAP scenarios return <code>E_NOTIMPL</code>. Its job is to expose the sign-in tile and coordinate the credential flow—not to own the network stack.</p><p>The provider must be treated as a critical sign-in surface. Preserve a reliable fallback sign-in route during development and installer testing. Test LogonUI lifecycle events, credential enumeration/re-enumeration, cancellation, user switching, lock/unlock, service restarts and failure recovery.</p>
+<h3>Communication service</h3><p><code>Tether.CommunicationService</code> is the Windows hosted service and composition root. <code>Program.cs</code> registers discovery, transport, pairing, trust, session, capability, IPC, panic and file-transfer components through dependency injection. When running as a Windows service, it configures the Windows service host and Event Log integration.</p>
+<h3>Session helper & IPC</h3><p><code>Tether.SessionHelper</code> runs in the interactive session. The service launches/coordinates the helper and relays messages over named-pipe IPC. <code>InputInjector</code> owns a dedicated worker thread, attaches to the interactive desktop, and dispatches Windows <code>SendInput</code> events. It uses a bounded queue and tracks held keys/buttons so shutdown and error paths can release state safely.</p>
+<div class="doc-callout"><strong>Contributor rule</strong><p>Do not move desktop-only work into the service just because it is convenient. First identify the required Windows session, integrity level, desktop/window-station access and IPC trust boundary.</p></div>
+</div></section>
+<section class="doc-section" id="android"><div class="container"><p class="eyebrow">06 · ANDROID CLIENT</p><h2>Service lifecycle, discovery and security engine</h2><p>The Android companion is a Kotlin application. <code>TetherLanService</code> owns long-lived LAN connectivity and exposes explicit transport states such as <code>DISCOVERING</code>, <code>CONNECTING</code>, <code>TLS_HANDSHAKE</code>, <code>AUTHENTICATING</code>, <code>PAIRING_REQUIRED</code>, <code>AUTHENTICATED</code>, <code>READY</code> and <code>FAILED</code>.</p><p><code>TetherPairingManager</code> handles the identity handshake and maps outcomes into typed results: authenticated, pairing pending, denied, key mismatch, invalid PIN and error. <code>ProductionSecurityEngine</code> owns Android Keystore identity creation, signing, pinned-key encryption and biometric/user-auth integration.</p><h3>Areas to preserve when changing Android networking</h3><ul><li>Make transport state transitions explicit and observable; avoid treating “socket connected” as “authenticated”.</li><li>Keep cryptographic operations behind the security engine rather than spreading raw key handling through UI/service code.</li><li>Handle key invalidation/corruption as a security state requiring deliberate recovery, not as a silent empty trust store.</li><li>Test reconnect, process death, network handoff, permission changes, Doze/background restrictions and biometric authorization expiry.</li></ul>
+</div></section>
+<section class="doc-section" id="files"><div class="container"><p class="eyebrow">07 · FILE TRANSFER</p><h2>A separate data plane with its own authorization</h2><p>The Windows implementation registers <code>FileTransferServer</code> as a hosted service. It uses a separate listener from the control TCP server and has dedicated token storage and authorization middleware. The code defines a maximum upload size of 4 GiB per transfer, a 64 KiB JSON control-payload limit, a 250 MiB free-space safety buffer, and a maximum of four concurrent transfers.</p><p>Remote operations are correlated to expected session IDs, device fingerprints and operation names. Keep those bindings intact: a valid transfer token should not become a generic authorization to perform unrelated control operations.</p><p>File transfer is a sensitive filesystem boundary. Preserve path canonicalization, reserved-name checks, blocked-directory protections, bounded request bodies, disk-space checks, cancellation, cleanup and safe handling of partial files. Test symlinks/reparse points and Windows path edge cases on the actual target platform.</p><div class="doc-callout warning"><strong>Do not assume transport parity</strong><p>The control channel and file-transfer channel are distinct. Confirm the current Android/Linux/Windows transfer protocol and release compatibility before documenting or depending on a specific wire protocol or port.</p></div>
+</div></section>
+<section class="doc-section" id="linux"><div class="container"><p class="eyebrow">08 · LINUX IMPLEMENTATION</p><h2>Linux is a native platform path, not a Windows shim</h2><p>The repository contains a dedicated <code>Tether.LinuxDaemon</code>, Linux pairing and trust stores, a file-transfer server, PAM integration assets, systemd installer units and uinput configuration. The Linux sign-in path uses PAM rather than the Windows Credential Provider.</p><p>The Linux installer configures the daemon, PAM module, udev rules for input, firewall rules and a systemd service. Exact support depends on distribution, PAM stack layout, desktop/session manager and packaging state. Read the Linux installer and release notes before assuming a distribution is supported.</p><h3>Linux files worth reading</h3><ul><li><code>services/communication-service/Tether.LinuxDaemon/</code> — daemon, pairing, trust and transfer implementation.</li><li><code>installer/linux/install.sh</code> and <code>uninstall.sh</code> — lifecycle and system integration.</li><li><code>installer/linux/selinux/</code> — SELinux policy source.</li><li><code>tests/Tether.LinuxTests/</code> — Linux-specific test coverage.</li></ul>
+</div></section>
+<section class="doc-section" id="security"><div class="container"><p class="eyebrow">09 · SECURITY MODEL & REVIEW</p><h2>Threat boundaries contributors should understand</h2><div class="doc-table-wrap"><table class="doc-table"><thead><tr><th>Boundary</th><th>Intended protection</th><th>Review questions</th></tr></thead><tbody><tr><td>LAN discovery</td><td>Find candidate peers.</td><td>Can unauthenticated metadata trigger expensive work? Are responses bounded?</td></tr><tr><td>TLS control channel</td><td>Protect traffic in transit.</td><td>Are TLS versions, certificates, peer validation and shutdown behavior correct?</td></tr><tr><td>Device pairing</td><td>Bind public-key identity to explicit approval.</td><td>Are nonces, transcript binding, PIN lifetime, retries and replay resistance correct?</td></tr><tr><td>Persistent trust</td><td>Remember approved device identities.</td><td>Are ACLs, DPAPI/Keystore use, cache invalidation and revocation consistent?</td></tr><tr><td>Service ↔ helper IPC</td><td>Cross the Session 0 boundary.</td><td>Can another local process spoof, replay or inject privileged messages?</td></tr><tr><td>Credential Provider</td><td>Integrate with Windows sign-in.</td><td>Can failure strand the user? Are COM lifetimes and cancellation safe?</td></tr><tr><td>File transfer</td><td>Authorize bounded filesystem operations.</td><td>Are paths, tokens, quotas, partial writes and cleanup robust?</td></tr></tbody></table></div>
+<div class="doc-callout warning"><strong>Project status</strong><p>Tether is active development software and has not been independently security audited. The presence of TLS, Android Keystore, DPAPI, ACLs or rate limits is not a certification or proof that the complete system is secure. Treat every trust boundary as something to verify through tests and review.</p></div>
+</div></section>
+<section class="doc-section" id="repo"><div class="container"><p class="eyebrow">10 · REPOSITORY MAP</p><h2>Where to start reading</h2><div class="doc-table-wrap"><table class="doc-table"><thead><tr><th>Path</th><th>Responsibility</th></tr></thead><tbody>
+<tr><td><code>apps/android-companion/</code></td><td>Android app, LAN service, pairing, security engine and UI.</td></tr>
+<tr><td><code>services/communication-service/Tether.CommunicationService/</code></td><td>Windows service, discovery, TCP transport, protocol routing, pairing, trust and IPC.</td></tr>
+<tr><td><code>services/communication-service/Tether.SessionHelper/</code></td><td>Interactive Windows session operations and input injection.</td></tr>
+<tr><td><code>TetherCredentialProvider/</code></td><td>Native Windows Credential Provider COM implementation.</td></tr>
+<tr><td><code>services/trust-engine/</code></td><td>Trust-state coordination.</td></tr>
+<tr><td><code>services/panic-engine/</code></td><td>Emergency/panic workflow and Credential Provider recovery support.</td></tr>
+<tr><td><code>services/enforcement-engine/</code></td><td>Enforcement manager and policy actions.</td></tr>
+<tr><td><code>services/communication-service/Tether.LinuxDaemon/</code></td><td>Linux daemon and native Linux-side services.</td></tr>
+<tr><td><code>shared/Tether.Shared/</code></td><td>Shared constants, DTOs, events and protocol-related types.</td></tr>
+<tr><td><code>tests/</code></td><td>Cross-platform, Windows and Linux tests.</td></tr>
+<tr><td><code>installer/</code></td><td>Windows Inno Setup and Linux install/uninstall assets.</td></tr>
+</tbody></table></div>
+<h3>Useful starting files</h3><ul><li><code>Program.cs</code> — service dependency-injection composition root.</li><li><code>TetherTcpServer.cs</code> — TCP accept loop and connection limits.</li><li><code>PairingManager.cs</code> / <code>TetherPairingManager.kt</code> — paired handshake flow on each side.</li><li><code>TrustStore.cs</code> / <code>ProductionSecurityEngine.kt</code> — persistent trust and platform key management.</li><li><code>PacketRouter.cs</code> — application message dispatch.</li><li><code>InputInjector.cs</code> — interactive-session input delivery.</li></ul>
+</div></section>
+<section class="doc-section" id="contributing"><div class="container"><p class="eyebrow">11 · BUILDING & CONTRIBUTING</p><h2>Make changes with the boundary in mind</h2><p>Use the repository README as the authoritative source for current SDK versions, prerequisites, build commands and installer instructions. This page is an architecture map, not a substitute for the build scripts or CI configuration.</p><h3>Before changing a subsystem</h3><ul><li>Trace the complete request path from Android UI/service through transport, routing, service/helper IPC and back.</li><li>Identify the trust state required for the operation. “Connected” and “trusted” must remain separate states.</li><li>Check both sides of every wire-format change. Shared DTOs and Kotlin/C# protocol definitions must stay compatible.</li><li>Add tests for malformed frames, oversized payloads, disconnects, retries, duplicate requests, cancellation and restart behavior.</li><li>For Windows sign-in or installer work, preserve recovery paths and test on a disposable VM or machine snapshot.</li><li>For file transfer, test traversal, reparse points, reserved names, disk exhaustion, cancellation and partial-file cleanup.</li><li>Never log private keys, PINs, bearer tokens, sensitive file paths or full authentication payloads.</li></ul>
+<p>Repository: <a href="https://github.com/tirthsaraiya29/Tether">github.com/tirthsaraiya29/Tether</a> · <a href="https://github.com/tirthsaraiya29/Tether/blob/main/README.md">README and build instructions</a> · <a href="https://github.com/tirthsaraiya29/Tether/issues">Issues</a></p><p>For the non-developer explanation, <a href="/power">read the power user guide</a>. For the short version, <a href="/">return to the homepage</a>.</p></div></section></main><footer class="doc-footer"><div class="container"><p><strong style="color:var(--silver)">Tether</strong> · Open-source, local-first device companion software.</p><p>Still in active development. These pages describe the current implementation as understood from the source; features and platform support may change. Tether has not had an independent security audit.</p><p style="margin-top:12px"><a href="/">Home</a> · <a href="/power">Power user guide</a> · <a href="/dev">Developer documentation</a> · <a href="https://github.com/tirthsaraiya29/Tether">Source code</a></p></div></footer>
+<script>document.addEventListener('scroll',function(){var h=document.getElementById('site-header');if(h)h.classList.toggle('is-scrolled',window.scrollY>8)},{passive:true});</script></body></html>
