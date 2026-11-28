@@ -21,6 +21,24 @@ public sealed class LinuxSessionManager
 
     public void RegisterSession(LinuxSession session)
     {
+        // A device that reconnects supersedes its previous transport. Leaving the old session
+        // registered would let it keep receiving broadcasts/responses meant for the new one.
+        if (session.Device != null)
+        {
+            var stale = _activeSessions.Values
+                .Where(s => !ReferenceEquals(s, session) &&
+                            s.Device != null &&
+                            string.Equals(s.Device.Fingerprint, session.Device.Fingerprint, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            foreach (var old in stale)
+            {
+                if (_activeSessions.TryRemove(old.SessionId, out _))
+                {
+                    old.Abort("Replaced by a newer authenticated session");
+                }
+            }
+        }
+
         _activeSessions[session.SessionId] = session;
         _logger.Info($"Registered active session {session.SessionId} (device={session.Device?.DisplayName ?? "unpaired"}). Total active={_activeSessions.Count}");
     }

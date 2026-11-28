@@ -574,6 +574,14 @@ public sealed class LinuxSession : IDisposable
         }
     }
 
+    /// <summary>Terminates this transport; used when a newer authenticated session replaces it.</summary>
+    public void Abort(string reason)
+    {
+        _logger.Info($"LinuxSession [{SessionId}]: aborting transport ({reason}).");
+        try { _tls?.Close(); } catch { }
+        try { _tls?.Dispose(); } catch { }
+    }
+
     public void Dispose()
     {
         _writeLock.Dispose();
