@@ -1,6 +1,6 @@
 # Remediation Progress Log
 
-Branch: `main` (changes pushed through the GitHub connector; latest repair commit `25d6ee5`)
+Branch: `main` (changes pushed through the GitHub connector; latest repair commit `6bb8422`)
 Baseline: `d3df8bf`
 
 Verification legend: **unit** = automated test run here; **build** = compiled here;
@@ -35,6 +35,7 @@ no representative environment available.
 | 23 | Linux running-window enumeration now drains stdout concurrently with the timeout and resolves the user's actual home directory for per-user desktop entries | `cf1c05d` | code-reviewed via GitHub; build/runtime not run here |
 | 24 | README systemd sandbox claims corrected to match the shipped unit (`ProtectSystem=full`, `ProtectHome=no`, `PrivateTmp=yes`) | `d052d78` | documentation review |
 | 25 | File-transfer proof timestamp conversion now rejects out-of-range Unix timestamps as 401 instead of allowing an exception to escape the auth middleware | `25d6ee5` | code-reviewed via GitHub; build/runtime not run here |
+| 26 | Linux desktop capture no longer guesses DISPLAY=:0; wmctrl and ffmpeg stdout/stderr are drained concurrently with timeout enforcement, and unknown desktop geometry is not fabricated as 1920×1080 | `6bb8422` | code-reviewed via GitHub; real X11/Wayland validation not run here |
 
 
 ## Latest connector-driven follow-up
