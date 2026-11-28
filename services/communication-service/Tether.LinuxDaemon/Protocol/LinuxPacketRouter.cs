@@ -212,9 +212,11 @@ public sealed class LinuxPacketRouter
                         break;
                     }
 
-                    // Check for duplicate command execution (deduplication)
+                    // Deduplicate retries, but scope the cache to the authenticated device so one
+                    // device's request id can never be answered with another device's result.
+                    string dedupKey = $"{session.Device.Fingerprint}:{reqId}";
                     CleanupRecentCommandResults();
-                    if (_recentCommandResults.TryGetValue(reqId, out var existingResult))
+                    if (_recentCommandResults.TryGetValue(dedupKey, out var existingResult))
                     {
                         _logger.Info($"LinuxPacketRouter: Returning deduplicated cached result for reqId '{reqId}' ({command}).");
                         await session.WriteJsonFrameSafeAsync(existingResult.Result, ct);
@@ -294,7 +296,7 @@ public sealed class LinuxPacketRouter
                         IsMuted = isMuted,
                         BrightnessLevel = bri
                     };
-                    _recentCommandResults[reqId] = (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), confirm);
+                    _recentCommandResults[dedupKey] = (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), confirm);
                     await session.WriteJsonFrameSafeAsync(confirm, ct);
                     break;
 

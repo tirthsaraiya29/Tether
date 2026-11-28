@@ -305,6 +305,75 @@ public class LinuxPacketRouterAuthorizationTests : IDisposable
     }
 
     [Fact]
+    public async Task CommandExecute_SameRequestIdFromDifferentDevice_IsNotServedFromCache()
+    {
+        var deviceA = new LinuxDevice
+        {
+            DeviceId = "dev-a",
+            Fingerprint = "FP_DEVICE_A",
+            Capabilities = new List<string> { "POWER_ELEVATED" }
+        };
+        var deviceB = new LinuxDevice
+        {
+            DeviceId = "dev-b",
+            Fingerprint = "FP_DEVICE_B",
+            Capabilities = new List<string>() // deliberately lacks POWER_ELEVATED
+        };
+
+        using var pipeA = new MemoryStream();
+        using var sessionA = CreateTestSession(pipeA, deviceA);
+        byte[] frame = Encoding.UTF8.GetBytes("{\"type\":\"COMMAND_EXECUTE\",\"command\":\"unlock\",\"requestId\":\"req_shared_1\"}");
+        await _router.RouteFrameAsync(frame, sessionA, CancellationToken.None);
+
+        pipeA.Position = 0;
+        using (var docA = await FrameCodec.ReadJsonFrameAsync(pipeA, CancellationToken.None))
+        {
+            Assert.NotNull(docA);
+            Assert.True(docA.RootElement.GetProperty("success").GetBoolean());
+        }
+
+        using var pipeB = new MemoryStream();
+        using var sessionB = CreateTestSession(pipeB, deviceB);
+        await _router.RouteFrameAsync(frame, sessionB, CancellationToken.None);
+
+        pipeB.Position = 0;
+        using var docB = await FrameCodec.ReadJsonFrameAsync(pipeB, CancellationToken.None);
+        Assert.NotNull(docB);
+        Assert.False(docB.RootElement.GetProperty("success").GetBoolean());
+        Assert.Contains("Unauthorized", docB.RootElement.GetProperty("reason").GetString());
+    }
+
+    [Fact]
+    public async Task CommandExecute_FromUnauthenticatedSession_IsRejectedWithoutExecuting()
+    {
+        using var pipe = new MemoryStream();
+        using var session = CreateTestSession(pipe, device: null);
+
+        byte[] frame = Encoding.UTF8.GetBytes("{\"type\":\"COMMAND_EXECUTE\",\"command\":\"shutdown\",\"requestId\":\"req_unauth\"}");
+        await _router.RouteFrameAsync(frame, session, CancellationToken.None);
+
+        pipe.Position = 0;
+        using var doc = await FrameCodec.ReadJsonFrameAsync(pipe, CancellationToken.None);
+        Assert.NotNull(doc);
+        Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
+        Assert.Equal("ERR_UNAUTHORIZED", doc.RootElement.GetProperty("errorCode").GetString());
+    }
+
+    [Fact]
+    public async Task UnknownFrameType_IsIgnoredWithoutThrowing()
+    {
+        using var pipe = new MemoryStream();
+        var device = new LinuxDevice { DeviceId = "dev-x", Fingerprint = "FP_X", Capabilities = new List<string> { "MEDIA" } };
+        using var session = CreateTestSession(pipe, device);
+
+        byte[] frame = Encoding.UTF8.GetBytes("{\"type\":\"TOTALLY_UNKNOWN_COMMAND\",\"requestId\":\"r1\"}");
+        await _router.RouteFrameAsync(frame, session, CancellationToken.None);
+
+        // No response frame is written for unknown types, and the router must not throw.
+        Assert.Equal(0, pipe.Length);
+    }
+
+    [Fact]
     public async Task TerminalStart_RejectedIfLacksTerminalCapability()
     {
         using var pipe = new MemoryStream();
