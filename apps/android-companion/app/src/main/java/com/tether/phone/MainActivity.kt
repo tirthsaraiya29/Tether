@@ -166,8 +166,9 @@ class MainActivity : FragmentActivity() {
                     runCatching { LaptopPowerState.valueOf(it) }.getOrNull()
                 } ?: LaptopPowerState.DISCONNECTED
 
-                val currentWp = laptopTelemetry.value.wallpaperPath
-                val effectiveWp = if (!wpPath.isNullOrEmpty()) wpPath else currentWp
+                // A null wallpaper after a peer reset must clear the previous host's image,
+                // not silently keep it.
+                val effectiveWp = wpPath?.takeIf { it.isNotEmpty() }
 
                 Log.d("TetherActivity", "LAN transport state changed: $stateName ($count), trustState=$trustStateName, laptopPowerState=$powerState")
                 runOnUiThread {
@@ -191,9 +192,13 @@ class MainActivity : FragmentActivity() {
 
                     if (vol in 0..100) {
                         updateVolumeFromRemote(vol)
+                    } else if (vol < 0) {
+                        volumeLevel.intValue = 50
                     }
                     if (bri in 0..100) {
                         updateBrightnessFromRemote(bri)
+                    } else if (bri < 0) {
+                        brightnessLevel.intValue = 50
                     }
 
                     val caps = if (capsStr.isBlank()) emptySet() else capsStr.split(",").map { it.trim().uppercase() }.toSet()
