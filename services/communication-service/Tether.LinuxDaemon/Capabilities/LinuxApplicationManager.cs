@@ -43,7 +43,9 @@ public static class LinuxApplicationManager
         var session = PlatformDetection.GetActiveSessionInfo();
         if (!string.IsNullOrEmpty(session.UserName))
         {
-            searchDirs.Add($"/home/{session.UserName}/.local/share/applications");
+            string? home = PlatformDetection.GetUserHomeDirectory(session.UserName);
+            if (!string.IsNullOrWhiteSpace(home))
+                searchDirs.Add(Path.Combine(home, ".local", "share", "applications"));
         }
 
         foreach (var dir in searchDirs)
@@ -183,14 +185,19 @@ public static class LinuxApplicationManager
             using var p = Process.Start(psi);
             if (p != null)
             {
+                // Drain output while the process runs; waiting before reading can deadlock
+                // when wmctrl fills its redirected stdout pipe.
+                var outputTask = p.StandardOutput.ReadToEndAsync();
+                _ = p.StandardError.ReadToEndAsync();
                 bool exited = p.WaitForExit(1500);
-                string output = p.StandardOutput.ReadToEnd();
                 if (!exited)
                 {
                     try { p.Kill(true); } catch { }
+                    try { p.WaitForExit(500); } catch { }
                     logger.Warning("LinuxApplicationManager: wmctrl timed out.");
                     return windows;
                 }
+                string output = outputTask.GetAwaiter().GetResult();
                 if (p.ExitCode != 0)
                 {
                     logger.Warning($"LinuxApplicationManager: wmctrl failed (exit {p.ExitCode}); window list unavailable.");
