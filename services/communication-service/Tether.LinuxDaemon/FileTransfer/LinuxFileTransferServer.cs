@@ -389,17 +389,9 @@ public sealed class LinuxFileTransferServer : IHostedService
             }
 
             // Lexical containment before creating any directory, then canonical verification.
-            if (!IsLexicallyInside(destPath, baseDir))
-            {
-                return Results.BadRequest(new { error = "Access denied: destination is outside the allowed directory" });
-            }
-            try { Directory.CreateDirectory(destDir); }
-            catch (Exception ex)
-            {
-                _logger.Warning($"LinuxFileTransferServer: cannot create upload directory '{destDir}': {ex.Message}");
-                return Results.Problem("Upload destination directory could not be created");
-            }
-            if (!IsPathSafe(destPath, baseDir))
+            // The deepest existing ancestor is checked first so a symlinked parent cannot
+            // redirect the root daemon's directory creation outside the home.
+            if (!IsLexicallyInside(destPath, baseDir) || !TryEnsureSafeDirectory(destDir, baseDir))
             {
                 return Results.BadRequest(new { error = "Access denied: destination is outside the allowed directory" });
             }
@@ -575,7 +567,10 @@ public sealed class LinuxFileTransferServer : IHostedService
 
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(finalDst)!);
+                if (!TryEnsureSafeDirectory(Path.GetDirectoryName(finalDst)!, baseDir))
+                {
+                    return Results.BadRequest(new { error = "Invalid destination path" });
+                }
                 if (File.Exists(srcPath)) File.Move(srcPath, finalDst, overwrite: true);
                 else Directory.Move(srcPath, finalDst);
                 return Results.Ok(new { success = true, destination = finalDst });
@@ -782,6 +777,26 @@ public sealed class LinuxFileTransferServer : IHostedService
         return IsLexicallyInside(fullPath, baseDir) && IsPathSafe(fullPath, baseDir);
     }
 
+    /// <summary>
+    /// Creates a directory only after the nearest existing ancestor is proven to resolve
+    /// inside the allowed root. Prevents a symlinked parent from redirecting root's mkdir.
+    /// </summary>
+    private static bool TryEnsureSafeDirectory(string dir, string baseDir)
+    {
+        try
+        {
+            string? existing = dir;
+            while (!string.IsNullOrEmpty(existing) && !Directory.Exists(existing))
+            {
+                existing = Path.GetDirectoryName(existing);
+            }
+            if (string.IsNullOrEmpty(existing) || !IsPathSafe(existing, baseDir)) return false;
+            Directory.CreateDirectory(dir);
+            return IsPathSafe(dir, baseDir);
+        }
+        catch { return false; }
+    }
+
     private static bool IsLexicallyInside(string fullPath, string baseDir)
     {
         try
@@ -837,8 +852,10 @@ public sealed class LinuxFileTransferServer : IHostedService
         string trashRoot = Path.Combine(baseDir, ".local", "share", "Trash");
         string filesDir = Path.Combine(trashRoot, "files");
         string infoDir = Path.Combine(trashRoot, "info");
-        Directory.CreateDirectory(filesDir);
-        Directory.CreateDirectory(infoDir);
+        if (!TryEnsureSafeDirectory(filesDir, baseDir) || !TryEnsureSafeDirectory(infoDir, baseDir))
+        {
+            throw new IOException("Trash directory is outside the allowed root.");
+        }
 
         string name = Path.GetFileName(fullPath);
         string candidate = name;

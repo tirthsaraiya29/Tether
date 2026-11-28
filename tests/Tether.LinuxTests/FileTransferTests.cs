@@ -117,6 +117,31 @@ public class FileTransferTests
     }
 
     [Fact]
+    public void IsPathSafe_RejectsSymlinkedDirectoryEscape()
+    {
+        // Creating symlinks on Windows needs SeCreateSymbolicLinkPrivilege; this asserts Linux behaviour.
+        if (OperatingSystem.IsWindows()) return;
+
+        string tempBase = Path.Combine(Path.GetTempPath(), "tether_ft_link_" + Guid.NewGuid().ToString("N"));
+        string outside = Path.Combine(Path.GetTempPath(), "tether_ft_outside_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempBase);
+        Directory.CreateDirectory(outside);
+        try
+        {
+            string link = Path.Combine(tempBase, "link");
+            Directory.CreateSymbolicLink(link, outside);
+
+            // A path through the symlinked directory resolves outside the allowed root.
+            Assert.False(LinuxFileTransferServer.IsPathSafe(Path.Combine(link, "planted.txt"), tempBase));
+        }
+        finally
+        {
+            try { Directory.Delete(tempBase, true); } catch { }
+            try { Directory.Delete(outside, true); } catch { }
+        }
+    }
+
+    [Fact]
     public void DesktopManager_GetDesktopWindows_ReturnsEntireScreenEntry()
     {
         var logger = new SerilogTetherLogger();
