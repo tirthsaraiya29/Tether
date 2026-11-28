@@ -51,6 +51,8 @@ fun RemoteTerminalScreen(
 ) {
     val context = LocalContext.current
     val service = TetherLanService.instance
+    val peerIsLinux = service?.connectedPeerOs.equals("linux", ignoreCase = true)
+    val defaultShell = if (peerIsLinux) "bash" else "powershell"
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
 
@@ -60,18 +62,17 @@ fun RemoteTerminalScreen(
         isFullscreen = false
     }
 
-    // Session tabs: id -> TerminalTab
+    // Session tabs: id -> TerminalTab. The placeholder carries the peer's real default shell;
+    // it is replaced by the server-issued session id once TERMINAL_START_RESPONSE arrives.
     var activeSessions by remember {
         mutableStateOf(
-            listOf(TerminalTab(id = "default", shellType = "powershell", workingDir = ""))
+            listOf(TerminalTab(id = "default", shellType = defaultShell, workingDir = ""))
         )
     }
     var currentSessionId by remember { mutableStateOf("default") }
-    // Session output buffers: id -> StringBuilder
+    // Session output buffers: id -> StringBuilder. Output can arrive before the start response,
+    // so it is buffered under the server id without inventing a tab.
     val sessionOutputs = remember { mutableStateMapOf<String, StringBuilder>() }
-    if (!sessionOutputs.containsKey("default")) {
-        sessionOutputs["default"] = StringBuilder("Windows PowerShell Interactive Console\nReady.\n\n")
-    }
 
     // Direct inline Termux-style command input buffer
     var currentInput by remember { mutableStateOf("") }
@@ -104,13 +105,12 @@ fun RemoteTerminalScreen(
                         val wd = intent.getStringExtra("workingDir")
                         if (!wd.isNullOrBlank()) {
                             activeSessions = activeSessions.map {
-                                if (it.id == sessId || (it.id == "default" && activeSessions.size == 1)) it.copy(workingDir = wd) else it
+                                if (it.id == sessId) it.copy(workingDir = wd) else it
                             }
                         }
-                        if (currentSessionId == "default" && sessId != "default" && activeSessions.size == 1 && activeSessions[0].id == "default") {
-                            activeSessions = listOf(TerminalTab(sessId, "powershell", wd ?: ""))
-                            currentSessionId = sessId
-                        }
+                        // Never fabricate a tab (with a guessed shell) here: the server's
+                        // TERMINAL_START_RESPONSE is the authority on the session id and shell.
+                        // Output is buffered under the server id and shown once the tab exists.
                         val sb = sessionOutputs.getOrPut(sessId) { StringBuilder() }
                         sb.append(data)
                         sessionOutputs[sessId] = StringBuilder(sb.toString())
@@ -181,7 +181,15 @@ fun RemoteTerminalScreen(
 
     // Helper to send command and echo locally like a real interactive terminal
     fun sendCommand(cmd: String) {
-        val targetId = if (currentSessionId != "default") currentSessionId else (activeSessions.firstOrNull { it.id != "default" }?.id ?: "default")
+        val targetId = currentSessionId.takeIf { it != "default" }
+            ?: activeSessions.firstOrNull { it.id != "default" }?.id
+        if (targetId == null) {
+            val sb = sessionOutputs.getOrPut(currentSessionId) { StringBuilder() }
+            sb.append("[Shell is starting…]\n")
+            sessionOutputs[currentSessionId] = StringBuilder(sb.toString())
+            currentInput = ""
+            return
+        }
         service?.sendTerminalInput(targetId, cmd + "\r\n")
         val sb = sessionOutputs.getOrPut(currentSessionId) { StringBuilder() }
         sb.append(cmd).append("\n")
@@ -189,14 +197,12 @@ fun RemoteTerminalScreen(
         currentInput = ""
     }
 
-    // Clear screen (equivalent to cls) while preserving the active directory prompt
+    // Clear the local view. This is a line-based view (not a VT emulator), so sending
+    // cls/clear would only inject escape sequences into the scrollback.
     fun clearTerminal() {
-        val targetId = if (currentSessionId != "default") currentSessionId else (activeSessions.firstOrNull { it.id != "default" }?.id ?: "default")
-        service?.sendTerminalInput(targetId, "cls\r\n")
+        if (currentSessionId == "default" && activeSessions.none { it.id != "default" }) return
         currentInput = ""
-        val currentTab = activeSessions.find { it.id == currentSessionId }
-        val displayDir = currentTab?.workingDir?.ifBlank { "C:\\Users\\" } ?: "C:\\Users\\"
-        sessionOutputs[currentSessionId] = StringBuilder("PS $displayDir> ")
+        sessionOutputs[currentSessionId] = StringBuilder()
     }
 
     // Full Termux-style terminal display combining output, inline typed text, and blinking cursor
@@ -234,7 +240,7 @@ fun RemoteTerminalScreen(
                             Icon(Icons.Default.Add, contentDescription = "New Terminal Session", tint = LiquidCyan)
                         }
                         IconButton(onClick = { clearTerminal() }) {
-                            Icon(Icons.Default.DeleteSweep, contentDescription = "Clear Terminal (cls)", tint = TextSecondary)
+                            Icon(Icons.Default.DeleteSweep, contentDescription = "Clear Terminal", tint = TextSecondary)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -284,7 +290,9 @@ fun RemoteTerminalScreen(
 
                 // Working Directory Status Bar
                 val currentTab = activeSessions.find { it.id == currentSessionId }
-                val displayDir = currentTab?.workingDir?.ifBlank { "C:\\Users\\" } ?: "C:\\"
+                val displayDir = currentTab?.workingDir?.ifBlank {
+                    if (peerIsLinux) "~" else "C:\\Users\\"
+                } ?: if (peerIsLinux) "/" else "C:\\"
                 Surface(
                     color = SurfaceElevated.copy(alpha = 0.5f),
                     modifier = Modifier
@@ -429,7 +437,9 @@ fun RemoteTerminalScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 fun sendKey(k: String) {
-                    val targetId = if (currentSessionId != "default") currentSessionId else (activeSessions.firstOrNull { it.id != "default" }?.id ?: "default")
+                    val targetId = currentSessionId.takeIf { it != "default" }
+                        ?: activeSessions.firstOrNull { it.id != "default" }?.id
+                        ?: return // no server-issued session yet; do not send to a phantom id
                     if (k == "\u0003") { // Ctrl+C
                         currentInput = ""
                         service?.sendTerminalInput(targetId, k)
@@ -501,14 +511,38 @@ fun RemoteTerminalScreen(
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = LiquidCyan)
                 ) {
-                    Text("cls", fontSize = 11.sp)
+                    Text("clear", fontSize = 11.sp)
                 }
-                OutlinedButton(
-                    onClick = { sendKey("ipconfig\r\n") },
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = IntegrityGreen)
-                ) {
-                    Text("ipconfig", fontSize = 11.sp)
+                if (peerIsLinux) {
+                    OutlinedButton(
+                        onClick = { sendKey("uname -a\r\n") },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = IntegrityGreen)
+                    ) {
+                        Text("uname -a", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = { sendKey("ls -la\r\n") },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = LiquidCyan)
+                    ) {
+                        Text("ls -la", fontSize = 11.sp)
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { sendKey("ipconfig\r\n") },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = IntegrityGreen)
+                    ) {
+                        Text("ipconfig", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = { sendKey("dir\r\n") },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = LiquidCyan)
+                    ) {
+                        Text("dir", fontSize = 11.sp)
+                    }
                 }
                 OutlinedButton(
                     onClick = { sendKey("git status\r\n") },
@@ -516,13 +550,6 @@ fun RemoteTerminalScreen(
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = IntegrityGreen)
                 ) {
                     Text("git status", fontSize = 11.sp)
-                }
-                OutlinedButton(
-                    onClick = { sendKey("dir\r\n") },
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = LiquidCyan)
-                ) {
-                    Text("dir", fontSize = 11.sp)
                 }
                 OutlinedButton(
                     onClick = { sendKey("exit\r\n") },

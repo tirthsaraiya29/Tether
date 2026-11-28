@@ -356,7 +356,7 @@ fun ApplicationManagementScreen(
                                             Text("Focus", fontSize = 10.sp, maxLines = 1)
                                         }
                                         OutlinedButton(
-                                            onClick = { service?.sendWindowSnap(win.hwnd, "LEFT") },
+                                            onClick = { service?.sendWindowSnap(win.hwnd, "snap_left") },
                                             modifier = Modifier.weight(1f),
                                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                                             colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
@@ -364,7 +364,7 @@ fun ApplicationManagementScreen(
                                             Text("Snap L", fontSize = 10.sp, maxLines = 1)
                                         }
                                         OutlinedButton(
-                                            onClick = { service?.sendWindowSnap(win.hwnd, "RIGHT") },
+                                            onClick = { service?.sendWindowSnap(win.hwnd, "snap_right") },
                                             modifier = Modifier.weight(1f),
                                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                                             colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)

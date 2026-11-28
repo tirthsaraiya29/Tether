@@ -8,6 +8,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Tether.LinuxDaemon.Common;
+using Tether.LinuxDaemon.Desktop;
 using Tether.Shared.Logging;
 
 namespace Tether.LinuxDaemon.Capabilities;
@@ -25,8 +26,11 @@ public sealed record LinuxRunningWindow
     [JsonPropertyName("title")] public string Title { get; init; } = "";
     [JsonPropertyName("processName")] public string ProcessName { get; init; } = "";
     [JsonPropertyName("pid")] public int Pid { get; init; }
+    [JsonPropertyName("width")] public int Width { get; init; }
+    [JsonPropertyName("height")] public int Height { get; init; }
     [JsonPropertyName("isMinimized")] public bool IsMinimized { get; init; }
     [JsonPropertyName("isMaximized")] public bool IsMaximized { get; init; }
+    [JsonPropertyName("iconB64")] public string? IconB64 { get; init; }
 }
 
 public static class LinuxApplicationManager
@@ -175,7 +179,7 @@ public static class LinuxApplicationManager
 
         try
         {
-            var psi = PlatformDetection.CreateSessionProcessInfo("wmctrl", new[] { "-l", "-p", "-x" }, redirectOutput: true);
+            var psi = PlatformDetection.CreateSessionProcessInfo("wmctrl", new[] { "-l", "-p", "-G", "-x" }, redirectOutput: true);
             using var p = Process.Start(psi);
             if (p != null)
             {
@@ -193,11 +197,11 @@ public static class LinuxApplicationManager
                     return windows;
                 }
 
-                // Format: <winId> <desk> <pid> <class> <client> <title>
+                // Format with -G: <winId> <desk> <pid> <x> <y> <w> <h> <class> <client> <title>
                 foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
                 {
                     var parts = Regex.Split(line.Trim(), @"\s+");
-                    if (parts.Length >= 5)
+                    if (parts.Length >= 9)
                     {
                         string idHex = parts[0];
                         long hwnd = 0;
@@ -207,8 +211,10 @@ public static class LinuxApplicationManager
                         }
 
                         int.TryParse(parts[2], out int pid);
-                        string procName = parts[3];
-                        string title = string.Join(" ", parts.Skip(5));
+                        int.TryParse(parts[5], out int width);
+                        int.TryParse(parts[6], out int height);
+                        string procName = parts[7];
+                        string title = string.Join(" ", parts.Skip(9));
 
                         windows.Add(new LinuxRunningWindow
                         {
@@ -216,6 +222,8 @@ public static class LinuxApplicationManager
                             Title = string.IsNullOrWhiteSpace(title) ? procName : title,
                             ProcessName = procName,
                             Pid = pid,
+                            Width = Math.Max(0, width),
+                            Height = Math.Max(0, height),
                             IsMinimized = false,
                             IsMaximized = false
                         });
@@ -297,60 +305,80 @@ public static class LinuxApplicationManager
         return false;
     }
 
-    public static async Task<bool> CloseWindowAsync(string windowIdOrPid, ITetherLogger logger)
+    public static async Task<bool> CloseWindowAsync(string windowId, ITetherLogger logger)
     {
-        if (string.IsNullOrWhiteSpace(windowIdOrPid)) return false;
+        if (string.IsNullOrWhiteSpace(windowId)) return false;
 
         try
         {
-            string id = windowIdOrPid.Trim();
+            string id = windowId.Trim();
             if (!WindowIdPattern.IsMatch(id)) return false;
 
-            // 1. Ask the window manager to close it.
-            if (id.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            // Ask the window manager to close the window. Never kill an arbitrary pid:
+            // the value is a window id from the enumeration, not a process id.
+            var psi = PlatformDetection.CreateSessionProcessInfo("wmctrl", new[] { "-i", "-c", id });
+            using var p = Process.Start(psi);
+            if (p != null)
             {
-                var psi = PlatformDetection.CreateSessionProcessInfo("wmctrl", new[] { "-i", "-c", id });
-                using var p = Process.Start(psi);
-                if (p != null)
-                {
-                    await p.WaitForExitAsync();
-                    if (p.ExitCode == 0) return true;
-                }
-            }
-
-            // 2. Kill by pid, but only a process owned by the active desktop user.
-            if (int.TryParse(id, out int pid) && pid > 1 && IsProcessOwnedBySessionUser(pid))
-            {
-                var proc = Process.GetProcessById(pid);
-                proc.Kill();
-                return true;
+                await p.WaitForExitAsync();
+                return p.ExitCode == 0;
             }
         }
         catch (Exception ex)
         {
-            logger.Debug($"LinuxApplicationManager: CloseWindowAsync '{windowIdOrPid}' error: {ex.Message}");
+            logger.Debug($"LinuxApplicationManager: CloseWindowAsync '{windowId}' error: {ex.Message}");
         }
 
         return false;
     }
 
-    private static bool IsProcessOwnedBySessionUser(int pid)
+    public static async Task<bool> SetWindowStateAsync(string windowId, string state, ITetherLogger logger)
     {
-        var session = PlatformDetection.GetActiveSessionInfo();
-        if (session.Uid == 0) return false;
+        if (string.IsNullOrWhiteSpace(windowId) || string.IsNullOrWhiteSpace(state)) return false;
+        string id = windowId.Trim();
+        if (!WindowIdPattern.IsMatch(id)) return false;
+
+        string normalized = state.Trim().ToLowerInvariant();
+        if (normalized is "snap_left" or "left") normalized = "left";
+        else if (normalized is "snap_right" or "right") normalized = "right";
+
+        string[] args;
+        switch (normalized)
+        {
+            case "left":
+            case "right":
+                var (desktopW, desktopH) = new LinuxDesktopManager(logger).GetDesktopGeometry();
+                if (desktopW <= 0 || desktopH <= 0) return false;
+                int x = normalized == "left" ? 0 : desktopW / 2;
+                args = new[] { "-i", "-r", id, "-e", $"0,{x},0,{desktopW / 2},{desktopH}" };
+                break;
+            case "maximize":
+                args = new[] { "-i", "-r", id, "-b", "add,maximized_vert,maximized_horz" };
+                break;
+            case "minimize":
+                args = new[] { "-i", "-r", id, "-b", "add,hidden" };
+                break;
+            case "restore":
+                args = new[] { "-i", "-r", id, "-b", "remove,maximized_vert,maximized_horz" };
+                break;
+            default:
+                return false;
+        }
 
         try
         {
-            foreach (var line in File.ReadLines($"/proc/{pid}/status"))
+            var psi = PlatformDetection.CreateSessionProcessInfo("wmctrl", args);
+            using var p = Process.Start(psi);
+            if (p != null)
             {
-                if (line.StartsWith("Uid:"))
-                {
-                    var fields = line.Substring(4).Split('\t', StringSplitOptions.RemoveEmptyEntries);
-                    return fields.Length > 0 && uint.TryParse(fields[0], out uint owner) && owner == session.Uid;
-                }
+                await p.WaitForExitAsync();
+                return p.ExitCode == 0;
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            logger.Debug($"LinuxApplicationManager: SetWindowStateAsync '{windowId}' error: {ex.Message}");
+        }
         return false;
     }
 }

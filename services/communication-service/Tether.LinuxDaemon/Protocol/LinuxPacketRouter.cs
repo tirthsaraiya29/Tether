@@ -452,6 +452,23 @@ public sealed class LinuxPacketRouter
                         break;
                     }
                     string mediaAction = doc.RootElement.TryGetProperty("action", out var mActProp) ? (mActProp.GetString() ?? "") : "";
+                    if (mediaAction.Equals("get_metadata", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var metadata = await LinuxMediaController.GetCurrentMetadataAsync(_logger);
+                        await session.WriteJsonFrameSafeAsync(new
+                        {
+                            type = "MEDIA_METADATA_UPDATE",
+                            requestId = reqId,
+                            title = metadata.Title,
+                            artist = metadata.Artist,
+                            album = metadata.Album,
+                            isPlaying = metadata.IsPlaying,
+                            position = metadata.PositionSeconds,
+                            duration = metadata.DurationSeconds,
+                            thumbnail = metadata.ThumbnailBase64
+                        }, ct);
+                        break;
+                    }
                     long? seek = doc.RootElement.TryGetProperty("seek", out var skProp) ? skProp.GetInt64()
                         : (doc.RootElement.TryGetProperty("seekSeconds", out var sksProp) ? sksProp.GetInt64() : null);
                     bool mediaOk = await LinuxMediaController.ExecuteMediaControlAsync(mediaAction, seek, _logger);
@@ -486,8 +503,12 @@ public sealed class LinuxPacketRouter
                         await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks APP_LAUNCH capability" }, ct);
                         break;
                     }
-                    string appLaunchName = doc.RootElement.TryGetProperty("appName", out var alProp) ? (alProp.GetString() ?? "")
+                    // Android sends "path"; older/Windows vocabulary is appName/appPath.
+                    string appLaunchName = doc.RootElement.TryGetProperty("path", out var pathProp) ? (pathProp.GetString() ?? "")
+                        : doc.RootElement.TryGetProperty("appName", out var alProp) ? (alProp.GetString() ?? "")
                         : (doc.RootElement.TryGetProperty("appPath", out var apProp) ? (apProp.GetString() ?? "") : "");
+                    string appLaunchArgs = doc.RootElement.TryGetProperty("args", out var argsProp) ? (argsProp.GetString() ?? "") : "";
+                    if (!string.IsNullOrWhiteSpace(appLaunchArgs)) appLaunchName = $"{appLaunchName} {appLaunchArgs}";
                     bool lOk = await LinuxApplicationManager.LaunchAppAsync(appLaunchName, _logger);
                     await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = lOk }, ct);
                     break;
@@ -548,6 +569,23 @@ public sealed class LinuxPacketRouter
                         : (doc.RootElement.TryGetProperty("hwnd", out var hProp) ? hProp.ToString() : "");
                     bool closeOk = await LinuxApplicationManager.CloseWindowAsync(winId, _logger);
                     await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = closeOk }, ct);
+                    break;
+
+                case "WINDOW_SNAP":
+                case "APP_SET_WINDOW_STATE":
+                case "WINDOW_STATE":
+                    if (!HasCapability(session.Device, "APP_LAUNCH"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks APP_LAUNCH capability" }, ct);
+                        break;
+                    }
+                    string stateWinId = doc.RootElement.TryGetProperty("hwnd", out var swHwnd)
+                        ? swHwnd.ToString()
+                        : (doc.RootElement.TryGetProperty("id", out var swId) ? (swId.GetString() ?? "") : "");
+                    string winState = doc.RootElement.TryGetProperty("state", out var wsProp) ? (wsProp.GetString() ?? "")
+                        : (doc.RootElement.TryGetProperty("direction", out var winDirProp) ? (winDirProp.GetString() ?? "") : "");
+                    bool stateOk = await LinuxApplicationManager.SetWindowStateAsync(stateWinId, winState, _logger);
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = stateOk }, ct);
                     break;
 
                 // Linux System Administration Telemetry
@@ -638,6 +676,14 @@ public sealed class LinuxPacketRouter
                         break;
                     }
                     var services = _adminManager.GetServices();
+                    string serviceFilter = doc.RootElement.TryGetProperty("filter", out var svcFilterProp) ? (svcFilterProp.GetString() ?? "") : "";
+                    if (!string.IsNullOrWhiteSpace(serviceFilter))
+                    {
+                        services = services
+                            .Where(s => s.ServiceName.Contains(serviceFilter, StringComparison.OrdinalIgnoreCase) ||
+                                        s.DisplayName.Contains(serviceFilter, StringComparison.OrdinalIgnoreCase))
+                            .ToList();
+                    }
                     await session.WriteJsonFrameSafeAsync(new { type = "SERVICES_RESPONSE", requestId = reqId, services = services }, ct);
                     break;
 

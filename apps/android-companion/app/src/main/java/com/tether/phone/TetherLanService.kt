@@ -234,8 +234,20 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             notifyStateToInterface()
         }
 
+    private fun resetPeerTelemetry() {
+        // In-memory values are shown immediately on the next state broadcast; clear them so a
+        // different PC's battery/wallpaper/volume is never painted during a peer switch.
+        batteryPercent = -1
+        isCharging = false
+        wallpaperPath = null
+        lastSeenAtMs = 0L
+        currentVolumeLevel = -1
+        currentBrightnessLevel = -1
+    }
+
     private fun onHostConnected() {
         while (inputFrameChannel.tryReceive().isSuccess) { /* flush stale frames before reconnect */ }
+        resetPeerTelemetry()
         // Drop cached telemetry belonging to a previously paired PC before this session paints anything.
         LaptopStateCache.claimOwner(applicationContext, activeTransport?.getPeerIdentityFingerprint())
         pendingUnlockRequests.clear()
@@ -1005,8 +1017,12 @@ class TetherLanService : Service(), TetherDiscoveryListener {
                 Log.i(TAG, "Forget Windows trust requested by user.")
                 securityEngine.clearPinnedKey(this)
                 LaptopStateCache.clearAll(this)
+                resetPeerTelemetry()
+                connectedPeerName = "Paired PC"
+                connectedPeerOs = "windows"
                 trustState = TrustState.REPAIRING
                 disconnectActiveSession("Trust cleared by user")
+                notifyStateToInterface()
                 return START_STICKY
             }
             ACTION_CONFIRM_PAIRING -> {

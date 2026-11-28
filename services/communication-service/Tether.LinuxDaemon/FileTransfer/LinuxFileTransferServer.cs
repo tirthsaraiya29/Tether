@@ -638,7 +638,14 @@ public sealed class LinuxFileTransferServer : IHostedService
             catch (Exception ex) { _logger.Warning($"trash empty failed: {ex.Message}"); return Results.Problem("Failed to empty trash"); }
         });
 
-        // 4. Remote Desktop Stream (MJPEG multipart/x-mixed-replace)
+        // 10. Application catalog (same shape as the Windows endpoint).
+        _app.MapGet("/api/apps/catalog", (HttpContext ctx) =>
+        {
+            var apps = Tether.LinuxDaemon.Capabilities.LinuxApplicationManager.GetInstalledApps(_logger);
+            return Results.Ok(apps);
+        });
+
+        // 11. Remote Desktop Stream (MJPEG multipart/x-mixed-replace)
         _app.MapGet("/api/desktop/stream", async (HttpContext ctx, int? fps, int? quality, long? windowId) =>
         {
             ctx.Response.Headers["Content-Type"] = "multipart/x-mixed-replace; boundary=--frame";
@@ -660,7 +667,7 @@ public sealed class LinuxFileTransferServer : IHostedService
             }, ctx.RequestAborted);
         });
 
-        // 5. Remote Desktop Screenshot Endpoint
+        // 12. Remote Desktop Screenshot Endpoint
         _app.MapGet("/api/desktop/screenshot", async (HttpContext ctx, long? windowId, int? quality) =>
         {
             int q = Math.Clamp(quality ?? 75, 10, 100);
@@ -674,7 +681,7 @@ public sealed class LinuxFileTransferServer : IHostedService
             return Results.Problem("Desktop capture unavailable: no accessible X11 display server or Wayland compositor stream.", statusCode: StatusCodes.Status503ServiceUnavailable);
         });
 
-        // 6. Active Windows List Endpoint
+        // 13. Active Windows List Endpoint
         _app.MapGet("/api/desktop/windows", (HttpContext ctx) =>
         {
             var windows = _desktopManager.GetDesktopWindows();
