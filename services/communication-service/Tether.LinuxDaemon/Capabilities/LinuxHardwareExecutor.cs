@@ -557,9 +557,12 @@ public static class LinuxHardwareExecutor
         return list;
     }
 
+    private static readonly Regex SafeDeviceId = new(@"^[A-Za-z0-9_.:-]{1,128}$", RegexOptions.Compiled);
+
     public static bool SetDefaultAudioDevice(string deviceId, bool isInput, ITetherLogger logger)
     {
-        if (string.IsNullOrWhiteSpace(deviceId)) return false;
+        // The id is client-supplied; reject anything that could become an extra CLI argument.
+        if (string.IsNullOrWhiteSpace(deviceId) || !SafeDeviceId.IsMatch(deviceId)) return false;
 
         // 1. Try wpctl set-default <id>
         try
@@ -740,9 +743,12 @@ public static class LinuxHardwareExecutor
         return sessions;
     }
 
+    private static readonly Regex SinkInputIndex = new(@"^[0-9]{1,10}$", RegexOptions.Compiled);
+
     public static bool SetAppVolume(string id, int volumePercent, ITetherLogger logger)
     {
-        if (string.IsNullOrWhiteSpace(id)) return false;
+        // sink-input indexes are numeric; anything else would be spliced into pactl's argv.
+        if (string.IsNullOrWhiteSpace(id) || !SinkInputIndex.IsMatch(id)) return false;
         int vol = Math.Clamp(volumePercent, 0, 150);
         try
         {
@@ -766,7 +772,7 @@ public static class LinuxHardwareExecutor
 
     public static bool SetAppMute(string id, bool mute, ITetherLogger logger)
     {
-        if (string.IsNullOrWhiteSpace(id)) return false;
+        if (string.IsNullOrWhiteSpace(id) || !SinkInputIndex.IsMatch(id)) return false;
         try
         {
             var psi = new ProcessStartInfo

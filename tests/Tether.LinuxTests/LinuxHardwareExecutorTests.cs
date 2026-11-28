@@ -13,6 +13,20 @@ public class LinuxHardwareExecutorTests
 {
     private readonly ITetherLogger _logger = new SerilogTetherLogger();
 
+    [Theory]
+    [InlineData("0 --help")]
+    [InlineData("1; rm -rf /")]
+    [InlineData("../../etc/passwd")]
+    [InlineData("")]
+    [InlineData("12345678901")]
+    public void AudioTargets_RejectUnsafeClientSuppliedIds(string id)
+    {
+        // These return before any process is spawned, so they are safe on the test host.
+        Assert.False(LinuxHardwareExecutor.SetDefaultAudioDevice(id, false, _logger));
+        Assert.False(LinuxHardwareExecutor.SetAppVolume(id, 50, _logger));
+        Assert.False(LinuxHardwareExecutor.SetAppMute(id, true, _logger));
+    }
+
     [Fact]
     public void TestGetBatteryInfo()
     {
