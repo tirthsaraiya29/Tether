@@ -24,6 +24,47 @@ public class LinuxTerminalTests : IDisposable
     }
 
     [Fact]
+    public void ResolveShell_NeverFallsBackToPowerShell()
+    {
+        var shell = LinuxTerminalManager.ResolveShell("bash");
+        Assert.DoesNotContain("pwsh", shell, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("powershell", shell, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ResolveShell_PrefersTheUsersLoginShell()
+    {
+        if (!OperatingSystem.IsLinux()) return; // the daemon returns %COMSPEC% on Windows hosts
+        var resolved = LinuxTerminalManager.ResolveShell("", "/bin/zsh");
+        Assert.Equal("/bin/zsh", resolved);
+
+        resolved = LinuxTerminalManager.ResolveShell("default", "/bin/fish");
+        Assert.Equal("/bin/fish", resolved);
+    }
+
+    [Theory]
+    [InlineData("../../bin/sh")]
+    [InlineData("bash; rm -rf /")]
+    [InlineData("/bin/sh -c whoami")]
+    public void ResolveShell_RejectsArbitraryShellStrings(string requested)
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var resolved = LinuxTerminalManager.ResolveShell(requested, null);
+        Assert.DoesNotContain(requested, resolved);
+        Assert.False(string.IsNullOrWhiteSpace(resolved));
+    }
+
+    [Fact]
+    public void ResolveShell_UsesLoginShellWhenRequestedShellIsMissing()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var resolved = LinuxTerminalManager.ResolveShell("fish", "/bin/bash");
+        // fish may or may not be installed on the host; either way it must be an absolute existing shell.
+        Assert.StartsWith("/", resolved);
+        Assert.DoesNotContain("fish;", resolved);
+    }
+
+    [Fact]
     public async Task StartSession_AndExecuteCommand_ProducesOutput()
     {
         var outputChunks = new List<string>();

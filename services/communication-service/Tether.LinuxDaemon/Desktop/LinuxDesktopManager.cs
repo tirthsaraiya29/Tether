@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -233,15 +234,38 @@ public sealed class LinuxDesktopManager
         }
     }
 
+    [DllImport("libc", SetLastError = true)]
+    private static extern uint geteuid();
+
+    /// <summary>
+    /// Only distro-owned, non-symlinked, non-group/other-writable ffmpeg binaries are executed.
+    /// /usr/local and /snap are deliberately excluded because a non-root user can write there.
+    /// </summary>
+    private static string? ResolveTrustedFfmpeg()
+    {
+        foreach (var path in new[] { "/usr/bin/ffmpeg", "/bin/ffmpeg" })
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists) continue;
+                if (info.LinkTarget != null) continue;
+                var mode = info.UnixFileMode;
+                if ((mode & (UnixFileMode.GroupWrite | UnixFileMode.OtherWrite)) != 0) continue;
+                return path;
+            }
+            catch { }
+        }
+        return null;
+    }
+
     public async Task<byte[]> CaptureJpegFrameAsync(int quality, long windowId, CancellationToken ct)
     {
         var session = PlatformDetection.GetActiveSessionInfo();
         string display = !string.IsNullOrEmpty(session.DisplayName) ? session.DisplayName : ":0";
 
-        // ffmpeg is exposed by distro packages, snap/flatpak and /usr/local; probe PATH-like locations.
-        string ffmpeg = new[] { "/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/bin/ffmpeg", "/snap/bin/ffmpeg" }
-            .FirstOrDefault(File.Exists) ?? "";
-        if (ffmpeg.Length == 0)
+        string? ffmpeg = ResolveTrustedFfmpeg();
+        if (ffmpeg == null)
         {
             _logger.Warning("LinuxDesktopManager: ffmpeg is not installed; screen capture unavailable.");
             return Array.Empty<byte>();
@@ -252,24 +276,13 @@ public sealed class LinuxDesktopManager
             string tmpFile = Path.Combine(Path.GetTempPath(), $"tether_cap_{Guid.NewGuid():N}.jpg");
             int qscale = Math.Clamp(31 - (quality * 30 / 100), 2, 31); // ffmpeg mjpeg q:v 2 (best) to 31 (lowest)
 
-            var psi = new ProcessStartInfo
-            {
-                FileName = ffmpeg,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            };
-
-            if (!string.IsNullOrEmpty(session.DisplayName)) psi.EnvironmentVariables["DISPLAY"] = session.DisplayName;
-            string? xauth = session.XdgRuntimeDir != null ? Path.Combine(session.XdgRuntimeDir, "Xauthority") : null;
-            if (xauth != null && File.Exists(xauth)) psi.EnvironmentVariables["XAUTHORITY"] = xauth;
+            var args = new List<string>();
 
             // X11 Screen or Window Capture
             if (session.DisplayServer == DisplayServer.X11 || !string.IsNullOrEmpty(session.DisplayName))
             {
-                psi.ArgumentList.Add("-f");
-                psi.ArgumentList.Add("x11grab");
+                args.Add("-f");
+                args.Add("x11grab");
 
                 if (windowId > 0)
                 {
@@ -277,27 +290,27 @@ public sealed class LinuxDesktopManager
                     var targetWin = windows.FirstOrDefault(w => w.Hwnd == windowId);
                     if (targetWin != null)
                     {
-                        psi.ArgumentList.Add("-video_size");
-                        psi.ArgumentList.Add($"{targetWin.Width}x{targetWin.Height}");
-                        psi.ArgumentList.Add("-i");
-                        psi.ArgumentList.Add($"{display}.0+{targetWin.X},{targetWin.Y}");
+                        args.Add("-video_size");
+                        args.Add($"{targetWin.Width}x{targetWin.Height}");
+                        args.Add("-i");
+                        args.Add($"{display}.0+{targetWin.X},{targetWin.Y}");
                     }
                     else
                     {
                         var (dw, dh) = GetDesktopGeometry();
-                        psi.ArgumentList.Add("-video_size");
-                        psi.ArgumentList.Add($"{dw}x{dh}");
-                        psi.ArgumentList.Add("-i");
-                        psi.ArgumentList.Add($"{display}.0");
+                        args.Add("-video_size");
+                        args.Add($"{dw}x{dh}");
+                        args.Add("-i");
+                        args.Add($"{display}.0");
                     }
                 }
                 else
                 {
                     var (dw, dh) = GetDesktopGeometry();
-                    psi.ArgumentList.Add("-video_size");
-                    psi.ArgumentList.Add($"{dw}x{dh}");
-                    psi.ArgumentList.Add("-i");
-                    psi.ArgumentList.Add($"{display}.0");
+                    args.Add("-video_size");
+                    args.Add($"{dw}x{dh}");
+                    args.Add("-i");
+                    args.Add($"{display}.0");
                 }
             }
             else
@@ -312,12 +325,57 @@ public sealed class LinuxDesktopManager
                 return Array.Empty<byte>();
             }
 
-            psi.ArgumentList.Add("-frames:v");
-            psi.ArgumentList.Add("1");
-            psi.ArgumentList.Add("-q:v");
-            psi.ArgumentList.Add(qscale.ToString());
-            psi.ArgumentList.Add("-y");
-            psi.ArgumentList.Add(tmpFile);
+            args.Add("-frames:v");
+            args.Add("1");
+            args.Add("-q:v");
+            args.Add(qscale.ToString());
+            args.Add("-y");
+            args.Add(tmpFile);
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = ffmpeg,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            if (!string.IsNullOrEmpty(session.DisplayName)) psi.EnvironmentVariables["DISPLAY"] = session.DisplayName;
+            string? xauth = session.XdgRuntimeDir != null ? Path.Combine(session.XdgRuntimeDir, "Xauthority") : null;
+            if (xauth != null && File.Exists(xauth)) psi.EnvironmentVariables["XAUTHORITY"] = xauth;
+
+            // The daemon runs as root; ffmpeg only needs the user's X session. Drop privileges so a
+            // capture failure can never become a root file-write primitive.
+            bool isRoot = OperatingSystem.IsLinux() && geteuid() == 0;
+            if (isRoot)
+            {
+                string? sessionUser = !string.IsNullOrEmpty(session.UserName) && session.UserName != "root" ? session.UserName : null;
+                if (sessionUser == null)
+                {
+                    _logger.Warning("LinuxDesktopManager: Refusing screen capture as root without an active non-root session user.");
+                    return Array.Empty<byte>();
+                }
+                var runPsi = new ProcessStartInfo
+                {
+                    FileName = "/usr/sbin/runuser",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                if (!File.Exists(runPsi.FileName)) runPsi.FileName = "/sbin/runuser";
+                foreach (System.Collections.DictionaryEntry kv in psi.EnvironmentVariables) runPsi.EnvironmentVariables[(string)kv.Key] = (string?)kv.Value;
+                runPsi.ArgumentList.Add("-u");
+                runPsi.ArgumentList.Add(sessionUser);
+                runPsi.ArgumentList.Add("--");
+                runPsi.ArgumentList.Add(ffmpeg);
+                foreach (var a in args) runPsi.ArgumentList.Add(a);
+                psi = runPsi;
+            }
+            else
+            {
+                foreach (var a in args) psi.ArgumentList.Add(a);
+            }
 
             using var p = Process.Start(psi);
             if (p != null)

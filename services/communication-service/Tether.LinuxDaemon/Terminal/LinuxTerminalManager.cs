@@ -175,15 +175,18 @@ public sealed class LinuxTerminalManager : IDisposable
 
             var sessionInfo = PlatformDetection.GetActiveSessionInfo();
             string? targetUser = GetInteractiveNonRootUser(sessionInfo);
-            string userHome = !string.IsNullOrEmpty(targetUser)
-                ? $"/home/{targetUser}"
-                : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string? passwdHome = GetUserHomeDirectory(targetUser);
+            string userHome = !string.IsNullOrEmpty(passwdHome)
+                ? passwdHome
+                : (!string.IsNullOrEmpty(targetUser)
+                    ? $"/home/{targetUser}"
+                    : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
 
             string workingDir = !string.IsNullOrEmpty(initialDir) && Directory.Exists(initialDir)
                 ? initialDir
                 : (Directory.Exists(userHome) ? userHome : (OperatingSystem.IsWindows() ? Environment.CurrentDirectory : "/"));
 
-            string selectedShell = ResolveShell(shellType);
+            string selectedShell = ResolveShell(shellType, GetUserLoginShell(targetUser));
             bool isRoot = OperatingSystem.IsLinux() && geteuid() == 0;
 
             ProcessStartInfo psi;
@@ -232,6 +235,12 @@ public sealed class LinuxTerminalManager : IDisposable
 
             psi.EnvironmentVariables["TERM"] = "xterm-256color";
             psi.EnvironmentVariables["COLORTERM"] = "truecolor";
+            if (OperatingSystem.IsLinux())
+            {
+                psi.EnvironmentVariables["HOME"] = userHome;
+                psi.EnvironmentVariables["SHELL"] = selectedShell;
+                if (!string.IsNullOrEmpty(targetUser)) psi.EnvironmentVariables["USER"] = targetUser;
+            }
 
             Process proc;
             try
@@ -453,7 +462,68 @@ public sealed class LinuxTerminalManager : IDisposable
             : null;
     }
 
-    private static string ResolveShell(string requested)
+    private static readonly HashSet<string> AllowedShellNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "bash", "zsh", "sh", "fish", "pwsh", "dash", "ksh"
+    };
+
+    /// <summary>Login shell from /etc/passwd for the interactive user; null when unknown.</summary>
+    public static string? GetUserLoginShell(string? user)
+    {
+        if (string.IsNullOrEmpty(user) || !OperatingSystem.IsLinux()) return null;
+        string? entry = ReadPasswdEntry(user);
+        if (entry == null) return null;
+
+        var fields = entry.Split(':');
+        if (fields.Length < 7) return null;
+
+        string shell = fields[6].Trim();
+        if (shell.Length == 0 || !shell.StartsWith('/') || shell.Contains(' ') || !File.Exists(shell)) return null;
+        return AllowedShellNames.Contains(Path.GetFileName(shell)) ? shell : null;
+    }
+
+    public static string? GetUserHomeDirectory(string? user)
+    {
+        if (string.IsNullOrEmpty(user) || !OperatingSystem.IsLinux()) return null;
+        string? entry = ReadPasswdEntry(user);
+        if (entry == null) return null;
+
+        var fields = entry.Split(':');
+        if (fields.Length < 6) return null;
+
+        string home = fields[5].Trim();
+        return home.StartsWith('/') && !home.Contains(' ') ? home : null;
+    }
+
+    private static string? ReadPasswdEntry(string user)
+    {
+        try
+        {
+            if (!File.Exists("/etc/passwd")) return null;
+            foreach (var line in File.ReadLines("/etc/passwd"))
+            {
+                int idx = line.IndexOf(':');
+                if (idx > 0 && string.Equals(line.Substring(0, idx), user, StringComparison.Ordinal))
+                {
+                    return line;
+                }
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private static string? ExistingShell(string name)
+    {
+        foreach (var dir in new[] { "/usr/bin/", "/bin/", "/usr/local/bin/" })
+        {
+            string path = dir + name;
+            if (File.Exists(path)) return path;
+        }
+        return null;
+    }
+
+    public static string ResolveShell(string requested, string? loginShell = null)
     {
         string reqLower = (requested ?? "").Trim().ToLowerInvariant();
 
@@ -462,29 +532,21 @@ public sealed class LinuxTerminalManager : IDisposable
             return Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd.exe";
         }
 
+        bool useLogin = reqLower.Length == 0 || reqLower == "default" || reqLower == "login";
+        if (useLogin && loginShell != null) return loginShell;
+
         if (reqLower == "pwsh" || reqLower == "powershell" || reqLower == "powershell7")
         {
-            if (File.Exists("/usr/bin/pwsh")) return "/usr/bin/pwsh";
-            if (File.Exists("/bin/pwsh")) return "/bin/pwsh";
+            return ExistingShell("pwsh") ?? loginShell ?? ExistingShell("bash") ?? ExistingShell("sh") ?? "/bin/sh";
         }
 
-        if (reqLower == "zsh")
+        if (AllowedShellNames.Contains(reqLower))
         {
-            if (File.Exists("/usr/bin/zsh")) return "/usr/bin/zsh";
-            if (File.Exists("/bin/zsh")) return "/bin/zsh";
+            return ExistingShell(reqLower) ?? loginShell ?? ExistingShell("bash") ?? ExistingShell("sh") ?? "/bin/sh";
         }
 
-        if (reqLower == "sh")
-        {
-            if (File.Exists("/bin/sh")) return "/bin/sh";
-            if (File.Exists("/usr/bin/sh")) return "/usr/bin/sh";
-        }
-
-        if (File.Exists("/bin/bash")) return "/bin/bash";
-        if (File.Exists("/usr/bin/bash")) return "/usr/bin/bash";
-        if (File.Exists("/bin/sh")) return "/bin/sh";
-
-        return "/bin/sh";
+        // Unknown request: never execute it; fall back to the user's own shell.
+        return loginShell ?? ExistingShell("bash") ?? ExistingShell("sh") ?? "/bin/sh";
     }
 
     public void Dispose()
