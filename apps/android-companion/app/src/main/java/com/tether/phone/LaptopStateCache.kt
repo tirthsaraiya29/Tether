@@ -131,11 +131,11 @@ object LaptopStateCache {
                 for (i in 0 until dArr.length()) {
                     val d = dArr.getJSONObject(i)
                     dList.add(DiskUsageItem(
-                        name = d.optString("name", "C:"),
+                        name = d.optString("name", ""),
                         volumeLabel = d.optString("volumeLabel", ""),
                         totalGb = d.optDouble("totalGb", d.optDouble("totalGigabytes", d.optDouble("TotalGigabytes", 0.0))),
                         freeGb = d.optDouble("freeGb", d.optDouble("freeGigabytes", d.optDouble("FreeGigabytes", 0.0))),
-                        format = d.optString("format", "NTFS")
+                        format = d.optString("format", "")
                     ))
                 }
             }
@@ -516,11 +516,11 @@ object LaptopStateCache {
                 for (i in 0 until dArr.length()) {
                     val d = dArr.getJSONObject(i)
                     dList.add(DiskUsageItem(
-                        name = d.optString("name", "C:"),
+                        name = d.optString("name", ""),
                         volumeLabel = d.optString("volumeLabel", ""),
                         totalGb = d.optDouble("totalGb", d.optDouble("totalGigabytes", d.optDouble("TotalGigabytes", 0.0))),
                         freeGb = d.optDouble("freeGb", d.optDouble("freeGigabytes", d.optDouble("FreeGigabytes", 0.0))),
-                        format = d.optString("format", "NTFS")
+                        format = d.optString("format", "")
                     ))
                 }
             }

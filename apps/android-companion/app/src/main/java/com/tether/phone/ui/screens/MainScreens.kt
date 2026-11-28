@@ -1191,46 +1191,6 @@ fun LaptopControlScreen(
     }
 }
 
-@Composable
-fun SystemAppsScreen(
-    isConnected: Boolean,
-    onLanActionRequested: (String) -> Unit
-) {
-    val scrollState = rememberScrollState()
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { visible = true }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
-    ) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(animationSpec = tween(600)) + slideInVertically(animationSpec = tween(600)) { -it / 4 }
-        ) {
-            Text(
-                text = stringResource(R.string.nav_apps),
-                style = MaterialTheme.typography.labelLarge,
-                color = LiquidCyan,
-                letterSpacing = 4.sp
-            )
-        }
-
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(animationSpec = tween(600, delayMillis = 100)) + slideInVertically(animationSpec = tween(600, delayMillis = 100)) { it / 3 }
-        ) {
-            LiquidGlassAppLauncher(
-                onLaunchApp = onLanActionRequested,
-                enabled = isConnected
-            )
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TetherNavigationShell(
@@ -1319,12 +1279,11 @@ fun TetherNavigationShell(
                             Triple("ADVANCED AUDIO", Icons.AutoMirrored.Filled.VolumeUp, AppScreen.ADVANCED_AUDIO),
                             Triple("REMOTE TERMINAL", Icons.Default.Terminal, AppScreen.REMOTE_TERMINAL),
                             Triple("NOTIFICATIONS", Icons.Default.Notifications, AppScreen.NOTIFICATIONS),
-                            Triple("WINDOWS ADMIN", Icons.Default.AdminPanelSettings, AppScreen.WINDOWS_ADMIN),
+                            Triple("SYSTEM ADMIN", Icons.Default.AdminPanelSettings, AppScreen.WINDOWS_ADMIN),
                             Triple("APP MANAGER", Icons.Default.Apps, AppScreen.APP_MANAGEMENT),
                             Triple("FILE SHARING", Icons.Default.Folder, AppScreen.FILE_TRANSFER),
                             Triple("REMOTE INPUT", Icons.Default.TouchApp, AppScreen.REMOTE_INPUT),
                             Triple("PERMISSIONS", Icons.Default.CheckCircle, AppScreen.PERMISSIONS),
-                            Triple(stringResource(R.string.nav_apps), Icons.Default.Refresh, AppScreen.SYSTEM_APPS),
                             Triple(stringResource(R.string.nav_security), Icons.Default.Settings, AppScreen.SECURITY_SETTINGS),
                             Triple(stringResource(R.string.nav_pair), Icons.Default.QrCode, AppScreen.PAIRING),
                         )
@@ -1436,10 +1395,6 @@ fun TetherNavigationShell(
                             volumeLevel = volumeLevel,
                             brightnessLevel = brightnessLevel,
                             isMuted = isMuted,
-                            onLanActionRequested = onLaptopActionClick
-                        )
-                        AppScreen.SYSTEM_APPS -> SystemAppsScreen(
-                            isConnected = isConnected,
                             onLanActionRequested = onLaptopActionClick
                         )
                         AppScreen.PAIRING -> PairingScreen(

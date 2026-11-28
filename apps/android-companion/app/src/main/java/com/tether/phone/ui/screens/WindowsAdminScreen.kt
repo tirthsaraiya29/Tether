@@ -39,6 +39,7 @@ fun WindowsAdminScreen(
 ) {
     val context = LocalContext.current
     val service = TetherLanService.instance
+    val isLinux = service?.connectedPeerOs.equals("linux", ignoreCase = true)
 
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Telemetry", "Hardware & Battery", "Power Plans", "Services & Updates")
@@ -90,11 +91,11 @@ fun WindowsAdminScreen(
                                 val d = arr.getJSONObject(i)
                                 disksList.add(
                                     DiskUsageItem(
-                                        name = d.optString("name", "C:"),
+                                        name = d.optString("name", ""),
                                         volumeLabel = d.optString("volumeLabel", ""),
                                         totalGb = d.optDouble("totalGb", 0.0),
                                         freeGb = d.optDouble("freeGb", 0.0),
-                                        format = d.optString("format", "NTFS")
+                                        format = d.optString("format", "")
                                     )
                                 )
                             }
@@ -301,7 +302,7 @@ fun WindowsAdminScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Windows Administration", color = TextPrimary, fontWeight = FontWeight.SemiBold) },
+                    title = { Text(if (isLinux) "Linux Administration" else "Windows Administration", color = TextPrimary, fontWeight = FontWeight.SemiBold) },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary)
@@ -362,12 +363,13 @@ fun WindowsAdminScreen(
                         printers = printers,
                         usbDevices = usbDevices,
                         isGeneratingReport = isGeneratingBatteryReport,
+                        isLinux = isLinux,
                         onGenerateReport = {
                             isGeneratingBatteryReport = true
                             service?.requestGenerateBatteryReport()
                         }
                     )
-                    2 -> PowerTabContent(powerPlans) { guid -> service?.sendSetPowerPlan(guid) }
+                    2 -> PowerTabContent(powerPlans, isLinux) { guid -> service?.sendSetPowerPlan(guid) }
                     3 -> ServicesAndUpdatesTabContent(
                         servicesList = servicesList,
                         updateState = updateState,
@@ -378,6 +380,7 @@ fun WindowsAdminScreen(
                         },
                         onServiceAction = { sName, action -> service?.sendControlService(sName, action) },
                         isCheckingUpdates = isCheckingUpdates,
+                        isLinux = isLinux,
                         onCheckUpdates = {
                             isCheckingUpdates = true
                             service?.requestWindowsUpdates()
@@ -591,6 +594,7 @@ fun HardwareTabContent(
     printers: List<PrinterItem>,
     usbDevices: List<UsbItem>,
     isGeneratingReport: Boolean,
+    isLinux: Boolean,
     onGenerateReport: () -> Unit
 ) {
     LazyColumn(
@@ -703,7 +707,7 @@ fun HardwareTabContent(
                         ) {
                             Icon(Icons.Default.Assessment, contentDescription = null, tint = LiquidCyan)
                             Spacer(modifier = Modifier.width(10.dp))
-                            Text("Windows Battery Report", color = TextPrimary, fontWeight = FontWeight.Bold, maxLines = 1)
+                            Text("Battery Report", color = TextPrimary, fontWeight = FontWeight.Bold, maxLines = 1)
                         }
                         Spacer(modifier = Modifier.width(8.dp))
 
@@ -742,7 +746,7 @@ fun HardwareTabContent(
                         Text("Report error: ${batteryReport.errorMessage}", color = AlertRed, style = MaterialTheme.typography.bodySmall)
                     } else {
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("Tap 'Generate Report' to run Windows powercfg and display complete battery hardware analytics.", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                        Text(if (isLinux) "Tap 'Generate Report' to read battery telemetry from sysfs." else "Tap 'Generate Report' to run Windows powercfg and display complete battery hardware analytics.", color = TextMuted, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -816,6 +820,7 @@ private fun SpecRow(label: String, value: String) {
 @Composable
 fun PowerTabContent(
     powerPlans: List<PowerPlanItem>,
+    isLinux: Boolean,
     onSelectPlan: (String) -> Unit
 ) {
     LazyColumn(
@@ -825,9 +830,9 @@ fun PowerTabContent(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Text("Windows ACPI Power Schemes", color = TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+            Text(if (isLinux) "System Power Profiles" else "Windows ACPI Power Schemes", color = TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
             Spacer(modifier = Modifier.height(4.dp))
-            Text("Switch between native Windows power profiles remotely.", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+            Text(if (isLinux) "Switch between the power profiles offered by power-profiles-daemon, ACPI or cpufreq." else "Switch between native Windows power profiles remotely.", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
         }
 
         if (powerPlans.isEmpty()) {
@@ -836,7 +841,7 @@ fun PowerTabContent(
                     Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp), color = LiquidCyan, strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("Querying Windows Power Management subsystem...", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                        Text("Querying power management subsystem...", color = TextMuted, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -882,6 +887,7 @@ fun ServicesAndUpdatesTabContent(
     onFilterChange: (String) -> Unit,
     onServiceAction: (String, String) -> Unit,
     isCheckingUpdates: Boolean,
+    isLinux: Boolean,
     onCheckUpdates: () -> Unit
 ) {
     LazyColumn(
@@ -902,7 +908,7 @@ fun ServicesAndUpdatesTabContent(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = LiquidCyan)
                             Spacer(modifier = Modifier.width(10.dp))
-                            Text("Windows Update", color = TextPrimary, fontWeight = FontWeight.Bold)
+                            Text(if (isLinux) "System Updates" else "Windows Update", color = TextPrimary, fontWeight = FontWeight.Bold)
                         }
                         if (isCheckingUpdates) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = LiquidCyan)
@@ -917,7 +923,7 @@ fun ServicesAndUpdatesTabContent(
                         if (updateState.pendingCount > 0)
                             "${updateState.pendingCount} update(s) ready for installation."
                         else
-                            "Windows is up to date.",
+                            if (isLinux) "System is up to date." else "Windows is up to date.",
                         color = if (updateState.pendingCount > 0) MatrixGold else IntegrityGreen,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold
@@ -934,7 +940,7 @@ fun ServicesAndUpdatesTabContent(
 
         // Services Filter Header
         item {
-            Text("Windows Services Control (${servicesList.size})", color = TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+            Text("Services Control (${servicesList.size})", color = TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
             Spacer(modifier = Modifier.height(6.dp))
             TextField(
                 value = filter,
