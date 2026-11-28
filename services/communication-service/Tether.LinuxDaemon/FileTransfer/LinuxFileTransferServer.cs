@@ -265,17 +265,25 @@ public sealed class LinuxFileTransferServer : IHostedService
             await next();
         });
 
-        // 1. Directory Browser endpoint
-        _app.MapGet("/api/files/browse", (HttpContext ctx, string? path) =>
+        // File transfer routes follow the same contract as the Windows service (/api/fs/*),
+        // because the Android client speaks exactly one contract to both hosts.
+
+        // 1. Directory listing. An empty path returns the browsable roots.
+        _app.MapGet("/api/fs/list", (HttpContext ctx, string? path) =>
         {
             string baseDir = GetUserAllowedBaseDirectory();
-            string targetDir = string.IsNullOrWhiteSpace(path)
-                ? baseDir
-                : Path.GetFullPath(Path.Combine(baseDir, path.TrimStart('/', '\\')));
 
-            if (!IsPathSafe(targetDir, baseDir))
+            if (string.IsNullOrWhiteSpace(path))
             {
-                return Results.BadRequest(new { error = "Access denied: Path traversal outside allowed directories." });
+                return Results.Ok(new[]
+                {
+                    new { name = "Home", path = baseDir, isDirectory = true, size = 0L, lastModified = (DateTimeOffset?)null }
+                });
+            }
+
+            if (!TryResolveClientPath(path, baseDir, out string targetDir))
+            {
+                return Results.BadRequest(new { error = "Access denied: path is outside the allowed directory." });
             }
 
             if (!Directory.Exists(targetDir))
@@ -285,120 +293,349 @@ public sealed class LinuxFileTransferServer : IHostedService
 
             try
             {
-                var di = new DirectoryInfo(targetDir);
-                var entries = di.EnumerateFileSystemInfos()
-                    .Where(f => !f.Name.StartsWith(".")) // hide dotfiles
-                    .Where(f => IsPathSafe(f.FullName, baseDir)) // hide symlinks escaping base
-                    .Select(f => new
+                var visible = new List<FileSystemInfo>();
+                foreach (var f in new DirectoryInfo(targetDir).EnumerateFileSystemInfos())
+                {
+                    if (f.Name.StartsWith('.')) continue;
+                    try
                     {
-                        name = f.Name,
-                        path = Path.GetRelativePath(baseDir, f.FullName).Replace('\\', '/'),
-                        isDir = (f.Attributes & FileAttributes.Directory) != 0,
-                        size = (f.Attributes & FileAttributes.Directory) != 0 ? 0 : ((FileInfo)f).Length,
-                        modifiedUtc = f.LastWriteTimeUtc
+                        // Hide symlinks that escape the allowed root.
+                        if (!IsPathSafe(f.FullName, baseDir)) continue;
+                        visible.Add(f);
+                    }
+                    catch { }
+                }
+
+                var entries = visible
+                    .OrderByDescending(f => (f.Attributes & FileAttributes.Directory) != 0)
+                    .ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(f =>
+                    {
+                        bool isDir = (f.Attributes & FileAttributes.Directory) != 0;
+                        return new
+                        {
+                            name = f.Name,
+                            path = f.FullName,
+                            isDirectory = isDir,
+                            size = isDir ? 0L : ((FileInfo)f).Length,
+                            lastModified = (DateTimeOffset)f.LastWriteTimeUtc
+                        };
                     })
-                    .OrderByDescending(f => f.isDir)
-                    .ThenBy(f => f.name)
                     .ToList();
 
-                return Results.Ok(new { currentPath = Path.GetRelativePath(baseDir, targetDir).Replace('\\', '/'), entries });
+                return Results.Ok(entries);
             }
             catch (Exception ex)
             {
-                return Results.Problem(ex.Message);
+                _logger.Warning($"LinuxFileTransferServer: listing '{targetDir}' failed: {ex.Message}");
+                return Results.Problem("Directory listing failed or access denied");
             }
         });
 
-        // 2. File Download endpoint
-        _app.MapGet("/api/files/download", (HttpContext ctx, string path) =>
+        // 2. File download.
+        _app.MapGet("/api/fs/download", (HttpContext ctx, string path) =>
         {
             if (string.IsNullOrWhiteSpace(path)) return Results.BadRequest(new { error = "Missing file path" });
 
             string baseDir = GetUserAllowedBaseDirectory();
-            string targetFile = Path.GetFullPath(Path.Combine(baseDir, path.TrimStart('/', '\\')));
-
-            if (!IsPathSafe(targetFile, baseDir))
+            if (!TryResolveClientPath(path, baseDir, out string targetFile) || !File.Exists(targetFile))
             {
-                return Results.BadRequest(new { error = "Access denied: Path traversal outside allowed directories." });
-            }
-
-            if (!File.Exists(targetFile))
-            {
-                return Results.NotFound(new { error = "File not found" });
+                return Results.NotFound(new { error = "File not found or access restricted" });
             }
 
             return Results.File(targetFile, "application/octet-stream", enableRangeProcessing: true, fileDownloadName: Path.GetFileName(targetFile));
         });
 
-        // 3. File Upload endpoint
-        _app.MapPost("/api/files/upload", async (HttpContext ctx, string? path) =>
+        // 3. Raw-body file upload (headers X-Tether-File-Name / X-Tether-File-SHA512).
+        _app.MapPost("/api/fs/upload", async (HttpContext ctx, string? path) =>
         {
             string baseDir = GetUserAllowedBaseDirectory();
-            string uploadDir = string.IsNullOrWhiteSpace(path)
-                ? Path.Combine(baseDir, "Downloads", "Tether")
-                : Path.GetFullPath(Path.Combine(baseDir, path.TrimStart('/', '\\')));
+            string fileNameHeader = ctx.Request.Headers["X-Tether-File-Name"].ToString().Trim();
+            string expectedHash = ctx.Request.Headers["X-Tether-File-SHA512"].ToString().Trim().ToLowerInvariant();
 
-            if (!IsPathSafe(uploadDir, baseDir))
+            if (string.IsNullOrEmpty(expectedHash) || expectedHash.Length != 128 || !expectedHash.All(Uri.IsHexDigit))
             {
-                return Results.BadRequest(new { error = "Access denied: Path traversal outside allowed directories." });
+                return Results.BadRequest(new { error = "Missing or malformed required header: X-Tether-File-SHA512" });
             }
 
-            Directory.CreateDirectory(uploadDir);
-
-            if (!ctx.Request.HasFormContentType)
+            string safeName = Path.GetFileName(fileNameHeader.Replace('\\', '/'));
+            if (string.IsNullOrEmpty(safeName) || safeName.Contains('\0') || safeName.StartsWith('.') || safeName.Length > 255)
             {
-                return Results.BadRequest(new { error = "Expected multipart form content." });
+                return Results.BadRequest(new { error = "Invalid or prohibited file name" });
             }
 
-            var form = await ctx.Request.ReadFormAsync();
-            var file = form.Files.FirstOrDefault();
-            if (file == null || file.Length == 0)
+            string rawPath = (path ?? "").Replace('\\', '/');
+            string destPath;
+            if (string.IsNullOrWhiteSpace(rawPath))
             {
-                return Results.BadRequest(new { error = "No file provided in request." });
+                destPath = Path.Combine(baseDir, "Downloads", safeName);
+            }
+            else if (!TryResolveClientPath(rawPath, baseDir, out string resolved))
+            {
+                return Results.BadRequest(new { error = "Access denied: destination is outside the allowed directory" });
+            }
+            else
+            {
+                // The client may send a directory or a full file path.
+                destPath = Directory.Exists(resolved) || rawPath.EndsWith('/')
+                    ? Path.Combine(resolved, safeName)
+                    : resolved;
             }
 
-            string safeFileName = Path.GetFileName(file.FileName).Trim();
-            if (string.IsNullOrEmpty(safeFileName) || safeFileName.Contains('\0') ||
-                safeFileName.StartsWith('.') || safeFileName.Length > 255)
+            string? destDir = Path.GetDirectoryName(destPath);
+            if (string.IsNullOrEmpty(destDir))
             {
-                return Results.BadRequest(new { error = "Invalid or prohibited file name." });
+                return Results.BadRequest(new { error = "Invalid destination path" });
             }
 
-            string destPath = Path.Combine(uploadDir, safeFileName);
+            // Lexical containment before creating any directory, then canonical verification.
+            if (!IsLexicallyInside(destPath, baseDir))
+            {
+                return Results.BadRequest(new { error = "Access denied: destination is outside the allowed directory" });
+            }
+            try { Directory.CreateDirectory(destDir); }
+            catch (Exception ex)
+            {
+                _logger.Warning($"LinuxFileTransferServer: cannot create upload directory '{destDir}': {ex.Message}");
+                return Results.Problem("Upload destination directory could not be created");
+            }
             if (!IsPathSafe(destPath, baseDir))
             {
-                return Results.BadRequest(new { error = "Access denied: Path traversal outside allowed directories." });
+                return Results.BadRequest(new { error = "Access denied: destination is outside the allowed directory" });
             }
 
-            string tempFileName = $".tether_upload_{Guid.NewGuid():N}.tmp";
-            string tempPath = Path.Combine(uploadDir, tempFileName);
-
+            string tempPath = Path.Combine(destDir, $".tether_upload_{Guid.NewGuid():N}.tmp");
             try
             {
+                using var hasher = SHA512.Create();
                 await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true))
                 {
-                    await file.CopyToAsync(stream);
-                    await stream.FlushAsync();
+                    var buffer = new byte[81920];
+                    int read;
+                    while ((read = await ctx.Request.Body.ReadAsync(buffer, ctx.RequestAborted)) > 0)
+                    {
+                        hasher.TransformBlock(buffer, 0, read, null, 0);
+                        await stream.WriteAsync(buffer.AsMemory(0, read), ctx.RequestAborted);
+                    }
+                    hasher.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                    await stream.FlushAsync(ctx.RequestAborted);
+                }
+
+                string actualHash = Convert.ToHexString(hasher.Hash!).ToLowerInvariant();
+                if (!string.Equals(actualHash, expectedHash, StringComparison.Ordinal))
+                {
+                    _logger.Warning($"LinuxFileTransferServer: upload hash mismatch for '{safeName}'.");
+                    try { File.Delete(tempPath); } catch { }
+                    return Results.BadRequest(new { error = "Uploaded content does not match X-Tether-File-SHA512" });
                 }
 
                 if (OperatingSystem.IsLinux())
                 {
-                    try
-                    {
-                        File.SetUnixFileMode(tempPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                    }
-                    catch { }
+                    try { File.SetUnixFileMode(tempPath, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
                 }
 
                 File.Move(tempPath, destPath, overwrite: true);
+                return Results.Ok(new { success = true, fileName = safeName, path = destPath });
             }
-            catch
+            catch (OperationCanceledException)
             {
-                try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+                try { File.Delete(tempPath); } catch { }
                 throw;
             }
+            catch (Exception ex)
+            {
+                try { File.Delete(tempPath); } catch { }
+                _logger.Warning($"LinuxFileTransferServer: upload failed: {ex.Message}");
+                return Results.Problem("Upload failed");
+            }
+        });
 
-            return Results.Ok(new { success = true, fileName = safeFileName, size = file.Length });
+        // 4. Search.
+        _app.MapGet("/api/fs/search", (HttpContext ctx, string? path, string? query, bool? recursive, int? maxResults) =>
+        {
+            if (string.IsNullOrWhiteSpace(query)) return Results.Ok(Array.Empty<object>());
+
+            string baseDir = GetUserAllowedBaseDirectory();
+            if (!TryResolveClientPath(string.IsNullOrWhiteSpace(path) ? baseDir : path, baseDir, out string searchRoot) ||
+                !Directory.Exists(searchRoot))
+            {
+                return Results.BadRequest(new { error = "Invalid search path or access restricted" });
+            }
+
+            int limit = Math.Clamp(maxResults ?? 200, 1, 2000);
+            bool deep = recursive ?? true;
+            var results = new List<object>();
+
+            void Walk(string dir, int depth)
+            {
+                if (results.Count >= limit || depth > 32) return;
+                try
+                {
+                    foreach (var f in new DirectoryInfo(dir).EnumerateFileSystemInfos())
+                    {
+                        if (results.Count >= limit) return;
+                        if (f.Name.StartsWith('.')) continue;
+                        if (!IsPathSafe(f.FullName, baseDir)) continue;
+                        bool isDir = (f.Attributes & FileAttributes.Directory) != 0;
+                        if (f.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+                        {
+                            results.Add(new
+                            {
+                                name = f.Name,
+                                path = f.FullName,
+                                isDirectory = isDir,
+                                size = isDir ? 0L : ((FileInfo)f).Length,
+                                lastModified = (DateTimeOffset)f.LastWriteTimeUtc
+                            });
+                        }
+                        if (isDir && deep) Walk(f.FullName, depth + 1);
+                    }
+                }
+                catch { }
+            }
+
+            Walk(searchRoot, 0);
+            return Results.Ok(results);
+        });
+
+        // 5. Create directory.
+        _app.MapPost("/api/fs/mkdir", async (HttpContext ctx) =>
+        {
+            var (req, error) = await ReadJsonBodyAsync(ctx);
+            if (error != null) return error;
+            string parent = req!.Value.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "";
+            string name = req.Value.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+            if (!IsValidEntryName(name)) return Results.BadRequest(new { error = "Invalid directory name" });
+
+            string baseDir = GetUserAllowedBaseDirectory();
+            if (!TryResolveClientPath(parent, baseDir, out string parentDir) || !Directory.Exists(parentDir))
+            {
+                return Results.BadRequest(new { error = "Invalid parent path" });
+            }
+
+            string newDir = Path.Combine(parentDir, name);
+            if (!IsLexicallyInside(newDir, baseDir) || !IsPathSafe(newDir, baseDir))
+            {
+                return Results.BadRequest(new { error = "Invalid directory path or access restricted" });
+            }
+
+            try { Directory.CreateDirectory(newDir); return Results.Ok(new { success = true, path = newDir }); }
+            catch (Exception ex) { _logger.Warning($"mkdir '{newDir}' failed: {ex.Message}"); return Results.Problem("Failed to create directory"); }
+        });
+
+        // 6. Rename (same directory).
+        _app.MapPost("/api/fs/rename", async (HttpContext ctx) =>
+        {
+            var (req, error) = await ReadJsonBodyAsync(ctx);
+            if (error != null) return error;
+            string path = req!.Value.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "";
+            string newName = req.Value.TryGetProperty("newName", out var n) ? n.GetString() ?? "" : "";
+            if (!IsValidEntryName(newName)) return Results.BadRequest(new { error = "Invalid new file name" });
+
+            string baseDir = GetUserAllowedBaseDirectory();
+            if (!TryResolveClientPath(path, baseDir, out string fullPath) || (!File.Exists(fullPath) && !Directory.Exists(fullPath)))
+            {
+                return Results.BadRequest(new { error = "Invalid path or access restricted" });
+            }
+
+            string? dir = Path.GetDirectoryName(fullPath);
+            if (string.IsNullOrEmpty(dir)) return Results.BadRequest(new { error = "Invalid path" });
+            string newPath = Path.Combine(dir, newName);
+            if (!IsPathSafe(newPath, baseDir)) return Results.BadRequest(new { error = "Invalid new path or access restricted" });
+
+            try
+            {
+                if (File.Exists(fullPath)) File.Move(fullPath, newPath, overwrite: true);
+                else Directory.Move(fullPath, newPath);
+                return Results.Ok(new { success = true, newPath });
+            }
+            catch (Exception ex) { _logger.Warning($"rename failed: {ex.Message}"); return Results.Problem("Rename failed"); }
+        });
+
+        // 7. Move.
+        _app.MapPost("/api/fs/move", async (HttpContext ctx) =>
+        {
+            var (req, error) = await ReadJsonBodyAsync(ctx);
+            if (error != null) return error;
+            string source = req!.Value.TryGetProperty("sourcePath", out var s) ? s.GetString() ?? "" : "";
+            string destination = req.Value.TryGetProperty("destinationPath", out var d) ? d.GetString() ?? "" : "";
+
+            string baseDir = GetUserAllowedBaseDirectory();
+            if (!TryResolveClientPath(source, baseDir, out string srcPath) || (!File.Exists(srcPath) && !Directory.Exists(srcPath)) ||
+                !TryResolveClientPath(destination, baseDir, out string dstPath))
+            {
+                return Results.BadRequest(new { error = "Invalid source or destination path" });
+            }
+
+            string finalDst = Directory.Exists(dstPath) ? Path.Combine(dstPath, Path.GetFileName(srcPath)) : dstPath;
+            if (!IsLexicallyInside(finalDst, baseDir) || !IsPathSafe(finalDst, baseDir))
+            {
+                return Results.BadRequest(new { error = "Invalid destination path" });
+            }
+
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(finalDst)!);
+                if (File.Exists(srcPath)) File.Move(srcPath, finalDst, overwrite: true);
+                else Directory.Move(srcPath, finalDst);
+                return Results.Ok(new { success = true, destination = finalDst });
+            }
+            catch (Exception ex) { _logger.Warning($"move failed: {ex.Message}"); return Results.Problem("Move failed"); }
+        });
+
+        // 8. Delete (permanent, or to the XDG trash).
+        _app.MapPost("/api/fs/delete", async (HttpContext ctx) =>
+        {
+            var (req, error) = await ReadJsonBodyAsync(ctx);
+            if (error != null) return error;
+            string path = req!.Value.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "";
+            bool permanent = req.Value.TryGetProperty("permanent", out var perm) && perm.ValueKind == JsonValueKind.True;
+
+            string baseDir = GetUserAllowedBaseDirectory();
+            if (!TryResolveClientPath(path, baseDir, out string fullPath) || (!File.Exists(fullPath) && !Directory.Exists(fullPath)))
+            {
+                return Results.BadRequest(new { error = "Invalid path or access restricted" });
+            }
+            if (string.Equals(fullPath.TrimEnd('/'), baseDir.TrimEnd('/'), StringComparison.Ordinal))
+            {
+                return Results.BadRequest(new { error = "Refusing to delete the home directory" });
+            }
+
+            try
+            {
+                if (permanent)
+                {
+                    if (File.Exists(fullPath)) File.Delete(fullPath);
+                    else Directory.Delete(fullPath, recursive: true);
+                }
+                else
+                {
+                    TrashPath(fullPath, baseDir);
+                }
+                return Results.Ok(new { success = true });
+            }
+            catch (Exception ex) { _logger.Warning($"delete failed: {ex.Message}"); return Results.Problem("Delete failed"); }
+        });
+
+        // 9. Empty the XDG trash.
+        _app.MapPost("/api/fs/recycle-bin/empty", (HttpContext ctx) =>
+        {
+            string baseDir = GetUserAllowedBaseDirectory();
+            try
+            {
+                foreach (var sub in new[] { ".local/share/Trash/files", ".local/share/Trash/info" })
+                {
+                    string dir = Path.Combine(baseDir, sub);
+                    if (!Directory.Exists(dir)) continue;
+                    foreach (var entry in Directory.EnumerateFileSystemEntries(dir))
+                    {
+                        if (Directory.Exists(entry)) Directory.Delete(entry, recursive: true);
+                        else File.Delete(entry);
+                    }
+                }
+                return Results.Ok(new { success = true });
+            }
+            catch (Exception ex) { _logger.Warning($"trash empty failed: {ex.Message}"); return Results.Problem("Failed to empty trash"); }
         });
 
         // 4. Remote Desktop Stream (MJPEG multipart/x-mixed-replace)
@@ -488,13 +725,144 @@ public sealed class LinuxFileTransferServer : IHostedService
     private static string GetUserAllowedBaseDirectory()
     {
         var session = PlatformDetection.GetActiveSessionInfo();
-        string homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (session.UserName != "root" && !string.IsNullOrEmpty(session.UserName))
+        if (!string.IsNullOrEmpty(session.UserName) && session.UserName != "root")
         {
-            string userHome = $"/home/{session.UserName}";
-            if (Directory.Exists(userHome)) return userHome;
+            // Prefer the account's real home from /etc/passwd (handles /var/home etc.).
+            try
+            {
+                foreach (var line in File.ReadLines("/etc/passwd"))
+                {
+                    var parts = line.Split(':');
+                    if (parts.Length >= 7 && parts[0] == session.UserName &&
+                        !string.IsNullOrEmpty(parts[5]) && Directory.Exists(parts[5]))
+                    {
+                        return parts[5];
+                    }
+                }
+            }
+            catch { }
+
+            foreach (var candidate in new[] { $"/home/{session.UserName}", $"/var/home/{session.UserName}" })
+            {
+                if (Directory.Exists(candidate)) return candidate;
+            }
         }
-        return homeDir;
+
+        // Fail closed rather than exposing root's home.
+        return "/nonexistent-tether-home";
+    }
+
+    /// <summary>
+    /// Normalises a client path (the Android client builds Windows-style separators) and
+    /// confines it to the user's allowed root.
+    /// </summary>
+    private static bool TryResolveClientPath(string? rawPath, string baseDir, out string fullPath)
+    {
+        fullPath = "";
+        if (string.IsNullOrWhiteSpace(rawPath)) return false;
+
+        string normalized = rawPath.Replace('\\', '/').Trim();
+        if (normalized.Contains('\0')) return false;
+        foreach (var seg in normalized.Split('/'))
+        {
+            if (seg == "..") return false;
+        }
+
+        string combined = Path.IsPathRooted(normalized) ? normalized : Path.Combine(baseDir, normalized);
+        try { fullPath = Path.GetFullPath(combined); }
+        catch { return false; }
+
+        return IsLexicallyInside(fullPath, baseDir) && IsPathSafe(fullPath, baseDir);
+    }
+
+    private static bool IsLexicallyInside(string fullPath, string baseDir)
+    {
+        try
+        {
+            string root = Path.GetFullPath(baseDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string target = Path.GetFullPath(fullPath);
+            return string.Equals(target, root, StringComparison.Ordinal) ||
+                   target.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+        }
+        catch { return false; }
+    }
+
+    private static bool IsValidEntryName(string name)
+    {
+        return !string.IsNullOrWhiteSpace(name) && name.Length <= 255 &&
+               name != "." && name != ".." && !name.StartsWith('.') &&
+               name.IndexOfAny(new[] { '/', '\\', '\0' }) < 0;
+    }
+
+    private static async Task<(JsonElement? Body, IResult? Error)> ReadJsonBodyAsync(HttpContext ctx)
+    {
+        if (!ctx.Request.HasJsonContentType())
+        {
+            return (null, Results.BadRequest(new { error = "Expected application/json body" }));
+        }
+
+        try
+        {
+            using var buffered = new MemoryStream();
+            var buffer = new byte[8192];
+            int read;
+            while ((read = await ctx.Request.Body.ReadAsync(buffer, ctx.RequestAborted)) > 0)
+            {
+                if (buffered.Length + read > 64 * 1024)
+                {
+                    return (null, Results.BadRequest(new { error = "JSON payload too large" }));
+                }
+                buffered.Write(buffer, 0, read);
+            }
+            buffered.Position = 0;
+            using var doc = await JsonDocument.ParseAsync(buffered, cancellationToken: ctx.RequestAborted);
+            return (doc.RootElement.Clone(), null);
+        }
+        catch
+        {
+            return (null, Results.BadRequest(new { error = "Invalid JSON payload" }));
+        }
+    }
+
+    /// <summary>Moves a path into the user's XDG trash instead of deleting it.</summary>
+    private static void TrashPath(string fullPath, string baseDir)
+    {
+        string trashRoot = Path.Combine(baseDir, ".local", "share", "Trash");
+        string filesDir = Path.Combine(trashRoot, "files");
+        string infoDir = Path.Combine(trashRoot, "info");
+        Directory.CreateDirectory(filesDir);
+        Directory.CreateDirectory(infoDir);
+
+        string name = Path.GetFileName(fullPath);
+        string candidate = name;
+        int suffix = 1;
+        while (File.Exists(Path.Combine(filesDir, candidate)) || Directory.Exists(Path.Combine(filesDir, candidate)))
+        {
+            candidate = $"{name}.{suffix++}";
+        }
+
+        string trashPath = Path.Combine(filesDir, candidate);
+        if (File.Exists(fullPath)) File.Move(fullPath, trashPath);
+        else Directory.Move(fullPath, trashPath);
+
+        try
+        {
+            string encoded = string.Join("/", fullPath.Split('/').Select(Uri.EscapeDataString));
+            File.WriteAllText(
+                Path.Combine(infoDir, candidate + ".trashinfo"),
+                $"[Trash Info]\nPath={encoded}\nDeletionDate={DateTime.Now:yyyy-MM-ddTHH:mm:ss}\n");
+        }
+        catch
+        {
+            // Do not leave a file in the trash without its restore metadata.
+            try
+            {
+                if (Directory.Exists(trashPath)) Directory.Move(trashPath, fullPath);
+                else File.Move(trashPath, fullPath);
+            }
+            catch { }
+            throw;
+        }
     }
 
     public static string? ResolveCanonicalPath(string path)
