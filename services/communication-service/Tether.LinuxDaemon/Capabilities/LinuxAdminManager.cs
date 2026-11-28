@@ -110,6 +110,14 @@ public sealed record LinuxServiceDetails
     [JsonPropertyName("canPauseAndContinue")] public bool CanPauseAndContinue { get; init; } = false;
 }
 
+public sealed record LinuxPrinterInfo
+{
+    [JsonPropertyName("name")] public string Name { get; init; } = "";
+    [JsonPropertyName("port")] public string Port { get; init; } = "";
+    [JsonPropertyName("status")] public string Status { get; init; } = "Ready";
+    [JsonPropertyName("jobsCount")] public int JobsCount { get; init; }
+}
+
 public sealed record LinuxUpdateInfo
 {
     [JsonPropertyName("pendingUpdatesCount")] public int PendingUpdatesCount { get; init; }
@@ -689,6 +697,56 @@ public sealed class LinuxAdminManager
             _logger.Warning($"LinuxAdminManager: Power profile change to '{target.Guid}' was not confirmed by the backend.");
         }
         return confirmed;
+    }
+
+    public List<LinuxPrinterInfo> GetPrinters()
+    {
+        var list = new List<LinuxPrinterInfo>();
+        if (!ExecutableExists("lpstat")) return list;
+
+        var (exit, output) = RunCapture("lpstat", "-p -o", 3000);
+        if (exit != 0 || string.IsNullOrWhiteSpace(output)) return list;
+
+        var jobs = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawLine in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine.Trim();
+
+            // printer Office is idle.  enabled since ...
+            // printer Office disabled since ...
+            // printer Office now printing Office-42. ...
+            var match = Regex.Match(line, @"^printer\s+(\S+)\s+(.+)$", RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                string name = match.Groups[1].Value;
+                string rest = match.Groups[2].Value;
+                string status = rest.StartsWith("now printing", StringComparison.OrdinalIgnoreCase) ? "Printing"
+                    : rest.StartsWith("disabled", StringComparison.OrdinalIgnoreCase) ? "Stopped"
+                    : "Ready";
+                if (!list.Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    list.Add(new LinuxPrinterInfo { Name = name, Status = status });
+                }
+                continue;
+            }
+
+            // Queued job: Office-42 user 1024 ...
+            var jobMatch = Regex.Match(line, @"^(\S+?)-\d+\s+", RegexOptions.IgnoreCase);
+            if (jobMatch.Success)
+            {
+                string printer = jobMatch.Groups[1].Value;
+                jobs[printer] = jobs.TryGetValue(printer, out int count) ? count + 1 : 1;
+            }
+        }
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (jobs.TryGetValue(list[i].Name, out int jobCount))
+            {
+                list[i] = list[i] with { JobsCount = jobCount };
+            }
+        }
+        return list;
     }
 
     public List<LinuxUsbDeviceInfo> GetUsbDevices()

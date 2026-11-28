@@ -666,6 +666,17 @@ public sealed class LinuxPacketRouter
                     await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = pOk }, ct);
                     break;
 
+                case "PRINTERS_GET":
+                case "GET_PRINTERS":
+                    if (!HasCapability(session.Device, "ADMIN"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
+                        break;
+                    }
+                    var printerList = _adminManager.GetPrinters();
+                    await session.WriteJsonFrameSafeAsync(new { type = "PRINTERS_RESPONSE", requestId = reqId, printers = printerList }, ct);
+                    break;
+
                 case "USB_DEVICES_GET":
                 case "GET_USB_DEVICES":
                     if (!HasCapability(session.Device, "ADMIN"))

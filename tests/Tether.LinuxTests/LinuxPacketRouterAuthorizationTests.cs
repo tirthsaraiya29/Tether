@@ -299,6 +299,23 @@ public class LinuxPacketRouterAuthorizationTests : IDisposable
     }
 
     [Fact]
+    public async Task PrintersGet_ReturnsResponse_WhenAuthorized()
+    {
+        using var pipe = new MemoryStream();
+        var device = new LinuxDevice { DeviceId = "dev-admin-print", Capabilities = new List<string> { "ADMIN" } };
+        using var session = CreateTestSession(pipe, device);
+
+        byte[] cmd = Encoding.UTF8.GetBytes("{\"type\":\"GET_PRINTERS\",\"requestId\":\"req_prn_1\"}");
+        await _router.RouteFrameAsync(cmd, session, CancellationToken.None);
+
+        pipe.Position = 0;
+        using var doc = await FrameCodec.ReadJsonFrameAsync(pipe, CancellationToken.None);
+        Assert.NotNull(doc);
+        Assert.Equal("PRINTERS_RESPONSE", doc.RootElement.GetProperty("type").GetString());
+        Assert.Equal(JsonValueKind.Array, doc.RootElement.GetProperty("printers").ValueKind);
+    }
+
+    [Fact]
     public async Task UpdatesGet_RespondsWithUpdatesProperty()
     {
         using var pipe = new MemoryStream();
