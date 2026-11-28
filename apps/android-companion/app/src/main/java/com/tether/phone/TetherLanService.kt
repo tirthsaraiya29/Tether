@@ -1497,7 +1497,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun listenSocketLoop(transport: TetherTransport) {
         try {
-            while ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY)) {
+            while (activeTransport?.generationId == transport.generationId &&
+                ((currentState == TransportState.AUTHENTICATED) || (currentState == TransportState.READY))) {
                 val frameBytes = transport.readFrame()
                 if (frameBytes == null) {
                     if (!transport.isConnected()) {
@@ -1531,6 +1532,13 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     }
 
     private fun processIncomingFrame(json: JSONObject, transport: TetherTransport) {
+        // A retired socket loop can finish after another peer has connected. Ignore its frames
+        // before they can mutate current peer state, populate caches, or complete pending calls.
+        if (activeTransport?.generationId != transport.generationId) {
+            Log.w(TAG, "Ignoring frame from retired transport generation=${transport.generationId}")
+            return
+        }
+
         if (processedRequestIds.size > 10_000) {
             Log.w(TAG, "processedRequestIds exceeded cap; clearing oldest half")
             val sorted = processedRequestIds.entries.sortedBy { (_, timestamp) -> timestamp }
