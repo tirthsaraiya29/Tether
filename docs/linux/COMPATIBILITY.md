@@ -21,8 +21,12 @@
 | **Audio Devices** | IMMDeviceEnumerator endpoints | `wpctl status` Sinks & Sources | Device selector list | `IMPLEMENTED_AND_TESTED` |
 | **Panic Lockdown** | Win32 `LockWorkStation` + Mute | `loginctl lock-session` + `wpctl` Mute | Panic button trigger | `IMPLEMENTED_AND_TESTED` |
 | **File Transfer** | HTTPS TLS 1.3 chunked upload/download | HTTPS TLS 1.3 chunked upload/download | Shared file transfer client | `IMPLEMENTED_AND_TESTED` |
-| **Remote Terminal** | ConPTY Windows Pseudo-Console | Linux POSIX PTY (`openpty`, `forkpty`, bash) | Terminal screen & keyboard | `IMPLEMENTED_AND_TESTED` |
-| **System Telemetry** | WMI / Performance Counters | `/proc`, `/sys/class`, `loginctl` | Battery, CPU, RAM, Network stats | `IMPLEMENTED_AND_TESTED` |
+| **Remote Terminal** | ConPTY + PowerShell | POSIX pipes to the active user's login shell from `/etc/passwd` (bash/zsh/sh/fish/dash/ksh; never PowerShell unless explicitly requested and installed) | Terminal screen & keyboard | `IMPLEMENTED_AND_TESTED` |
+| **System Telemetry** | WMI / Performance Counters | `/proc`, `/sys/class`, `NetworkInterface`; disks via `DriveInfo` | Admin page: CPU, RAM, disks, NICs, GPU, uptime | `IMPLEMENTED_AND_TESTED` |
+| **Power Profiles** | `powercfg` schemes | `powerprofilesctl` (power-profiles-daemon) → ACPI `platform_profile` → validated cpufreq governors; apply is confirmed by re-reading state | Power tab | `IMPLEMENTED` (unit-tested fallbacks) |
+| **Updates** | Windows Update Agent | Distro detection: apt, dnf, zypper, pacman (read-only checks; no root, no install) | Updates card | `IMPLEMENTED` (unit-tested contract) |
+| **Services** | SCM | `systemctl` with name validation and a protected-unit denylist; requires systemd | Services tab | `IMPLEMENTED` (unit-tested rejections) |
+| **Battery Report** | `powercfg /batteryreport` | sysfs `power_supply` (design/full capacity, cycles, charge state); honest "no battery" result | Battery report | `IMPLEMENTED` (unit-tested contract) |
 
 ---
 

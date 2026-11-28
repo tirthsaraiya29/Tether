@@ -16,7 +16,12 @@ no representative environment available.
 | 4 | Android: System Apps launcher removed; admin UI platform-aware; no `C:`/`NTFS` defaults | `0a7978a` | build (`assembleDebug`) |
 | 5 | Android: transfer-token denials surfaced instead of empty-token requests; failed on disconnect; laptop cache keyed to the authenticated peer fingerprint and cleared on Forget | `124520f` | build, unit |
 | 6 | Linux: client-supplied audio device / sink-input ids validated before reaching wpctl/pactl | `ac9e7a9` | unit |
-| 7 | Linux: pure-Wayland capture refused instead of root KMS bypass; ffmpeg located via PATH-like paths; docs corrected | `89da7b7` | build, unit |
+| 7 | Linux: pure-Wayland capture refused instead of root KMS bypass; docs corrected | `89da7b7` | build, unit |
+| 8 | Linux: capture resolves only root-owned distro ffmpeg paths, drops to the session user via runuser; terminal resolves the user's `/etc/passwd` login shell, validates explicit shells, sets HOME/SHELL/USER | `1306621` | build, unit |
+| 9 | Linux: a reconnecting device aborts its replaced session so stale transports stop receiving broadcasts | `15a11a5` | build, unit |
+| 10 | Android: remaining Windows-only labels removed from shared UI | `ad0275a` | build, unit |
+| 11 | Linux: command dedup cache scoped to the authenticated device; cross-device request-id replay covered | `c85be54` | unit |
+| 12 | Linux: transfer tokens accepted only from headers, never URLs; Windows running-window regression tests | `0849f7e` | unit |
 
 ## Findings closed
 D1–D9 in `AUDIT/CROSS_PLATFORM_GAP_REPORT.md`, except D9: the stress test passed on every
@@ -34,8 +39,10 @@ rerun (`5/5` isolated runs plus full-suite runs); the single baseline failure wa
 - `dotnet build Tether.slnx` cannot build the two `.vcxproj` projects (CLI limitation); they were
   built separately with VS BuildTools MSBuild x64.
 
-## Remaining phases (not done)
-4 (full lifecycle hardening), 8/9 (Linux audio beyond validation), 11 (input bounds audit on
-hardware), 12 (terminal env/user-shell selection), 19 (Windows running-window regression on a
-real desktop), 20 (end-to-end transfer matrix), 21 (full UI audit), 22 (adversarial suite
-expansion), 23/24 (integration, performance, release). No push was performed.
+## Remaining gaps
+- End-to-end transfer matrix and real-desktop window regression need physical Windows/Android hosts.
+- Pure-Wayland screen capture still needs an XDG portal ScreenCast client.
+- Linux audio/input happy paths remain code-verified only (no Linux host available).
+- Performance/soak audit not performed.
+- The automated security review flagged two Medium issues in this work (cache ownership fail-open,
+  privileged ffmpeg resolution); both were fixed (`3e9d41e`, `1306621`).
