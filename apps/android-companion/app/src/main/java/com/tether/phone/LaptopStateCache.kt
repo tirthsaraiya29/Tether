@@ -665,4 +665,24 @@ object LaptopStateCache {
             saveMetrics(context, vol, bright)
         } catch (_: Exception) {}
     }
+
+    private const val KEY_OWNER_FINGERPRINT = "cache_owner_fingerprint"
+
+    /**
+     * Cache is single-slot; before serving a session, drop everything written by a different
+     * authenticated host so a stale Windows PC can never populate a newly connected Linux PC's UI.
+     */
+    fun claimOwner(context: Context, peerFingerprint: String?) {
+        if (peerFingerprint.isNullOrBlank()) return
+        val p = prefs(context)
+        val owner = p.getString(KEY_OWNER_FINGERPRINT, null)
+        if (owner != null && owner != peerFingerprint) {
+            p.edit { clear() }
+        }
+        p.edit { putString(KEY_OWNER_FINGERPRINT, peerFingerprint) }
+    }
+
+    fun clearAll(context: Context) {
+        prefs(context).edit { clear() }
+    }
 }

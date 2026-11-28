@@ -236,6 +236,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
 
     private fun onHostConnected() {
         while (inputFrameChannel.tryReceive().isSuccess) { /* flush stale frames before reconnect */ }
+        // Drop cached telemetry belonging to a previously paired PC before this session paints anything.
+        LaptopStateCache.claimOwner(applicationContext, activeTransport?.getPeerIdentityFingerprint())
         pendingUnlockRequests.clear()
         lastPowerCommand = null
         lastPowerCommandAtMs = 0L
@@ -258,6 +260,8 @@ class TetherLanService : Service(), TetherDiscoveryListener {
         readyTransitionJob = null
         while (inputFrameChannel.tryReceive().isSuccess) { /* flush stale frames on link loss */ }
         pendingUnlockRequests.clear()
+        pendingTokenRequests.values.forEach { it.completeExceptionally(IllegalStateException("Host disconnected")) }
+        pendingTokenRequests.clear()
         if ((currentPowerState != LaptopPowerState.POWERED_OFF) && (currentPowerState != LaptopPowerState.RESTARTING) && (currentPowerState != LaptopPowerState.SHUTTING_DOWN)) {
             currentPowerState = when (lastPowerCommand) {
                 "shutdown" -> LaptopPowerState.POWERED_OFF
@@ -1000,6 +1004,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             ACTION_FORGET_TRUST -> {
                 Log.i(TAG, "Forget Windows trust requested by user.")
                 securityEngine.clearPinnedKey(this)
+                LaptopStateCache.clearAll(this)
                 trustState = TrustState.REPAIRING
                 disconnectActiveSession("Trust cleared by user")
                 return START_STICKY
@@ -1550,10 +1555,19 @@ class TetherLanService : Service(), TetherDiscoveryListener {
             }
             "FILE_TRANSFER_TOKEN_RESPONSE" -> {
                 val token = json.optString("token", "")
-                if (requestId.isNotEmpty() && pendingTokenRequests.containsKey(requestId)) {
-                    pendingTokenRequests.remove(requestId)?.complete(token)
-                } else {
-                    Log.w(TAG, "Discarded token response with unmatched requestId: $requestId")
+                val success = json.optBoolean("success", token.isNotEmpty())
+                if (requestId.isNotEmpty()) {
+                    val pending = pendingTokenRequests.remove(requestId)
+                    if (pending == null) {
+                        Log.w(TAG, "Discarded token response with unmatched requestId: $requestId")
+                    } else if (!success || token.isEmpty()) {
+                        // Surface the host's authorization reason instead of issuing an unauthenticated request.
+                        val reason = json.optString("reason", "Host refused to issue a transfer token")
+                        Log.w(TAG, "File transfer token denied: $reason")
+                        pending.completeExceptionally(IllegalStateException(reason))
+                    } else {
+                        pending.complete(token)
+                    }
                 }
             }
             "POWER_EVENT" -> {
