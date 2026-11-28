@@ -238,9 +238,12 @@ public sealed class LinuxDesktopManager
         var session = PlatformDetection.GetActiveSessionInfo();
         string display = !string.IsNullOrEmpty(session.DisplayName) ? session.DisplayName : ":0";
 
-        // Check if FFmpeg is installed
-        if (!File.Exists("/usr/bin/ffmpeg"))
+        // ffmpeg is exposed by distro packages, snap/flatpak and /usr/local; probe PATH-like locations.
+        string ffmpeg = new[] { "/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/bin/ffmpeg", "/snap/bin/ffmpeg" }
+            .FirstOrDefault(File.Exists) ?? "";
+        if (ffmpeg.Length == 0)
         {
+            _logger.Warning("LinuxDesktopManager: ffmpeg is not installed; screen capture unavailable.");
             return Array.Empty<byte>();
         }
 
@@ -251,7 +254,7 @@ public sealed class LinuxDesktopManager
 
             var psi = new ProcessStartInfo
             {
-                FileName = "ffmpeg",
+                FileName = ffmpeg,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
@@ -297,19 +300,15 @@ public sealed class LinuxDesktopManager
                     psi.ArgumentList.Add($"{display}.0");
                 }
             }
-            else if (session.DisplayServer == DisplayServer.Wayland && File.Exists("/dev/dri/card0") && PlatformDetection.IsRoot)
-            {
-                // Root KMS capture for Wayland DRM controller
-                psi.ArgumentList.Add("-f");
-                psi.ArgumentList.Add("kmsgrab");
-                psi.ArgumentList.Add("-i");
-                psi.ArgumentList.Add("-");
-                psi.ArgumentList.Add("-vf");
-                psi.ArgumentList.Add("hwdownload,format=bgr0");
-            }
             else
             {
-                // Headless or unsupported compositor without accessible display
+                // Native Wayland compositors only expose screen content through the XDG Desktop
+                // Portal (ScreenCast). Until that portal client exists, refuse rather than
+                // bypassing the compositor's security model with a root KMS/kmsgrab capture.
+                if (session.DisplayServer == DisplayServer.Wayland)
+                {
+                    _logger.Warning("LinuxDesktopManager: Pure Wayland session without XWayland; screen capture requires an XDG Desktop Portal ScreenCast grant, which is not implemented. Refusing.");
+                }
                 return Array.Empty<byte>();
             }
 

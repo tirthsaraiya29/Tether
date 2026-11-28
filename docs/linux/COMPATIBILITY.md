@@ -13,9 +13,9 @@
 | **Display Managers** | Winlogon | GDM, SDDM, LightDM | Display agnostic | `IMPLEMENTED_AND_TESTED` |
 | **Password Fallback** | Native Password Tile switch | Seamless `PAM_AUTHINFO_UNAVAIL` -> `pam_unix` | Automatic fallback | `IMPLEMENTED_AND_TESTED` |
 | **Synthetic Input** | Win32 `SendInput` API | Linux `/dev/uinput` kernel interface | Touchpad, Mouse, Keyboard | `IMPLEMENTED_AND_TESTED` |
-| **Screen Streaming** | Desktop Duplication API (DXGI) | MJPEG Stream (`/api/desktop/stream`) | `RemoteDesktopScreen` | `IMPLEMENTED_AND_TESTED` |
-| **Screen Capture** | GDI / Direct3D JPEG | Snapshot (`/api/desktop/screenshot`) | Remote desktop viewer | `IMPLEMENTED_AND_TESTED` |
-| **Window Listing** | Win32 `EnumWindows` | `wmctrl` / X11 / Wayland Session query | `RemoteDesktopScreen` windows list | `IMPLEMENTED_AND_TESTED` |
+| **Screen Streaming** | Desktop Duplication API (DXGI) | MJPEG Stream (`/api/desktop/stream`) over X11/XWayland | `RemoteDesktopScreen` | `IMPLEMENTED` (X11/XWayland). Pure Wayland needs the portal ScreenCast client, not yet implemented; returns 503 |
+| **Screen Capture** | GDI / Direct3D JPEG | Snapshot (`/api/desktop/screenshot`) via ffmpeg x11grab | Remote desktop viewer | `IMPLEMENTED` (X11/XWayland) |
+| **Window Listing** | Win32 `EnumWindows` | `wmctrl` -l (X11/XWayland only) | `RemoteDesktopScreen` windows list | `IMPLEMENTED` (X11/XWayland; Wayland windows are not enumerable by design) |
 | **Window Control** | `SetForegroundWindow` / Close | `wmctrl -i -a` / `wmctrl -i -c` / Process Kill | Close and switch windows | `IMPLEMENTED_AND_TESTED` |
 | **Audio Controls** | CoreAudio / WASAPI Endpoints | PipeWire / WirePlumber (`wpctl`) + `pactl` | Master volume, mic gain, mute | `IMPLEMENTED_AND_TESTED` |
 | **Audio Devices** | IMMDeviceEnumerator endpoints | `wpctl status` Sinks & Sources | Device selector list | `IMPLEMENTED_AND_TESTED` |
@@ -30,8 +30,8 @@
 
 | Desktop Environment | Display Server | Greeter / PAM Support | Screen Capture | Input Injection | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **GNOME 45+** | Wayland | GDM (`gdm-password`) | PipeWire / Portal fallback | `/dev/uinput` | Full support on Fedora, RHEL, Ubuntu |
+| **GNOME 45+** | Wayland | GDM (`gdm-password`) | XWayland windows only | `/dev/uinput` | Input/terminal/audio full; pure-Wayland screen capture requires a portal ScreenCast grant (not implemented) |
 | **GNOME 40+** | X11 | GDM (`gdm-password`) | Direct X11 / ffmpeg | `/dev/uinput` | Full support |
-| **KDE Plasma 5/6** | Wayland | SDDM (`sddm`) | PipeWire / Portal fallback | `/dev/uinput` | Full support |
+| **KDE Plasma 5/6** | Wayland | SDDM (`sddm`) | XWayland windows only | `/dev/uinput` | Input/terminal/audio full; pure-Wayland screen capture requires a portal ScreenCast grant (not implemented) |
 | **KDE Plasma 5** | X11 | SDDM (`sddm`) | Direct X11 / ffmpeg | `/dev/uinput` | Full support |
 | **XFCE / MATE** | X11 | LightDM (`lightdm`) | Direct X11 / xwd | `/dev/uinput` | Full support on Debian, Mint, Arch |

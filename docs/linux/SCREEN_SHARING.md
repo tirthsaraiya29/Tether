@@ -28,14 +28,16 @@ X-Tether-Client-Timestamp: 1732398000000
 ```
 
 ### Signature Validation Invariant
-1. Signature string: `GET /api/desktop/stream:<timestamp>`.
-2. Timestamp skew check: `|UtcNow - ClientTimestamp| <= 300 seconds`.
-3. Signature verification: Validated using the paired device's pinned public key in `LinuxTrustStore`.
-4. If invalid or missing, server returns `HTTP 401 Unauthorized` immediately without processing frames.
+1. Signature string: `<transferToken>:<timestampMs>:<hostSpki>`, signed with the paired phone's ECDSA P-256 key.
+2. Timestamp skew check: `|UtcNow - ClientTimestamp| <= 5 minutes`.
+3. Replay protection: a proof signature is accepted only once inside the skew window.
+4. The token must be bound to a paired device fingerprint present in `LinuxTrustStore`, and the proof
+   must verify against that device's pinned public key.
+5. If any check fails, the server returns `HTTP 401 Unauthorized` without processing frames.
 
 ---
 
-## Capture Pipeline & Fallbacks
+## Capture Pipeline & Limitations
 
 ```mermaid
 graph TD
@@ -43,18 +45,23 @@ graph TD
     ProofCheck -->|No| Reject[HTTP 401 Unauthorized]
     ProofCheck -->|Yes| SessionCheck{Session Server Type}
 
-    SessionCheck -->|Wayland| PipeWire[User Session PipeWire / Portal]
-    SessionCheck -->|X11| X11Capture[X11 Framebuffer / xwd / ffmpeg]
+    SessionCheck -->|"X11, or Wayland with XWayland DISPLAY"| X11Capture[ffmpeg x11grab]
+    SessionCheck -->|"Pure Wayland (no DISPLAY)"| Refuse[503: portal ScreenCast grant required]
 
-    PipeWire --> FallbackCheck{Available?}
-    FallbackCheck -->|Yes| FrameStream[JPEG Compressor]
-    FallbackCheck -->|No| FfmpegGst[ffmpeg x11grab / GStreamer Fallback]
-
-    X11Capture --> FrameStream
-    FfmpegGst --> FrameStream
-
+    X11Capture --> FrameStream[JPEG Compressor]
     FrameStream --> Output[Multipart MJPEG Stream --frame]
 ```
+
+**Wayland:** native Wayland compositors expose screen content only through the XDG Desktop Portal
+`ScreenCast` interface, which returns a PipeWire stream after the user grants permission. Tether does
+not yet implement that portal client, so pure-Wayland sessions return `503` with an explanatory
+message instead of capturing. Tether deliberately does **not** fall back to root DRM/KMS (`kmsgrab`)
+capture, because that would bypass the compositor's security model and record content the user never
+consented to share. Wayland desktops that also run XWayland (the default for GNOME and KDE) can still
+be captured through `DISPLAY`, limited to XWayland windows.
+
+**X11:** capture uses `ffmpeg -f x11grab` with the active session's `DISPLAY`/`XAUTHORITY`. When
+`ffmpeg` is missing or the capture fails, the endpoint returns an error rather than a synthetic frame.
 
 ### Frame Encoding
 - Format: Progressive JPEG.
