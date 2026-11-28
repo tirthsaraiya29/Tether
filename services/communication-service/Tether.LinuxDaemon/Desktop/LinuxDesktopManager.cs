@@ -23,8 +23,8 @@ public sealed record DesktopWindowInfo
     [JsonPropertyName("processId")] public int ProcessId { get; init; }
     [JsonPropertyName("x")] public int X { get; init; } = 0;
     [JsonPropertyName("y")] public int Y { get; init; } = 0;
-    [JsonPropertyName("width")] public int Width { get; init; } = 1920;
-    [JsonPropertyName("height")] public int Height { get; init; } = 1080;
+    [JsonPropertyName("width")] public int Width { get; init; } = 0;
+    [JsonPropertyName("height")] public int Height { get; init; } = 0;
     [JsonPropertyName("iconB64")] public string? IconB64 { get; init; }
 }
 
@@ -46,14 +46,17 @@ public sealed class LinuxDesktopManager
             using var p = Process.Start(psi);
             if (p != null)
             {
+                var outputTask = p.StandardOutput.ReadToEndAsync();
+                _ = p.StandardError.ReadToEndAsync();
                 bool exited = p.WaitForExit(1000);
-                string output = p.StandardOutput.ReadToEnd();
                 if (!exited)
                 {
                     try { p.Kill(true); } catch { }
+                    try { p.WaitForExit(500); } catch { }
                     _logger.Warning("LinuxDesktopManager: wmctrl -d timed out.");
                     return (0, 0);
                 }
+                string output = outputTask.GetAwaiter().GetResult();
                 if (p.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
                 {
                     // Look for: DG: 1920x1080
@@ -100,14 +103,17 @@ public sealed class LinuxDesktopManager
             using var p = Process.Start(psi);
             if (p != null)
             {
+                var outputTask = p.StandardOutput.ReadToEndAsync();
+                _ = p.StandardError.ReadToEndAsync();
                 bool exited = p.WaitForExit(1000);
-                string output = p.StandardOutput.ReadToEnd();
                 if (!exited)
                 {
                     try { p.Kill(true); } catch { }
+                    try { p.WaitForExit(500); } catch { }
                     _logger.Warning("LinuxDesktopManager: wmctrl -l timed out.");
                     return windows;
                 }
+                string output = outputTask.GetAwaiter().GetResult();
                 if (p.ExitCode != 0)
                 {
                     _logger.Info($"LinuxDesktopManager: window enumeration unavailable (wmctrl exit {p.ExitCode}).");
@@ -260,7 +266,7 @@ public sealed class LinuxDesktopManager
     public async Task<byte[]> CaptureJpegFrameAsync(int quality, long windowId, CancellationToken ct)
     {
         var session = PlatformDetection.GetActiveSessionInfo();
-        string display = !string.IsNullOrEmpty(session.DisplayName) ? session.DisplayName : ":0";
+        string display = session.DisplayName ?? "";
 
         string? ffmpeg = ResolveTrustedFfmpeg();
         if (ffmpeg == null)
@@ -279,6 +285,11 @@ public sealed class LinuxDesktopManager
             // X11 Screen or Window Capture
             if (session.DisplayServer == DisplayServer.X11 || !string.IsNullOrEmpty(session.DisplayName))
             {
+                if (string.IsNullOrWhiteSpace(display))
+                {
+                    _logger.Warning("LinuxDesktopManager: X11/XWayland capture has no DISPLAY value in the active session; refusing to guess :0.");
+                    return Array.Empty<byte>();
+                }
                 args.Add("-f");
                 args.Add("x11grab");
 
@@ -374,6 +385,10 @@ public sealed class LinuxDesktopManager
             using var p = Process.Start(psi);
             if (p != null)
             {
+                // Drain both redirected pipes concurrently so ffmpeg cannot block on a full
+                // pipe while the capture timeout is waiting for process exit.
+                var stdoutTask = p.StandardOutput.ReadToEndAsync();
+                var stderrTask = p.StandardError.ReadToEndAsync();
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
                 try
@@ -383,11 +398,14 @@ public sealed class LinuxDesktopManager
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
                     try { p.Kill(true); } catch { }
+                    try { await p.WaitForExitAsync(CancellationToken.None); } catch { }
+                    try { await Task.WhenAll(stdoutTask, stderrTask); } catch { }
                     _logger.Warning("LinuxDesktopManager: ffmpeg capture timed out.");
                     try { if (File.Exists(tmpFile)) File.Delete(tmpFile); } catch { }
                     return Array.Empty<byte>();
                 }
 
+                await Task.WhenAll(stdoutTask, stderrTask);
                 if (p.ExitCode == 0 && File.Exists(tmpFile))
                 {
                     byte[] bytes = await File.ReadAllBytesAsync(tmpFile, ct);
