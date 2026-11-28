@@ -27,4 +27,6 @@
       <image:caption>Zero-cloud local network pairing via mDNS and mutual ECDSA P-256 public key exchange</image:caption>
     </image:image>
   </url>
+  <url><loc>https://tether-control.vercel.app/power</loc><lastmod>2026-11-28</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://tether-control.vercel.app/dev</loc><lastmod>2026-11-28</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
 </urlset>
