@@ -215,7 +215,7 @@ class TetherLanService : Service(), TetherDiscoveryListener {
     @Volatile private var lastNotifiedLockAtMs: Long = 0L
     @Volatile private var pendingUnlockUntilMs: Long = 0L
 
-    @Volatile var connectedPeerName: String = "Windows PC"
+    @Volatile var connectedPeerName: String = "Paired PC"
     @Volatile var connectedPeerOs: String = "windows"
 
     @Volatile

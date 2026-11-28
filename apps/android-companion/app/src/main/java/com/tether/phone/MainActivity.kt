@@ -1116,7 +1116,7 @@ class MainActivity : FragmentActivity() {
         val msg = "Power State: ${telemetry.powerState.name}\n" +
                 "Battery: ${if (telemetry.batteryPercent >= 0) "${telemetry.batteryPercent}%" else "Unknown"}\n" +
                 "Charging: ${telemetry.isCharging}\n" +
-                "Windows Fingerprint: ${if (windowsFingerprint.value.isNotEmpty()) windowsFingerprint.value.takeLast(16) else "N/A"}"
+                "Host Fingerprint: ${if (windowsFingerprint.value.isNotEmpty()) windowsFingerprint.value.takeLast(16) else "N/A"}"
 
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.laptop_details_title))
@@ -1459,7 +1459,7 @@ class MainActivity : FragmentActivity() {
             PermissionItemState(
                 id = "notification_listener",
                 title = "Notification Access",
-                description = "Lets Tether mirror Android notifications to your paired Windows PC.",
+                description = "Lets Tether mirror Android notifications to your paired PC.",
                 level = PermissionLevel.HIGH,
                 isGranted = isNotifListenerGranted,
                 actionText = "CONFIGURE",

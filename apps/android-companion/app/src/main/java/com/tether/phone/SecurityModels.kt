@@ -88,7 +88,7 @@ data class MediaPlaybackState(
 
 data class TerminalTab(
     val id: String = "",
-    val shellType: String = "powershell",
+    val shellType: String = "",
     val workingDir: String = ""
 )
 

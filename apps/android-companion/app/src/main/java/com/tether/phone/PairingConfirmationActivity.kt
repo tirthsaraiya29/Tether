@@ -104,7 +104,7 @@ class PairingConfirmationActivity : ComponentActivity() {
             ?: intent.getStringExtra(TetherLanService.EXTRA_PAIRING_REQUEST_ID)
             ?: TetherLanService.instance?.pendingRequestId
             ?: ""
-        val peerName = intent.getStringExtra(TetherLanService.EXTRA_PEER_DEVICE_NAME) ?: "Windows PC"
+        val peerName = intent.getStringExtra(TetherLanService.EXTRA_PEER_DEVICE_NAME) ?: "Paired PC"
         val peerFingerprint = intent.getStringExtra(TetherLanService.EXTRA_WINDOWS_FINGERPRINT) ?: "NONE"
 
         setContent {

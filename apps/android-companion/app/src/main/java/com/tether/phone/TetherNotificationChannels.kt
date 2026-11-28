@@ -68,7 +68,7 @@ object TetherNotificationChannels {
                     "Tether Pairing Requests",
                     NotificationManager.IMPORTANCE_HIGH,
                 ).apply {
-                    description = "Heads-up notifications to pair with your Windows PC"
+                    description = "Heads-up notifications from your paired PC"
                     lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                     enableVibration(true)
                     vibrationPattern = longArrayOf(0, 200, 100, 200)
