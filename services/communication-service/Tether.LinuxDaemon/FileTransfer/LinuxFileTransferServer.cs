@@ -181,7 +181,18 @@ public sealed class LinuxFileTransferServer : IHostedService
                 return;
             }
 
-            var clientTime = DateTimeOffset.FromUnixTimeMilliseconds(tsMs);
+            DateTimeOffset clientTime;
+            try
+            {
+                clientTime = DateTimeOffset.FromUnixTimeMilliseconds(tsMs);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Timestamp is outside the supported range" });
+                return;
+            }
+
             var timeDelta = Math.Abs((DateTimeOffset.UtcNow - clientTime).TotalMinutes);
             if (timeDelta > 5)
             {
