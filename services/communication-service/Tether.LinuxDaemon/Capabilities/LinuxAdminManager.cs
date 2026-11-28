@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -412,19 +413,9 @@ public sealed class LinuxAdminManager
         string name = "";
         try
         {
-            var psi = new ProcessStartInfo
+            var (exit, output) = RunCapture("lspci", "", 1000);
+            if (exit == 0 && !string.IsNullOrWhiteSpace(output))
             {
-                FileName = "lspci",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            if (p != null)
-            {
-                string output = p.StandardOutput.ReadToEnd();
-                p.WaitForExit(1000);
-
                 var lines = output.Split('\n');
                 var vgaLine = lines.FirstOrDefault(l => l.Contains("VGA compatible controller", StringComparison.OrdinalIgnoreCase) ||
                                                         l.Contains("3D controller", StringComparison.OrdinalIgnoreCase));
@@ -545,12 +536,19 @@ public sealed class LinuxAdminManager
                 CreateNoWindow = true
             });
             if (p == null) return null;
-            string output = p.StandardOutput.ReadToEnd();
-            if (!p.WaitForExit(timeoutMs))
+
+            var stdoutTask = ReadBoundedAsync(p.StandardOutput, MaxCapturedChars);
+            _ = p.StandardError.ReadToEndAsync();
+
+            bool exited = p.WaitForExit(timeoutMs);
+            if (!exited)
             {
-                try { p.Kill(); } catch { }
+                try { p.Kill(true); } catch { }
+                try { p.WaitForExit(1000); } catch { }
                 return null;
             }
+
+            string output = stdoutTask.GetAwaiter().GetResult();
             return p.ExitCode == 0 ? output : null;
         }
         catch { return null; }
@@ -754,19 +752,9 @@ public sealed class LinuxAdminManager
         var list = new List<LinuxUsbDeviceInfo>();
         try
         {
-            var psi = new ProcessStartInfo
+            var (exit, output) = RunCapture("lsusb", "", 1000);
+            if (exit == 0 && !string.IsNullOrWhiteSpace(output))
             {
-                FileName = "lsusb",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            if (p != null)
-            {
-                string output = p.StandardOutput.ReadToEnd();
-                p.WaitForExit(1000);
-
                 foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
                 {
                     // Bus 001 Device 002: ID 8087:0026 Intel Corp. AX201 Bluetooth
@@ -793,20 +781,9 @@ public sealed class LinuxAdminManager
         var list = new List<LinuxServiceDetails>();
         try
         {
-            var psi = new ProcessStartInfo
+            var (exit, output) = RunCapture("systemctl", "list-units --type=service --no-legend --no-pager", 3000);
+            if (exit == 0 && !string.IsNullOrWhiteSpace(output))
             {
-                FileName = "systemctl",
-                Arguments = "list-units --type=service --no-legend --no-pager",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            if (p != null)
-            {
-                string output = p.StandardOutput.ReadToEnd();
-                p.WaitForExit(2000);
-
                 foreach (var rawLine in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
                 {
                     // Failed units are prefixed with a bullet (●) by systemctl.
@@ -884,6 +861,13 @@ public sealed class LinuxAdminManager
         new[] { "/usr/bin/", "/usr/sbin/", "/bin/", "/sbin/", "/usr/local/bin/" }
             .Any(dir => File.Exists(Path.Combine(dir, name)));
 
+    // Bounds memory if a package manager emits an endless stream.
+    private const int MaxCapturedChars = 4 * 1024 * 1024;
+
+    /// <summary>
+    /// Drains stdout concurrently while waiting, so the timeout is actually enforceable even if
+    /// the child fills the pipe. Output is capped, and stderr is drained but discarded.
+    /// </summary>
     private static (int exitCode, string output) RunCapture(string file, string arguments, int timeoutMs)
     {
         try
@@ -898,18 +882,39 @@ public sealed class LinuxAdminManager
                 CreateNoWindow = true
             });
             if (p == null) return (-1, "");
-            string output = p.StandardOutput.ReadToEnd();
-            if (!p.WaitForExit(timeoutMs))
+
+            var stdoutTask = ReadBoundedAsync(p.StandardOutput, MaxCapturedChars);
+            _ = p.StandardError.ReadToEndAsync();
+
+            bool exited = p.WaitForExit(timeoutMs);
+            if (!exited)
             {
-                try { p.Kill(); } catch { }
-                return (-1, output);
+                try { p.Kill(true); } catch { }
+                try { p.WaitForExit(1000); } catch { }
             }
-            return (p.ExitCode, output);
+
+            string output = stdoutTask.GetAwaiter().GetResult();
+            return exited ? (p.ExitCode, output) : (-1, output);
         }
         catch
         {
             return (-1, "");
         }
+    }
+
+    private static async Task<string> ReadBoundedAsync(StreamReader reader, int maxChars)
+    {
+        var sb = new StringBuilder();
+        var buffer = new char[8192];
+        int read;
+        while ((read = await reader.ReadAsync(buffer)) > 0)
+        {
+            if (sb.Length < maxChars)
+            {
+                sb.Append(buffer, 0, Math.Min(read, maxChars - sb.Length));
+            }
+        }
+        return sb.ToString();
     }
 
     private static List<string> ParseAptSimulation(string output) =>
