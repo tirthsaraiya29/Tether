@@ -1,6 +1,6 @@
 # Remediation Progress Log
 
-Branch: `main` (local only; nothing pushed)
+Branch: `main` (changes pushed through the GitHub connector; latest repair commit `3652583`)
 Baseline: `d3df8bf`
 
 Verification legend: **unit** = automated test run here; **build** = compiled here;
@@ -27,6 +27,18 @@ no representative environment available.
 | 15 | Router contracts/authorization: `guid` for power plans, `updates` response key, MEDIA required for laptop state, POWER_ELEVATED for lock commands, structured errors for missing capabilities; service name validation/parsing; failed update checks report `-1`/`checkSucceeded=false` | `80738f3` | unit |
 | 16 | Desktop/app control runs as the desktop user with real display/XAUTHORITY; window ids validated; pid termination removed; window geometry no longer invented; ffmpeg bounded by timeout; window snap/state implemented on Linux; `GET_METADATA`, app catalog, service filter and `APP_LAUNCH path` aligned; Wayland window enumeration advertises unsupported | `80738f3`, `f2149ba`, `391eac7` | unit, build |
 | 17 | Android terminal uses the authenticated peer OS for labels/default shell/shortcuts/clear, no longer fabricates a PowerShell tab from out-of-order output, and does not send input to a phantom session; peer telemetry/wallpaper/metrics reset on connect and Forget | `f2149ba`, `b10b665` | build (Android), unit |
+| 18 | Linux active desktop session discovery now filters for active local graphical logind sessions and reads the session leader's real environment; removed UID 1000, :0, wayland-0 and GNOME assumptions | `f0b8535` | code-reviewed via GitHub; build/runtime not run here |
+| 19 | Linux hardware specs now populate manufacturer, model and BIOS version from DMI/sysfs when readable | `abf8afe` | code-reviewed via GitHub; build/runtime not run here |
+| 20 | Linux file-transfer replay proofs are reserved only after signature verification; atomic duplicate detection, bounded cache and oversized-proof rejection | `3d0fa04` | code-reviewed via GitHub; concurrency tests not run here |
+| 21 | Android admin and app/window Compose state is keyed to the authenticated peer fingerprint and reset on LAN peer-state changes; empty hardware values no longer inherit the previous PC's values | `17fcb52`, `4c3058f` | code-reviewed via GitHub; Android build/instrumentation not run here |
+| 22 | Android rejects frames from retired transport generations and stops their socket loops so late responses cannot mutate the current peer's state | `3652583` | code-reviewed via GitHub; Android build/instrumentation not run here |
+| 23 | Linux running-window enumeration now drains stdout concurrently with the timeout and resolves the user's actual home directory for per-user desktop entries | `cf1c05d` | code-reviewed via GitHub; build/runtime not run here |
+| 24 | README systemd sandbox claims corrected to match the shipped unit (`ProtectSystem=full`, `ProtectHome=no`, `PrivateTmp=yes`) | `d052d78` | documentation review |
+
+
+## Latest connector-driven follow-up
+
+The follow-up changes above were authored directly against `main` through the GitHub connector. No local clone, compiler, Android SDK, Linux desktop, or Android device was available in this execution environment. GitHub CodeQL workflows were observed passing for commits through `d052d78`; workflows for the subsequent Android transport/UI commits were still running when this log was updated. Do not treat these source edits as build-verified. The `RunCapture`/`RunTool` helpers in the current baseline already drain redirected output asynchronously and enforce process timeouts; that earlier suspected timeout defect was not reintroduced or changed in this pass.
 
 ## Findings closed
 D1–D9 in `AUDIT/CROSS_PLATFORM_GAP_REPORT.md`, except D9: the stress test passed on every
