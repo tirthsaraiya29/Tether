@@ -31,11 +31,26 @@ public static class LinuxHardwareExecutor
             if (cmdLower == "unlock")
             {
                 var session = PlatformDetection.GetActiveSessionInfo();
-                string user = !string.IsNullOrEmpty(targetUser) ? targetUser : session.UserName;
+                string? pendingUser = pamServer.GetFirstPendingPromptUser();
+
+                // A client-supplied user is only honoured when it is the active session user or a
+                // user currently waiting at a greeter prompt. Never arm root.
+                if (!string.IsNullOrEmpty(targetUser) &&
+                    !string.Equals(targetUser, session.UserName, StringComparison.Ordinal) &&
+                    !string.Equals(targetUser, pendingUser, StringComparison.Ordinal))
+                {
+                    logger.Warning($"LinuxHardwareExecutor: Refusing unlock grant for unverified target user '{targetUser}'.");
+                    return false;
+                }
+
+                string user = !string.IsNullOrEmpty(targetUser) ? targetUser
+                    : (!string.IsNullOrEmpty(pendingUser) ? pendingUser : session.UserName);
                 if (string.IsNullOrEmpty(user) || user == "root")
                 {
-                    user = pamServer.GetFirstPendingPromptUser() ?? session.UserName;
+                    logger.Warning("LinuxHardwareExecutor: Refusing unlock grant without an active non-root session user.");
+                    return false;
                 }
+
                 string fp = !string.IsNullOrEmpty(deviceFingerprint) ? deviceFingerprint : "phone-authorized-unlock";
                 pamServer.ArmUnlockGrant(user, fp, validitySeconds: 20);
                 logger.Info($"LinuxHardwareExecutor: Workstation unlock grant armed for user '{user}' from phone '{fp}'.");
@@ -66,7 +81,7 @@ public static class LinuxHardwareExecutor
             if (cmdLower is "volume_get" or "get_volume")
             {
                 currentVol = GetSystemVolumeLevel(logger);
-                return true;
+                return currentVol >= 0;
             }
 
             if (cmdLower is "brightness_get" or "get_brightness")
@@ -624,47 +639,16 @@ public static class LinuxHardwareExecutor
         // The id is client-supplied; reject anything that could become an extra CLI argument.
         if (string.IsNullOrWhiteSpace(deviceId) || !SafeDeviceId.IsMatch(deviceId)) return false;
 
-        // 1. Try wpctl set-default <id>
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "wpctl",
-                Arguments = $"set-default {deviceId}",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            p?.WaitForExit(1000);
-            if (p != null && p.ExitCode == 0) return true;
-        }
-        catch { }
-
-        // 2. pactl fallback
-        try
-        {
-            string subCmd = isInput ? "set-default-source" : "set-default-sink";
-            var psi = new ProcessStartInfo
-            {
-                FileName = "pactl",
-                Arguments = $"{subCmd} {deviceId}",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            p?.WaitForExit(1000);
-            return p != null && p.ExitCode == 0;
-        }
-        catch { }
-
-        return false;
+        string subCmd = isInput ? "set-default-source" : "set-default-sink";
+        return TryRunAudioMutation("wpctl", "set-default", deviceId)
+            || TryRunAudioMutation("pactl", subCmd, deviceId);
     }
 
+    /// <summary>Returns gain 0..100 and mute state, or (-1, false) when unavailable.</summary>
     public static (int gain, bool isMuted) GetMicrophoneState(ITetherLogger logger)
     {
-        // 1. Try wpctl get-volume @DEFAULT_AUDIO_SOURCE@
-        string wpOut = RunProcessWithTimeout("wpctl", "get-volume @DEFAULT_AUDIO_SOURCE@", 300);
-        if (!string.IsNullOrEmpty(wpOut))
+        string? wpOut = RunAudioTool("wpctl", new[] { "get-volume", "@DEFAULT_AUDIO_SOURCE@" }, 500, out int wpExit);
+        if (wpOut != null && wpExit == 0)
         {
             bool isMuted = wpOut.Contains("[MUTED]", StringComparison.OrdinalIgnoreCase);
             var match = Regex.Match(wpOut, @"Volume:\s*([0-9\.]+)");
@@ -672,12 +656,27 @@ public static class LinuxHardwareExecutor
             {
                 return ((int)Math.Round(vol * 100), isMuted);
             }
-            return (100, isMuted);
         }
 
-        // 2. Try amixer get Capture
-        string amOut = RunProcessWithTimeout("amixer", "get Capture", 300);
-        if (!string.IsNullOrEmpty(amOut))
+        string? pactlOut = RunAudioTool("pactl", new[] { "get-source-volume", "@DEFAULT_SOURCE@" }, 500, out int pactlExit);
+        if (pactlOut != null && pactlExit == 0)
+        {
+            bool isMuted = false;
+            string? muteOut = RunAudioTool("pactl", new[] { "get-source-mute", "@DEFAULT_SOURCE@" }, 500, out int muteExit);
+            if (muteOut != null && muteExit == 0)
+            {
+                var muteMatch = Regex.Match(muteOut, @"Mute:\s*(yes|no)", RegexOptions.IgnoreCase);
+                if (muteMatch.Success) isMuted = muteMatch.Groups[1].Value.Equals("yes", StringComparison.OrdinalIgnoreCase);
+            }
+            var match = Regex.Match(pactlOut, @"(\d+)%");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out int pct))
+            {
+                return (pct, isMuted);
+            }
+        }
+
+        string? amOut = RunAudioTool("amixer", new[] { "get", "Capture" }, 300, out int amExit);
+        if (amOut != null && amExit == 0)
         {
             bool isMuted = amOut.Contains("[off]", StringComparison.OrdinalIgnoreCase);
             var match = Regex.Match(amOut, @"\[(\d+)%\]");
@@ -687,7 +686,8 @@ public static class LinuxHardwareExecutor
             }
         }
 
-        return (50, false);
+        logger.Warning("LinuxHardwareExecutor: Microphone state unavailable (no reachable audio session).");
+        return (-1, false);
     }
 
     public static bool SetMicrophoneState(int gain, bool? mute, ITetherLogger logger)
@@ -696,46 +696,20 @@ public static class LinuxHardwareExecutor
 
         if (mute.HasValue)
         {
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "wpctl",
-                    Arguments = $"set-mute @DEFAULT_AUDIO_SOURCE@ {(mute.Value ? 1 : 0)}",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                using var p = Process.Start(psi);
-                p?.WaitForExit(1000);
-                if (p == null || p.ExitCode != 0) success = false;
-            }
-            catch
-            {
-                success = false;
-            }
+            string state = mute.Value ? "1" : "0";
+            success = TryRunAudioMutation("wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", state)
+                || TryRunAudioMutation("pactl", "set-source-mute", "@DEFAULT_SOURCE@", state)
+                || TryRunAudioMutation("amixer", "set", "Capture", mute.Value ? "mute" : "unmute");
         }
 
         if (gain >= 0)
         {
             int clamped = Math.Clamp(gain, 0, 100);
-            double frac = clamped / 100.0;
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "wpctl",
-                    Arguments = $"set-volume @DEFAULT_AUDIO_SOURCE@ {frac.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                using var p = Process.Start(psi);
-                p?.WaitForExit(1000);
-                if (p == null || p.ExitCode != 0) success = false;
-            }
-            catch
-            {
-                success = false;
-            }
+            string wpctlVol = (clamped / 100.0).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+            bool gainOk = TryRunAudioMutation("wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", wpctlVol)
+                || TryRunAudioMutation("pactl", "set-source-volume", "@DEFAULT_SOURCE@", $"{clamped}%")
+                || TryRunAudioMutation("amixer", "set", "Capture", $"{clamped}%");
+            success = success && gainOk;
         }
 
         return success;
@@ -805,52 +779,55 @@ public static class LinuxHardwareExecutor
 
     private static readonly Regex SinkInputIndex = new(@"^[0-9]{1,10}$", RegexOptions.Compiled);
 
-    public static bool SetAppVolume(string id, int volumePercent, ITetherLogger logger)
+    /// <summary>Maps an application process id to its pactl sink-input index.</summary>
+    private static string? ResolveSinkInputForPid(string pidText)
     {
-        // sink-input indexes are numeric; anything else would be spliced into pactl's argv.
-        if (string.IsNullOrWhiteSpace(id) || !SinkInputIndex.IsMatch(id)) return false;
-        int vol = Math.Clamp(volumePercent, 0, 150);
-        try
+        if (!int.TryParse(pidText, out int pid) || pid <= 0) return null;
+
+        string? pactlOut = RunAudioTool("pactl", new[] { "list", "sink-inputs" }, 1000, out int exitCode);
+        if (pactlOut == null || exitCode != 0) return null;
+
+        foreach (var block in pactlOut.Split("Sink Input #", StringSplitOptions.RemoveEmptyEntries))
         {
-            var psi = new ProcessStartInfo
+            string id = block.Split('\n')[0].Trim();
+            if (!SinkInputIndex.IsMatch(id)) continue;
+            if (block.Contains($"application.process.id = \"{pid}\"", StringComparison.Ordinal))
             {
-                FileName = "pactl",
-                Arguments = $"set-sink-input-volume {id} {vol}%",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            p?.WaitForExit(1000);
-            return p != null && p.ExitCode == 0;
+                return id;
+            }
         }
-        catch (Exception ex)
-        {
-            logger.Error($"SetAppVolume failed: {ex.Message}");
-            return false;
-        }
+        return null;
     }
 
-    public static bool SetAppMute(string id, bool mute, ITetherLogger logger)
+    private static string? ResolveAppSinkInput(string idOrPid, bool isPid)
     {
-        if (string.IsNullOrWhiteSpace(id) || !SinkInputIndex.IsMatch(id)) return false;
-        try
+        if (!isPid) return SinkInputIndex.IsMatch(idOrPid) ? idOrPid : null;
+        return ResolveSinkInputForPid(idOrPid);
+    }
+
+    public static bool SetAppVolume(string idOrPid, int volumePercent, ITetherLogger logger, bool isPid = false)
+    {
+        string? sinkInput = ResolveAppSinkInput(idOrPid, isPid);
+        if (sinkInput == null)
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "pactl",
-                Arguments = $"set-sink-input-mute {id} {(mute ? "1" : "0")}",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            p?.WaitForExit(1000);
-            return p != null && p.ExitCode == 0;
-        }
-        catch (Exception ex)
-        {
-            logger.Error($"SetAppMute failed: {ex.Message}");
+            logger.Warning($"SetAppVolume: no sink-input for {(isPid ? "pid" : "id")} '{idOrPid}'.");
             return false;
         }
+
+        int vol = Math.Clamp(volumePercent, 0, 150);
+        return TryRunAudioMutation("pactl", "set-sink-input-volume", sinkInput, $"{vol}%");
+    }
+
+    public static bool SetAppMute(string idOrPid, bool mute, ITetherLogger logger, bool isPid = false)
+    {
+        string? sinkInput = ResolveAppSinkInput(idOrPid, isPid);
+        if (sinkInput == null)
+        {
+            logger.Warning($"SetAppMute: no sink-input for {(isPid ? "pid" : "id")} '{idOrPid}'.");
+            return false;
+        }
+
+        return TryRunAudioMutation("pactl", "set-sink-input-mute", sinkInput, mute ? "1" : "0");
     }
 }
 

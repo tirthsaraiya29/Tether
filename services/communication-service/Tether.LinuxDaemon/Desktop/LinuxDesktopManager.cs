@@ -37,29 +37,23 @@ public sealed class LinuxDesktopManager
         _logger = logger;
     }
 
+    /// <summary>Returns the X11 desktop size, or (0,0) when it cannot be determined.</summary>
     public (int Width, int Height) GetDesktopGeometry()
     {
         try
         {
-            var session = PlatformDetection.GetActiveSessionInfo();
-            var psi = new ProcessStartInfo
-            {
-                FileName = "wmctrl",
-                Arguments = "-d",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            if (!string.IsNullOrEmpty(session.DisplayName)) psi.EnvironmentVariables["DISPLAY"] = session.DisplayName;
-            string? xauth = session.XdgRuntimeDir != null ? Path.Combine(session.XdgRuntimeDir, "Xauthority") : null;
-            if (xauth != null && File.Exists(xauth)) psi.EnvironmentVariables["XAUTHORITY"] = xauth;
-
+            var psi = PlatformDetection.CreateSessionProcessInfo("wmctrl", new[] { "-d" }, redirectOutput: true);
             using var p = Process.Start(psi);
             if (p != null)
             {
+                bool exited = p.WaitForExit(1000);
                 string output = p.StandardOutput.ReadToEnd();
-                p.WaitForExit(500);
+                if (!exited)
+                {
+                    try { p.Kill(true); } catch { }
+                    _logger.Warning("LinuxDesktopManager: wmctrl -d timed out.");
+                    return (0, 0);
+                }
                 if (p.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
                 {
                     // Look for: DG: 1920x1080
@@ -68,14 +62,17 @@ public sealed class LinuxDesktopManager
                         int.TryParse(match.Groups[1].Value, out int w) &&
                         int.TryParse(match.Groups[2].Value, out int h))
                     {
-                        return (Math.Max(640, w), Math.Max(480, h));
+                        return (Math.Max(1, w), Math.Max(1, h));
                     }
                 }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.Warning($"LinuxDesktopManager: desktop geometry query failed: {ex.Message}");
+        }
 
-        return (1920, 1080);
+        return (0, 0);
     }
 
     public IReadOnlyList<DesktopWindowInfo> GetDesktopWindows()
@@ -96,29 +93,27 @@ public sealed class LinuxDesktopManager
             }
         };
 
-        // Query real X11 / XWayland windows via wmctrl
+        // Query real X11 / XWayland windows via wmctrl, as the desktop user.
         try
         {
-            var session = PlatformDetection.GetActiveSessionInfo();
-            var psi = new ProcessStartInfo
-            {
-                FileName = "wmctrl",
-                Arguments = "-l -p -G",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            if (!string.IsNullOrEmpty(session.DisplayName)) psi.EnvironmentVariables["DISPLAY"] = session.DisplayName;
-            string? xauth = session.XdgRuntimeDir != null ? Path.Combine(session.XdgRuntimeDir, "Xauthority") : null;
-            if (xauth != null && File.Exists(xauth)) psi.EnvironmentVariables["XAUTHORITY"] = xauth;
-
+            var psi = PlatformDetection.CreateSessionProcessInfo("wmctrl", new[] { "-l", "-p", "-G" }, redirectOutput: true);
             using var p = Process.Start(psi);
             if (p != null)
             {
+                bool exited = p.WaitForExit(1000);
                 string output = p.StandardOutput.ReadToEnd();
-                p.WaitForExit(1000);
-                if (p.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
+                if (!exited)
+                {
+                    try { p.Kill(true); } catch { }
+                    _logger.Warning("LinuxDesktopManager: wmctrl -l timed out.");
+                    return windows;
+                }
+                if (p.ExitCode != 0)
+                {
+                    _logger.Info($"LinuxDesktopManager: window enumeration unavailable (wmctrl exit {p.ExitCode}).");
+                    return windows;
+                }
+                if (!string.IsNullOrWhiteSpace(output))
                 {
                     var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
                     foreach (var line in lines)
@@ -130,14 +125,14 @@ public sealed class LinuxDesktopManager
                             try { hwnd = Convert.ToInt64(parts[0], 16); } catch { }
                             int pid = 0;
                             int.TryParse(parts[2], out pid);
-                            int x = 0, y = 0, w = 1920, h = 1080;
+                            int x = 0, y = 0, w = 0, h = 0;
                             int.TryParse(parts[3], out x);
                             int.TryParse(parts[4], out y);
                             int.TryParse(parts[5], out w);
                             int.TryParse(parts[6], out h);
                             string title = parts.Length > 8 ? string.Join(" ", parts.Skip(8)).Trim() : parts[7];
 
-                            if (hwnd != 0 && !string.IsNullOrEmpty(title))
+                            if (hwnd != 0 && !string.IsNullOrEmpty(title) && w > 0 && h > 0)
                             {
                                 string procName = "window";
                                 try
@@ -158,8 +153,8 @@ public sealed class LinuxDesktopManager
                                     ProcessId = pid,
                                     X = Math.Max(0, x),
                                     Y = Math.Max(0, y),
-                                    Width = Math.Max(100, w),
-                                    Height = Math.Max(100, h)
+                                    Width = w,
+                                    Height = h
                                 });
                             }
                         }
@@ -167,7 +162,10 @@ public sealed class LinuxDesktopManager
                 }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.Warning($"LinuxDesktopManager: window enumeration failed: {ex.Message}");
+        }
 
         return windows;
     }
@@ -284,34 +282,32 @@ public sealed class LinuxDesktopManager
                 args.Add("-f");
                 args.Add("x11grab");
 
-                if (windowId > 0)
+                int frameW = 0, frameH = 0;
+                string input;
+                var targetWin = windowId > 0
+                    ? GetDesktopWindows().FirstOrDefault(w => w.Hwnd == windowId)
+                    : null;
+
+                if (targetWin != null)
                 {
-                    var windows = GetDesktopWindows();
-                    var targetWin = windows.FirstOrDefault(w => w.Hwnd == windowId);
-                    if (targetWin != null)
-                    {
-                        args.Add("-video_size");
-                        args.Add($"{targetWin.Width}x{targetWin.Height}");
-                        args.Add("-i");
-                        args.Add($"{display}.0+{targetWin.X},{targetWin.Y}");
-                    }
-                    else
-                    {
-                        var (dw, dh) = GetDesktopGeometry();
-                        args.Add("-video_size");
-                        args.Add($"{dw}x{dh}");
-                        args.Add("-i");
-                        args.Add($"{display}.0");
-                    }
+                    frameW = targetWin.Width;
+                    frameH = targetWin.Height;
+                    input = $"{display}.0+{targetWin.X},{targetWin.Y}";
                 }
                 else
                 {
-                    var (dw, dh) = GetDesktopGeometry();
-                    args.Add("-video_size");
-                    args.Add($"{dw}x{dh}");
-                    args.Add("-i");
-                    args.Add($"{display}.0");
+                    (frameW, frameH) = GetDesktopGeometry();
+                    input = $"{display}.0";
                 }
+
+                // Without a reliable size, let x11grab probe the display itself.
+                if (frameW > 0 && frameH > 0)
+                {
+                    args.Add("-video_size");
+                    args.Add($"{frameW}x{frameH}");
+                }
+                args.Add("-i");
+                args.Add(input);
             }
             else
             {
@@ -340,9 +336,7 @@ public sealed class LinuxDesktopManager
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
             };
-            if (!string.IsNullOrEmpty(session.DisplayName)) psi.EnvironmentVariables["DISPLAY"] = session.DisplayName;
-            string? xauth = session.XdgRuntimeDir != null ? Path.Combine(session.XdgRuntimeDir, "Xauthority") : null;
-            if (xauth != null && File.Exists(xauth)) psi.EnvironmentVariables["XAUTHORITY"] = xauth;
+            PlatformDetection.ApplySessionEnvironment(psi, session);
 
             // The daemon runs as root; ffmpeg only needs the user's X session. Drop privileges so a
             // capture failure can never become a root file-write primitive.
@@ -380,7 +374,20 @@ public sealed class LinuxDesktopManager
             using var p = Process.Start(psi);
             if (p != null)
             {
-                await p.WaitForExitAsync(ct);
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
+                try
+                {
+                    await p.WaitForExitAsync(timeoutCts.Token);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    try { p.Kill(true); } catch { }
+                    _logger.Warning("LinuxDesktopManager: ffmpeg capture timed out.");
+                    try { if (File.Exists(tmpFile)) File.Delete(tmpFile); } catch { }
+                    return Array.Empty<byte>();
+                }
+
                 if (p.ExitCode == 0 && File.Exists(tmpFile))
                 {
                     byte[] bytes = await File.ReadAllBytesAsync(tmpFile, ct);

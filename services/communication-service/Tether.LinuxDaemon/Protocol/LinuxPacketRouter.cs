@@ -373,7 +373,11 @@ public sealed class LinuxPacketRouter
                     break;
 
                 case "TERMINAL_INPUT":
-                    if (!HasCapability(session.Device, "TERMINAL")) break;
+                    if (!HasCapability(session.Device, "TERMINAL"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "TERMINAL_ERROR", requestId = reqId, success = false, reason = "Unauthorized: Device lacks TERMINAL capability", deviceId = deviceId }, ct);
+                        break;
+                    }
                     string termSessId = doc.RootElement.TryGetProperty("sessionId", out var inSidProp) ? (inSidProp.GetString() ?? "")
                         : (doc.RootElement.TryGetProperty("terminalId", out var inTidProp) ? (inTidProp.GetString() ?? "") : "");
                     string inData = doc.RootElement.TryGetProperty("data", out var dProp) ? (dProp.GetString() ?? "") : "";
@@ -381,7 +385,11 @@ public sealed class LinuxPacketRouter
                     break;
 
                 case "TERMINAL_CLOSE":
-                    if (!HasCapability(session.Device, "TERMINAL")) break;
+                    if (!HasCapability(session.Device, "TERMINAL"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "TERMINAL_SESSION_CLOSED", requestId = reqId, success = false, reason = "Unauthorized: Device lacks TERMINAL capability", deviceId = deviceId }, ct);
+                        break;
+                    }
                     string closeId = doc.RootElement.TryGetProperty("sessionId", out var cSidProp) ? (cSidProp.GetString() ?? "")
                         : (doc.RootElement.TryGetProperty("terminalId", out var cTidProp) ? (cTidProp.GetString() ?? "") : "");
                     bool closed = _terminalManager.CloseSession(closeId, deviceId);
@@ -413,7 +421,11 @@ public sealed class LinuxPacketRouter
 
                 // Desktop Notification Frames
                 case "NOTIFICATION_EVENT":
-                    if (!HasCapability(session.Device, "NOTIFICATIONS")) break;
+                    if (!HasCapability(session.Device, "NOTIFICATIONS"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks NOTIFICATIONS capability" }, ct);
+                        break;
+                    }
                     string nTitle = doc.RootElement.TryGetProperty("title", out var ntProp) ? (ntProp.GetString() ?? "") : "";
                     string nBody = doc.RootElement.TryGetProperty("body", out var nbProp) ? (nbProp.GetString() ?? "") : "";
                     string nApp = doc.RootElement.TryGetProperty("app", out var naProp) ? (naProp.GetString() ?? "Phone") : "Phone";
@@ -421,7 +433,11 @@ public sealed class LinuxPacketRouter
                     break;
 
                 case "NOTIFICATION_DISMISS":
-                    if (!HasCapability(session.Device, "NOTIFICATIONS")) break;
+                    if (!HasCapability(session.Device, "NOTIFICATIONS"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks NOTIFICATIONS capability" }, ct);
+                        break;
+                    }
                     if (doc.RootElement.TryGetProperty("id", out var nidProp) && nidProp.TryGetUInt32(out uint notifId))
                     {
                         _ = LinuxNotificationController.DismissNotificationAsync(notifId, _logger);
@@ -596,7 +612,8 @@ public sealed class LinuxPacketRouter
                         await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
                         break;
                     }
-                    string plan = doc.RootElement.TryGetProperty("planGuid", out var pgProp) ? (pgProp.GetString() ?? "")
+                    string plan = doc.RootElement.TryGetProperty("guid", out var guidProp) ? (guidProp.GetString() ?? "")
+                        : doc.RootElement.TryGetProperty("planGuid", out var pgProp) ? (pgProp.GetString() ?? "")
                         : (doc.RootElement.TryGetProperty("name", out var pnProp) ? (pnProp.GetString() ?? "") : "");
                     bool pOk = _adminManager.SetPowerPlan(plan);
                     await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = pOk }, ct);
@@ -656,11 +673,17 @@ public sealed class LinuxPacketRouter
                         break;
                     }
                     var updates = _adminManager.GetSystemUpdates();
-                    await session.WriteJsonFrameSafeAsync(new { type = "UPDATES_RESPONSE", requestId = reqId, updateInfo = updates }, ct);
+                    // "updates" is the property Android and the Windows service both use.
+                    await session.WriteJsonFrameSafeAsync(new { type = "UPDATES_RESPONSE", requestId = reqId, updates }, ct);
                     break;
 
                 case "LAPTOP_STATE_GET":
                 case "GET_LAPTOP_STATE":
+                    if (!HasCapability(session.Device, "MEDIA"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks MEDIA capability" }, ct);
+                        break;
+                    }
                     var state = LinuxLaptopStateCollector.GetLaptopState(_logger);
                     await session.WriteJsonFrameSafeAsync(state, ct);
                     break;
@@ -749,9 +772,11 @@ public sealed class LinuxPacketRouter
                         await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks MEDIA capability" }, ct);
                         break;
                     }
-                    string appVolId = doc.RootElement.TryGetProperty("id", out var avidProp) ? (avidProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("pid", out var avpProp) ? avpProp.ToString() : "");
+                    bool appVolIsPid = !doc.RootElement.TryGetProperty("id", out _);
+                    string appVolId = !appVolIsPid ? (doc.RootElement.GetProperty("id").GetString() ?? "")
+                        : (doc.RootElement.TryGetProperty("pid", out var avpProp) ? avpProp.ToString() : "");
                     int appVol = doc.RootElement.TryGetProperty("volume", out var avProp) ? avProp.GetInt32() : (doc.RootElement.TryGetProperty("volumePercent", out var avpctProp) ? avpctProp.GetInt32() : 100);
-                    bool avOk = LinuxHardwareExecutor.SetAppVolume(appVolId, appVol, _logger);
+                    bool avOk = LinuxHardwareExecutor.SetAppVolume(appVolId, appVol, _logger, appVolIsPid);
                     await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = avOk }, ct);
                     break;
 
@@ -762,9 +787,11 @@ public sealed class LinuxPacketRouter
                         await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks MEDIA capability" }, ct);
                         break;
                     }
-                    string appMtId = doc.RootElement.TryGetProperty("id", out var amidProp) ? (amidProp.GetString() ?? "") : (doc.RootElement.TryGetProperty("pid", out var ampProp) ? ampProp.ToString() : "");
+                    bool appMtIsPid = !doc.RootElement.TryGetProperty("id", out _);
+                    string appMtId = !appMtIsPid ? (doc.RootElement.GetProperty("id").GetString() ?? "")
+                        : (doc.RootElement.TryGetProperty("pid", out var ampProp) ? ampProp.ToString() : "");
                     bool appMt = doc.RootElement.TryGetProperty("isMuted", out var aimProp) ? aimProp.GetBoolean() : (doc.RootElement.TryGetProperty("mute", out var amProp) && amProp.GetBoolean());
-                    bool amOk = LinuxHardwareExecutor.SetAppMute(appMtId, appMt, _logger);
+                    bool amOk = LinuxHardwareExecutor.SetAppMute(appMtId, appMt, _logger, appMtIsPid);
                     await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = amOk }, ct);
                     break;
 
@@ -806,7 +833,7 @@ public sealed class LinuxPacketRouter
     private static string MapCommandToCapability(string command)
     {
         string cmd = command.Trim().ToLowerInvariant();
-        if (cmd is "unlock") return "POWER_ELEVATED";
+        if (cmd is "unlock" or "lock" or "lock_now" or "lock_workstation") return "POWER_ELEVATED";
         if (cmd is "shutdown" or "poweroff" or "halt" or "reboot" or "restart" or "sleep" or "suspend" or "hibernate" or "panic" or "panic_lock")
             return "POWER_ELEVATED";
         if (cmd.StartsWith("admin_") || cmd.StartsWith("service_") || cmd.StartsWith("power_plan"))

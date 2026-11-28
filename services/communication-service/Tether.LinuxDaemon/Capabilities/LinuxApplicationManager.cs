@@ -159,32 +159,39 @@ public static class LinuxApplicationManager
         return null;
     }
 
+    private static readonly Regex WindowIdPattern = new(@"^(0x[0-9a-fA-F]{1,16}|[0-9]{1,10})$", RegexOptions.Compiled);
+
     public static List<LinuxRunningWindow> GetRunningWindows(ITetherLogger logger)
     {
         var windows = new List<LinuxRunningWindow>();
 
+        var session = PlatformDetection.GetActiveSessionInfo();
+        if (string.IsNullOrEmpty(session.DisplayName) && session.DisplayServer == DisplayServer.Wayland)
+        {
+            // Wayland deliberately does not expose global window enumeration; XWayland is unknown here.
+            logger.Info("LinuxApplicationManager: Window enumeration is not supported on this pure Wayland session.");
+            return windows;
+        }
+
         try
         {
-            var session = PlatformDetection.GetActiveSessionInfo();
-            string uidStr = session.Uid > 0 ? session.Uid.ToString() : "1000";
-
-            // Try wmctrl -l -p -x
-            var psi = new ProcessStartInfo
-            {
-                FileName = "wmctrl",
-                Arguments = "-l -p -x",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            psi.EnvironmentVariables["DISPLAY"] = ":0";
-            psi.EnvironmentVariables["XDG_RUNTIME_DIR"] = $"/run/user/{uidStr}";
-
+            var psi = PlatformDetection.CreateSessionProcessInfo("wmctrl", new[] { "-l", "-p", "-x" }, redirectOutput: true);
             using var p = Process.Start(psi);
             if (p != null)
             {
+                bool exited = p.WaitForExit(1500);
                 string output = p.StandardOutput.ReadToEnd();
-                p.WaitForExit(1000);
+                if (!exited)
+                {
+                    try { p.Kill(true); } catch { }
+                    logger.Warning("LinuxApplicationManager: wmctrl timed out.");
+                    return windows;
+                }
+                if (p.ExitCode != 0)
+                {
+                    logger.Warning($"LinuxApplicationManager: wmctrl failed (exit {p.ExitCode}); window list unavailable.");
+                    return windows;
+                }
 
                 // Format: <winId> <desk> <pid> <class> <client> <title>
                 foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -230,9 +237,6 @@ public static class LinuxApplicationManager
 
         try
         {
-            var session = PlatformDetection.GetActiveSessionInfo();
-            string uidStr = session.Uid > 0 ? session.Uid.ToString() : "1000";
-
             // If desktop file id, try gtk-launch
             string clean = appNameOrExec.Trim();
             if (clean.EndsWith(".desktop", StringComparison.OrdinalIgnoreCase))
@@ -240,38 +244,24 @@ public static class LinuxApplicationManager
                 clean = clean.Substring(0, clean.Length - 8);
             }
 
-            var psi = new ProcessStartInfo
+            var psi = PlatformDetection.CreateSessionProcessInfo("gtk-launch", new[] { clean });
+            using (var p = Process.Start(psi))
             {
-                FileName = "gtk-launch",
-                Arguments = $"\"{clean}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            psi.EnvironmentVariables["DBUS_SESSION_BUS_ADDRESS"] = $"unix:path=/run/user/{uidStr}/bus";
-            psi.EnvironmentVariables["DISPLAY"] = ":0";
-            psi.EnvironmentVariables["WAYLAND_DISPLAY"] = "wayland-0";
-            psi.EnvironmentVariables["XDG_RUNTIME_DIR"] = $"/run/user/{uidStr}";
-
-            using var p = Process.Start(psi);
-            if (p != null)
-            {
-                await p.WaitForExitAsync();
-                if (p.ExitCode == 0) return true;
+                if (p != null)
+                {
+                    await p.WaitForExitAsync();
+                    if (p.ExitCode == 0) return true;
+                }
             }
 
-            // Fallback: spawn binary directly
-            var psiDirect = new ProcessStartInfo
-            {
-                FileName = clean.Split(' ')[0],
-                Arguments = clean.Contains(' ') ? clean.Substring(clean.IndexOf(' ') + 1) : "",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            psiDirect.EnvironmentVariables["DBUS_SESSION_BUS_ADDRESS"] = $"unix:path=/run/user/{uidStr}/bus";
-            psiDirect.EnvironmentVariables["DISPLAY"] = ":0";
-            psiDirect.EnvironmentVariables["WAYLAND_DISPLAY"] = "wayland-0";
-            psiDirect.EnvironmentVariables["XDG_RUNTIME_DIR"] = $"/run/user/{uidStr}";
+            // Fallback: spawn the binary directly, still as the desktop user.
+            string exe = clean.Split(' ')[0];
+            if (string.IsNullOrWhiteSpace(exe)) return false;
+            var directArgs = clean.Length > exe.Length
+                ? clean.Substring(exe.Length).Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                : Array.Empty<string>();
 
+            var psiDirect = PlatformDetection.CreateSessionProcessInfo(exe, directArgs);
             using var pDirect = Process.Start(psiDirect);
             return pDirect != null;
         }
@@ -289,15 +279,9 @@ public static class LinuxApplicationManager
         try
         {
             string id = windowIdOrPid.Trim();
+            if (!WindowIdPattern.IsMatch(id)) return false;
 
-            // Try wmctrl -i -a <id>
-            var psi = new ProcessStartInfo
-            {
-                FileName = "wmctrl",
-                Arguments = $"-i -a {id}",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var psi = PlatformDetection.CreateSessionProcessInfo("wmctrl", new[] { "-i", "-a", id });
             using var p = Process.Start(psi);
             if (p != null)
             {
@@ -320,17 +304,12 @@ public static class LinuxApplicationManager
         try
         {
             string id = windowIdOrPid.Trim();
+            if (!WindowIdPattern.IsMatch(id)) return false;
 
-            // 1. Try wmctrl -i -c <hex>
+            // 1. Ask the window manager to close it.
             if (id.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "wmctrl",
-                    Arguments = $"-i -c {id}",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
+                var psi = PlatformDetection.CreateSessionProcessInfo("wmctrl", new[] { "-i", "-c", id });
                 using var p = Process.Start(psi);
                 if (p != null)
                 {
@@ -339,8 +318,8 @@ public static class LinuxApplicationManager
                 }
             }
 
-            // 2. Try kill by pid
-            if (int.TryParse(id, out int pid) && pid > 1)
+            // 2. Kill by pid, but only a process owned by the active desktop user.
+            if (int.TryParse(id, out int pid) && pid > 1 && IsProcessOwnedBySessionUser(pid))
             {
                 var proc = Process.GetProcessById(pid);
                 proc.Kill();
@@ -352,6 +331,26 @@ public static class LinuxApplicationManager
             logger.Debug($"LinuxApplicationManager: CloseWindowAsync '{windowIdOrPid}' error: {ex.Message}");
         }
 
+        return false;
+    }
+
+    private static bool IsProcessOwnedBySessionUser(int pid)
+    {
+        var session = PlatformDetection.GetActiveSessionInfo();
+        if (session.Uid == 0) return false;
+
+        try
+        {
+            foreach (var line in File.ReadLines($"/proc/{pid}/status"))
+            {
+                if (line.StartsWith("Uid:"))
+                {
+                    var fields = line.Substring(4).Split('\t', StringSplitOptions.RemoveEmptyEntries);
+                    return fields.Length > 0 && uint.TryParse(fields[0], out uint owner) && owner == session.Uid;
+                }
+            }
+        }
+        catch { }
         return false;
     }
 }

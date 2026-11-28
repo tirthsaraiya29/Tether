@@ -130,8 +130,9 @@ public class FileTransferTests
         var fullScreen = windows.FirstOrDefault(w => w.Hwnd == 0L);
         Assert.NotNull(fullScreen);
         Assert.Equal("Entire Screen / Desktop", fullScreen.Title);
-        Assert.True(fullScreen.Width > 0);
-        Assert.True(fullScreen.Height > 0);
+        // Geometry is 0 when no X11 display can be queried; it must never be invented.
+        Assert.True(fullScreen.Width >= 0);
+        Assert.True(fullScreen.Height >= 0);
     }
 
     [Fact]

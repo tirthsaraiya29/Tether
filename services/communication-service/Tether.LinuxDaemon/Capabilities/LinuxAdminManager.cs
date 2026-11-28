@@ -119,6 +119,7 @@ public sealed record LinuxUpdateInfo
     [JsonPropertyName("isAvailable")] public bool IsAvailable => IsUpdateAvailable;
     [JsonPropertyName("titles")] public List<string> Titles { get; init; } = new();
     [JsonPropertyName("statusMessage")] public string StatusMessage { get; init; } = "OK";
+    [JsonPropertyName("checkSucceeded")] public bool CheckSucceeded { get; init; } = true;
 }
 
 public sealed class LinuxAdminManager
@@ -750,7 +751,8 @@ public sealed class LinuxAdminManager
 
                 foreach (var rawLine in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
                 {
-                    var line = rawLine.Trim();
+                    // Failed units are prefixed with a bullet (●) by systemctl.
+                    var line = rawLine.Trim().TrimStart('●', '*', ' ');
                     // accounts-daemon.service loaded active running Accounts Service
                     var parts = Regex.Split(line, @"\s+");
                     if (parts.Length >= 5 && parts[0].EndsWith(".service", StringComparison.OrdinalIgnoreCase))
@@ -775,7 +777,8 @@ public sealed class LinuxAdminManager
         return list;
     }
 
-    private static readonly Regex UnitNamePattern = new(@"^[A-Za-z0-9@._:-]{1,120}$", RegexOptions.Compiled);
+    // Must start with an alphanumeric (or @/_) so a client cannot pass a leading '-' option.
+    private static readonly Regex UnitNamePattern = new(@"^[A-Za-z0-9@_][A-Za-z0-9@._:-]{0,119}$", RegexOptions.Compiled);
 
     // Units whose loss would break the session, the desktop or the remote-control path itself.
     private static readonly HashSet<string> ProtectedUnits = new(StringComparer.OrdinalIgnoreCase)
@@ -903,7 +906,7 @@ public sealed class LinuxAdminManager
                     StatusMessage = titles.Count > 0 ? $"{titles.Count} updates available" : "System is up to date"
                 };
             }
-            return new LinuxUpdateInfo { PackageManager = "apt", StatusMessage = "Update check failed: apt-get simulation returned an error (locked database or unreachable repository)." };
+            return new LinuxUpdateInfo { PackageManager = "apt", PendingUpdatesCount = -1, CheckSucceeded = false, StatusMessage = "Update check failed: apt-get simulation returned an error (locked database or unreachable repository)." };
         }
 
         if (ExecutableExists("dnf"))
@@ -922,7 +925,7 @@ public sealed class LinuxAdminManager
                     StatusMessage = titles.Count > 0 ? $"{titles.Count} updates available" : "System is up to date"
                 };
             }
-            return new LinuxUpdateInfo { PackageManager = "dnf", StatusMessage = "Update check failed: dnf returned an error." };
+            return new LinuxUpdateInfo { PackageManager = "dnf", PendingUpdatesCount = -1, CheckSucceeded = false, StatusMessage = "Update check failed: dnf returned an error." };
         }
 
         if (ExecutableExists("zypper"))
@@ -940,7 +943,7 @@ public sealed class LinuxAdminManager
                     StatusMessage = titles.Count > 0 ? $"{titles.Count} updates available" : "System is up to date"
                 };
             }
-            return new LinuxUpdateInfo { PackageManager = "zypper", StatusMessage = "Update check failed: zypper returned an error." };
+            return new LinuxUpdateInfo { PackageManager = "zypper", PendingUpdatesCount = -1, CheckSucceeded = false, StatusMessage = "Update check failed: zypper returned an error." };
         }
 
         if (ExecutableExists("checkupdates"))
@@ -959,7 +962,7 @@ public sealed class LinuxAdminManager
                     StatusMessage = titles.Count > 0 ? $"{titles.Count} updates available" : "System is up to date"
                 };
             }
-            return new LinuxUpdateInfo { PackageManager = "pacman", StatusMessage = "Update check failed: checkupdates returned an error." };
+            return new LinuxUpdateInfo { PackageManager = "pacman", PendingUpdatesCount = -1, CheckSucceeded = false, StatusMessage = "Update check failed: checkupdates returned an error." };
         }
 
         if (ExecutableExists("pacman"))
@@ -978,10 +981,10 @@ public sealed class LinuxAdminManager
                     StatusMessage = titles.Count > 0 ? $"{titles.Count} updates available" : "System is up to date"
                 };
             }
-            return new LinuxUpdateInfo { PackageManager = "pacman", StatusMessage = "Update check failed: pacman returned an error." };
+            return new LinuxUpdateInfo { PackageManager = "pacman", PendingUpdatesCount = -1, CheckSucceeded = false, StatusMessage = "Update check failed: pacman returned an error." };
         }
 
-        return new LinuxUpdateInfo { StatusMessage = "No supported package manager detected (apt, dnf, zypper, pacman)." };
+        return new LinuxUpdateInfo { PendingUpdatesCount = -1, CheckSucceeded = false, StatusMessage = "No supported package manager detected (apt, dnf, zypper, pacman)." };
     }
 
     public LinuxUpdateInfo GetSystemUpdates()

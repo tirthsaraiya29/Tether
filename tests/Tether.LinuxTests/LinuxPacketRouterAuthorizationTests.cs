@@ -253,6 +253,75 @@ public class LinuxPacketRouterAuthorizationTests : IDisposable
     }
 
     [Theory]
+    [InlineData("lock")]
+    [InlineData("lock_now")]
+    [InlineData("lock_workstation")]
+    public async Task CommandExecute_LockCommands_RequirePowerElevated(string command)
+    {
+        using var pipe = new MemoryStream();
+        var device = new LinuxDevice
+        {
+            DeviceId = "dev-media-only-lock",
+            Capabilities = new List<string> { "MEDIA" }
+        };
+        using var session = CreateTestSession(pipe, device);
+
+        byte[] cmd = Encoding.UTF8.GetBytes($"{{\"type\":\"COMMAND_EXECUTE\",\"command\":\"{command}\",\"requestId\":\"req_{command}\"}}");
+        await _router.RouteFrameAsync(cmd, session, CancellationToken.None);
+
+        pipe.Position = 0;
+        using var doc = await FrameCodec.ReadJsonFrameAsync(pipe, CancellationToken.None);
+        Assert.NotNull(doc);
+        Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
+        Assert.Equal("ERR_UNAUTHORIZED", doc.RootElement.GetProperty("errorCode").GetString());
+    }
+
+    [Fact]
+    public async Task LaptopStateGet_RequiresMediaCapability()
+    {
+        using var pipe = new MemoryStream();
+        var device = new LinuxDevice
+        {
+            DeviceId = "dev-terminal-only",
+            Capabilities = new List<string> { "TERMINAL" }
+        };
+        using var session = CreateTestSession(pipe, device);
+
+        byte[] cmd = Encoding.UTF8.GetBytes("{\"type\":\"LAPTOP_STATE_GET\",\"requestId\":\"req_state_1\"}");
+        await _router.RouteFrameAsync(cmd, session, CancellationToken.None);
+
+        pipe.Position = 0;
+        using var doc = await FrameCodec.ReadJsonFrameAsync(pipe, CancellationToken.None);
+        Assert.NotNull(doc);
+        Assert.Equal("CONFIRM_ACTION", doc.RootElement.GetProperty("type").GetString());
+        Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
+        Assert.Contains("MEDIA", doc.RootElement.GetProperty("reason").GetString());
+    }
+
+    [Fact]
+    public async Task UpdatesGet_RespondsWithUpdatesProperty()
+    {
+        using var pipe = new MemoryStream();
+        var device = new LinuxDevice
+        {
+            DeviceId = "dev-admin",
+            Capabilities = new List<string> { "ADMIN" }
+        };
+        using var session = CreateTestSession(pipe, device);
+
+        byte[] cmd = Encoding.UTF8.GetBytes("{\"type\":\"UPDATES_GET\",\"requestId\":\"req_upd_1\"}");
+        await _router.RouteFrameAsync(cmd, session, CancellationToken.None);
+
+        pipe.Position = 0;
+        using var doc = await FrameCodec.ReadJsonFrameAsync(pipe, CancellationToken.None);
+        Assert.NotNull(doc);
+        Assert.Equal("UPDATES_RESPONSE", doc.RootElement.GetProperty("type").GetString());
+        // Android reads "updates"; "updateInfo" was the mismatched key.
+        Assert.True(doc.RootElement.TryGetProperty("updates", out var updates));
+        Assert.Equal(JsonValueKind.Object, updates.ValueKind);
+    }
+
+    [Theory]
     [InlineData("mute_on")]
     [InlineData("mute_off")]
     public async Task CommandExecute_MasterMuteCommands_AreRecognized(string command)

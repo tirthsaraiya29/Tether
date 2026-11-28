@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -65,6 +66,89 @@ public static class PlatformDetection
         catch { }
 
         return "Linux (Generic)";
+    }
+
+    public static string? GetUserHomeDirectory(string? userName)
+    {
+        if (string.IsNullOrEmpty(userName)) return null;
+
+        try
+        {
+            foreach (var line in File.ReadLines("/etc/passwd"))
+            {
+                var parts = line.Split(':');
+                if (parts.Length >= 7 && parts[0] == userName && !string.IsNullOrEmpty(parts[5]))
+                {
+                    return parts[5];
+                }
+            }
+        }
+        catch { }
+
+        foreach (var candidate in new[] { $"/home/{userName}", $"/var/home/{userName}" })
+        {
+            if (Directory.Exists(candidate)) return candidate;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Populates the environment a desktop tool needs to reach the user's session
+    /// (display, X authorisation cookie, session bus, runtime dir).
+    /// </summary>
+    public static void ApplySessionEnvironment(ProcessStartInfo psi, LinuxSessionInfo session)
+    {
+        string runtimeDir = !string.IsNullOrEmpty(session.XdgRuntimeDir)
+            ? session.XdgRuntimeDir
+            : $"/run/user/{session.Uid}";
+
+        psi.Environment["XDG_RUNTIME_DIR"] = runtimeDir;
+        psi.Environment["DBUS_SESSION_BUS_ADDRESS"] = $"unix:path={runtimeDir}/bus";
+        if (!string.IsNullOrEmpty(session.DisplayName)) psi.Environment["DISPLAY"] = session.DisplayName;
+        if (!string.IsNullOrEmpty(session.WaylandDisplay)) psi.Environment["WAYLAND_DISPLAY"] = session.WaylandDisplay;
+
+        string? xauth = Path.Combine(runtimeDir, "Xauthority");
+        if (!File.Exists(xauth))
+        {
+            string? home = GetUserHomeDirectory(session.UserName);
+            string? homeXauth = home != null ? Path.Combine(home, ".Xauthority") : null;
+            xauth = homeXauth != null && File.Exists(homeXauth) ? homeXauth : null;
+        }
+        if (xauth != null) psi.Environment["XAUTHORITY"] = xauth;
+    }
+
+    /// <summary>
+    /// Builds a ProcessStartInfo that runs a tool as the active desktop user. The daemon is
+    /// root, so running display/audio clients directly would target root's empty session.
+    /// </summary>
+    public static ProcessStartInfo CreateSessionProcessInfo(string tool, IReadOnlyList<string> args, bool redirectOutput = false)
+    {
+        var session = GetActiveSessionInfo();
+        var psi = new ProcessStartInfo
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = redirectOutput,
+            RedirectStandardError = redirectOutput
+        };
+
+        bool dropPrivileges = IsRoot && !string.IsNullOrEmpty(session.UserName) && session.UserName != "root";
+        if (dropPrivileges)
+        {
+            psi.FileName = File.Exists("/usr/sbin/runuser") ? "/usr/sbin/runuser" : "/sbin/runuser";
+            psi.ArgumentList.Add("-u");
+            psi.ArgumentList.Add(session.UserName);
+            psi.ArgumentList.Add("--");
+        }
+        else
+        {
+            psi.FileName = tool;
+        }
+
+        psi.ArgumentList.Add(tool);
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        ApplySessionEnvironment(psi, session);
+        return psi;
     }
 
     public static LinuxSessionInfo GetActiveSessionInfo()

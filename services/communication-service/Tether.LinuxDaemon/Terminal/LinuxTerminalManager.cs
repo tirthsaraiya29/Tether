@@ -260,7 +260,8 @@ public sealed class LinuxTerminalManager : IDisposable
             proc.EnableRaisingEvents = true;
             proc.Exited += (s, e) =>
             {
-                _sessions.TryRemove(id, out _);
+                // Release the process and stdin handles when the shell dies on its own.
+                if (_sessions.TryRemove(id, out var dead)) dead.Dispose();
                 OnSessionExited?.Invoke(id, effectiveOwner);
             };
 

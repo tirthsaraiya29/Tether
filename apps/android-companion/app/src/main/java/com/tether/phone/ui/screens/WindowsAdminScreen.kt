@@ -920,11 +920,17 @@ fun ServicesAndUpdatesTabContent(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        if (updateState.pendingCount > 0)
-                            "${updateState.pendingCount} update(s) ready for installation."
-                        else
-                            if (isLinux) "System is up to date." else "Windows is up to date.",
-                        color = if (updateState.pendingCount > 0) MatrixGold else IntegrityGreen,
+                        when {
+                            updateState.pendingCount < 0 -> "Update check failed. Retry when the host is reachable."
+                            updateState.pendingCount > 0 -> "${updateState.pendingCount} update(s) ready for installation."
+                            isLinux -> "System is up to date."
+                            else -> "Windows is up to date."
+                        },
+                        color = when {
+                            updateState.pendingCount < 0 -> AlertRed
+                            updateState.pendingCount > 0 -> MatrixGold
+                            else -> IntegrityGreen
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold
                     )

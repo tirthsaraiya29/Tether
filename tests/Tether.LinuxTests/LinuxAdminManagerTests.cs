@@ -189,7 +189,10 @@ public class LinuxAdminManagerTests : IDisposable
         var info = _adminManager.GetSystemUpdates();
         Assert.NotNull(info);
         Assert.False(string.IsNullOrWhiteSpace(info.StatusMessage));
-        Assert.Equal(info.Titles.Count, info.PendingUpdatesCount);
+        if (info.CheckSucceeded)
+            Assert.Equal(info.Titles.Count, info.PendingUpdatesCount);
+        else
+            Assert.Equal(-1, info.PendingUpdatesCount); // failure must not read as "0 updates"
     }
 
     [Fact]
