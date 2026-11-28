@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Tether.LinuxDaemon.Common;
@@ -34,7 +36,12 @@ public sealed class LinuxSessionInfo
     public string? DisplayName { get; init; }
     public string? WaylandDisplay { get; init; }
     public string? XdgRuntimeDir { get; init; }
+    public string? XAuthority { get; init; }
+    public string? DesktopName { get; init; }
     public bool IsLocked { get; init; }
+    public bool IsActive { get; init; }
+    public bool IsRemote { get; init; }
+    public int LeaderProcessId { get; init; }
 }
 
 public static class PlatformDetection
@@ -107,7 +114,7 @@ public static class PlatformDetection
         if (!string.IsNullOrEmpty(session.DisplayName)) psi.Environment["DISPLAY"] = session.DisplayName;
         if (!string.IsNullOrEmpty(session.WaylandDisplay)) psi.Environment["WAYLAND_DISPLAY"] = session.WaylandDisplay;
 
-        string? xauth = Path.Combine(runtimeDir, "Xauthority");
+        string? xauth = session.XAuthority ?? Path.Combine(runtimeDir, "Xauthority");
         if (!File.Exists(xauth))
         {
             string? home = GetUserHomeDirectory(session.UserName);
@@ -153,79 +160,57 @@ public static class PlatformDetection
 
     public static LinuxSessionInfo GetActiveSessionInfo()
     {
-        uint uid = 1000;
-        string userName = Environment.UserName;
-        uint sessionId = 1;
-        DisplayServer displayServer = DisplayServer.Unknown;
-        DesktopEnvironment de = DesktopEnvironment.Unknown;
-        string? display = Environment.GetEnvironmentVariable("DISPLAY");
-        string? waylandDisplay = Environment.GetEnvironmentVariable("WAYLAND_DISPLAY");
-        string? xdgRuntime = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
-        bool isLocked = false;
-
-        string currentDesktop = Environment.GetEnvironmentVariable("XDG_CURRENT_DESKTOP") ?? "";
-        if (currentDesktop.Contains("GNOME", StringComparison.OrdinalIgnoreCase)) de = DesktopEnvironment.Gnome;
-        else if (currentDesktop.Contains("KDE", StringComparison.OrdinalIgnoreCase)) de = DesktopEnvironment.Kde;
-        else if (currentDesktop.Contains("XFCE", StringComparison.OrdinalIgnoreCase)) de = DesktopEnvironment.Xfce;
-        else if (!string.IsNullOrEmpty(currentDesktop)) de = DesktopEnvironment.Other;
-
-        // Try querying systemd loginctl for active graphical session
+        var candidates = new List<LinuxSessionInfo>();
         try
         {
-            var psi = new ProcessStartInfo
+            string sessions = RunLoginCtl("list-sessions", "--no-legend", "--no-pager");
+            foreach (string line in sessions.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
-                FileName = "loginctl",
-                Arguments = "list-sessions --no-legend",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var proc = Process.Start(psi);
-            if (proc != null)
-            {
-                string output = proc.StandardOutput.ReadToEnd();
-                proc.WaitForExit(1000);
-
-                var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-                foreach (var line in lines)
-                {
-                    var tokens = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                    if (tokens.Length >= 3)
-                    {
-                        if (uint.TryParse(tokens[0], out var sid))
-                        {
-                            var sInfo = QuerySessionDetails(sid);
-                            if (sInfo != null && (sInfo.DisplayServer == DisplayServer.Wayland || sInfo.DisplayServer == DisplayServer.X11))
-                            {
-                                return sInfo;
-                            }
-                        }
-                    }
-                }
+                string[] fields = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (fields.Length == 0 || !uint.TryParse(fields[0], out uint id)) continue;
+                var candidate = QuerySessionDetails(id);
+                if (candidate != null && candidate.IsActive && !candidate.IsRemote &&
+                    (candidate.DisplayServer == DisplayServer.Wayland || candidate.DisplayServer == DisplayServer.X11))
+                    candidates.Add(candidate);
             }
         }
         catch { }
 
-        if (!string.IsNullOrEmpty(waylandDisplay))
-        {
-            displayServer = DisplayServer.Wayland;
-        }
-        else if (!string.IsNullOrEmpty(display))
-        {
-            displayServer = DisplayServer.X11;
-        }
+        // Prefer a session with a real display endpoint and a live session leader.
+        var selected = candidates
+            .OrderByDescending(s => s.DisplayServer == DisplayServer.Wayland
+                ? !string.IsNullOrWhiteSpace(s.WaylandDisplay)
+                : !string.IsNullOrWhiteSpace(s.DisplayName))
+            .ThenByDescending(s => s.LeaderProcessId > 0)
+            .FirstOrDefault();
+        if (selected != null) return selected;
+
+        // No logind session (containers/minimal systems): use the daemon's real UID and
+        // inherited environment. Never guess UID 1000, :0, wayland-0, or GNOME.
+        uint uid = IsLinux ? geteuid() : 0;
+        string user = GetUserNameForUid(uid) ?? Environment.UserName;
+        string? display = Environment.GetEnvironmentVariable("DISPLAY");
+        string? wayland = Environment.GetEnvironmentVariable("WAYLAND_DISPLAY");
+        string? runtime = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+        string desktop = Environment.GetEnvironmentVariable("XDG_CURRENT_DESKTOP") ?? "";
+        var server = !string.IsNullOrWhiteSpace(wayland) ? DisplayServer.Wayland
+            : !string.IsNullOrWhiteSpace(display) ? DisplayServer.X11
+            : DisplayServer.Headless;
+        if (string.IsNullOrWhiteSpace(wayland) && server == DisplayServer.Wayland)
+            wayland = FindWaylandSocket(runtime ?? $"/run/user/{uid}");
 
         return new LinuxSessionInfo
         {
-            SessionId = sessionId,
+            SessionId = 0,
             Uid = uid,
-            UserName = userName,
-            DisplayServer = displayServer,
-            DesktopEnvironment = de,
+            UserName = user,
+            DisplayServer = server,
+            DesktopEnvironment = ParseDesktopEnvironment(desktop),
+            DesktopName = desktop,
             DisplayName = display,
-            WaylandDisplay = waylandDisplay,
-            XdgRuntimeDir = xdgRuntime ?? $"/run/user/{uid}",
-            IsLocked = isLocked
+            WaylandDisplay = wayland,
+            XdgRuntimeDir = runtime ?? (Directory.Exists($"/run/user/{uid}") ? $"/run/user/{uid}" : null),
+            IsActive = server != DisplayServer.Headless
         };
     }
 
@@ -233,39 +218,42 @@ public static class PlatformDetection
     {
         try
         {
-            var psi = new ProcessStartInfo
+            string output = RunLoginCtl("show-session", sessionId.ToString(), "--no-pager");
+            if (string.IsNullOrWhiteSpace(output)) return null;
+
+            var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string raw in output.Split('\n'))
             {
-                FileName = "loginctl",
-                Arguments = $"show-session {sessionId}",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var proc = Process.Start(psi);
-            if (proc == null) return null;
-
-            string output = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit(1000);
-
-            uint uid = 1000;
-            string userName = "";
-            string type = "";
-            string state = "";
-            string display = "";
-            bool lockedHint = false;
-
-            foreach (var rawLine in output.Split('\n'))
-            {
-                var line = rawLine.Trim();
-                if (line.StartsWith("User=")) uint.TryParse(line.Substring(5), out uid);
-                else if (line.StartsWith("Name=")) userName = line.Substring(5);
-                else if (line.StartsWith("Type=")) type = line.Substring(5);
-                else if (line.StartsWith("State=")) state = line.Substring(6);
-                else if (line.StartsWith("Display=")) display = line.Substring(8);
-                else if (line.StartsWith("LockedHint=")) lockedHint = line.Substring(11).Equals("yes", StringComparison.OrdinalIgnoreCase);
+                int equals = raw.IndexOf('=');
+                if (equals > 0) values[raw[..equals].Trim()] = raw[(equals + 1)..].Trim();
             }
 
-            DisplayServer ds = type.ToLowerInvariant() switch
+            uint.TryParse(Value(values, "User"), out uint uid);
+            int.TryParse(Value(values, "Leader"), out int leader);
+            string name = Value(values, "Name");
+            string type = Value(values, "Type");
+            string state = Value(values, "State");
+            bool active = Value(values, "Active").Equals("yes", StringComparison.OrdinalIgnoreCase)
+                || state.Equals("active", StringComparison.OrdinalIgnoreCase);
+            bool remote = Value(values, "Remote").Equals("yes", StringComparison.OrdinalIgnoreCase);
+            bool locked = Value(values, "LockedHint").Equals("yes", StringComparison.OrdinalIgnoreCase);
+
+            var env = leader > 0 ? ReadProcessEnvironment(leader) : new Dictionary<string, string>();
+            string? runtime = EnvironmentValue(env, "XDG_RUNTIME_DIR");
+            if (string.IsNullOrWhiteSpace(runtime) && Directory.Exists($"/run/user/{uid}"))
+                runtime = $"/run/user/{uid}";
+
+            string? display = EnvironmentValue(env, "DISPLAY") ?? NullIfEmpty(Value(values, "Display"));
+            string? wayland = EnvironmentValue(env, "WAYLAND_DISPLAY");
+            if (type.Equals("wayland", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(wayland))
+                wayland = FindWaylandSocket(runtime);
+
+            string desktop = Value(values, "Desktop");
+            if (string.IsNullOrWhiteSpace(desktop))
+                desktop = EnvironmentValue(env, "XDG_CURRENT_DESKTOP") ?? EnvironmentValue(env, "DESKTOP_SESSION") ?? "";
+
+            string? xauth = EnvironmentValue(env, "XAUTHORITY");
+            var server = type.ToLowerInvariant() switch
             {
                 "wayland" => DisplayServer.Wayland,
                 "x11" => DisplayServer.X11,
@@ -277,18 +265,107 @@ public static class PlatformDetection
             {
                 SessionId = sessionId,
                 Uid = uid,
-                UserName = userName,
-                DisplayServer = ds,
-                DesktopEnvironment = DesktopEnvironment.Gnome,
-                DisplayName = !string.IsNullOrEmpty(display) ? display : (ds == DisplayServer.X11 ? ":0" : null),
-                WaylandDisplay = (ds == DisplayServer.Wayland) ? "wayland-0" : null,
-                XdgRuntimeDir = $"/run/user/{uid}",
-                IsLocked = lockedHint
+                UserName = string.IsNullOrWhiteSpace(name) ? GetUserNameForUid(uid) ?? "" : name,
+                DisplayServer = server,
+                DesktopEnvironment = ParseDesktopEnvironment(desktop),
+                DesktopName = desktop,
+                DisplayName = display,
+                WaylandDisplay = wayland,
+                XdgRuntimeDir = runtime,
+                XAuthority = xauth,
+                IsLocked = locked,
+                IsActive = active,
+                IsRemote = remote,
+                LeaderProcessId = leader
             };
         }
-        catch
+        catch { return null; }
+    }
+
+    private static string RunLoginCtl(params string[] args)
+    {
+        try
         {
-            return null;
+            var psi = new ProcessStartInfo
+            {
+                FileName = "loginctl",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            foreach (string arg in args) psi.ArgumentList.Add(arg);
+            using var process = Process.Start(psi);
+            if (process == null) return "";
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            _ = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(1500))
+            {
+                try { process.Kill(true); } catch { }
+                try { process.WaitForExit(500); } catch { }
+                return "";
+            }
+            return stdout.GetAwaiter().GetResult();
         }
+        catch { return ""; }
+    }
+
+    private static Dictionary<string, string> ReadProcessEnvironment(int pid)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        try
+        {
+            byte[] bytes = File.ReadAllBytes($"/proc/{pid}/environ");
+            foreach (string entry in Encoding.UTF8.GetString(bytes).Split('\0', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int equals = entry.IndexOf('=');
+                if (equals > 0) result[entry[..equals]] = entry[(equals + 1)..];
+            }
+        }
+        catch { }
+        return result;
+    }
+
+    private static string? FindWaylandSocket(string? runtime)
+    {
+        if (string.IsNullOrWhiteSpace(runtime) || !Directory.Exists(runtime)) return null;
+        try
+        {
+            return Directory.GetFiles(runtime, "wayland-*", SearchOption.TopDirectoryOnly)
+                .Select(Path.GetFileName)
+                .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name));
+        }
+        catch { return null; }
+    }
+
+    private static string Value(Dictionary<string, string> values, string key) =>
+        values.TryGetValue(key, out string? value) ? value : "";
+
+    private static string? EnvironmentValue(Dictionary<string, string> values, string key) =>
+        values.TryGetValue(key, out string? value) && !string.IsNullOrWhiteSpace(value) ? value : null;
+
+    private static string? NullIfEmpty(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private static string? GetUserNameForUid(uint uid)
+    {
+        try
+        {
+            foreach (string line in File.ReadLines("/etc/passwd"))
+            {
+                string[] parts = line.Split(':');
+                if (parts.Length >= 7 && uint.TryParse(parts[2], out uint candidate) && candidate == uid)
+                    return parts[0];
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private static DesktopEnvironment ParseDesktopEnvironment(string desktop)
+    {
+        if (desktop.Contains("GNOME", StringComparison.OrdinalIgnoreCase)) return DesktopEnvironment.Gnome;
+        if (desktop.Contains("KDE", StringComparison.OrdinalIgnoreCase) || desktop.Contains("PLASMA", StringComparison.OrdinalIgnoreCase)) return DesktopEnvironment.Kde;
+        if (desktop.Contains("XFCE", StringComparison.OrdinalIgnoreCase)) return DesktopEnvironment.Xfce;
+        return string.IsNullOrWhiteSpace(desktop) ? DesktopEnvironment.Unknown : DesktopEnvironment.Other;
     }
 }
