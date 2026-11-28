@@ -24,7 +24,7 @@ namespace Tether.LinuxDaemon.Transport;
 
 public sealed class LinuxSession : IDisposable
 {
-    private const string ServerCapabilities = "FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,APP_MANAGEMENT";
+    private const string ServerCapabilities = "FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,APP_MANAGEMENT,LINUX_ADMIN";
 
     private readonly IEventBus _eventBus;
     private readonly ITetherLogger _logger;

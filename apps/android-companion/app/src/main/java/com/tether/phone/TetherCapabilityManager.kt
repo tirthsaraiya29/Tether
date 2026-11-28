@@ -12,6 +12,10 @@ enum class TetherCapability(val scopeName: String, val isElevated: Boolean) {
 
     companion object {
         fun fromScopeName(name: String): TetherCapability? {
+            // LINUX_ADMIN / ADMIN are the Linux host's names for the same admin scope.
+            if (name.equals("LINUX_ADMIN", ignoreCase = true) || name.equals("ADMIN", ignoreCase = true)) {
+                return WINDOWS_ADMIN
+            }
             return entries.firstOrNull { it.scopeName.equals(name, ignoreCase = true) }
         }
     }

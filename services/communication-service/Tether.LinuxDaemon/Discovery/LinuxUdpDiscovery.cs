@@ -267,7 +267,7 @@ public sealed class LinuxUdpDiscovery : IDisposable
             deviceName = _identity.DeviceName,
             tcpPort = TcpPort,
             os = "linux",
-            capabilities = "FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,WINDOWS_ADMIN,APP_MANAGEMENT"
+            capabilities = "FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,LINUX_ADMIN,APP_MANAGEMENT"
         });
 
         async Task SendDiscoveryToTargetsAsync()

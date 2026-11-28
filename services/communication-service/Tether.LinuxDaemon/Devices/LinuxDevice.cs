@@ -24,6 +24,12 @@ public sealed class LinuxDevice
             caps.Add("POWER_ELEVATED");
         }
 
+        // Trust stores written before the admin capability existed still need admin parity with Windows.
+        if (!caps.Contains("LINUX_ADMIN", StringComparer.OrdinalIgnoreCase) && !caps.Contains("ADMIN", StringComparer.OrdinalIgnoreCase))
+        {
+            caps.Add("LINUX_ADMIN");
+        }
+
         return new()
         {
             DeviceId = r.DeviceId,

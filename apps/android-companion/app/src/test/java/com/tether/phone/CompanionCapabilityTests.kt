@@ -17,6 +17,20 @@ class CompanionCapabilityTests {
     }
 
     @Test
+    fun testFromScopeName_LinuxAdminAliasesToAdminScope() {
+        assertEquals(TetherCapability.WINDOWS_ADMIN, TetherCapability.fromScopeName("LINUX_ADMIN"))
+        assertEquals(TetherCapability.WINDOWS_ADMIN, TetherCapability.fromScopeName("admin"))
+    }
+
+    @Test
+    fun testNegotiateCapabilities_LinuxHostKeepsAdminScope() {
+        val manager = TetherCapabilityManager()
+        manager.negotiateCapabilities("FILES,NOTIFICATIONS,MEDIA,TERMINAL,POWER_ELEVATED,INPUT,APP_MANAGEMENT,LINUX_ADMIN")
+        assertTrue(manager.isCapabilityGranted(TetherCapability.WINDOWS_ADMIN))
+        assertTrue(manager.canExecuteCommand("services_get"))
+    }
+
+    @Test
     fun testNegotiateCapabilities_EmptyString_DefaultsToStandard() {
         val manager = TetherCapabilityManager()
         val negotiated = manager.negotiateCapabilities("")
