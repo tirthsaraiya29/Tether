@@ -38,7 +38,9 @@ public sealed class LinuxFileTransferServer : IHostedService
     private readonly LinuxTokenStore _tokenStore;
     private readonly LinuxTrustStore? _trustStore;
     private readonly LinuxDesktopManager _desktopManager;
+    private const int MaxSeenProofs = 4096;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _seenProofs = new();
+    private readonly object _proofCacheLock = new();
     private WebApplication? _app;
 
     [DllImport("libc", SetLastError = true, EntryPoint = "realpath")]
@@ -189,22 +191,12 @@ public sealed class LinuxFileTransferServer : IHostedService
                 return;
             }
 
-            // Replay detection (5-minute sliding window)
-            if (_seenProofs.ContainsKey(proofBase64))
+            if (proofBase64.Length > 4096)
             {
-                _logger.Warning($"LinuxFileTransferServer: Replayed client proof detected from {context.Connection.RemoteIpAddress}");
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Replayed client proof" });
+                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Client proof is too large" });
                 return;
             }
-
-            if (_seenProofs.Count > 1000)
-            {
-                var cutoff = DateTimeOffset.UtcNow.AddMinutes(-6);
-                var stale = _seenProofs.Where(kv => kv.Value < cutoff).Select(kv => kv.Key).ToList();
-                foreach (var k in stale) _seenProofs.TryRemove(k, out _);
-            }
-            _seenProofs[proofBase64] = DateTimeOffset.UtcNow;
 
             // Trust store & device binding verification
             if (_trustStore == null)
@@ -256,6 +248,36 @@ public sealed class LinuxFileTransferServer : IHostedService
                 _logger.Warning($"LinuxFileTransferServer: Client cryptographic proof verification failed for {tokenInfo.DeviceFingerprint}");
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Invalid client proof signature" });
+                return;
+            }
+
+            // Only authenticated proofs enter the replay cache. Reserve atomically and bound
+            // memory use so concurrent requests cannot reuse one proof or grow the cache forever.
+            bool replayed;
+            bool cacheFull;
+            lock (_proofCacheLock)
+            {
+                DateTimeOffset now = DateTimeOffset.UtcNow;
+                DateTimeOffset cutoff = now.AddMinutes(-6);
+                foreach (string stale in _seenProofs.Where(kv => kv.Value < cutoff).Select(kv => kv.Key).ToArray())
+                    _seenProofs.TryRemove(stale, out _);
+
+                cacheFull = _seenProofs.Count >= MaxSeenProofs;
+                replayed = !cacheFull && !_seenProofs.TryAdd(proofBase64, now);
+            }
+
+            if (cacheFull)
+            {
+                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await context.Response.WriteAsJsonAsync(new { error = "Authentication replay cache is temporarily full; retry shortly." });
+                return;
+            }
+
+            if (replayed)
+            {
+                _logger.Warning($"LinuxFileTransferServer: Replayed client proof detected from {context.Connection.RemoteIpAddress}");
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new { error = "Unauthorized: Replayed client proof" });
                 return;
             }
 
