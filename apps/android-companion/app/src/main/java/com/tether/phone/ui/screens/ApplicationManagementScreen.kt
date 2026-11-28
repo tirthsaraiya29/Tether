@@ -79,13 +79,18 @@ fun ApplicationManagementScreen(
     val coroutineScope = rememberCoroutineScope()
     val service = TetherLanService.instance
     val hostIp = service?.connectedHostAddress
+    val initialPeerFingerprint = service?.let {
+        it.resolveExpectedFingerprint(it.connectedHostAddress.orEmpty())
+    }.orEmpty()
+    var activePeerFingerprint by remember { mutableStateOf(initialPeerFingerprint) }
+    val peerStateKey = activePeerFingerprint
 
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Running Windows", "Installed Apps")
 
-    // Immediately initialize from persistent cache to eliminate loading latency
-    var runningWindows by remember { mutableStateOf(LaptopStateCache.getWindows(context)) }
-    var installedApps by remember { mutableStateOf(LaptopStateCache.getInstalledApps(context)) }
+    // Never reuse a previous host's cached windows or application list.
+    var runningWindows by remember(peerStateKey) { mutableStateOf(if (peerStateKey.isNotBlank()) LaptopStateCache.getWindows(context) else emptyList()) }
+    var installedApps by remember(peerStateKey) { mutableStateOf(if (peerStateKey.isNotBlank()) LaptopStateCache.getInstalledApps(context) else emptyList()) }
     var appFilter by remember { mutableStateOf("") }
     var token by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
@@ -97,6 +102,9 @@ fun ApplicationManagementScreen(
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 when (intent?.action) {
+                    TetherLanService.ACTION_LAN_STATE_CHANGED -> {
+                        activePeerFingerprint = intent.getStringExtra(TetherLanService.EXTRA_WINDOWS_FINGERPRINT).orEmpty()
+                    }
                     TetherLanService.ACTION_WINDOWS_LIST -> {
                         windowsUnsupportedReason = if (intent.getBooleanExtra("windowsSupported", true)) null
                             else intent.getStringExtra("windowsUnsupportedReason")?.ifBlank {
@@ -158,6 +166,7 @@ fun ApplicationManagementScreen(
         }
 
         val filter = IntentFilter().apply {
+            addAction(TetherLanService.ACTION_LAN_STATE_CHANGED)
             addAction(TetherLanService.ACTION_WINDOWS_LIST)
             addAction(TetherLanService.ACTION_INSTALLED_APPS)
         }
