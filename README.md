@@ -158,7 +158,7 @@ This automated installation:
 
 ### Linux Integration
 
-- **Linux Communication Daemon (`Tether.LinuxDaemon`):** Production-ready background daemon built on .NET 10, supervised by systemd (`tether.service`) with hardened process sandboxing (`ProtectSystem=strict`, `ProtectHome=read-only`, `NoNewPrivileges=yes`, `PrivateTmp=yes`).
+- **Linux Communication Daemon (`Tether.LinuxDaemon`):** Production-ready background daemon built on .NET 10, supervised by systemd (`tether.service`) with baseline sandboxing (`ProtectSystem=full`, `ProtectHome=no`, `PrivateTmp=yes`). The current unit retains writable home-directory access for file-transfer operations and privileged capabilities for supported device operations; review the shipped unit for the exact security boundary rather than assuming strict filesystem isolation or `NoNewPrivileges`.
 - **Native PAM Authentication Module (`pam_tether.so`):** Native C PAM module interfacing with Linux Display Managers (GDM, SDDM, LightDM) and screen lockers. Communicates securely with daemon via `/run/tether/auth.sock` UNIX domain socket with `SO_PEERCRED` root UID identity verification.
 - **Synthetic Input Injection (`/dev/uinput`):** Native Linux kernel input subsystem integration via `LinuxUinputInjector`. Creates virtual mouse and keyboard devices for sub-millisecond cursor movement, scrolling, clicks, virtual keys, and Unicode characters without X11/Wayland protocol dependencies.
 - **Pseudoterminal Session Manager:** Multi-session streaming Linux pseudoterminal (`/dev/ptmx` / `runuser`) supporting bash, sh, zsh, and fish with device owner isolation, directory tracking, and built-in command security filters.
