@@ -1,0 +1,1442 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>How Tether Works · Tether</title><meta name="description" content="A practical under-the-hood guide to Tether for power users: local discovery, pairing, trust, encryption and Windows integration."><meta name="robots" content="index,follow"><meta name="theme-color" content="#020403"><link rel="canonical" href="https://tether-control.vercel.app/power"><link rel="icon" type="image/svg+xml" href="favicon.svg"><style>
+    /* ============================================================
+       DESIGN PURPOSE: AMOLED dual-tone. Deep black (70%) and
+       fluorescent green (~28%) are the two core tones; the page
+       itself gradients between them. Silvery white is the
+       readability + primary-action color (the "shiny" third pole).
+       Green means one thing everywhere: the tether is live.
+       ============================================================ */
+
+    /* ---------- 1. Design Tokens ---------- */
+    :root {
+      color-scheme: dark;
+
+      /* Core tone A: AMOLED black base */
+      --bg: #020403;
+      /* Core tone B: fluorescent green, in the three intensities the
+         dual-tone needs (wash / mid / full). Reason: the tether link
+         is the product, so the second core tone IS the link color. */
+      --green: #00ff9d;
+      --green-dim: #00c97c;
+      --green-deep: #062d1d;
+
+      /* Silvery white: text and primary actions */
+      --silver: #eef2f0;
+      --silver-dim: #a9b4af;
+      --silver-subtle: #7d8783;
+
+      --green-wash: rgba(0, 255, 157, 0.06);
+      --green-mid: rgba(0, 255, 157, 0.14);
+      --green-border: rgba(0, 255, 157, 0.35);
+
+      --surface: #050a07;
+      --surface-raised: #08110c;
+      --surface-hover: #0c1a12;
+
+      --text: var(--silver);
+      --text-muted: var(--silver-dim);
+      --text-subtle: var(--silver-subtle);
+      --accent-bg: var(--silver);
+      --accent-text: #020403;
+      --signal: var(--green);
+      --warn: #f5b83d;
+
+      --border: rgba(0, 255, 157, 0.14);
+      --border-strong: rgba(0, 255, 157, 0.42);
+      --focus: var(--green);
+
+      --radius-sm: 4px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+
+      --header-h: 64px;
+      --gutter: clamp(16px, 4vw, 32px);
+      --container: 960px;
+      --container-narrow: 720px;
+      --section-space: clamp(56px, 7vw, 96px);
+      --gap: clamp(16px, 2vw, 24px);
+
+      --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+      --ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1);
+      --dur-fast: 0.18s;
+      --dur-med: 0.4s;
+      --dur-slow: 0.7s;
+
+      --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+
+    /* ---------- 2. CSS Reset ---------- */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+    }
+
+    html, body {
+      overflow-x: clip;
+    }
+
+    html {
+      -webkit-text-size-adjust: 100%;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-height: 100vh;
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 1rem;
+      line-height: 1.5;
+      font-weight: 400;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    img, svg {
+      display: block;
+      max-width: 100%;
+    }
+
+    button {
+      font: inherit;
+      color: inherit;
+      background: none;
+      border: 0;
+      cursor: pointer;
+    }
+
+    a {
+      color: var(--green);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+      cursor: pointer;
+    }
+    a:hover {
+      color: #7dffc4;
+    }
+
+    ul, ol {
+      padding: 0;
+      list-style: none;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 3px;
+      border-radius: 2px;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .skip-link {
+      position: absolute;
+      left: var(--gutter);
+      top: -60px;
+      z-index: 200;
+      padding: 8px 16px;
+      background: var(--surface-raised);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      color: var(--green);
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: top 0.16s var(--ease-out);
+    }
+    .skip-link:focus {
+      top: 12px;
+    }
+
+    /* Scroll-reveal: one-shot, stagger-capable. Disabled on reduced motion. */
+    @media (prefers-reduced-motion: no-preference) {
+      .reveal {
+        opacity: 0;
+        transform: translateY(16px);
+        transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out);
+        transition-delay: var(--reveal-delay, 0s);
+      }
+      .reveal.is-visible {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    /* ---------- 3. Base Typography ---------- */
+    h1, h2, h3, h4 {
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: -0.01em;
+      text-wrap: balance;
+      color: var(--silver);
+    }
+
+    h1 {
+      font-size: clamp(2rem, 1.5rem + 2.5vw, 3rem);
+      line-height: 1.1;
+    }
+    h2 {
+      font-size: clamp(1.5rem, 1.2rem + 1.5vw, 2rem);
+      margin-bottom: 16px;
+    }
+    h3 {
+      font-size: 1.1rem;
+      margin-bottom: 8px;
+    }
+
+    p {
+      text-wrap: pretty;
+      color: var(--text-muted);
+      max-width: 65ch;
+    }
+
+    code, kbd, samp {
+      font-family: var(--font-mono);
+      font-size: 0.85em;
+    }
+
+    :not(pre) > code {
+      padding: 0.15em 0.4em;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--green);
+    }
+
+    .eyebrow {
+      font-size: 0.85rem;
+      color: var(--green-dim);
+      margin-bottom: 12px;
+      font-weight: 500;
+    }
+
+    /* ---------- 4. Layout Primitives ---------- */
+    .container {
+      width: min(100% - (var(--gutter) * 2), var(--container));
+      margin-inline: auto;
+    }
+    .container-narrow {
+      width: min(100% - (var(--gutter) * 2), var(--container-narrow));
+    }
+
+    .section {
+      padding-block: var(--section-space);
+      scroll-margin-top: calc(var(--header-h) + 24px);
+      position: relative;
+    }
+
+    .section-head {
+      max-width: 60ch;
+      margin-bottom: 40px;
+    }
+    .section-lede {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+    }
+
+    .prose p + p {
+      margin-top: 1em;
+    }
+
+    /* ---------- 5. Header & Navigation ---------- */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      min-height: var(--header-h);
+      background: rgba(2, 4, 3, 0.88);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .header-inner {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-height: var(--header-h);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--silver);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 1.05rem;
+    }
+    .brand:hover {
+      color: var(--green);
+    }
+
+    /* Brand mark: Tether glowing squircle logo */
+    .brand-mark {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      transition: transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast) var(--ease-out);
+    }
+    .brand-logo {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      object-fit: cover;
+      display: block;
+    }
+    .brand:hover .brand-mark {
+      transform: scale(1.08);
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.5);
+    }
+
+    .primary-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .nav-link {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      min-height: 40px;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      text-decoration: none;
+      transition: color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out;
+    }
+    .nav-link::after {
+      /* purpose: underline sweep marks the section you're hovering/reading */
+      content: "";
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 4px;
+      height: 1px;
+      background: var(--green);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform var(--dur-med) var(--ease-out);
+    }
+    .nav-link:hover {
+      color: var(--silver);
+      background: var(--green-wash);
+    }
+    .nav-link:hover::after,
+    .nav-link.is-active::after {
+      transform: scaleX(1);
+    }
+    .nav-link.is-active {
+      color: var(--green);
+    }
+
+    .nav-toggle {
+      display: none;
+    }
+
+    @media (max-width: 768px) {
+      .primary-nav.nav-open {
+        display: flex;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        align-items: stretch;
+        padding: 12px var(--gutter) 20px;
+        background: rgba(2, 4, 3, 0.97);
+        border-bottom: 1px solid var(--border-strong);
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+        opacity: 0;
+        transform: translateY(-8px);
+        transition: opacity 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+      }
+      .primary-nav.nav-open.is-visible {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    .site-header.is-scrolled {
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 1px 0 var(--border);
+      background: rgba(2, 4, 3, 0.95);
+      transition: box-shadow 0.25s var(--ease-out), background 0.25s var(--ease-out);
+    }
+
+    /* ---------- 6. Buttons & Chips ---------- */
+    .btn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 44px;
+      padding: 10px 20px;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      font-size: 0.95rem;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      overflow: hidden;
+      transition: background-color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast) ease-out;
+    }
+    .btn:active {
+      transform: translateY(1px) scale(0.99);
+    }
+
+    /* Shine sweep on hover: a single light pass, like metal catching light */
+    .btn::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.22) 50%, transparent 60%);
+      transform: translateX(-110%);
+      transition: transform 0.6s var(--ease-out);
+      pointer-events: none;
+    }
+    .btn:hover::before {
+      transform: translateX(110%);
+    }
+
+    .btn-primary {
+      background: var(--accent-bg);
+      color: var(--accent-text);
+      border-color: var(--accent-bg);
+    }
+    .btn-primary:hover {
+      background: #ffffff;
+      border-color: #ffffff;
+      box-shadow: 0 4px 24px rgba(238, 242, 240, 0.18);
+    }
+
+    .btn-green {
+      background: transparent;
+      border-color: var(--border-strong);
+      color: var(--green);
+    }
+    .btn-green:hover {
+      background: var(--green-mid);
+      border-color: var(--green);
+      box-shadow: 0 4px 24px rgba(0, 255, 157, 0.12);
+    }
+
+    .btn-sm {
+      min-height: 36px;
+      padding: 6px 12px;
+      font-size: 0.85rem;
+    }
+
+    /* Status chip: real build state (warn), border ticks slowly = "in progress" */
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border: 1px solid rgba(245, 184, 61, 0.45);
+      border-radius: var(--radius-sm);
+      background: rgba(245, 184, 61, 0.08);
+      color: var(--warn);
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      white-space: nowrap;
+      animation: chip-breathe 3s ease-in-out infinite;
+    }
+    @keyframes chip-breathe {
+      0%, 100% { border-color: rgba(245, 184, 61, 0.45); }
+      50% { border-color: rgba(245, 184, 61, 0.8); }
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--green-wash);
+      color: var(--green-dim);
+      font-size: 0.75rem;
+      font-family: var(--font-mono);
+      transition: border-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .feature:hover .chip,
+    .arch-node:hover .chip {
+      border-color: var(--green-border);
+      color: var(--green);
+      transform: translateY(-1px);
+    }
+
+    /* ---------- 7. Hero ---------- */
+    .hero {
+      padding-top: calc(var(--header-h) + 48px);
+      padding-bottom: 72px;
+      position: relative;
+      overflow: clip;
+    }
+
+    /* Dual-tone wash: the black half of the page melts toward green
+       behind the hero. Slow drift keeps it alive without pulling focus. */
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: -20% -10%;
+      background:
+        radial-gradient(60% 55% at 78% 20%, rgba(0, 255, 157, 0.14), transparent 70%),
+        radial-gradient(45% 40% at 12% 85%, rgba(0, 255, 157, 0.07), transparent 70%),
+        linear-gradient(160deg, var(--bg) 30%, rgba(0, 60, 38, 0.35) 100%);
+      z-index: -1;
+      animation: hero-drift 26s ease-in-out infinite alternate;
+    }
+    @keyframes hero-drift {
+      from { transform: translate3d(0, 0, 0) scale(1); }
+      to { transform: translate3d(-2%, 2%, 0) scale(1.06); }
+    }
+
+    .hero-grid {
+      display: grid;
+      gap: 48px;
+      align-items: start;
+    }
+
+    .hero-lede {
+      font-size: 1.1rem;
+      line-height: 1.6;
+      max-width: 58ch;
+      margin-bottom: 32px;
+      color: var(--text-muted);
+    }
+
+    .hero-lede strong {
+      color: var(--green);
+      font-weight: 600;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .hero-note {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      max-width: 58ch;
+      color: var(--text-subtle);
+      font-size: 0.85rem;
+      line-height: 1.5;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* Semantic topology diagram: the tether. Green = live link. */
+    .topology {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      padding: 32px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: linear-gradient(150deg, var(--surface) 40%, var(--green-deep) 140%);
+      flex-wrap: wrap;
+      transition: border-color var(--dur-med) ease-out, box-shadow var(--dur-med) ease-out;
+    }
+    .topology:hover {
+      border-color: var(--border-strong);
+      box-shadow: 0 8px 40px rgba(0, 255, 157, 0.08);
+    }
+    .topology-node {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 160px;
+      text-align: center;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface-raised);
+      transition: border-color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .topology-node:hover {
+      border-color: var(--green-border);
+      transform: translateY(-2px);
+    }
+    .topology-label {
+      font-weight: 600;
+      color: var(--silver);
+      font-size: 0.95rem;
+    }
+    .topology-detail {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text-subtle);
+    }
+    .topology-link {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: var(--green);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+    }
+    .topology-protocol {
+      letter-spacing: 0.02em;
+    }
+    /* Packets travelling the link: the one moving element that IS the product */
+    .topology-wire {
+      position: relative;
+      width: 120px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--green-border), transparent);
+      overflow: hidden;
+    }
+    .topology-wire::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 32px;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, var(--green), transparent);
+      animation: packet 2.4s var(--ease-out) infinite;
+    }
+    @keyframes packet {
+      0% { transform: translateX(-40px); opacity: 0; }
+      25% { opacity: 1; }
+      75% { opacity: 1; }
+      100% { transform: translateX(140px); opacity: 0; }
+    }
+    .topology-arrow {
+      font-size: 1.1rem;
+      color: var(--text-subtle);
+    }
+
+    /* ---------- 8. Overview & Features ---------- */
+    .overview-grid {
+      display: grid;
+      gap: 32px;
+    }
+
+    .feature-grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+
+    .feature {
+      position: relative;
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: linear-gradient(165deg, var(--surface) 55%, var(--green-deep) 160%);
+      transition: border-color var(--dur-fast) ease-out, transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
+    }
+    .feature:hover {
+      border-color: var(--green-border);
+      transform: translateY(-3px);
+      box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5), 0 2px 16px rgba(0, 255, 157, 0.07);
+    }
+
+    .feature-title {
+      color: var(--silver);
+      margin-bottom: 8px;
+    }
+    .feature-text {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .feature-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    /* ---------- 9. Architecture ---------- */
+    .arch-flow {
+      display: grid;
+      gap: 16px;
+    }
+    .arch-node {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      padding: 20px;
+      transition: border-color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .arch-node:hover {
+      border-color: var(--green-border);
+      transform: translateX(4px);
+    }
+    .arch-kind {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--green-dim);
+      margin-bottom: 4px;
+      text-transform: lowercase;
+    }
+    .arch-name {
+      font-size: 1rem;
+      margin-bottom: 6px;
+      color: var(--silver);
+    }
+    .arch-desc {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* ---------- 10. Developers Tabs ---------- */
+    .tabs {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .tablist {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .tab {
+      flex: 1;
+      min-width: 120px;
+      padding: 14px 16px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      border-bottom: 2px solid transparent;
+      transition: color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .tab:hover {
+      color: var(--silver);
+      background: var(--green-wash);
+    }
+    .tab[aria-selected="true"] {
+      color: var(--green);
+      border-bottom-color: var(--green);
+      background: var(--green-wash);
+    }
+    .tabpanel {
+      padding: 24px;
+      animation: panel-in var(--dur-med) var(--ease-out);
+    }
+    @keyframes panel-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: none; }
+    }
+    .panel-title {
+      font-size: 1.1rem;
+      margin-bottom: 8px;
+    }
+    .panel-lede {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+    }
+
+    .role-list > div {
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      transition: padding-left var(--dur-fast) var(--ease-out);
+    }
+    .role-list > div:hover {
+      padding-left: 6px;
+    }
+    .role-list > div:last-child {
+      border-bottom: none;
+    }
+    .role-list dt {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--green);
+      margin-bottom: 4px;
+    }
+    .role-list dd {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .ref-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    .ref-table th, .ref-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .ref-table th {
+      color: var(--green-dim);
+      font-weight: 500;
+      font-size: 0.8rem;
+    }
+    .ref-table tbody tr {
+      transition: background-color var(--dur-fast) ease-out;
+    }
+    .ref-table tbody tr:hover {
+      background: var(--green-wash);
+    }
+    .ref-table td {
+      color: var(--text-muted);
+    }
+
+    /* Modern Comparison Table */
+    .compare-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.9rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: var(--surface);
+    }
+    .compare-table th, .compare-table td {
+      padding: 14px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .compare-table thead th {
+      background: var(--surface-raised);
+      color: var(--silver);
+      font-weight: 600;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .compare-table thead th.col-lead {
+      color: var(--green);
+      background: var(--green-deep);
+      border-bottom: 2px solid var(--green);
+    }
+    .compare-table td.col-lead {
+      background: rgba(0, 255, 157, 0.03);
+      font-weight: 500;
+      color: var(--silver);
+    }
+    .compare-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+    .compare-table tbody tr:hover {
+      background: var(--green-wash);
+    }
+    .badge-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--green);
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+    .badge-cross {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--silver-subtle);
+      font-size: 0.85rem;
+    }
+
+    /* Showcase & Screenshot Grid */
+    .showcase-grid {
+      display: grid;
+      gap: 24px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      margin-top: 24px;
+    }
+    .showcase-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      overflow: hidden;
+      transition: border-color var(--dur-fast) ease-out, transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
+    }
+    .showcase-card:hover {
+      border-color: var(--green-border);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 2px 16px rgba(0, 255, 157, 0.08);
+    }
+    .showcase-media {
+      background: #000;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .showcase-media img {
+      width: 100%;
+      height: auto;
+      display: block;
+      object-fit: cover;
+      max-height: 380px;
+      transition: transform var(--dur-slow) var(--ease-out);
+    }
+    .showcase-card:hover .showcase-media img {
+      transform: scale(1.02);
+    }
+    .showcase-body {
+      padding: 16px 20px;
+    }
+    .showcase-title {
+      font-size: 1rem;
+      color: var(--silver);
+      margin-bottom: 6px;
+    }
+    .showcase-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Step Cards / How It Works */
+    .step-grid {
+      display: grid;
+      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      margin-top: 28px;
+    }
+    .step-card {
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: linear-gradient(165deg, var(--surface) 60%, var(--green-deep) 170%);
+      position: relative;
+    }
+    .step-num {
+      font-family: var(--font-mono);
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--green);
+      line-height: 1;
+      margin-bottom: 12px;
+      opacity: 0.9;
+    }
+    .step-title {
+      font-size: 1.05rem;
+      color: var(--silver);
+      margin-bottom: 8px;
+    }
+    .step-desc {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Core Web Vitals Render Performance */
+    .section:not(.hero) {
+      content-visibility: auto;
+      contain-intrinsic-size: 1px 700px;
+    }
+
+    .code {
+      margin: 16px 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg);
+      overflow: hidden;
+      transition: border-color var(--dur-fast) ease-out;
+    }
+    .code:hover {
+      border-color: var(--green-border);
+    }
+    .code-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--text-subtle);
+    }
+    .code-body {
+      margin: 0;
+      padding: 16px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      color: var(--green);
+    }
+    .copy-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      transition: color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .copy-btn:hover {
+      background: var(--green-wash);
+      color: var(--green);
+    }
+    .copy-btn:active {
+      transform: scale(0.94);
+    }
+    .copy-btn.is-copied {
+      color: var(--green);
+    }
+
+    /* ---------- 11. Roadmap & FAQ ---------- */
+    .faq-item {
+      border-bottom: 1px solid var(--border);
+      transition: background-color var(--dur-fast) ease-out;
+    }
+    .faq-item:hover {
+      background: var(--green-wash);
+    }
+    .faq-item summary {
+      padding: 16px 0;
+      font-weight: 500;
+      color: var(--silver);
+      cursor: pointer;
+      list-style: none;
+      transition: color var(--dur-fast) ease-out;
+    }
+    .faq-item summary:hover {
+      color: var(--green);
+    }
+    .faq-item summary::-webkit-details-marker {
+      display: none;
+    }
+    .faq-item summary::after {
+      content: "+";
+      float: right;
+      font-family: var(--font-mono);
+      color: var(--green-dim);
+      transition: transform var(--dur-med) var(--ease-out);
+    }
+    .faq-item[open] summary::after {
+      content: "\2212";
+      transform: rotate(180deg);
+    }
+    .faq-body {
+      padding-bottom: 16px;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* ---------- 11b. Download & Ask a Question ---------- */
+    .dl-btn[disabled] {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .dl-state {
+      font-size: 0.85rem;
+      color: var(--text-subtle);
+      margin-top: 10px;
+      min-height: 1.2em;
+    }
+    .dl-state.is-error { color: var(--warn); }
+
+    .ask-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      margin-bottom: 24px;
+    }
+    .ask-cat {
+      position: relative;
+      display: block;
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      cursor: pointer;
+      transition: border-color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out, transform var(--dur-fast) var(--ease-spring);
+    }
+    .ask-cat:hover {
+      border-color: var(--green-border);
+      transform: translateY(-2px);
+    }
+    .ask-cat input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .ask-cat:has(input:checked) {
+      border-color: var(--green);
+      background: var(--green-wash);
+    }
+    .ask-cat:has(input:focus-visible) {
+      outline: 2px solid var(--focus);
+      outline-offset: 3px;
+    }
+    .ask-cat-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--green-wash);
+      margin-bottom: 10px;
+      color: var(--green);
+      flex-shrink: 0;
+    }
+    .ask-cat-icon svg {
+      display: block;
+      flex-shrink: 0;
+    }
+    .ask-cat-title {
+      color: var(--silver);
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 4px;
+    }
+    .ask-cat-desc {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+
+    .ask-field {
+      margin-bottom: 16px;
+    }
+    .ask-field label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--silver);
+      margin-bottom: 6px;
+    }
+    .ask-field .req {
+      color: var(--green-dim);
+      font-size: 0.75rem;
+    }
+    .ask-field input,
+    .ask-field select,
+    .ask-field textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+      font-size: 0.9rem;
+    }
+    .ask-field textarea {
+      min-height: 96px;
+      resize: vertical;
+    }
+    .ask-field input:focus,
+    .ask-field select:focus,
+    .ask-field textarea:focus {
+      outline: none;
+      border-color: var(--green);
+      box-shadow: 0 0 0 2px var(--green-wash);
+    }
+    .ask-field .field-error {
+      display: none;
+      color: var(--warn);
+      font-size: 0.8rem;
+      margin-top: 4px;
+    }
+    .ask-field.has-error input,
+    .ask-field.has-error select,
+    .ask-field.has-error textarea {
+      border-color: var(--warn);
+    }
+    .ask-field.has-error .field-error {
+      display: block;
+    }
+    .ask-contact {
+      border: 1px solid var(--green-border);
+      border-radius: var(--radius-md);
+      background: var(--green-wash);
+      padding: 20px;
+      margin: 24px 0;
+    }
+    .ask-contact > p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+    .ask-note {
+      font-size: 0.8rem;
+      color: var(--text-subtle);
+      line-height: 1.5;
+      margin-top: 8px;
+    }
+    .form-status {
+      margin-top: 16px;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .form-status[hidden] { display: none; }
+    .form-status.is-success {
+      border: 1px solid var(--green-border);
+      background: var(--green-wash);
+      color: var(--text);
+    }
+    .form-status.is-error {
+      border: 1px solid rgba(245, 184, 61, 0.45);
+      background: rgba(245, 184, 61, 0.08);
+      color: var(--warn);
+    }
+    /* Honeypot: real users never see or tab into this */
+    .hp-field {
+      position: absolute !important;
+      left: -9999px;
+      height: 1px;
+      width: 1px;
+      overflow: hidden;
+    }
+
+    /* ---------- 12. CTA & Footer ---------- */
+    .section-cta {
+      background:
+        radial-gradient(70% 90% at 50% 110%, rgba(0, 255, 157, 0.16), transparent 65%),
+        linear-gradient(180deg, var(--bg), var(--green-deep));
+      border-top: 1px solid var(--border);
+    }
+    .cta-panel {
+      text-align: center;
+      max-width: 600px;
+      margin-inline: auto;
+    }
+    .cta-actions {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 24px 0;
+    }
+    .cta-status {
+      margin-top: 16px;
+    }
+
+    .site-footer {
+      padding-block: 48px;
+      font-size: 0.9rem;
+      border-top: 1px solid var(--border);
+    }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 40px;
+      margin-bottom: 40px;
+    }
+    .footer-brand p {
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+    .footer-heading {
+      font-size: 0.8rem;
+      color: var(--green-dim);
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+    .footer-nav ul li {
+      margin-bottom: 8px;
+    }
+    .footer-nav a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color var(--dur-fast) ease-out, padding-left var(--dur-fast) var(--ease-out);
+    }
+    .footer-nav a:hover {
+      color: var(--green);
+      padding-left: 4px;
+    }
+    .footer-legal {
+      border-top: 1px solid var(--border);
+      padding-top: 24px;
+      color: var(--text-subtle);
+      font-size: 0.8rem;
+      line-height: 1.5;
+    }
+    .footer-legal p + p {
+      margin-top: 8px;
+    }
+
+    /* ---------- 13. Accessibility & Motion ---------- */
+    /* Every loop and transition dies here. Reveals render final-state. */
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .topology-wire::after,
+      .status-chip,
+      .hero::before { animation: none; }
+      .btn::before { display: none; }
+      .reveal {
+        opacity: 1;
+        transform: none;
+        transition: none;
+      }
+      .tabpanel { animation: none; }
+    }
+
+    @media (max-width: 768px) {
+      .primary-nav {
+        display: none;
+      }
+      .nav-toggle {
+        display: inline-flex;
+        margin-left: auto;
+        padding: 8px;
+        color: var(--silver);
+      }
+      .hero {
+        padding-top: calc(var(--header-h) + 24px);
+        padding-bottom: 48px;
+      }
+      .section {
+        padding-block: 48px;
+      }
+      .feature {
+        padding: 18px;
+      }
+      .cta-actions .btn {
+        width: 100%;
+      }
+      .footer-grid {
+        grid-template-columns: 1fr;
+        gap: 32px;
+      }
+      .topology {
+        flex-direction: column;
+        gap: 16px;
+      }
+      .topology-wire {
+        width: 2px;
+        height: 40px;
+        background: linear-gradient(180deg, transparent, var(--green-border), transparent);
+      }
+      .topology-wire::after {
+        background: linear-gradient(180deg, transparent, var(--green), transparent);
+        width: 100%;
+        height: 14px;
+        animation-name: packet-v;
+      }
+      @keyframes packet-v {
+        0% { transform: translateY(-18px); opacity: 0; }
+        25% { opacity: 1; }
+        75% { opacity: 1; }
+        100% { transform: translateY(46px); opacity: 0; }
+      }
+    }
+  
+
+    
+    .audience-switch { display:inline-flex; align-items:center; gap:8px; margin-left:4px; }
+    .audience-switch label { color:var(--text-subtle); font-size:.78rem; white-space:nowrap; }
+    .audience-switch select { min-height:36px; max-width:150px; padding:6px 28px 6px 10px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface-raised); color:var(--silver); font:inherit; font-size:.82rem; }
+    @media(max-width:768px) { .audience-switch { margin:8px 0; justify-content:space-between; } .audience-switch select { max-width:none; flex:1; } }
+
+    .doc-hero { padding:clamp(64px,9vw,112px) 0 52px; background:radial-gradient(ellipse at 50% 0%,rgba(0,255,157,.12),transparent 62%); }
+    .doc-hero .lede { max-width:70ch; font-size:1.12rem; margin-top:20px; line-height:1.8; }
+    .doc-meta { display:flex; flex-wrap:wrap; gap:10px; margin-top:24px; }
+    .doc-section { padding-block:clamp(42px,6vw,72px); border-top:1px solid var(--border); }
+    .doc-section h2 { margin-bottom:18px; }
+    .doc-section h3 { margin-top:26px; }
+    .doc-section p { line-height:1.8; margin:12px 0; }
+    .doc-section li { color:var(--text-muted); line-height:1.75; margin:8px 0; padding-left:20px; position:relative; }
+    .doc-section li::before { content:""; position:absolute; left:2px; top:.72em; width:6px; height:6px; border-radius:50%; background:var(--green-dim); }
+    .doc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr)); gap:16px; margin:24px 0; }
+    .doc-card { background:var(--surface-raised); border:1px solid var(--border); border-radius:var(--radius-md); padding:22px; }
+    .doc-card h3 { margin:0 0 10px; }
+    .doc-card p { margin:0; font-size:.94rem; }
+    .doc-callout { border:1px solid var(--border-strong); border-left:3px solid var(--green); background:var(--green-wash); padding:18px 20px; border-radius:var(--radius-md); margin:24px 0; }
+    .doc-callout.warning { border-color:rgba(245,184,61,.4); border-left-color:var(--warn); background:rgba(245,184,61,.06); }
+    .doc-callout p { margin:6px 0 0; }
+    .flow { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:24px 0; }
+    .flow-step { background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-md); padding:16px; min-height:100px; }
+    .flow-step strong { display:block; color:var(--green); margin-bottom:6px; font-size:.9rem; }
+    .flow-step span { display:block; color:var(--text-muted); font-size:.86rem; line-height:1.6; }
+    .doc-table-wrap { overflow-x:auto; margin:20px 0; border:1px solid var(--border); border-radius:var(--radius-md); }
+    .doc-table { width:100%; border-collapse:collapse; min-width:560px; }
+    .doc-table th,.doc-table td { text-align:left; padding:13px 15px; border-bottom:1px solid var(--border); vertical-align:top; font-size:.9rem; }
+    .doc-table th { color:var(--silver); background:var(--surface-raised); font-weight:600; }
+    .doc-table td { color:var(--text-muted); }
+    .doc-table tr:last-child td { border-bottom:0; }
+    .doc-table code,.doc-code { color:var(--green); font-family:var(--font-mono); font-size:.85em; overflow-wrap:anywhere; }
+    .doc-codeblock { overflow-x:auto; padding:18px; margin:16px 0; background:#030604; border:1px solid var(--border); border-radius:var(--radius-md); color:#c8d8d0; font: .84rem/1.7 var(--font-mono); white-space:pre; }
+    .doc-toc { display:flex; flex-wrap:wrap; gap:8px; margin-top:28px; }
+    .doc-toc a { display:inline-block; padding:7px 11px; border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-muted); text-decoration:none; font-size:.84rem; }
+    .doc-toc a:hover { color:var(--green); border-color:var(--border-strong); }
+    .doc-footer { padding:28px 0 46px; border-top:1px solid var(--border); }
+    .doc-footer p { font-size:.85rem; }
+    @media(max-width:600px) { .doc-table th,.doc-table td { padding:10px; } .doc-hero { padding-top:52px; } }
+</style></head><body>
+<a class="skip-link" href="#main">Skip to content"> </a><header class="site-header" id="site-header"><div class="container header-inner">
+<a href="/" class="brand"><span class="brand-mark" aria-hidden="true"><img src="docs/assets/branding/tether-logo-64.png" alt="Tether" width="26" height="26" class="brand-logo"></span>Tether</a>
+<nav class="primary-nav" id="primary-nav" aria-label="Main">
+<a href="/" class="nav-link">Home</a><a href="/power" class="nav-link">Power users</a><a href="/dev" class="nav-link">Developers</a>
+<div class="audience-switch"><label for="audience-page">View</label><select id="audience-page" aria-label="Choose a Tether guide" onchange="if(this.value) window.location.href=this.value"><option value="/">Normal</option><option value="/power" selected>Power users</option><option value="/dev">Developers</option></select></div>
+<a href="https://github.com/tirthsaraiya29/Tether" class="btn btn-sm btn-green" target="_blank" rel="noopener">GitHub</a></nav></div></header>
+<main id="main">
+<section class="doc-hero"><div class="container">
+<p class="eyebrow">THE POWER USER GUIDE</p><h1>What’s actually happening when Tether connects?</h1>
+<p class="lede">A practical tour of the moving parts behind Tether: how your phone finds your computer, how the two devices learn to trust each other, what happens when you tap Unlock, and where your data goes. No source-code knowledge required.</p>
+<div class="doc-meta"><span class="chip">Local network first</span><span class="chip">Android + Windows</span><span class="chip">Under-the-hood guide</span></div>
+<nav class="doc-toc" aria-label="On this page"><a href="#big-picture">Big picture</a><a href="#discovery">Finding each other</a><a href="#pairing">Pairing & trust</a><a href="#connection">The connection</a><a href="#actions">Everyday actions</a><a href="#security">Security boundaries</a><a href="#limits">Limits & status</a></nav>
+</div></section>
+<section class="doc-section" id="big-picture"><div class="container"><p class="eyebrow">01 · THE BIG PICTURE</p><h2>Two devices. One direct relationship.</h2>
+<p>Tether is built around a simple idea: your Android phone can act as a trusted companion for your computer. The phone and computer communicate across your local network instead of sending commands through a Tether cloud service.</p>
+<div class="flow"><div class="flow-step"><strong>1. Your phone</strong><span>Holds its device identity and the Tether app you use to approve actions.</span></div><div class="flow-step"><strong>2. Your Wi-Fi / LAN</strong><span>Carries discovery messages and the encrypted connection between your own devices.</span></div><div class="flow-step"><strong>3. Your computer</strong><span>Runs Tether background components that receive approved requests and hand work to the right Windows session.</span></div></div>
+<div class="doc-callout"><strong>What “local-first” means here</strong><p>The normal phone-to-PC control path is designed to stay on your local network. Tether’s website and GitHub are used to distribute information and releases; they are not required as a cloud relay for the local control connection.</p></div>
+<h3>What runs on each side?</h3><div class="doc-grid"><article class="doc-card"><h3>Android companion</h3><p>Finds the computer, manages pairing and trust, stores the phone’s cryptographic identity using Android Keystore, and provides controls such as unlock, lock and trackpad input.</p></article><article class="doc-card"><h3>Windows background service</h3><p>Listens for local connections, checks device identity and permissions, routes requests, and coordinates with the active desktop session.</p></article><article class="doc-card"><h3>Windows session helper</h3><p>Runs in the interactive user session for work that needs access to the actual desktop, such as delivering mouse and keyboard input.</p></article><article class="doc-card"><h3>Windows sign-in integration</h3><p>A native Windows Credential Provider adds Tether’s phone-assisted sign-in option to the Windows sign-in experience.</p></article></div>
+</div></section>
+<section class="doc-section" id="discovery"><div class="container"><p class="eyebrow">02 · DISCOVERY</p><h2>How your phone finds your PC</h2><p>When both devices are on a supported local network, Tether uses local discovery rather than asking a remote server where your computer is.</p>
+<ul><li><strong>mDNS:</strong> the computer advertises a service named <code>_tether._tcp</code>. Nearby devices can discover it on the local network (mDNS uses UDP port 5353).</li><li><strong>UDP discovery:</strong> Tether also has a UDP broadcast discovery path on port <code>37124</code>.</li><li><strong>Direct connection:</strong> after discovery, the phone connects to the computer’s control listener on TCP port <code>37123</code>.</li></ul>
+<p>Discovery is like seeing a name on the local network directory. It is not proof that the discovered computer is trusted. Trust is checked separately during the connection and pairing process.</p>
+<div class="doc-callout warning"><strong>Network note</strong><p>Both devices need to be able to reach each other. Guest Wi-Fi isolation, restrictive firewalls, VPN routing, or different network segments can prevent discovery or direct communication. A phone hotspot is not a supported assumption; results depend on how that hotspot handles local peer traffic.</p></div>
+</div></section>
+<section class="doc-section" id="pairing"><div class="container"><p class="eyebrow">03 · PAIRING & TRUST</p><h2>Pairing is how the devices learn who to trust</h2><p>The first connection is a deliberate setup step. Tether creates a device identity for the phone, exchanges public-key information, and asks you to confirm that you are pairing the devices you intended to pair.</p>
+<div class="flow"><div class="flow-step"><strong>Phone creates identity</strong><span>Android Keystore holds an EC P-256 identity key pair. Private-key operations are handled by the platform keystore.</span></div><div class="flow-step"><strong>Devices exchange public keys</strong><span>The handshake includes device identity information and fresh values used to bind the exchange together.</span></div><div class="flow-step"><strong>You verify the pairing</strong><span>A short-lived six-digit pairing code and displayed fingerprint help you confirm the intended devices.</span></div><div class="flow-step"><strong>Trust is saved</strong><span>The public identity is pinned so later connections can be checked against the device already approved.</span></div></div>
+<h3>What is a fingerprint?</h3><p>A fingerprint is a short representation of a public key, calculated using a cryptographic hash. It gives you a practical way to compare device identities without comparing a long block of key data.</p>
+<h3>Where is trust stored?</h3><ul><li><strong>On Android:</strong> the phone identity key is kept in Android Keystore. The paired computer’s public key is stored in the app’s protected storage, encrypted using an Android Keystore-backed AES-GCM key.</li><li><strong>On Windows:</strong> the trusted phone public-key records are stored under the shared Tether data directory. The implementation uses Windows DPAPI protection and applies filesystem access controls to the trust store.</li></ul>
+<p>Trust can be removed. Forgetting a paired device removes its pinned identity from the relevant trust store, so it should no longer be accepted as the same previously approved device.</p>
+</div></section>
+<section class="doc-section" id="connection"><div class="container"><p class="eyebrow">04 · THE LIVE CONNECTION</p><h2>What protects the conversation?</h2><p>After discovery, Tether opens a direct TCP connection. The control listener is configured for TLS 1.3. In plain English, TLS gives the connection encryption in transit and helps the devices establish a protected channel before exchanging application messages.</p>
+<div class="doc-grid"><article class="doc-card"><h3>Encryption in transit</h3><p>Network traffic on the control connection is protected by TLS 1.3 rather than sent as readable commands over Wi-Fi.</p></article><article class="doc-card"><h3>Device identity</h3><p>Tether’s pairing and pinned-key checks provide an additional device-level trust decision beyond simply being on the same Wi-Fi.</p></article><article class="doc-card"><h3>Separate jobs</h3><p>The background service handles network work; the interactive helper handles desktop work that belongs inside the logged-in session.</p></article></div>
+<div class="doc-table-wrap"><table class="doc-table"><thead><tr><th>Port / service</th><th>Purpose</th><th>What it does not mean</th></tr></thead><tbody><tr><td><code>37123/TCP</code></td><td>Main encrypted control connection.</td><td>Being able to reach this port does not automatically make a device trusted.</td></tr><tr><td><code>37124/UDP</code></td><td>Local broadcast discovery.</td><td>Discovery is not authentication.</td></tr><tr><td><code>5353/UDP</code></td><td>mDNS service discovery.</td><td>mDNS announcements are not secret.</td></tr></tbody></table></div>
+</div></section>
+<section class="doc-section" id="actions"><div class="container"><p class="eyebrow">05 · WHEN YOU TAP A BUTTON</p><h2>How the main features work</h2>
+<h3>Phone-assisted Windows unlock</h3><p>The Windows Credential Provider is a native component that participates in the Windows sign-in UI. Tether’s provider presents the phone-assisted sign-in flow. The Windows service coordinates with the phone connection and trust state; the provider and service exchange state through local inter-process communication. Windows remains responsible for the actual logon process.</p>
+<h3>Remote trackpad</h3><p>Your phone sends compact input events for cursor movement, clicks, scrolling and supported keyboard input. The Windows service forwards those events to a helper running in the interactive desktop session. That helper uses the Windows input APIs to deliver them to the desktop. This separation matters because a Windows service runs in the background service environment, not inside your visible desktop.</p>
+<h3>Locking the PC</h3><p>A lock request is routed through the trusted connection to the Windows-side command handler, which asks Windows to lock the workstation. The request is not a magic remote power switch: the PC must be running, reachable, and able to process it.</p>
+<h3>File transfer</h3><p>File transfer is implemented as a separate service from the main control listener. It has its own authorization/token handling and transfer limits. Treat transfer availability and platform parity as release-dependent; check the current release notes rather than assuming every build has the same transfer experience.</p>
+<h3>Why the service and helper are separate</h3><p>Windows isolates background services from logged-in desktop sessions. Tether uses a service for always-on network and trust responsibilities, then a session helper for tasks that need access to the user's interactive desktop. A local IPC bridge connects those pieces.</p>
+</div></section>
+<section class="doc-section" id="security"><div class="container"><p class="eyebrow">06 · SECURITY BOUNDARIES</p><h2>What Tether tries to protect—and what it cannot promise</h2><p>Tether combines several layers: encrypted transport, device identity, explicit pairing, protected key storage, trust revocation, and separation between privileged background work and desktop-session work.</p>
+<ul><li>Local network access alone is not intended to grant trusted-device status.</li><li>Private identity keys are designed to remain in Android Keystore rather than being exported as ordinary app files.</li><li>Windows trust data is protected with platform facilities and filesystem permissions.</li><li>The control listener includes connection limits and per-IP rate limiting to reduce resource abuse.</li><li>Windows desktop input is handled in the interactive session rather than pretending a service runs on the user’s desktop.</li></ul>
+<div class="doc-callout warning"><strong>Important: security claims have limits</strong><p>Tether is under active development and has not had an independent security audit. Hardware-backed key storage depends on the phone’s hardware and Android implementation. Local networking does not make a device automatically safe. Keep your normal Windows sign-in and recovery options available, use a trusted network, and do not rely on a beta build as your only way into an important machine.</p></div>
+</div></section>
+<section class="doc-section" id="limits"><div class="container"><p class="eyebrow">07 · CURRENT STATUS</p><h2>What to expect today</h2><p>Tether is actively developed across Android, Windows and Linux. The Windows sign-in integration and Android companion are substantial parts of the current project. Linux support is being developed separately and should be treated according to the status of the specific release you install.</p>
+<div class="doc-grid"><article class="doc-card"><h3>Works as a concept today</h3><p>Local discovery, direct encrypted control transport, device pairing and trust, Windows-side service architecture, and Android companion workflows are present in the codebase.</p></article><article class="doc-card"><h3>Check the release before relying on it</h3><p>Feature availability, file-transfer support, platform parity and installer maturity can differ between builds. The repository README and release notes are the source of truth.</p></article></div>
+<p>Want the implementation-level view? <a href="/dev">Open the developer documentation →</a></p><p>Want the simple overview? <a href="/">Back to the main Tether page →</a></p>
+</div></section></main><footer class="doc-footer"><div class="container"><p><strong style="color:var(--silver)">Tether</strong> · Open-source, local-first device companion software.</p><p>Still in active development. These pages describe the current implementation as understood from the source; features and platform support may change. Tether has not had an independent security audit.</p><p style="margin-top:12px"><a href="/">Home</a> · <a href="/power">Power user guide</a> · <a href="/dev">Developer documentation</a> · <a href="https://github.com/tirthsaraiya29/Tether">Source code</a></p></div></footer>
+<script>document.addEventListener('scroll',function(){var h=document.getElementById('site-header');if(h)h.classList.toggle('is-scrolled',window.scrollY>8)},{passive:true});</script></body></html>
