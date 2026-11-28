@@ -15,24 +15,65 @@ namespace Tether.LinuxDaemon.Capabilities;
 public sealed record LinuxSystemTelemetry
 {
     [JsonPropertyName("cpuUsage")] public int CpuUsage { get; init; }
-    [JsonPropertyName("usedRamMb")] public ulong UsedRamMb { get; init; }
     [JsonPropertyName("totalRamMb")] public ulong TotalRamMb { get; init; }
-    [JsonPropertyName("freeDiskGb")] public double FreeDiskGb { get; init; }
-    [JsonPropertyName("totalDiskGb")] public double TotalDiskGb { get; init; }
+    [JsonPropertyName("availRamMb")] public ulong AvailRamMb { get; init; }
+    [JsonPropertyName("ramUsagePct")] public int RamUsagePct { get; init; }
+    [JsonPropertyName("disks")] public List<LinuxDiskUsage> Disks { get; init; } = new();
+    [JsonPropertyName("networks")] public List<LinuxNetworkInfo> Networks { get; init; } = new();
+    [JsonPropertyName("gpuName")] public string GpuName { get; init; } = "";
+    [JsonPropertyName("gpuVramMb")] public ulong GpuVramMb { get; init; }
+    [JsonPropertyName("cpuCores")] public int CpuCores { get; init; }
     [JsonPropertyName("uptimeSeconds")] public long UptimeSeconds { get; init; }
-    [JsonPropertyName("networkSentKbps")] public double NetworkSentKbps { get; init; }
-    [JsonPropertyName("networkReceivedKbps")] public double NetworkReceivedKbps { get; init; }
+}
+
+public sealed record LinuxDiskUsage
+{
+    [JsonPropertyName("name")] public string Name { get; init; } = "";
+    [JsonPropertyName("volumeLabel")] public string VolumeLabel { get; init; } = "";
+    [JsonPropertyName("totalGb")] public double TotalGb { get; init; }
+    [JsonPropertyName("freeGb")] public double FreeGb { get; init; }
+    [JsonPropertyName("format")] public string Format { get; init; } = "";
+}
+
+public sealed record LinuxNetworkInfo
+{
+    [JsonPropertyName("name")] public string Name { get; init; } = "";
+    [JsonPropertyName("description")] public string Description { get; init; } = "";
+    [JsonPropertyName("type")] public string Type { get; init; } = "";
+    [JsonPropertyName("bytesReceived")] public long BytesReceived { get; init; }
+    [JsonPropertyName("bytesSent")] public long BytesSent { get; init; }
+    [JsonPropertyName("speedMbps")] public long SpeedMbps { get; init; }
 }
 
 public sealed record LinuxHardwareSpecs
 {
-    [JsonPropertyName("cpuName")] public string CpuName { get; init; } = "";
-    [JsonPropertyName("cpuCores")] public int CpuCores { get; init; }
-    [JsonPropertyName("cpuLogicalProcessors")] public int CpuLogicalProcessors { get; init; }
-    [JsonPropertyName("totalRamMb")] public ulong TotalRamMb { get; init; }
-    [JsonPropertyName("osVersion")] public string OsVersion { get; init; } = "";
+    [JsonPropertyName("processorName")] public string ProcessorName { get; init; } = "";
+    [JsonPropertyName("coreCount")] public int CoreCount { get; init; }
+    [JsonPropertyName("totalMemoryMb")] public ulong TotalMemoryMb { get; init; }
     [JsonPropertyName("gpuName")] public string GpuName { get; init; } = "";
-    [JsonPropertyName("gpuMemoryMb")] public ulong GpuMemoryMb { get; init; }
+    [JsonPropertyName("gpuVramMb")] public ulong GpuVramMb { get; init; }
+    [JsonPropertyName("systemManufacturer")] public string SystemManufacturer { get; init; } = "";
+    [JsonPropertyName("systemModel")] public string SystemModel { get; init; } = "";
+    [JsonPropertyName("biosVersion")] public string BiosVersion { get; init; } = "";
+    [JsonPropertyName("osDescription")] public string OsDescription { get; init; } = "";
+    [JsonPropertyName("uptimeSeconds")] public long UptimeSeconds { get; init; }
+}
+
+public sealed record LinuxBatteryReport
+{
+    [JsonPropertyName("success")] public bool Success { get; init; }
+    [JsonPropertyName("batteryName")] public string BatteryName { get; init; } = "";
+    [JsonPropertyName("manufacturer")] public string Manufacturer { get; init; } = "";
+    [JsonPropertyName("serialNumber")] public string SerialNumber { get; init; } = "";
+    [JsonPropertyName("chemistry")] public string Chemistry { get; init; } = "";
+    [JsonPropertyName("designCapacityMwh")] public double DesignCapacityMwh { get; init; }
+    [JsonPropertyName("fullChargeCapacityMwh")] public double FullChargeCapacityMwh { get; init; }
+    [JsonPropertyName("cycleCount")] public int CycleCount { get; init; }
+    [JsonPropertyName("healthPercent")] public int HealthPercent { get; init; }
+    [JsonPropertyName("currentChargePercent")] public int CurrentChargePercent { get; init; }
+    [JsonPropertyName("chargingStatus")] public string ChargingStatus { get; init; } = "";
+    [JsonPropertyName("reportTimestamp")] public string ReportTimestamp { get; init; } = "";
+    [JsonPropertyName("errorMessage")] public string ErrorMessage { get; init; } = "";
 }
 
 public sealed record LinuxBatteryHealthState
@@ -72,6 +113,7 @@ public sealed record LinuxServiceDetails
 public sealed record LinuxUpdateInfo
 {
     [JsonPropertyName("pendingUpdatesCount")] public int PendingUpdatesCount { get; init; }
+    [JsonPropertyName("packageManager")] public string PackageManager { get; init; } = "";
     [JsonPropertyName("pendingCount")] public int PendingCount => PendingUpdatesCount;
     [JsonPropertyName("isUpdateAvailable")] public bool IsUpdateAvailable { get; init; }
     [JsonPropertyName("isAvailable")] public bool IsAvailable => IsUpdateAvailable;
@@ -88,12 +130,6 @@ public sealed class LinuxAdminManager
     private static DateTime _lastCpuCheck = DateTime.MinValue;
     private static int _cachedCpuUsage = 0;
 
-    private static ulong _lastNetRxBytes;
-    private static ulong _lastNetTxBytes;
-    private static DateTime _lastNetCheck = DateTime.MinValue;
-    private static double _cachedNetRxKbps = 0;
-    private static double _cachedNetTxKbps = 0;
-
     private static LinuxUpdateInfo? _cachedUpdateInfo;
     private static DateTime _lastUpdateCheck = DateTime.MinValue;
     private static readonly object _updateLock = new();
@@ -102,7 +138,6 @@ public sealed class LinuxAdminManager
     {
         _logger = logger;
         InitCpuJiffies();
-        InitNetBytes();
     }
 
     private void InitCpuJiffies()
@@ -134,37 +169,50 @@ public sealed class LinuxAdminManager
         catch { }
     }
 
-    private void InitNetBytes()
-    {
-        try
-        {
-            var (rx, tx) = ReadTotalNetBytes();
-            _lastNetRxBytes = rx;
-            _lastNetTxBytes = tx;
-            _lastNetCheck = DateTime.UtcNow;
-        }
-        catch { }
-    }
-
     public LinuxSystemTelemetry GetSystemTelemetry()
     {
         int cpu = GetCpuUsage();
         var (usedRam, totalRam) = GetRamUsage();
-        var (freeDisk, totalDisk) = GetDiskUsage();
-        long uptime = GetUptimeSeconds();
-        var (rxKbps, txKbps) = GetNetworkThroughput();
+        var (gpuName, gpuVram) = GetGpuInfo();
 
         return new LinuxSystemTelemetry
         {
             CpuUsage = cpu,
-            UsedRamMb = usedRam,
             TotalRamMb = totalRam,
-            FreeDiskGb = freeDisk,
-            TotalDiskGb = totalDisk,
-            UptimeSeconds = uptime,
-            NetworkSentKbps = txKbps,
-            NetworkReceivedKbps = rxKbps
+            AvailRamMb = totalRam > usedRam ? totalRam - usedRam : 0,
+            RamUsagePct = totalRam > 0 ? (int)Math.Round(usedRam * 100.0 / totalRam) : 0,
+            Disks = GetDiskUsage(),
+            Networks = GetNetworkInterfaces(),
+            GpuName = gpuName,
+            GpuVramMb = gpuVram,
+            CpuCores = Environment.ProcessorCount,
+            UptimeSeconds = GetUptimeSeconds()
         };
+    }
+
+    private static List<LinuxNetworkInfo> GetNetworkInterfaces()
+    {
+        var list = new List<LinuxNetworkInfo>();
+        try
+        {
+            foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                         .Where(n => n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up &&
+                                     n.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Loopback))
+            {
+                var stats = ni.GetIPStatistics();
+                list.Add(new LinuxNetworkInfo
+                {
+                    Name = ni.Name,
+                    Description = ni.Description,
+                    Type = ni.NetworkInterfaceType.ToString(),
+                    BytesReceived = stats.BytesReceived,
+                    BytesSent = stats.BytesSent,
+                    SpeedMbps = ni.Speed > 0 ? ni.Speed / 1_000_000 : 0
+                });
+            }
+        }
+        catch { }
+        return list;
     }
 
     public int GetCpuUsage()
@@ -244,11 +292,6 @@ public sealed class LinuxAdminManager
                     totalKb = (ulong)(memInfo.TotalAvailableMemoryBytes / 1024);
                     availKb = (ulong)((memInfo.TotalAvailableMemoryBytes - memInfo.MemoryLoadBytes) / 1024);
                 }
-                else
-                {
-                    totalKb = 8192 * 1024;
-                    availKb = 4096 * 1024;
-                }
             }
         }
         catch { }
@@ -267,20 +310,25 @@ public sealed class LinuxAdminManager
         return 0;
     }
 
-    public static (double freeDiskGb, double totalDiskGb) GetDiskUsage()
+    public static List<LinuxDiskUsage> GetDiskUsage()
     {
+        var list = new List<LinuxDiskUsage>();
         try
         {
-            string rootPath = OperatingSystem.IsLinux() ? "/" : (Path.GetPathRoot(AppContext.BaseDirectory) ?? "C:\\");
-            var drive = new DriveInfo(rootPath);
-            double totalGb = Math.Round(drive.TotalSize / (1024.0 * 1024.0 * 1024.0), 2);
-            double freeGb = Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 2);
-            return (freeGb, totalGb);
+            foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady && d.DriveType is DriveType.Fixed or DriveType.Removable))
+            {
+                list.Add(new LinuxDiskUsage
+                {
+                    Name = drive.Name,
+                    VolumeLabel = drive.VolumeLabel ?? "",
+                    TotalGb = Math.Round(drive.TotalSize / (1024.0 * 1024.0 * 1024.0), 2),
+                    FreeGb = Math.Round(drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 2),
+                    Format = drive.DriveFormat
+                });
+            }
         }
-        catch
-        {
-            return (0, 0);
-        }
+        catch { }
+        return list;
     }
 
     public static long GetUptimeSeconds()
@@ -299,67 +347,6 @@ public sealed class LinuxAdminManager
         catch { }
 
         return (long)(Environment.TickCount64 / 1000);
-    }
-
-    private (double rxKbps, double txKbps) GetNetworkThroughput()
-    {
-        try
-        {
-            var now = DateTime.UtcNow;
-            double elapsedSec = (now - _lastNetCheck).TotalSeconds;
-            if (elapsedSec < 0.5)
-            {
-                return (_cachedNetRxKbps, _cachedNetTxKbps);
-            }
-
-            var (rx, tx) = ReadTotalNetBytes();
-            if (_lastNetRxBytes > 0 && rx >= _lastNetRxBytes && elapsedSec > 0)
-            {
-                _cachedNetRxKbps = Math.Round(((rx - _lastNetRxBytes) * 8.0) / (1000.0 * elapsedSec), 1);
-            }
-            if (_lastNetTxBytes > 0 && tx >= _lastNetTxBytes && elapsedSec > 0)
-            {
-                _cachedNetTxKbps = Math.Round(((tx - _lastNetTxBytes) * 8.0) / (1000.0 * elapsedSec), 1);
-            }
-
-            _lastNetRxBytes = rx;
-            _lastNetTxBytes = tx;
-            _lastNetCheck = now;
-        }
-        catch { }
-
-        return (_cachedNetRxKbps, _cachedNetTxKbps);
-    }
-
-    private static (ulong rxBytes, ulong txBytes) ReadTotalNetBytes()
-    {
-        ulong totalRx = 0;
-        ulong totalTx = 0;
-
-        try
-        {
-            if (File.Exists("/proc/net/dev"))
-            {
-                foreach (var line in File.ReadLines("/proc/net/dev").Skip(2))
-                {
-                    var parts = line.Trim().Split(':', 2);
-                    if (parts.Length != 2) continue;
-
-                    string iface = parts[0].Trim();
-                    if (iface == "lo") continue;
-
-                    var stats = parts[1].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                    if (stats.Length >= 9)
-                    {
-                        if (ulong.TryParse(stats[0], out ulong rx)) totalRx += rx;
-                        if (ulong.TryParse(stats[8], out ulong tx)) totalTx += tx;
-                    }
-                }
-            }
-        }
-        catch { }
-
-        return (totalRx, totalTx);
     }
 
     public LinuxHardwareSpecs GetHardwareSpecs()
@@ -388,24 +375,32 @@ public sealed class LinuxAdminManager
         int cores = Environment.ProcessorCount;
         var (_, totalRam) = GetRamUsage();
         string distro = PlatformDetection.GetDistributionName();
-        string osVersion = $"{distro} ({Environment.OSVersion.VersionString})";
+        string kernel = ReadTrimmedFile("/proc/sys/kernel/osrelease") ?? Environment.OSVersion.VersionString;
+        string osDescription = $"{distro}, kernel {kernel} ({System.Runtime.InteropServices.RuntimeInformation.OSArchitecture})";
 
         var (gpuName, gpuVram) = GetGpuInfo();
 
         return new LinuxHardwareSpecs
         {
-            CpuName = cpuName,
-            CpuCores = cores,
-            CpuLogicalProcessors = cores,
-            TotalRamMb = totalRam,
-            OsVersion = osVersion,
+            ProcessorName = cpuName,
+            CoreCount = cores,
+            TotalMemoryMb = totalRam,
             GpuName = gpuName,
-            GpuMemoryMb = gpuVram
+            GpuVramMb = gpuVram,
+            OsDescription = osDescription,
+            UptimeSeconds = GetUptimeSeconds()
         };
+    }
+
+    private static string? ReadTrimmedFile(string path)
+    {
+        try { return File.Exists(path) ? File.ReadAllText(path).Trim() : null; }
+        catch { return null; }
     }
 
     private static (string name, ulong vramMb) GetGpuInfo()
     {
+        string name = "";
         try
         {
             var psi = new ProcessStartInfo
@@ -429,15 +424,25 @@ public sealed class LinuxAdminManager
                     var idx = vgaLine.IndexOf(':');
                     if (idx > 0 && idx < vgaLine.Length - 1)
                     {
-                        string name = vgaLine.Substring(idx + 1).Trim();
-                        return (name, 4096);
+                        name = vgaLine.Substring(idx + 1).Trim();
                     }
                 }
             }
         }
         catch { }
 
-        return ("Linux DRM Display Controller", 0);
+        // AMD exposes VRAM through sysfs; NVIDIA/Intel do not. Report 0 when unknown instead of guessing.
+        ulong vramMb = 0;
+        foreach (var card in Directory.Exists("/sys/class/drm") ? Directory.GetDirectories("/sys/class/drm", "card[0-9]") : Array.Empty<string>())
+        {
+            if (ulong.TryParse(ReadTrimmedFile(Path.Combine(card, "device", "mem_info_vram_total")), out ulong bytes) && bytes > 0)
+            {
+                vramMb = bytes / (1024 * 1024);
+                break;
+            }
+        }
+
+        return (name, vramMb);
     }
 
     public LinuxBatteryHealthState GetBatteryHealth()
@@ -455,8 +460,9 @@ public sealed class LinuxAdminManager
                     if (Path.GetFileName(dir).StartsWith("BAT", StringComparison.OrdinalIgnoreCase))
                     {
                         // Check energy or charge
+                        // charge_* is in uAh and needs design voltage; energy_* is already in uWh.
                         string vMinFile = Path.Combine(dir, "voltage_min_design");
-                        double vMin = 12.0;
+                        double? vMin = null;
                         if (File.Exists(vMinFile) && double.TryParse(File.ReadAllText(vMinFile).Trim(), out double vm) && vm > 0)
                         {
                             vMin = vm / 1_000_000.0; // uV to V
@@ -464,11 +470,12 @@ public sealed class LinuxAdminManager
 
                         string cFullDesFile = Path.Combine(dir, "charge_full_design");
                         string cFullFile = Path.Combine(dir, "charge_full");
-                        if (File.Exists(cFullDesFile) && double.TryParse(File.ReadAllText(cFullDesFile).Trim(), out double cDes) &&
+                        if (vMin.HasValue &&
+                            File.Exists(cFullDesFile) && double.TryParse(File.ReadAllText(cFullDesFile).Trim(), out double cDes) &&
                             File.Exists(cFullFile) && double.TryParse(File.ReadAllText(cFullFile).Trim(), out double cCur))
                         {
-                            designCap = Math.Round((cDes * vMin) / 1000.0, 1);
-                            fullCap = Math.Round((cCur * vMin) / 1000.0, 1);
+                            designCap = Math.Round((cDes * vMin.Value) / 1000.0, 1);
+                            fullCap = Math.Round((cCur * vMin.Value) / 1000.0, 1);
                         }
 
                         string eFullDesFile = Path.Combine(dir, "energy_full_design");
@@ -505,60 +512,182 @@ public sealed class LinuxAdminManager
         };
     }
 
-    public List<LinuxPowerPlanInfo> GetPowerPlans()
+    private enum PowerBackend { None, PowerProfilesDaemon, AcpiPlatformProfile, CpufreqGovernor }
+
+    private static string DisplayPowerName(string id) => id switch
     {
-        var plans = new List<LinuxPowerPlanInfo>();
+        "performance" => "Performance",
+        "balanced" or "balance_performance" or "balance_power" => "Balanced",
+        "power-saver" or "low-power" or "powersave" => "Power Saver",
+        _ => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(id.Replace('-', ' '))
+    };
+
+    private static string? RunTool(string file, string arguments, int timeoutMs)
+    {
         try
         {
-            string govFile = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors";
-            string curGovFile = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor";
-
-            string curGov = File.Exists(curGovFile) ? File.ReadAllText(curGovFile).Trim() : "";
-
-            if (File.Exists(govFile))
+            using var p = Process.Start(new ProcessStartInfo
             {
-                var govs = File.ReadAllText(govFile).Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                foreach (var g in govs)
-                {
-                    plans.Add(new LinuxPowerPlanInfo
-                    {
-                        Guid = g,
-                        Name = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(g),
-                        IsActive = string.Equals(g, curGov, StringComparison.OrdinalIgnoreCase)
-                    });
-                }
+                FileName = file,
+                Arguments = arguments,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+            if (p == null) return null;
+            string output = p.StandardOutput.ReadToEnd();
+            if (!p.WaitForExit(timeoutMs))
+            {
+                try { p.Kill(); } catch { }
+                return null;
+            }
+            return p.ExitCode == 0 ? output : null;
+        }
+        catch { return null; }
+    }
+
+    private static List<LinuxPowerPlanInfo> QueryPowerPlans(out PowerBackend backend)
+    {
+        backend = PowerBackend.None;
+        var plans = new List<LinuxPowerPlanInfo>();
+
+        string? ppd = RunTool("powerprofilesctl", "list", 1500);
+        if (!string.IsNullOrWhiteSpace(ppd))
+        {
+            backend = PowerBackend.PowerProfilesDaemon;
+            foreach (var raw in ppd.Split('\n'))
+            {
+                var m = Regex.Match(raw, @"^\s*(\*)?\s*([a-z0-9-]+):");
+                if (!m.Success) continue;
+                string id = m.Groups[2].Value;
+                if (plans.Any(p => p.Guid == id)) continue;
+                plans.Add(new LinuxPowerPlanInfo { Guid = id, Name = DisplayPowerName(id), IsActive = m.Groups[1].Value == "*" });
+            }
+            if (plans.Count > 0) return plans;
+            backend = PowerBackend.None;
+        }
+
+        string? choices = ReadTrimmedFile("/sys/firmware/acpi/platform_profile_choices");
+        string? current = ReadTrimmedFile("/sys/firmware/acpi/platform_profile");
+        if (!string.IsNullOrWhiteSpace(choices) && !string.IsNullOrWhiteSpace(current))
+        {
+            backend = PowerBackend.AcpiPlatformProfile;
+            foreach (var id in choices.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                plans.Add(new LinuxPowerPlanInfo { Guid = id, Name = DisplayPowerName(id), IsActive = string.Equals(id, current, StringComparison.OrdinalIgnoreCase) });
+            }
+            return plans;
+        }
+
+        string? governors = ReadTrimmedFile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors");
+        string? activeGovernor = ReadTrimmedFile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor");
+        if (!string.IsNullOrWhiteSpace(governors))
+        {
+            backend = PowerBackend.CpufreqGovernor;
+            foreach (var id in governors.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                plans.Add(new LinuxPowerPlanInfo { Guid = id, Name = DisplayPowerName(id), IsActive = string.Equals(id, activeGovernor, StringComparison.OrdinalIgnoreCase) });
             }
         }
-        catch { }
-
-        if (plans.Count == 0)
-        {
-            plans.Add(new LinuxPowerPlanInfo { Guid = "performance", Name = "Performance", IsActive = true });
-            plans.Add(new LinuxPowerPlanInfo { Guid = "powersave", Name = "Power Saver", IsActive = false });
-        }
-
         return plans;
     }
 
-    public bool SetPowerPlan(string planGuidOrName)
+    public LinuxBatteryReport GenerateBatteryReport()
     {
+        string batteryDir = "";
         try
         {
-            string target = planGuidOrName.Trim().ToLowerInvariant();
-            if (File.Exists("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"))
+            batteryDir = Directory.Exists("/sys/class/power_supply")
+                ? Directory.GetDirectories("/sys/class/power_supply").FirstOrDefault(d => Path.GetFileName(d).StartsWith("BAT", StringComparison.OrdinalIgnoreCase)) ?? ""
+                : "";
+        }
+        catch { }
+
+        if (string.IsNullOrEmpty(batteryDir))
+        {
+            return new LinuxBatteryReport
             {
-                foreach (var file in Directory.GetFiles("/sys/devices/system/cpu/", "scaling_governor", SearchOption.AllDirectories))
-                {
-                    try { File.WriteAllText(file, target); } catch { }
-                }
-                return true;
+                Success = false,
+                ReportTimestamp = DateTimeOffset.UtcNow.ToString("u", CultureInfo.InvariantCulture),
+                ErrorMessage = "No battery detected on this system."
+            };
+        }
+
+        var health = GetBatteryHealth();
+        string status = ReadTrimmedFile(Path.Combine(batteryDir, "status")) ?? "";
+        int chargePercent = int.TryParse(ReadTrimmedFile(Path.Combine(batteryDir, "capacity")), out int c) ? c : 0;
+        int healthPct = health.DesignedCapacityMwh > 0 && health.FullChargeCapacityMwh > 0
+            ? (int)Math.Round(health.FullChargeCapacityMwh * 100.0 / health.DesignedCapacityMwh)
+            : 0;
+
+        return new LinuxBatteryReport
+        {
+            Success = true,
+            BatteryName = ReadTrimmedFile(Path.Combine(batteryDir, "model_name")) ?? Path.GetFileName(batteryDir),
+            Manufacturer = ReadTrimmedFile(Path.Combine(batteryDir, "manufacturer")) ?? "",
+            SerialNumber = ReadTrimmedFile(Path.Combine(batteryDir, "serial_number")) ?? "",
+            Chemistry = ReadTrimmedFile(Path.Combine(batteryDir, "technology")) ?? "",
+            DesignCapacityMwh = health.DesignedCapacityMwh,
+            FullChargeCapacityMwh = health.FullChargeCapacityMwh,
+            CycleCount = health.CycleCount,
+            HealthPercent = healthPct,
+            CurrentChargePercent = chargePercent,
+            ChargingStatus = status,
+            ReportTimestamp = DateTimeOffset.UtcNow.ToString("u", CultureInfo.InvariantCulture)
+        };
+    }
+
+    public List<LinuxPowerPlanInfo> GetPowerPlans() => QueryPowerPlans(out _);
+
+    public bool SetPowerPlan(string planGuidOrName)
+    {
+        string requested = (planGuidOrName ?? "").Trim();
+        if (requested.Length == 0 || requested.Length > 64) return false;
+
+        var plans = QueryPowerPlans(out var backend);
+        var target = plans.FirstOrDefault(p =>
+            string.Equals(p.Guid, requested, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(p.Name, requested, StringComparison.OrdinalIgnoreCase));
+        if (target == null || backend == PowerBackend.None)
+        {
+            _logger.Warning($"LinuxAdminManager: Power profile '{requested}' is not offered by the detected backend.");
+            return false;
+        }
+
+        try
+        {
+            switch (backend)
+            {
+                case PowerBackend.PowerProfilesDaemon:
+                    if (RunTool("powerprofilesctl", $"set {target.Guid}", 2000) == null) return false;
+                    break;
+                case PowerBackend.AcpiPlatformProfile:
+                    File.WriteAllText("/sys/firmware/acpi/platform_profile", target.Guid);
+                    break;
+                case PowerBackend.CpufreqGovernor:
+                    int applied = 0;
+                    foreach (var file in Directory.GetFiles("/sys/devices/system/cpu/", "scaling_governor", SearchOption.AllDirectories))
+                    {
+                        try { File.WriteAllText(file, target.Guid); applied++; } catch { }
+                    }
+                    if (applied == 0) return false;
+                    break;
             }
         }
         catch (Exception ex)
         {
-            _logger.Warning($"LinuxAdminManager: SetPowerPlan error: {ex.Message}");
+            _logger.Warning($"LinuxAdminManager: SetPowerPlan '{target.Guid}' failed: {ex.Message}");
+            return false;
         }
-        return false;
+
+        // Report success only if the system actually moved to the requested profile.
+        bool confirmed = QueryPowerPlans(out _).Any(p => p.IsActive && string.Equals(p.Guid, target.Guid, StringComparison.OrdinalIgnoreCase));
+        if (!confirmed)
+        {
+            _logger.Warning($"LinuxAdminManager: Power profile change to '{target.Guid}' was not confirmed by the backend.");
+        }
+        return confirmed;
     }
 
     public List<LinuxUsbDeviceInfo> GetUsbDevices()
@@ -646,33 +775,213 @@ public sealed class LinuxAdminManager
         return list;
     }
 
+    private static readonly Regex UnitNamePattern = new(@"^[A-Za-z0-9@._:-]{1,120}$", RegexOptions.Compiled);
+
+    // Units whose loss would break the session, the desktop or the remote-control path itself.
+    private static readonly HashSet<string> ProtectedUnits = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "systemd-logind", "systemd-journald", "systemd-oomd", "systemd-udevd",
+        "dbus", "dbus-broker", "polkit", "tether"
+    };
+
     public bool ControlService(string serviceName, string action)
     {
-        string act = action.Trim().ToLowerInvariant();
-        if (act != "start" && act != "stop" && act != "restart") return false;
+        string act = (action ?? "").Trim().ToLowerInvariant();
+        if (act != "start" && act != "stop" && act != "restart")
+        {
+            _logger.Warning($"LinuxAdminManager: Rejected service action '{act}'.");
+            return false;
+        }
 
+        string name = (serviceName ?? "").Trim();
+        if (name.EndsWith(".service", StringComparison.OrdinalIgnoreCase)) name = name[..^8];
+        if (!UnitNamePattern.IsMatch(name) || name.Contains("..", StringComparison.Ordinal))
+        {
+            _logger.Warning($"LinuxAdminManager: Rejected malformed service name '{name}'.");
+            return false;
+        }
+        if (ProtectedUnits.Contains(name))
+        {
+            _logger.Warning($"LinuxAdminManager: Refusing to control protected unit '{name}'.");
+            return false;
+        }
+        if (!Directory.Exists("/run/systemd/system") || !ExecutableExists("systemctl"))
+        {
+            _logger.Warning("LinuxAdminManager: systemd is not available on this host.");
+            return false;
+        }
+
+        var (exit, _) = RunCapture("systemctl", $"{act} {name}.service", 10000);
+        if (exit != 0)
+        {
+            _logger.Warning($"LinuxAdminManager: systemctl {act} {name}.service failed (exit {exit}).");
+        }
+        return exit == 0;
+    }
+
+    private static bool ExecutableExists(string name) =>
+        new[] { "/usr/bin/", "/usr/sbin/", "/bin/", "/sbin/", "/usr/local/bin/" }
+            .Any(dir => File.Exists(Path.Combine(dir, name)));
+
+    private static (int exitCode, string output) RunCapture(string file, string arguments, int timeoutMs)
+    {
         try
         {
-            var psi = new ProcessStartInfo
+            using var p = Process.Start(new ProcessStartInfo
             {
-                FileName = "systemctl",
-                Arguments = $"{act} {serviceName}.service",
+                FileName = file,
+                Arguments = arguments,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            if (p != null)
+            });
+            if (p == null) return (-1, "");
+            string output = p.StandardOutput.ReadToEnd();
+            if (!p.WaitForExit(timeoutMs))
             {
-                p.WaitForExit(3000);
-                return p.ExitCode == 0;
+                try { p.Kill(); } catch { }
+                return (-1, output);
             }
+            return (p.ExitCode, output);
         }
-        catch (Exception ex)
+        catch
         {
-            _logger.Warning($"LinuxAdminManager: systemctl {act} {serviceName} error: {ex.Message}");
+            return (-1, "");
+        }
+    }
+
+    private static List<string> ParseAptSimulation(string output) =>
+        output.Split('\n')
+            .Where(l => l.StartsWith("Inst ", StringComparison.Ordinal))
+            .Select(l => l.Substring(5).Trim())
+            .Where(l => l.Length > 0)
+            .ToList();
+
+    private static List<string> ParseDnfCheckUpdate(string output) =>
+        output.Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Length > 2 && !l.StartsWith("Last metadata", StringComparison.OrdinalIgnoreCase) &&
+                        !l.StartsWith("Security:", StringComparison.OrdinalIgnoreCase) && !l.StartsWith("Obsoleting", StringComparison.OrdinalIgnoreCase))
+            .Where(l => l.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries).Length >= 2)
+            .Select(l =>
+            {
+                var parts = l.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                return $"{parts[0]} ({parts[1]})";
+            })
+            .ToList();
+
+    private static List<string> ParsePacmanUpdates(string output) =>
+        output.Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Contains(" -> "))
+            .ToList();
+
+    private static List<string> ParseZypperUpdates(string output) =>
+        output.Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.StartsWith("v ", StringComparison.Ordinal) || l.StartsWith("| ", StringComparison.Ordinal))
+            .Select(l => l.TrimStart('v', '|', ' '))
+            .Where(l => l.Length > 0 && !l.StartsWith("Name", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    private static LinuxUpdateInfo CheckUpdatesOnce()
+    {
+        // Probe only for a package manager that is actually installed; never fan out to all of them.
+        if (ExecutableExists("apt-get"))
+        {
+            var (exit, output) = RunCapture("apt-get", "-s -q upgrade", 15000);
+            if (exit == 0)
+            {
+                var titles = ParseAptSimulation(output);
+                return new LinuxUpdateInfo
+                {
+                    PackageManager = "apt",
+                    PendingUpdatesCount = titles.Count,
+                    IsUpdateAvailable = titles.Count > 0,
+                    Titles = titles,
+                    StatusMessage = titles.Count > 0 ? $"{titles.Count} updates available" : "System is up to date"
+                };
+            }
+            return new LinuxUpdateInfo { PackageManager = "apt", StatusMessage = "Update check failed: apt-get simulation returned an error (locked database or unreachable repository)." };
         }
 
-        return false;
+        if (ExecutableExists("dnf"))
+        {
+            // dnf exits 100 when updates are pending, 0 when up to date.
+            var (exit, output) = RunCapture("dnf", "-q check-update", 20000);
+            if (exit == 0 || exit == 100)
+            {
+                var titles = exit == 100 ? ParseDnfCheckUpdate(output) : new List<string>();
+                return new LinuxUpdateInfo
+                {
+                    PackageManager = "dnf",
+                    PendingUpdatesCount = titles.Count,
+                    IsUpdateAvailable = titles.Count > 0,
+                    Titles = titles,
+                    StatusMessage = titles.Count > 0 ? $"{titles.Count} updates available" : "System is up to date"
+                };
+            }
+            return new LinuxUpdateInfo { PackageManager = "dnf", StatusMessage = "Update check failed: dnf returned an error." };
+        }
+
+        if (ExecutableExists("zypper"))
+        {
+            var (exit, output) = RunCapture("zypper", "--non-interactive --quiet list-updates", 30000);
+            if (exit == 0)
+            {
+                var titles = ParseZypperUpdates(output);
+                return new LinuxUpdateInfo
+                {
+                    PackageManager = "zypper",
+                    PendingUpdatesCount = titles.Count,
+                    IsUpdateAvailable = titles.Count > 0,
+                    Titles = titles,
+                    StatusMessage = titles.Count > 0 ? $"{titles.Count} updates available" : "System is up to date"
+                };
+            }
+            return new LinuxUpdateInfo { PackageManager = "zypper", StatusMessage = "Update check failed: zypper returned an error." };
+        }
+
+        if (ExecutableExists("checkupdates"))
+        {
+            var (exit, output) = RunCapture("checkupdates", "", 30000);
+            // checkupdates exits 2 when there is nothing to do.
+            if (exit == 0 || exit == 2)
+            {
+                var titles = exit == 0 ? ParsePacmanUpdates(output) : new List<string>();
+                return new LinuxUpdateInfo
+                {
+                    PackageManager = "pacman",
+                    PendingUpdatesCount = titles.Count,
+                    IsUpdateAvailable = titles.Count > 0,
+                    Titles = titles,
+                    StatusMessage = titles.Count > 0 ? $"{titles.Count} updates available" : "System is up to date"
+                };
+            }
+            return new LinuxUpdateInfo { PackageManager = "pacman", StatusMessage = "Update check failed: checkupdates returned an error." };
+        }
+
+        if (ExecutableExists("pacman"))
+        {
+            var (exit, output) = RunCapture("pacman", "-Qu", 15000);
+            // pacman -Qu exits 1 when no upgrades are available.
+            if (exit == 0 || exit == 1)
+            {
+                var titles = exit == 0 ? ParsePacmanUpdates(output) : new List<string>();
+                return new LinuxUpdateInfo
+                {
+                    PackageManager = "pacman",
+                    PendingUpdatesCount = titles.Count,
+                    IsUpdateAvailable = titles.Count > 0,
+                    Titles = titles,
+                    StatusMessage = titles.Count > 0 ? $"{titles.Count} updates available" : "System is up to date"
+                };
+            }
+            return new LinuxUpdateInfo { PackageManager = "pacman", StatusMessage = "Update check failed: pacman returned an error." };
+        }
+
+        return new LinuxUpdateInfo { StatusMessage = "No supported package manager detected (apt, dnf, zypper, pacman)." };
     }
 
     public LinuxUpdateInfo GetSystemUpdates()
@@ -685,49 +994,7 @@ public sealed class LinuxAdminManager
                 return _cachedUpdateInfo;
             }
 
-            var titles = new List<string>();
-            bool isAvailable = false;
-
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "dnf",
-                    Arguments = "check-update --quiet",
-                    RedirectStandardOutput = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                using var p = Process.Start(psi);
-                if (p != null)
-                {
-                    string output = p.StandardOutput.ReadToEnd();
-                    p.WaitForExit(5000);
-
-                    // exit code 100 indicates updates are available
-                    if (p.ExitCode == 100 || !string.IsNullOrWhiteSpace(output))
-                    {
-                        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-                        {
-                            var parts = line.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                            if (parts.Length >= 2 && !parts[0].StartsWith("Security", StringComparison.OrdinalIgnoreCase))
-                            {
-                                titles.Add($"{parts[0]} ({parts[1]})");
-                            }
-                        }
-                        isAvailable = titles.Count > 0;
-                    }
-                }
-            }
-            catch { }
-
-            _cachedUpdateInfo = new LinuxUpdateInfo
-            {
-                PendingUpdatesCount = titles.Count,
-                IsUpdateAvailable = isAvailable,
-                Titles = titles,
-                StatusMessage = isAvailable ? $"{titles.Count} updates available" : "System is up to date"
-            };
+            _cachedUpdateInfo = CheckUpdatesOnce();
             _lastUpdateCheck = now;
 
             return _cachedUpdateInfo;

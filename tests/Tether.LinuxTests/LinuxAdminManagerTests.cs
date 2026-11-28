@@ -94,13 +94,30 @@ public class LinuxAdminManagerTests : IDisposable
         var telem = _adminManager.GetSystemTelemetry();
         Assert.InRange(telem.CpuUsage, 0, 100);
         Assert.True(telem.TotalRamMb > 0);
-        Assert.True(telem.TotalDiskGb > 0);
+        Assert.InRange(telem.RamUsagePct, 0, 100);
         Assert.True(telem.UptimeSeconds >= 0);
+        Assert.NotEmpty(telem.Disks);
+        Assert.All(telem.Disks, d => Assert.True(d.TotalGb > 0));
 
         var specs = _adminManager.GetHardwareSpecs();
-        Assert.NotEmpty(specs.CpuName);
-        Assert.True(specs.CpuCores >= 1);
-        Assert.Contains("Linux", specs.OsVersion);
+        Assert.NotEmpty(specs.ProcessorName);
+        Assert.True(specs.CoreCount >= 1);
+        Assert.Contains("Linux", specs.OsDescription);
+
+        // Contract check: the Android client reads these exact camelCase keys.
+        var json = JsonSerializer.Serialize(telem, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        using var doc = JsonDocument.Parse(json);
+        foreach (var key in new[] { "cpuUsage", "totalRamMb", "availRamMb", "ramUsagePct", "disks", "networks", "cpuCores", "uptimeSeconds" })
+        {
+            Assert.True(doc.RootElement.TryGetProperty(key, out _), $"missing telemetry key {key}");
+        }
+
+        var specsJson = JsonSerializer.Serialize(specs, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        using var specsDoc = JsonDocument.Parse(specsJson);
+        foreach (var key in new[] { "processorName", "coreCount", "totalMemoryMb", "osDescription", "uptimeSeconds" })
+        {
+            Assert.True(specsDoc.RootElement.TryGetProperty(key, out _), $"missing specs key {key}");
+        }
     }
 
     [Fact]
@@ -110,9 +127,17 @@ public class LinuxAdminManagerTests : IDisposable
         Assert.NotNull(bHealth);
         Assert.InRange(bHealth.WearLevelPercent, 0, 100);
 
+        // Plans must come from a real backend (power-profiles-daemon / ACPI / cpufreq).
+        // An empty list on a host without any of them is correct; fabricated entries are not.
         var plans = _adminManager.GetPowerPlans();
-        Assert.NotEmpty(plans);
-        Assert.Contains(plans, p => p.IsActive);
+        Assert.All(plans, p => Assert.False(string.IsNullOrWhiteSpace(p.Guid)));
+        if (plans.Count > 0)
+        {
+            Assert.Contains(plans, p => p.IsActive);
+        }
+
+        Assert.False(_adminManager.SetPowerPlan("definitely-not-a-real-profile"));
+        Assert.False(_adminManager.SetPowerPlan(""));
     }
 
     [Fact]
@@ -128,6 +153,43 @@ public class LinuxAdminManagerTests : IDisposable
         {
             Assert.Contains(services, s => !string.IsNullOrEmpty(s.ServiceName));
         }
+    }
+
+    [Theory]
+    [InlineData("sshd; rm -rf /", "stop")]
+    [InlineData("../../etc/passwd", "start")]
+    [InlineData("", "start")]
+    [InlineData("systemd-logind", "stop")]
+    [InlineData("tether", "stop")]
+    [InlineData("sshd", "disable")]
+    [InlineData("sshd", "stop --now")]
+    public void ControlService_RejectsMalformedProtectedOrUnknownActions(string unit, string action)
+    {
+        Assert.False(_adminManager.ControlService(unit, action));
+    }
+
+    [Fact]
+    public void BatteryReport_IsHonestWhenNoBatteryExists()
+    {
+        var report = _adminManager.GenerateBatteryReport();
+        Assert.NotNull(report);
+        if (!report.Success)
+        {
+            Assert.NotEmpty(report.ErrorMessage);
+        }
+        else
+        {
+            Assert.NotEmpty(report.ReportTimestamp);
+        }
+    }
+
+    [Fact]
+    public void UpdateCheck_ReturnsAStatusWithoutThrowing()
+    {
+        var info = _adminManager.GetSystemUpdates();
+        Assert.NotNull(info);
+        Assert.False(string.IsNullOrWhiteSpace(info.StatusMessage));
+        Assert.Equal(info.Titles.Count, info.PendingUpdatesCount);
     }
 
     [Fact]

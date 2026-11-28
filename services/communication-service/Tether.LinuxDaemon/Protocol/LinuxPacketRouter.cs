@@ -566,6 +566,17 @@ public sealed class LinuxPacketRouter
                     await session.WriteJsonFrameSafeAsync(new { type = "BATTERY_HEALTH_RESPONSE", requestId = reqId, batteryHealth = bHealth }, ct);
                     break;
 
+                case "BATTERY_REPORT_GENERATE":
+                case "GENERATE_BATTERY_REPORT":
+                    if (!HasCapability(session.Device, "ADMIN"))
+                    {
+                        await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
+                        break;
+                    }
+                    var report = _adminManager.GenerateBatteryReport();
+                    await session.WriteJsonFrameSafeAsync(new { type = "BATTERY_REPORT_RESPONSE", requestId = reqId, batteryReport = report }, ct);
+                    break;
+
                 case "POWER_PLANS_GET":
                 case "GET_POWER_PLANS":
                     if (!HasCapability(session.Device, "ADMIN"))
@@ -614,19 +625,29 @@ public sealed class LinuxPacketRouter
                 case "SERVICE_START":
                 case "SERVICE_STOP":
                 case "SERVICE_RESTART":
+                case "SERVICE_CONTROL":
+                case "CONTROL_SERVICE":
                     if (!HasCapability(session.Device, "ADMIN"))
                     {
                         await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
                         break;
                     }
                     string sName = doc.RootElement.TryGetProperty("serviceName", out var snProp) ? (snProp.GetString() ?? "") : "";
-                    string sAction = type == "SERVICE_START" ? "start" : (type == "SERVICE_STOP" ? "stop" : "restart");
+                    string sAction = type switch
+                    {
+                        "SERVICE_START" => "start",
+                        "SERVICE_STOP" => "stop",
+                        "SERVICE_RESTART" => "restart",
+                        _ => doc.RootElement.TryGetProperty("action", out var actProp) ? (actProp.GetString() ?? "") : ""
+                    };
                     bool sOk = _adminManager.ControlService(sName, sAction);
-                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = sOk }, ct);
+                    await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = sOk, reason = sOk ? "OK" : "Service control failed or not permitted" }, ct);
                     break;
 
                 case "UPDATES_GET":
                 case "GET_UPDATES":
+                case "UPDATES_CHECK":
+                case "CHECK_UPDATES":
                     if (!HasCapability(session.Device, "ADMIN"))
                     {
                         await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = false, reason = "Unauthorized: Device lacks ADMIN capability" }, ct);
@@ -743,15 +764,6 @@ public sealed class LinuxPacketRouter
                     bool appMt = doc.RootElement.TryGetProperty("isMuted", out var aimProp) ? aimProp.GetBoolean() : (doc.RootElement.TryGetProperty("mute", out var amProp) && amProp.GetBoolean());
                     bool amOk = LinuxHardwareExecutor.SetAppMute(appMtId, appMt, _logger);
                     await session.WriteJsonFrameSafeAsync(new { type = "CONFIRM_ACTION", requestId = reqId, success = amOk }, ct);
-                    break;
-
-                case "CHECK_UPDATES":
-                    await session.WriteJsonFrameSafeAsync(new
-                    {
-                        type = "UPDATES_RESPONSE",
-                        requestId = reqId,
-                        updateInfo = new { hasUpdates = false }
-                    }, ct);
                     break;
 
                 default:

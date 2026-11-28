@@ -191,8 +191,11 @@ Commands:
         var adminMgr = new LinuxAdminManager(logger);
         var telem = adminMgr.GetSystemTelemetry();
         Console.WriteLine($"CPU Usage:         {telem.CpuUsage}%");
-        Console.WriteLine($"Memory Usage:      {telem.UsedRamMb} MB / {telem.TotalRamMb} MB");
-        Console.WriteLine($"Disk Free:         {telem.FreeDiskGb} GB / {telem.TotalDiskGb} GB");
+        Console.WriteLine($"Memory Usage:      {telem.TotalRamMb - telem.AvailRamMb} MB / {telem.TotalRamMb} MB ({telem.RamUsagePct}%)");
+        foreach (var disk in telem.Disks)
+        {
+            Console.WriteLine($"Disk {disk.Name,-12} {disk.FreeGb} GB free / {disk.TotalGb} GB");
+        }
         Console.WriteLine($"System Uptime:     {TimeSpan.FromSeconds(telem.UptimeSeconds):d\\d\\ hh\\:mm\\:ss}");
 
         // Paired devices count
