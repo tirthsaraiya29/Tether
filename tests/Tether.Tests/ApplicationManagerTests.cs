@@ -6,6 +6,28 @@ namespace Tether.Tests;
 
 public class ApplicationManagerTests
 {
+    [Fact]
+    public void GetRunningWindows_ReturnsOnlyRealTitledWindows()
+    {
+        var windows = ApplicationManager.GetRunningWindows();
+
+        Assert.NotNull(windows);
+        Assert.DoesNotContain(windows, w => w.Title == "Program Manager");
+        Assert.All(windows, w =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(w.Title));
+            Assert.True(w.Hwnd != 0);
+        });
+    }
+
+    [Fact]
+    public void GetRunningWindows_IsDistinctFromInstalledApplications()
+    {
+        // Window enumeration must not degrade into a process dump: every entry needs a window handle.
+        var windows = ApplicationManager.GetRunningWindows();
+        Assert.All(windows, w => Assert.True(w.Hwnd > 0));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

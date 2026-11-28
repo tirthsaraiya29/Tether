@@ -107,10 +107,7 @@ public sealed class LinuxFileTransferServer : IHostedService
                 token = context.Request.Headers["X-Tether-Token"].FirstOrDefault();
             }
 
-            if (string.IsNullOrEmpty(token) && context.Request.Query.ContainsKey("token"))
-            {
-                token = context.Request.Query["token"].FirstOrDefault();
-            }
+            // Transfer tokens are only accepted from headers; query-string tokens leak through logs and proxies.
 
             if (string.IsNullOrEmpty(token) || !_tokenStore.TryGetToken(token, out var tokenInfo) || tokenInfo == null)
             {
