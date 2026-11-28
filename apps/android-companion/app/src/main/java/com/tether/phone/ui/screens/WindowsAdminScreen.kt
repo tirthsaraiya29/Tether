@@ -40,20 +40,26 @@ fun WindowsAdminScreen(
     val context = LocalContext.current
     val service = TetherLanService.instance
     val isLinux = service?.connectedPeerOs.equals("linux", ignoreCase = true)
+    val initialPeerFingerprint = service?.let {
+        it.resolveExpectedFingerprint(it.connectedHostAddress.orEmpty())
+    }.orEmpty()
+    var activePeerFingerprint by remember { mutableStateOf(initialPeerFingerprint) }
+    val peerStateKey = activePeerFingerprint
 
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Telemetry", "Hardware & Battery", "Power Plans", "Services & Updates")
 
-    // State initialised from persistent LaptopStateCache so UI is populated immediately
-    var telemetry by remember { mutableStateOf(LaptopStateCache.getAdminTelemetry(context) ?: AdminTelemetry()) }
-    var batteryHealth by remember { mutableStateOf(LaptopStateCache.getBatteryHealth(context) ?: BatteryHealthState()) }
-    var batteryReport by remember { mutableStateOf(LaptopStateCache.getBatteryReport(context) ?: BatteryReportDetails()) }
-    var hardwareSpecs by remember { mutableStateOf(LaptopStateCache.getHardwareSpecs(context) ?: HardwareSpecs()) }
-    var powerPlans by remember { mutableStateOf(LaptopStateCache.getPowerPlans(context)) }
-    var printers by remember { mutableStateOf<List<PrinterItem>>(emptyList()) }
-    var usbDevices by remember { mutableStateOf<List<UsbItem>>(emptyList()) }
-    var servicesList by remember { mutableStateOf(LaptopStateCache.getServices(context)) }
-    var updateState by remember { mutableStateOf(LaptopStateCache.getUpdates(context) ?: WindowsUpdateState()) }
+    // Compose state is keyed to the authenticated peer. Do not hydrate a disconnected or
+    // unidentified session from the single-slot cache, and never retain values across peers.
+    var telemetry by remember(peerStateKey) { mutableStateOf(if (peerStateKey.isNotBlank()) LaptopStateCache.getAdminTelemetry(context) ?: AdminTelemetry() else AdminTelemetry()) }
+    var batteryHealth by remember(peerStateKey) { mutableStateOf(if (peerStateKey.isNotBlank()) LaptopStateCache.getBatteryHealth(context) ?: BatteryHealthState() else BatteryHealthState()) }
+    var batteryReport by remember(peerStateKey) { mutableStateOf(if (peerStateKey.isNotBlank()) LaptopStateCache.getBatteryReport(context) ?: BatteryReportDetails() else BatteryReportDetails()) }
+    var hardwareSpecs by remember(peerStateKey) { mutableStateOf(if (peerStateKey.isNotBlank()) LaptopStateCache.getHardwareSpecs(context) ?: HardwareSpecs() else HardwareSpecs()) }
+    var powerPlans by remember(peerStateKey) { mutableStateOf(if (peerStateKey.isNotBlank()) LaptopStateCache.getPowerPlans(context) else emptyList()) }
+    var printers by remember(peerStateKey) { mutableStateOf<List<PrinterItem>>(emptyList()) }
+    var usbDevices by remember(peerStateKey) { mutableStateOf<List<UsbItem>>(emptyList()) }
+    var servicesList by remember(peerStateKey) { mutableStateOf(if (peerStateKey.isNotBlank()) LaptopStateCache.getServices(context) else emptyList()) }
+    var updateState by remember(peerStateKey) { mutableStateOf(if (peerStateKey.isNotBlank()) LaptopStateCache.getUpdates(context) ?: WindowsUpdateState() else WindowsUpdateState()) }
     var serviceFilter by remember { mutableStateOf("") }
     var isCheckingUpdates by remember { mutableStateOf(false) }
     var isGeneratingBatteryReport by remember { mutableStateOf(false) }
@@ -64,6 +70,9 @@ fun WindowsAdminScreen(
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 when (intent?.action) {
+                    TetherLanService.ACTION_LAN_STATE_CHANGED -> {
+                        activePeerFingerprint = intent.getStringExtra(TetherLanService.EXTRA_WINDOWS_FINGERPRINT).orEmpty()
+                    }
                     TetherLanService.ACTION_ADMIN_TELEMETRY -> {
                         val cpu = intent.getIntExtra("cpuUsage", 0)
                         val totalRam = intent.getLongExtra("totalRamMb", 0L)
@@ -126,10 +135,12 @@ fun WindowsAdminScreen(
                             ramUsagePct = ramPct,
                             disks = disksList,
                             networks = netList,
-                            gpuName = if (gpu.isNotBlank()) gpu else telemetry.gpuName,
-                            gpuVramMb = if (vram > 0) vram else telemetry.gpuVramMb,
-                            cpuCores = if (cores > 0) cores else telemetry.cpuCores,
-                            uptimeSeconds = if (uptime > 0) uptime else telemetry.uptimeSeconds
+                            // Empty/zero fields are meaningful unavailable values from this peer.
+                            // Never preserve a previous peer's hardware values.
+                            gpuName = gpu,
+                            gpuVramMb = vram,
+                            cpuCores = cores,
+                            uptimeSeconds = uptime
                         )
                     }
                     TetherLanService.ACTION_BATTERY_HEALTH -> {
@@ -268,6 +279,7 @@ fun WindowsAdminScreen(
         }
 
         val filter = IntentFilter().apply {
+            addAction(TetherLanService.ACTION_LAN_STATE_CHANGED)
             addAction(TetherLanService.ACTION_ADMIN_TELEMETRY)
             addAction(TetherLanService.ACTION_BATTERY_HEALTH)
             addAction(TetherLanService.ACTION_BATTERY_REPORT)
